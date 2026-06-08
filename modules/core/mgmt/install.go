@@ -111,11 +111,11 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		current := hbase.Version
 		cmp, ok := cmpVersion(version, current)
 		if !ok || cmp > 0 {
-			fmt.Printf("Version %s is available (upgrade from %s)\n", version, current)
+			fmt.Printf("Upgrade available: %s (current: %s)\n", version, current)
 		} else if cmp < 0 {
-			fmt.Printf("Version %s is available (current %s is ahead)\n", version, current)
+			fmt.Printf("Current version %s is ahead of latest %s\n", current, version)
 		} else {
-			fmt.Printf("Version %s is available (already up to date, current: %s)\n", version, current)
+			fmt.Printf("harness is up to date (current: %s)\n", current)
 		}
 		return nil
 	}
@@ -124,9 +124,9 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		current := hbase.Version
 		if cmp, ok := cmpVersion(version, current); ok && cmp <= 0 {
 			if cmp < 0 {
-				fmt.Printf("Current version %s is ahead of latest release %s. Use --force to reinstall.\n", current, version)
+				fmt.Printf("Current version %s is ahead of latest %s. Use --force to reinstall.\n", current, version)
 			} else {
-				fmt.Printf("Already up to date (current: %s, latest: %s). Use --force to reinstall.\n", current, version)
+				fmt.Printf("Up to date (current: %s, latest: %s). Use --force to reinstall.\n", current, version)
 			}
 			return nil
 		}
@@ -189,23 +189,23 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 			return err
 		}
 		if !exists {
-			fmt.Printf("Version %s of module %s not found\n", version, moduleName)
+			fmt.Printf("Module %q version %s not found\n", moduleName, version)
 			os.Exit(1)
 		}
 		if binPath, err := plugin.FindBinary(binaryName); err == nil {
 			installed := plugin.QueryVersion(binPath)
 			if cmp, ok := cmpVersion(version, installed); ok {
 				if cmp > 0 {
-					fmt.Printf("Version %s of module %s is available (upgrade from %s)\n", version, moduleName, installed)
+					fmt.Printf("Upgrade available for module %q: %s (current: %s)\n", moduleName, version, installed)
 				} else if cmp < 0 {
-					fmt.Printf("Version %s of module %s is available (current %s is ahead)\n", version, moduleName, installed)
+					fmt.Printf("Current version %s of module %q is ahead of latest %s\n", installed, moduleName, version)
 				} else {
-					fmt.Printf("Version %s of module %s is available (already up to date, current: %s)\n", version, moduleName, installed)
+					fmt.Printf("Module %q is up to date (current: %s)\n", moduleName, installed)
 				}
 				return nil
 			}
 		}
-		fmt.Printf("Version %s of module %s is available\n", version, moduleName)
+		fmt.Printf("Module %q %s is available to install\n", moduleName, version)
 		return nil
 	}
 
@@ -213,11 +213,11 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 		if binPath, err := plugin.FindBinary(binaryName); err == nil {
 			installed := plugin.QueryVersion(binPath)
 			if cmp, ok := cmpVersion(version, installed); ok && cmp <= 0 {
-				fmt.Printf("Module %s is already installed at %s (installed: %s, latest: %s).\n", moduleName, binPath, installed, version)
+				fmt.Printf("Module %q is installed at %s (installed: %s, latest: %s).\n", moduleName, binPath, installed, version)
 				if cmp < 0 {
-					fmt.Printf("Installed version is ahead of latest release. Use --force to reinstall.\n")
+					fmt.Printf("Installed version is ahead of latest. Use --force to reinstall.\n")
 				} else {
-					fmt.Printf("Already at latest version. Use --force to reinstall.\n")
+					fmt.Printf("Up to date. Use --force to reinstall.\n")
 				}
 				return nil
 			}
@@ -233,7 +233,7 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	fmt.Printf("Installed %s %s to %s/%s\n", moduleName, version, installDir, binaryName)
+	fmt.Printf("Installed module %q %s to %s/%s\n", moduleName, version, installDir, binaryName)
 	return nil
 }
 
