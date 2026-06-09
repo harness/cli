@@ -43,6 +43,10 @@ func MaybeCheckSpecs(reg *registry.Registry) {
 // SetupAndExecutePluginRootCmd is like SetupAndExecuteRootCmd but adds hidden
 // --spec and --modulehelp flags for use by the plugin host.
 func SetupAndExecutePluginRootCmd(root *cobra.Command, reg *registry.Registry, moduleName string) {
+	if os.Getenv(hbase.EnvDebugCompletion) == "1" && isCompletionInvocation() {
+		hlog.SetDebugFile(hbase.CompletionDebugLogFile)
+	}
+	hlog.SetPlugin(moduleName)
 	root.Flags().Bool("spec", false, "Dump the module spec YAML to stdout")
 	root.Flags().Lookup("spec").Hidden = true
 	root.Flags().Bool("modulehelp", false, "Dump the rendered module help text to stdout")
@@ -114,11 +118,16 @@ func dumpModuleHelp(moduleName string, reg *registry.Registry) error {
 
 // SetupAndExecuteRootCmd wires common flags, attaches commands, and executes root.
 func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
+	if os.Getenv(hbase.EnvDebugCompletion) == "1" && isCompletionInvocation() {
+		hlog.SetDebugFile(hbase.CompletionDebugLogFile)
+	}
 	root.SilenceUsage = true
 	root.SilenceErrors = true
 
 	root.PersistentFlags().BoolFunc("debug", "Enable debug logging", func(string) error {
-		hlog.SetDebug()
+		if !isCompletionInvocation() {
+			hlog.SetDebug()
+		}
 		return nil
 	})
 	root.PersistentFlags().Float64("timeout", 0, "Command timeout in seconds (0 = no timeout, e.g. 1.5)")
@@ -135,4 +144,13 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 		}
 		os.Exit(1)
 	}
+}
+
+func isCompletionInvocation() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "__complete" || arg == "__completeNoDesc" {
+			return true
+		}
+	}
+	return false
 }

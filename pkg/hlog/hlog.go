@@ -30,10 +30,34 @@ func newHandler(w *os.File, level slog.Level) slog.Handler {
 }
 
 var logger = slog.New(slog.DiscardHandler)
+var pluginName string
+
+func applyPlugin(l *slog.Logger) *slog.Logger {
+	if pluginName != "" {
+		return l.With("plugin", pluginName)
+	}
+	return l
+}
 
 // SetDebug switches the logger to DEBUG level.
 func SetDebug() {
-	logger = slog.New(newHandler(os.Stderr, slog.LevelDebug))
+	logger = applyPlugin(slog.New(newHandler(os.Stderr, slog.LevelDebug)))
+}
+
+// SetDebugFile opens path for append and switches the logger to DEBUG level writing to that file.
+// If the file cannot be opened, the logger is left as-is (discard).
+func SetDebugFile(path string) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return
+	}
+	logger = applyPlugin(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug})))
+}
+
+// SetPlugin records the plugin name and adds it as an attribute to every subsequent log line.
+func SetPlugin(name string) {
+	pluginName = name
+	logger = logger.With("plugin", name)
 }
 
 func Debug(msg string, args ...any) { logger.Debug(msg, args...) }

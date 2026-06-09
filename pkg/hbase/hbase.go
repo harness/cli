@@ -28,6 +28,10 @@ const (
 	// EnvCheckSpecs triggers spec validation mode when set to "1".
 	EnvCheckSpecs = "HARNESS_CHECKSPECS"
 
+	// EnvDebugCompletion enables debug logging for completion invocations, writing to CompletionDebugLogFile.
+	EnvDebugCompletion     = "HARNESS_DEBUG_COMPLETION"
+	CompletionDebugLogFile = "/tmp/harness-completion-debug.log"
+
 	// Env var names for env-var auth mode.
 	EnvAPIKey      = "HARNESS_API_KEY"
 	EnvAccount     = "HARNESS_ACCOUNT"

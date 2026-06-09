@@ -12,6 +12,7 @@ import (
 
 	"github.com/harness/harness-cli/pkg/auth"
 	"github.com/harness/harness-cli/pkg/exprenv"
+	"github.com/harness/harness-cli/pkg/hlog"
 	"github.com/harness/harness-cli/pkg/plugin"
 	"github.com/harness/harness-cli/pkg/spec"
 )
@@ -62,6 +63,7 @@ func (r *Registry) wireCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 		if listSpec == nil || listSpec.Endpoint == nil || listSpec.Endpoint.Completion == nil {
 			// No dynamic completions — just offer the scope sentinels.
 			cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				hlog.Debug("completion: multi-level sentinels only", "verb", cs.Verb, "noun", targetNoun, "toComplete", toComplete)
 				if cs.External {
 					return execPluginCompletion(r, cs.Module)
 				}
@@ -75,6 +77,7 @@ func (r *Registry) wireCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 		ep := listSpec.Endpoint
 		cspec := ep.Completion
 		cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			hlog.Debug("completion: multi-level with endpoint", "verb", cs.Verb, "noun", targetNoun, "toComplete", toComplete)
 			if cs.External {
 				return execPluginCompletion(r, cs.Module)
 			}
@@ -83,16 +86,20 @@ func (r *Registry) wireCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 			}
 			ctx, err := r.buildCompletionCtx(cmd, VerbList, targetNoun, toComplete)
 			if err != nil {
+				hlog.Debug("completion error: buildCtx", "noun", targetNoun, "err", err)
 				return nil, cobra.ShellCompDirectiveError
 			}
 			items, err := fetchCompletionItems(ctx, ep)
 			if err != nil {
+				hlog.Debug("completion error: fetch", "noun", targetNoun, "err", err)
 				return nil, cobra.ShellCompDirectiveError
 			}
 			completions, err := extractCompletions(items, cspec, exprenv.Make(ctx))
 			if err != nil {
+				hlog.Debug("completion error: extract", "noun", targetNoun, "err", err)
 				return nil, cobra.ShellCompDirectiveError
 			}
+			hlog.Debug("completion: multi-level result", "noun", targetNoun, "items", len(items), "completions", len(completions))
 			return append([]string{"account", "org"}, completions...), cobra.ShellCompDirectiveNoFileComp
 		}
 		return
@@ -106,6 +113,7 @@ func (r *Registry) wireCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 	cspec := ep.Completion
 
 	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		hlog.Debug("completion: single-noun", "verb", cs.Verb, "noun", targetNoun, "multiLevel", isMultiLevel, "toComplete", toComplete)
 		if cs.External {
 			return execPluginCompletion(r, cs.Module)
 		}
@@ -130,16 +138,20 @@ func (r *Registry) wireCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 
 		ctx, err := r.buildCompletionCtx(cmd, VerbList, targetNoun, scopeArg)
 		if err != nil {
+			hlog.Debug("completion error: buildCtx", "noun", targetNoun, "err", err)
 			return nil, cobra.ShellCompDirectiveError
 		}
 		items, err := fetchCompletionItems(ctx, ep)
 		if err != nil {
+			hlog.Debug("completion error: fetch", "noun", targetNoun, "err", err)
 			return nil, cobra.ShellCompDirectiveError
 		}
 		completions, err := extractCompletions(items, cspec, exprenv.Make(ctx))
 		if err != nil {
+			hlog.Debug("completion error: extract", "noun", targetNoun, "err", err)
 			return nil, cobra.ShellCompDirectiveError
 		}
+		hlog.Debug("completion: single-noun result", "noun", targetNoun, "scopePrefix", scopePrefix, "items", len(items), "completions", len(completions))
 		if scopePrefix != "" {
 			for i, c := range completions {
 				completions[i] = scopePrefix + c
@@ -158,6 +170,7 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 	steps := cs.CompletionSeq
 
 	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		hlog.Debug("completion: seq", "verb", cs.Verb, "noun", cs.Noun, "toComplete", toComplete, "steps", len(steps))
 		if cs.External {
 			return execPluginCompletion(r, cs.Module)
 		}
@@ -168,6 +181,7 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 		parts := strings.Split(toComplete, "/")
 		stepIdx := len(parts) - 1
 		if stepIdx >= len(steps) {
+			hlog.Debug("completion: seq beyond last step", "stepIdx", stepIdx, "numSteps", len(steps))
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		step := steps[stepIdx]
@@ -175,9 +189,11 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 		if prefix != "" {
 			prefix += "/"
 		}
+		hlog.Debug("completion: seq step", "stepIdx", stepIdx, "stepNoun", step.CompletionNoun, "prefix", prefix)
 
 		listSpec := r.GetSpec(VerbList, step.CompletionNoun)
 		if listSpec == nil || listSpec.Endpoint == nil || listSpec.Endpoint.Completion == nil {
+			hlog.Debug("completion: seq no list spec", "stepNoun", step.CompletionNoun)
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		ep := listSpec.Endpoint
@@ -185,16 +201,20 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 
 		ctx, err := r.buildCompletionCtx(cmd, VerbList, step.CompletionNoun, strings.Join(parts[:stepIdx], "/"))
 		if err != nil {
+			hlog.Debug("completion error: seq buildCtx", "stepNoun", step.CompletionNoun, "err", err)
 			return nil, cobra.ShellCompDirectiveError
 		}
 		items, err := fetchCompletionItems(ctx, ep)
 		if err != nil {
+			hlog.Debug("completion error: seq fetch", "stepNoun", step.CompletionNoun, "err", err)
 			return nil, cobra.ShellCompDirectiveError
 		}
 		completions, err := extractCompletions(items, cspec, exprenv.Make(ctx))
 		if err != nil {
+			hlog.Debug("completion error: seq extract", "stepNoun", step.CompletionNoun, "err", err)
 			return nil, cobra.ShellCompDirectiveError
 		}
+		hlog.Debug("completion: seq result", "stepNoun", step.CompletionNoun, "items", len(items), "completions", len(completions))
 
 		isLastStep := stepIdx == len(steps)-1
 		directive := cobra.ShellCompDirectiveNoFileComp
