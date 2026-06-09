@@ -28,8 +28,9 @@ Common verbs:
 Scope flags (all commands):
   --org, --project                 override resolved scope
   --profile                        use a named auth profile
+  --debug                          enable debug logging
   --level project|org|account      set scope for multi-level nouns (e.g. secrets, users)
-  --timeout <seconds>              abort after N seconds (0 = no timeout, e.g. 1.5); exits 124
+  --timeout <seconds>              abort after this many seconds; accepts decimals (e.g. 1.5); 0 = no timeout; exits 124
 
 Output flags (list):
   --format table|json|jsonl|csv|tsv|markdown    output format (default: table)

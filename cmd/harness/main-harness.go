@@ -47,6 +47,14 @@ func main() {
 			return nil
 		},
 	}
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if !cmd.HasParent() {
+			fmt.Print(strings.ReplaceAll(noargsText, "{{modules}}", renderModules(reg.GetModuleMetas())))
+			return
+		}
+		defaultHelp(cmd, args)
+	})
 	rootcmd.SetupAndExecuteRootCmd(root, reg)
 }
 
