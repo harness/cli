@@ -356,11 +356,13 @@ nouns:
       - id: identifier
         expr: it.secret.identifier
       - id: name
-        expr: it.secret.name
+        path: it.secret.name
       - id: type
         expr: it.secret.type
       - id: secret_manager
-        expr: it.secret.spec.secretManagerIdentifier
+        path: it.secret.spec.secretManagerIdentifier
+      - id: value
+        path: it.secret.spec.value
       - id: updated
         expr: epochMs(it.updatedAt)
       - id: created
@@ -982,6 +984,70 @@ commands:
     endpoint:
       path: /ng/api/v2/secrets/{{ctx.id}}
       item_expr: it.data
+
+  - command: create secret
+    verb: create
+    noun: secret
+    requires_id: true
+    short: Create a new secret (SecretText type)
+    flags_builtin:
+      set: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /ng/api/v2/secrets
+      item_expr: it.data
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+        type: '"SecretText"'
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+        spec.type: '"SecretText"'
+        spec.secretManagerIdentifier: '"harnessSecretManager"'
+        spec.valueType: '"Inline"'
+      create_body_wrap: secret
+      query_params:
+        accountIdentifier: auth.account
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: update secret
+    verb: update
+    noun: secret
+    short: Update a secret's metadata or value
+    flags_builtin:
+      set: true
+      del: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      file_body: optional
+      path: /ng/api/v2/secrets/{{ctx.id}}
+      item_expr: it.data
+      update_strategy: get-then-put
+      update_body_pick: it.secret
+      update_body_wrap: secret
+      query_params:
+        accountIdentifier: auth.account
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: delete secret
+    verb: delete
+    noun: secret
+    confirm_mode: confirm_id
+    short: Delete a secret by identifier
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/v2/secrets/{{ctx.id}}
+      text_header: "\nDeleted secret {{ctx.id}}\n"
+      query_params:
+        accountIdentifier: auth.account
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
 
   - command: list delegate
     verb: list
