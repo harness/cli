@@ -191,30 +191,36 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 		}
 		hlog.Debug("completion: seq step", "stepIdx", stepIdx, "stepNoun", step.CompletionNoun, "prefix", prefix)
 
-		listSpec := r.GetSpec(VerbList, step.CompletionNoun)
-		if listSpec == nil || listSpec.Endpoint == nil || listSpec.Endpoint.Completion == nil {
-			hlog.Debug("completion: seq no list spec", "stepNoun", step.CompletionNoun)
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		ep := listSpec.Endpoint
-		cspec := ep.Completion
+		var completions []string
+		if len(step.StaticValues) > 0 {
+			completions = step.StaticValues
+		} else {
+			listSpec := r.GetSpec(VerbList, step.CompletionNoun)
+			if listSpec == nil || listSpec.Endpoint == nil || listSpec.Endpoint.Completion == nil {
+				hlog.Debug("completion: seq no list spec", "stepNoun", step.CompletionNoun)
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			ep := listSpec.Endpoint
+			cspec := ep.Completion
 
-		ctx, err := r.buildCompletionCtx(cmd, VerbList, step.CompletionNoun, strings.Join(parts[:stepIdx], "/"))
-		if err != nil {
-			hlog.Debug("completion error: seq buildCtx", "stepNoun", step.CompletionNoun, "err", err)
-			return nil, cobra.ShellCompDirectiveError
+			ctx, err := r.buildCompletionCtx(cmd, VerbList, step.CompletionNoun, strings.Join(parts[:stepIdx], "/"))
+			if err != nil {
+				hlog.Debug("completion error: seq buildCtx", "stepNoun", step.CompletionNoun, "err", err)
+				return nil, cobra.ShellCompDirectiveError
+			}
+			items, err := fetchCompletionItems(ctx, ep)
+			if err != nil {
+				hlog.Debug("completion error: seq fetch", "stepNoun", step.CompletionNoun, "err", err)
+				return nil, cobra.ShellCompDirectiveError
+			}
+			var err2 error
+			completions, err2 = extractCompletions(items, cspec, exprenv.Make(ctx))
+			if err2 != nil {
+				hlog.Debug("completion error: seq extract", "stepNoun", step.CompletionNoun, "err", err2)
+				return nil, cobra.ShellCompDirectiveError
+			}
 		}
-		items, err := fetchCompletionItems(ctx, ep)
-		if err != nil {
-			hlog.Debug("completion error: seq fetch", "stepNoun", step.CompletionNoun, "err", err)
-			return nil, cobra.ShellCompDirectiveError
-		}
-		completions, err := extractCompletions(items, cspec, exprenv.Make(ctx))
-		if err != nil {
-			hlog.Debug("completion error: seq extract", "stepNoun", step.CompletionNoun, "err", err)
-			return nil, cobra.ShellCompDirectiveError
-		}
-		hlog.Debug("completion: seq result", "stepNoun", step.CompletionNoun, "items", len(items), "completions", len(completions))
+		hlog.Debug("completion: seq result", "stepNoun", step.CompletionNoun, "items", len(completions), "completions", len(completions))
 
 		isLastStep := stepIdx == len(steps)-1
 		directive := cobra.ShellCompDirectiveNoFileComp

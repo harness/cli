@@ -219,8 +219,9 @@ type CompletionSpec struct {
 // (e.g. artifact), and so on. The already-typed segments are joined and passed as
 // ParentId when calling the list endpoint, so parentIdParts resolves correctly in path templates.
 type CompletionSeqStep struct {
-	CompletionNoun string `yaml:"completion_noun"`
-	KeepOrder      bool   `yaml:"keep_order,omitempty"`
+	CompletionNoun string   `yaml:"completion_noun"`
+	StaticValues   []string `yaml:"static_values,omitempty"` // fixed completion list for this step (mutually exclusive with completion_noun)
+	KeepOrder      bool     `yaml:"keep_order,omitempty"`
 }
 
 // PagingSpec declares the paging model for a list endpoint.
