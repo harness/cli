@@ -18,9 +18,9 @@ nouns:
         expr: it.environment.description
         width_max: 60
       - id: updated
-        expr: epochMs(it.environment.lastModifiedAt)
+        expr: epochMs(it.lastModifiedAt ?? it.environment.lastModifiedAt)
       - id: created
-        expr: epochMs(it.environment.createdAt)
+        expr: epochMs(it.createdAt ?? it.environment.createdAt)
 
   - noun: infrastructure
     short_desc: A Harness CD infrastructure definition scoped to an environment.
@@ -38,9 +38,9 @@ nouns:
         label: Deploy Type
         expr: it.infrastructure.deploymentType
       - id: updated
-        expr: epochMs(it.infrastructure.lastModifiedAt)
+        expr: epochMs(it.lastModifiedAt ?? it.infrastructure.lastModifiedAt)
       - id: created
-        expr: epochMs(it.infrastructure.createdAt)
+        expr: epochMs(it.createdAt ?? it.infrastructure.createdAt)
 
 commands:
   # ── environment ──────────────────────────────────────────────────────────────

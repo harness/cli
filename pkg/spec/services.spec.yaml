@@ -16,9 +16,9 @@ nouns:
         expr: it.service.description
         width_max: 60
       - id: updated
-        expr: epochMs(it.service.lastModifiedAt)
+        expr: epochMs(it.lastModifiedAt ?? it.service.lastModifiedAt)
       - id: created
-        expr: epochMs(it.service.createdAt)
+        expr: epochMs(it.createdAt ?? it.service.createdAt)
 
 commands:
   - command: list service
