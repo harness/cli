@@ -14,6 +14,7 @@ import (
 
 	"github.com/harness/harness-cli/pkg/auth"
 	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/harness-cli/pkg/endpoint"
 	"github.com/harness/harness-cli/pkg/console"
 	"github.com/harness/harness-cli/pkg/exprenv"
 	"github.com/harness/harness-cli/pkg/format"
@@ -628,7 +629,7 @@ func (r *Registry) FormatList(ctx *cmdctx.Ctx, rows []any, fields []spec.FieldDe
 
 // FetchItems implements cmdctx.Resolver.
 func (r *Registry) FetchItems(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, pf cmdctx.PagingFlags) ([]any, error) {
-	items, _, err := FetchItems(ctx, ep, pf)
+	items, _, err := endpoint.FetchItems(ctx, ep, pf)
 	return items, err
 }
 
