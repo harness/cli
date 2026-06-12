@@ -95,6 +95,7 @@ commands:
         page: flags.page
         per_page: flags.limit
       items_expr: it
+      get_id_expr: it.identifier
       paging:
         paging_strategy: flat_list
       columns: [identifier, name, type, updated]
@@ -178,6 +179,7 @@ commands:
         page: flags.page
         per_page: flags.limit
       items_expr: it
+      get_id_expr: it.identifier
       paging:
         paging_strategy: flat_list
       columns: [identifier, name, type, action, enabled, updated]
@@ -263,6 +265,7 @@ commands:
         per_page: flags.limit
         created_date_from: '"0"'
       items_expr: it
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [id, type, action, status, entity, created]

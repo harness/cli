@@ -1265,6 +1265,7 @@ commands:
         name: flags.name
         status: flags.status
       items_expr: it.resource
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [name, status, created_at, created_by]

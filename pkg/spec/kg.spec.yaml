@@ -109,6 +109,7 @@ commands:
       body_params:
         filter.objectKind: 'flags.kind != "" ? [flags.kind] : []'
       items_expr: concat(it.entity_types ?? [], it.event_types ?? [], it.metric_types ?? [], it.view_types ?? [], it.relationship_types ?? [], it.config_types ?? [])
+      get_id_expr: it.id
       paging:
         paging_strategy: flat_list
       columns: [id, kind, name, field_count]
@@ -149,6 +150,7 @@ commands:
       request_headers:
         x-tenant-id: auth.account
       items_expr: it.queryable_types
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [qt_id, qt_kind, qt_name]
@@ -181,6 +183,7 @@ commands:
         type_reference.id: ctx.parentId
         include_transitive: flags.transitive
       items_expr: it.related_types
+      get_id_expr: "-"
       item_item_expr: it.entity_type ?? it.event_type ?? it.metric_type ?? it.view_type ?? it.relationship_type ?? it.config_type ?? it
       paging:
         paging_strategy: flat_list
@@ -200,6 +203,7 @@ commands:
       request_headers:
         x-tenant-id: auth.account
       items_expr: it.connections
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [name, type, valid]

@@ -64,6 +64,7 @@ commands:
         actions: 'flags.action != "" ? [flags.action] : nil'
         modules: 'flags.module != "" ? [flags.module] : nil'
       items_expr: it.data.content
+      get_id_expr: it.auditId
       paging:
         paging_strategy: page_index
         countable: true

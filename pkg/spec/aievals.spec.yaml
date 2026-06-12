@@ -211,6 +211,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -275,6 +276,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -353,6 +355,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.id
       query_params:
         eval_id: ctx.parentId
         page: flags.page
@@ -389,6 +392,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -453,6 +457,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -517,6 +522,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -581,6 +587,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -645,6 +652,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
