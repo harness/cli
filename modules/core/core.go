@@ -4,15 +4,10 @@
 package core
 
 import (
-	_ "embed"
-
 	"github.com/harness/harness-cli/modules/core/auth"
 	"github.com/harness/harness-cli/modules/core/mgmt"
 	"github.com/harness/harness-cli/pkg/registry"
 )
-
-//go:embed core.help.txt
-var helpText string
 
 const (
 	// auth
@@ -36,7 +31,6 @@ const (
 )
 
 func ModuleInit(reg registry.ModuleRegistrar) {
-	reg.SetHelpText(helpText)
 	reg.RegisterWorkflow(loginHandlerID, auth.LoginHandler)
 	reg.RegisterWorkflow(logoutHandlerID, auth.LogoutHandler)
 	reg.RegisterWorkflow(statusHandlerID, auth.StatusHandler)

@@ -11,7 +11,7 @@ import (
 
 // ModuleOrder defines the preferred display order for known modules.
 // Modules not listed here appear after these, in alphabetical order.
-var ModuleOrder = []string{"core", "platform", "pipeline", "har", "iacm"}
+var ModuleOrder = []string{"core", "platform", "pipeline", "cd"}
 
 //go:embed *.spec.yaml
 var specsFS embed.FS

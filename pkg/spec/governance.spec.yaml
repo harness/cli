@@ -1,6 +1,23 @@
 spec_version: 1
 module_type: builtin
 module_desc: Harness Governance — OPA policies and policy sets
+help_text: |
+  ## Governance (governance)
+
+  The Governance module enforces Open Policy Agent (OPA) rules across Harness
+  resources. Policies are authored in Rego and grouped into policy sets that
+  are evaluated on pipeline runs or resource changes.
+
+  ### Domain Model
+
+  A policy contains Rego source and is the unit of authorship. A policy_set
+  groups policies and defines when they are evaluated (on_run, on_save, etc.).
+  A policy_evaluation is a recorded result of a policy set being triggered
+  against a resource.
+
+  ### Nouns
+
+  {{nouns}}
 
 nouns:
   - noun: policy

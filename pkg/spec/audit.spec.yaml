@@ -1,6 +1,19 @@
 spec_version: 1
 module_type: builtin
 module_desc: Harness Audit Trail — account-level audit events for all resources and actions
+help_text: |
+  ## Audit Trail (audit)
+
+  The Audit module provides a read-only view of all changes made to Harness resources.
+  Every create, update, and delete action across all modules produces an audit_event.
+
+  Audit events are scoped to the account and can be filtered by time range, resource
+  type, action, and principal. Use `list audit_event` with `--from` and `--to` flags
+  to query a specific window.
+
+  ### Nouns
+
+  {{nouns}}
 
 nouns:
   - noun: audit_event

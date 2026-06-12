@@ -96,16 +96,6 @@ func (r *Registry) externalBinaryFor(module string) string {
 	return ""
 }
 
-// SetModuleHelpText sets the HelpText field on an already-registered module meta entry.
-func (r *Registry) SetModuleHelpText(module, text string) {
-	for i := range r.moduleMetas {
-		if r.moduleMetas[i].Name == module {
-			r.moduleMetas[i].HelpText = text
-			return
-		}
-	}
-}
-
 // GetModuleMetas returns metadata for all loaded modules, sorted by spec.ModuleOrder.
 func (r *Registry) GetModuleMetas() []spec.ModuleMeta {
 	out := make([]spec.ModuleMeta, len(r.moduleMetas))

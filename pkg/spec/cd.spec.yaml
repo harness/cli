@@ -1,0 +1,469 @@
+spec_version: 1
+module_type: builtin
+module_desc: Harness CD — services, environments, infrastructure, and service overrides
+help_text: |
+  ## Continuous Delivery (cd)
+
+  The CD module covers the core resources for deploying software with Harness CD:
+  services (what you deploy), environments (where you deploy), infrastructure
+  definitions (how you deploy), and service overrides (per-environment config).
+
+  ### Domain Model
+
+  A service packages the artifact, manifests, and configuration for a deployable unit.
+  An environment represents a deployment target (Production, PreProduction). Infrastructure
+  definitions live inside an environment and describe the cluster or host. Service overrides
+  let you customize service config per environment or infrastructure without changing the
+  service definition itself.
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: service
+    short_desc: A Harness CD service definition.
+    noun_aliases: [services, svc]
+    url_path: /ng/account/{{auth.account}}/module/cd/orgs/{{auth.org}}/projects/{{auth.project}}/services/{{it.service.identifier}}
+    fields:
+      - id: identifier
+        expr: it.service.identifier
+      - id: name
+        expr: it.service.name
+      - id: description
+        expr: it.service.description
+        width_max: 60
+      - id: updated
+        expr: epochMs(it.lastModifiedAt ?? it.service.lastModifiedAt)
+      - id: created
+        expr: epochMs(it.createdAt ?? it.service.createdAt)
+
+  - noun: environment
+    short_desc: A Harness CD environment (Production or PreProduction).
+    noun_aliases: [environments, env, envs]
+    url_path: /ng/account/{{auth.account}}/module/cd/orgs/{{auth.org}}/projects/{{auth.project}}/environments/{{it.environment.identifier}}
+    fields:
+      - id: identifier
+        expr: it.environment.identifier
+      - id: name
+        expr: it.environment.name
+      - id: type
+        expr: it.environment.type
+      - id: description
+        expr: it.environment.description
+        width_max: 60
+      - id: updated
+        expr: epochMs(it.lastModifiedAt ?? it.environment.lastModifiedAt)
+      - id: created
+        expr: epochMs(it.createdAt ?? it.environment.createdAt)
+
+  - noun: infrastructure
+    short_desc: A Harness CD infrastructure definition scoped to an environment.
+    noun_aliases: [infrastructures, infra]
+    fields:
+      - id: identifier
+        expr: it.infrastructure.identifier
+      - id: name
+        expr: it.infrastructure.name
+      - id: type
+        expr: it.infrastructure.type
+      - id: environment
+        expr: it.infrastructure.environmentRef
+      - id: deployment_type
+        label: Deploy Type
+        expr: it.infrastructure.deploymentType
+      - id: updated
+        expr: epochMs(it.lastModifiedAt ?? it.infrastructure.lastModifiedAt)
+      - id: created
+        expr: epochMs(it.createdAt ?? it.infrastructure.createdAt)
+
+  - noun: service_override
+    short_desc: An override for service configuration within an environment, infrastructure, or cluster.
+    noun_aliases: [service_overrides, override, overrides]
+    url_path: /ng/account/{{auth.account}}/all/cd/orgs/{{auth.org}}/projects/{{auth.project}}/serviceOverrides
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: type
+        expr: it.type
+      - id: environment
+        expr: it.environmentRef
+      - id: service
+        expr: it.serviceRef
+      - id: infra
+        expr: it.infraIdentifier
+      - id: updated
+        expr: epochMs(it.lastModifiedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+commands:
+  # ── service ───────────────────────────────────────────────────────────────────
+
+  - command: list service
+    verb: list
+    noun: service
+    short: List services
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by name
+    endpoint:
+      path: /ng/api/servicesV2
+      items_expr: it.data.content
+      item_item_expr: it
+      get_id_expr: it.service.identifier
+      completion:
+        id_expr: it.service.identifier
+        name_expr: it.service.name
+      query_params:
+        searchTerm: flags.search
+        page: flags.page
+        size: flags.limit
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: size
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.data.totalItems
+      columns: [identifier, name, description, updated]
+
+  - command: get service
+    verb: get
+    noun: service
+    short: Get service details
+    handler_type: endpoint
+    endpoint:
+      path: /ng/api/servicesV2/{{ctx.id}}
+      item_expr: it.data
+
+  - command: create service
+    verb: create
+    noun: service
+    short: "Create a service: harness create service <id> --set name=<name> [description=...]"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /ng/api/servicesV2
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+      create_body_wrap: ""
+      item_expr: it.data
+      text_header: "\nCreated service {{it.service.identifier}}\n"
+
+  - command: update service
+    verb: update
+    noun: service
+    short: Update a service (name, description, tags)
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PUT
+      path: /ng/api/servicesV2
+      update_strategy: get-then-put
+      update_body_pick: it.data.service
+      update_body_wrap: ""
+      item_expr: it.data
+      text_header: "\nUpdated service {{ctx.id}}\n"
+
+  - command: delete service
+    verb: delete
+    noun: service
+    confirm_mode: prompt
+    short: Delete a service
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/servicesV2/{{ctx.id}}
+
+  # ── environment ───────────────────────────────────────────────────────────────
+
+  - command: list environment
+    verb: list
+    noun: environment
+    short: List environments
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by name
+      - name: type
+        description: "Filter by type: Production, PreProduction"
+        completion_values: [Production, PreProduction]
+    endpoint:
+      path: /ng/api/environmentsV2
+      items_expr: it.data.content
+      item_item_expr: it
+      get_id_expr: it.environment.identifier
+      completion:
+        id_expr: it.environment.identifier
+        name_expr: it.environment.name
+      query_params:
+        searchTerm: flags.search
+        envType: flags.type
+        page: flags.page
+        size: flags.limit
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: size
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.data.totalItems
+      columns: [identifier, name, type, updated]
+
+  - command: get environment
+    verb: get
+    noun: environment
+    short: Get environment details
+    handler_type: endpoint
+    endpoint:
+      path: /ng/api/environmentsV2/{{ctx.id}}
+      item_expr: it.data
+
+  - command: create environment
+    verb: create
+    noun: environment
+    short: "Create an environment: harness create environment <id> --set name=<name> type=Production"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /ng/api/environmentsV2
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+        type: '"PreProduction"'
+      create_body_wrap: ""
+      item_expr: it.data
+      text_header: "\nCreated environment {{it.environment.identifier}}\n"
+
+  - command: update environment
+    verb: update
+    noun: environment
+    short: Update an environment (name, type, description, tags)
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PUT
+      path: /ng/api/environmentsV2
+      update_strategy: get-then-put
+      update_body_pick: it.data.environment
+      update_body_wrap: ""
+      item_expr: it.data
+      text_header: "\nUpdated environment {{ctx.id}}\n"
+
+  - command: delete environment
+    verb: delete
+    noun: environment
+    confirm_mode: prompt
+    short: Delete an environment
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/environmentsV2/{{ctx.id}}
+
+  # ── infrastructure ────────────────────────────────────────────────────────────
+
+  - command: list infrastructure
+    verb: list
+    noun: infrastructure
+    short: "List infrastructure definitions: harness list infrastructure --env <environment_id>"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: search
+        description: Filter by name
+      - name: type
+        description: Filter by deployment type (e.g. Kubernetes, NativeHelm)
+    endpoint:
+      path: /ng/api/infrastructures
+      items_expr: it.data.content
+      item_item_expr: it
+      get_id_expr: it.infrastructure.identifier
+      completion:
+        id_expr: it.infrastructure.identifier
+        name_expr: it.infrastructure.name
+      query_params:
+        environmentIdentifier: flags.env
+        searchTerm: flags.search
+        deploymentType: flags.type
+        page: flags.page
+        size: flags.limit
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: size
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.data.totalItems
+      columns: [identifier, name, type, deployment_type, updated]
+
+  - command: get infrastructure
+    verb: get
+    noun: infrastructure
+    short: "Get infrastructure details: harness get infrastructure <infra_id> --env <environment_id>"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      path: /ng/api/infrastructures/{{ctx.id}}
+      query_params:
+        environmentIdentifier: flags.env
+      item_expr: it.data
+
+  - command: create infrastructure
+    verb: create
+    noun: infrastructure
+    short: "Create an infrastructure: harness create infrastructure <id> --set name=<name> environmentRef=<env>"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /ng/api/infrastructures
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+      create_body_wrap: ""
+      item_expr: it.data
+      text_header: "\nCreated infrastructure {{it.infrastructure.identifier}}\n"
+
+  - command: update infrastructure
+    verb: update
+    noun: infrastructure
+    short: Update an infrastructure definition
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PUT
+      path: /ng/api/infrastructures
+      update_strategy: get-then-put
+      update_body_pick: it.data.infrastructure
+      update_body_wrap: ""
+      item_expr: it.data
+      text_header: "\nUpdated infrastructure {{ctx.id}}\n"
+
+  - command: delete infrastructure
+    verb: delete
+    noun: infrastructure
+    confirm_mode: prompt
+    short: "Delete an infrastructure: harness delete infrastructure <infra_id> --env <environment_id>"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      method: DELETE
+      path: /ng/api/infrastructures/{{ctx.id}}
+      query_params:
+        environmentIdentifier: flags.env
+
+  # ── service_override ──────────────────────────────────────────────────────────
+
+  - command: list service_override
+    verb: list
+    noun: service_override
+    short: "List service overrides for an environment: harness list service_override --env <environment_id>"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: service
+        description: Filter by service identifier
+    endpoint:
+      path: /ng/api/environmentsV2/serviceOverrides
+      query_params:
+        environmentIdentifier: flags.env
+        serviceIdentifier: flags.service
+        page: flags.page
+        size: flags.limit
+      items_expr: it.data.content
+      item_item_expr: it
+      get_id_expr: it.identifier
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: size
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.data.totalItems
+      columns: [identifier, type, environment, service, infra, updated]
+
+  - command: get service_override
+    verb: get
+    noun: service_override
+    short: Get service override details
+    handler_type: endpoint
+    endpoint:
+      path: /ng/api/serviceOverrides/{{ctx.id}}
+      item_expr: it.data
+
+  - command: create service_override
+    verb: create
+    noun: service_override
+    short: "Create a service override: harness create service_override <id> --set environmentRef=<env> type=ENV_GLOBAL_OVERRIDE"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /ng/api/serviceOverrides
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        environmentRef: coalesce(ctx.setArgs.environmentRef, ctx.setArgs.env, "")
+        type: coalesce(ctx.setArgs.type, '"ENV_GLOBAL_OVERRIDE"')
+      create_body_wrap: ""
+      item_expr: it.data
+      text_header: "\nCreated service override {{it.identifier}}\n"
+
+  - command: update service_override
+    verb: update
+    noun: service_override
+    short: Update a service override
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PUT
+      path: /ng/api/serviceOverrides
+      update_strategy: get-then-put
+      update_body_pick: it.data
+      update_body_wrap: ""
+      item_expr: it.data
+      text_header: "\nUpdated service override {{ctx.id}}\n"
+
+  - command: delete service_override
+    verb: delete
+    noun: service_override
+    confirm_mode: prompt
+    short: Delete a service override
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/serviceOverrides/{{ctx.id}}
