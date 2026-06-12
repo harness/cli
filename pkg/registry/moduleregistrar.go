@@ -28,7 +28,6 @@ type ModuleRegistrar interface {
 	RegisterFetchFn(shortID string, fn cmdctx.FetchFn)
 	RegisterFlagCompletionFn(shortID string, fn FlagCompletionFn)
 	RegisterEndpointValidatorFn(shortID string, fn cmdctx.EndpointValidatorFn)
-	SetHelpText(text string)
 }
 
 // moduleRegistrar is the concrete impl returned by Registry.Module.
@@ -136,10 +135,6 @@ func (m *moduleRegistrar) RegisterEndpointValidatorFn(shortID string, fn cmdctx.
 	if q := m.qualify(shortID, fmt.Sprintf("endpoint_validator_fn %q", shortID), false); q != "" {
 		m.reg.RegisterEndpointValidatorFn(q, fn)
 	}
-}
-
-func (m *moduleRegistrar) SetHelpText(text string) {
-	m.reg.SetModuleHelpText(m.module, text)
 }
 
 // Module returns a ModuleRegistrar that namespaces all IDs under name.

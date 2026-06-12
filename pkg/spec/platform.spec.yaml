@@ -1,6 +1,29 @@
 spec_version: 1
 module_type: builtin
 module_desc: Core platform resources (orgs, projects, users, connectors, delegates)
+help_text: |
+  ## Platform (platform)
+
+  The Platform module covers account-level and organizational resources that are shared
+  across all Harness modules. This includes the identity hierarchy, access control, and
+  the connectors and secrets that other modules depend on.
+
+  ### Domain Model
+
+  The scope hierarchy is: account → organization → project. Most resources live at one
+  level of this hierarchy and inherit settings from above.
+
+  Access control is: user (or service_account or user_group) + role + resource_group →
+  role_assignment. A role bundles permissions; a resource_group scopes which resources
+  the role applies to.
+
+  Connectors and secrets are declared at any scope level and referenced by pipelines and
+  other resources. Delegates are agents that run in your infrastructure and execute tasks
+  on behalf of Harness.
+
+  ### Nouns
+
+  {{nouns}}
 
 nouns:
   - noun: account
@@ -349,6 +372,25 @@ nouns:
         label: Error Summary
         expr: it.errorSummary
 
+  - noun: entity_usage
+    short_desc: An entity (pipeline, template, etc.) that references another entity such as a connector.
+    noun_aliases: [entity_usages]
+    multi_level: true
+    fields:
+      - id: type
+        expr: it.referredByEntity.type
+      - id: name
+        expr: it.referredByEntity.name
+      - id: identifier
+        expr: it.referredByEntity.entityRef.identifier
+      - id: org
+        expr: it.referredByEntity.entityRef.orgIdentifier
+      - id: project
+        expr: it.referredByEntity.entityRef.projectIdentifier
+      - id: created_at
+        expr: epochMs(it.createdAt)
+        field_type: ts
+
   - noun: delegate
     short_desc: An agent installed in your infrastructure that executes pipeline tasks on Harness's behalf.
     noun_aliases: [delegates]
@@ -364,6 +406,21 @@ nouns:
         expr: it.connectivityStatus
       - id: version
         expr: it.activelyConnected
+
+  - noun: delegate_token
+    short_desc: An authentication token used by delegates to connect to Harness.
+    noun_aliases: [delegate_tokens]
+    fields:
+      - id: name
+        expr: it.name
+      - id: status
+        expr: it.status
+      - id: created_at
+        label: Created
+        expr: epochMs(it.createdAt)
+      - id: created_by
+        label: Created By
+        expr: it.createdByNgUser.name
 
   - noun: secret
     short_desc: An encrypted credential or sensitive value stored in a secrets manager.
@@ -970,6 +1027,51 @@ commands:
       path: /ng/api/connectors/testConnection/{{ctx.id}}
       item_expr: it.data
 
+  - command: create connector
+    verb: create
+    noun: connector
+    short: "Create a connector: harness create connector <id> --set name=<name> type=Github ..."
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /ng/api/connectors
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+      create_body_wrap: connector
+      item_expr: it.data
+      text_header: "\nCreated connector {{it.connector.identifier}}\n"
+
+  - command: update connector
+    verb: update
+    noun: connector
+    short: Update a connector (name, description, spec)
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PUT
+      path: /ng/api/connectors
+      update_strategy: get-then-put
+      update_body_pick: it.data.connector
+      update_body_wrap: connector
+      item_expr: it.data
+      text_header: "\nUpdated connector {{ctx.id}}\n"
+
+  - command: delete connector
+    verb: delete
+    noun: connector
+    confirm_mode: prompt
+    short: Delete a connector
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/connectors/{{ctx.id}}
+
   - command: list secret
     verb: list
     noun: secret
@@ -1079,6 +1181,34 @@ commands:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
 
+  - command: list entity_usage
+    verb: list
+    noun: entity_usage
+    short: "List entities that reference a connector: harness list entity_usage connector/<id>"
+    hidden: true
+    id_allow_slash: true
+    id_label: "<type/id>"
+    completion_seq:
+      - static_values: [connector]
+      - completion_noun: connector
+    handler_type: endpoint
+    endpoint:
+      path: /ng/api/entitySetupUsage
+      items_expr: it.data.content
+      columns: [type, name, identifier, org, project]
+      get_id_expr: it.referredByEntity.entityRef.identifier
+      query_params:
+        entityType: '"Connectors"'
+        entityIdentifier: lastPart(ctx.parentId)
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: pageIndex
+        page_size_param: pageSize
+        page_size_default: 50
+        page_size_max: 100
+        total_expr: it.data.totalItems
+
   - command: list delegate
     verb: list
     noun: delegate
@@ -1117,6 +1247,51 @@ commands:
       body_params:
         filterType: '"Delegate"'
         delegateGroupIdentifier: ctx.id
+
+  - command: list delegate_token
+    verb: list
+    noun: delegate_token
+    short: List delegate tokens
+    handler_type: endpoint
+    flags:
+      - name: name
+        description: Filter by token name
+      - name: status
+        description: "Filter by status: ACTIVE, REVOKED"
+        completion_values: [ACTIVE, REVOKED]
+    endpoint:
+      path: /ng/api/delegate-token-ng
+      query_params:
+        name: flags.name
+        status: flags.status
+      items_expr: it.resource
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [name, status, created_at, created_by]
+
+  - command: create delegate_token
+    verb: create
+    noun: delegate_token
+    short: "Create a delegate token: harness create delegate_token <name>"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /ng/api/delegate-token-ng
+      body_params:
+        name: ctx.id
+      item_expr: it.resource
+      text_header: "\nCreated delegate token {{it.name}}\n"
+
+  - command: delete delegate_token
+    verb: delete
+    noun: delegate_token
+    confirm_mode: prompt
+    short: Delete a delegate token
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/delegate-token-ng/{{ctx.id}}
 
   - command: get account
     verb: get

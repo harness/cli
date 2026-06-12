@@ -1,6 +1,21 @@
 spec_version: 1
 module_type: builtin
 module_desc: Harness Code repositories, pull requests, branches, commits, and tags
+help_text: |
+  ## Code (code)
+
+  Harness Code is a built-in git hosting service. It provides repositories, pull
+  requests, branches, commits, and tags without requiring an external git provider.
+
+  ### Domain Model
+
+  A repository is the top-level resource. Branches, tags, and commits live inside a
+  repository. A pull request targets a repository branch and has comments and activity
+  entries associated with it.
+
+  ### Nouns
+
+  {{nouns}}
 
 nouns:
   - noun: repository
@@ -544,6 +559,7 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentId}}/pullreq/{{flags.pr}}/activities
       items_expr: it
+      get_id_expr: "-"
       query_params:
         kind: flags.kind
         type: flags.type

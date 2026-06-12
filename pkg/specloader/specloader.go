@@ -30,6 +30,7 @@ type specFile struct {
 	ModuleDesc     string              `yaml:"module_desc"`
 	ModuleCore     bool                `yaml:"module_core"`
 	ExternalBinary string              `yaml:"external_binary"`
+	HelpText       string              `yaml:"help_text"`
 	Nouns          []spec.NounDef      `yaml:"nouns"`
 	Commands       []*spec.CommandSpec `yaml:"commands"`
 }
@@ -95,6 +96,7 @@ func LoadSpec(reg *registry.Registry, name string) error {
 		Type:           f.ModuleType,
 		Desc:           f.ModuleDesc,
 		Core:           f.ModuleCore,
+		HelpText:       f.HelpText,
 		NounOrder:      nounOrder,
 		ExternalBinary: f.ExternalBinary,
 	})

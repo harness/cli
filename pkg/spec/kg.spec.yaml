@@ -1,6 +1,41 @@
 spec_version: 1
 module_type: builtin
 module_desc: Harness Knowledge Graph — schema types, queryable types, relationships, connections, and HQL query execution
+help_text: |
+  ## Knowledge Graph (kg)
+
+  The Knowledge Graph module exposes Harness's unified data model — the schema
+  types, queryable types, relationships, and data source connections that underpin
+  cross-module analytics and HQL queries.
+
+  ### Domain Model
+
+  The schema is a typed graph. Every entity in Harness (project, pipeline,
+  service, deployment, etc.) maps to a schema type with a kind: ENTITY, EVENT,
+  METRIC, VIEW, RELATIONSHIP, or CONFIG. Types have fields and relate to other
+  types via directional relationship edges.
+
+  Queryable types are the subset of schema types reachable via HQL. Use
+  `list kg:queryable_type` to see what you can query before writing HQL.
+
+  Data source connections (`list kg:connection`) show which backends the query
+  engine is actively pulling from. A connection with `valid: false` means queries
+  against that type may return stale or empty results.
+
+  ### HQL
+
+  Harness Query Language (HQL) is a graph query language modelled after ANTLR4
+  grammar. Basic form:
+
+    find entity "platform:project" | select { * } | limit 10
+
+  Use `execute hql:validate` to check a query before running it, `execute
+  hql:explain` to inspect the execution plan, and `execute hql:run` to execute.
+  Fetch the full grammar with `execute hql:grammar`.
+
+  ### Nouns
+
+  {{nouns}}
 
 nouns:
   - noun: kg
@@ -74,6 +109,7 @@ commands:
       body_params:
         filter.objectKind: 'flags.kind != "" ? [flags.kind] : []'
       items_expr: concat(it.entity_types ?? [], it.event_types ?? [], it.metric_types ?? [], it.view_types ?? [], it.relationship_types ?? [], it.config_types ?? [])
+      get_id_expr: it.id
       paging:
         paging_strategy: flat_list
       columns: [id, kind, name, field_count]
@@ -114,6 +150,7 @@ commands:
       request_headers:
         x-tenant-id: auth.account
       items_expr: it.queryable_types
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [qt_id, qt_kind, qt_name]
@@ -146,6 +183,7 @@ commands:
         type_reference.id: ctx.parentId
         include_transitive: flags.transitive
       items_expr: it.related_types
+      get_id_expr: "-"
       item_item_expr: it.entity_type ?? it.event_type ?? it.metric_type ?? it.view_type ?? it.relationship_type ?? it.config_type ?? it
       paging:
         paging_strategy: flat_list
@@ -165,6 +203,7 @@ commands:
       request_headers:
         x-tenant-id: auth.account
       items_expr: it.connections
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [name, type, valid]

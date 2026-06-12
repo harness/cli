@@ -1,6 +1,29 @@
 spec_version: 1
 module_type: builtin
 module_desc: Pipeline execution, logs, and step management
+help_text: |
+  ## Pipelines (pipeline)
+
+  Harness Pipelines are the core execution primitive for CI/CD workflows. A pipeline
+  defines stages and steps that run in sequence or in parallel, and can be triggered
+  manually, on a schedule, or via webhook events.
+
+  ### Domain Model
+
+  A pipeline is a definition. When you run it, you get an execution (a run instance).
+  Executions contain stages, and stages contain steps — use execution_step to inspect
+  per-step status when diagnosing failures.
+
+  Pipelines can require runtime inputs at execution time. Check runtime_input_template
+  before executing to know what inputs are needed. Saved input_sets let you reuse a
+  fixed set of runtime values across runs.
+
+  Templates are reusable building blocks — a template can represent a full pipeline,
+  a stage, or a step, and is referenced by other pipelines rather than copy-pasted.
+
+  ### Nouns
+
+  {{nouns}}
 
 nouns:
   - noun: pipeline

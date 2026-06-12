@@ -1,6 +1,47 @@
 spec_version: 1
 module_type: builtin
 module_desc: Harness AI Evals — datasets, evaluations, runs, metrics, metric sets, suites, targets, and models
+help_text: |
+  ## AI Evals (aievals)
+
+  The AI Evals module lets you define, run, and score evaluations of LLM
+  pipelines and prompts. It is built around a dataset → evaluation → run
+  lifecycle with configurable metrics and targets.
+
+  ### Domain Model
+
+  An eval_dataset holds input/output pairs (rows) used as test cases.
+
+  An evaluation wires together a dataset, an eval_target (the LLM endpoint
+  under test), and an eval_metric_set (the scoring criteria). Trigger a run
+  with `execute evaluation:run <eval_id>`.
+
+  An eval_run is one execution of an evaluation. It scores every dataset item
+  against the metric set and produces an aggregate pass rate.
+
+  An eval_metric is a single scoring function (e.g. exact_match, rubric_judge,
+  contains, geval). Metrics are grouped into eval_metric_sets with optional
+  pass/fail thresholds.
+
+  An eval_target points at the LLM endpoint being tested (e.g. a Harness AI
+  Gateway route). An eval_model defines a provider + model ID used as a judge
+  or target (e.g. openai / gpt-4o).
+
+  An eval_suite groups multiple evaluations that should run together. Trigger
+  the whole suite with `execute eval_suite:run <suite_id>`.
+
+  ### Typical workflow
+
+    harness create eval_dataset --set name=smoke identifier=smoke
+    harness create eval_target  --set name=my-llm identifier=my-llm type=prompt
+    harness create eval_metric_set --set name=basic identifier=basic
+    harness create evaluation   --set name=v1 identifier=v1 dataset_id=<id> target_id=<id>
+    harness execute evaluation:run <eval_id>
+    harness list eval_run <eval_id>
+
+  ### Nouns
+
+  {{nouns}}
 
 nouns:
   - noun: eval_dataset
@@ -170,6 +211,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -234,6 +276,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -312,6 +355,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.id
       query_params:
         eval_id: ctx.parentId
         page: flags.page
@@ -348,6 +392,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -412,6 +457,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -476,6 +522,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -540,6 +587,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit
@@ -604,6 +652,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it
+      get_id_expr: it.identifier
       query_params:
         page: flags.page
         size: flags.limit

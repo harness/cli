@@ -4,7 +4,6 @@
 package pipeline
 
 import (
-	_ "embed"
 	"fmt"
 	"io"
 
@@ -14,12 +13,8 @@ import (
 	"github.com/harness/harness-cli/pkg/registry"
 )
 
-//go:embed pipeline.help.txt
-var helpText string
-
 // ModuleInit registers pipeline workflows and formatters. Commands are declared in pipeline.spec.yaml.
 func ModuleInit(reg registry.ModuleRegistrar) {
-	reg.SetHelpText(helpText)
 	reg.RegisterFetchFn(listExecutionLogsFetchFnID, listExecutionLogsFetchFn)
 	reg.RegisterWorkflow(getPipelineLogHandlerID, getPipelineLogHandler)
 	reg.RegisterBodyFn(executePipelineBodyFnID, executePipelineBody)

@@ -63,13 +63,18 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 	return errs
 }
 
-// CheckWarnings returns non-fatal spec warnings. Currently checks that every
-// list endpoint command has a paging_strategy set.
+// CheckWarnings returns non-fatal spec warnings. Checks list endpoint commands
+// and that every module has a help_text defined.
 func (r *Registry) CheckWarnings() []string {
 	var warns []string
 	for _, specs := range r.specs {
 		for _, cs := range specs {
 			warns = append(warns, warnSpec(cs)...)
+		}
+	}
+	for _, m := range r.moduleMetas {
+		if m.HelpText == "" {
+			warns = append(warns, fmt.Sprintf("module %q: missing help_text", m.Name))
 		}
 	}
 	return warns

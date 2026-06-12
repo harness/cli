@@ -1,0 +1,87 @@
+spec_version: 1
+module_type: builtin
+module_desc: Harness Audit Trail — account-level audit events for all resources and actions
+help_text: |
+  ## Audit Trail (audit)
+
+  The Audit module provides a read-only view of all changes made to Harness resources.
+  Every create, update, and delete action across all modules produces an audit_event.
+
+  Audit events are scoped to the account and can be filtered by time range, resource
+  type, action, and principal. Use `list audit_event` with `--from` and `--to` flags
+  to query a specific window.
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: audit_event
+    short_desc: An audit trail event recording a change to any Harness resource.
+    noun_aliases: [audit_events, audit]
+    url_path: /ng/account/{{auth.account}}/settings/audit-trail
+    fields:
+      - id: id
+        label: Audit ID
+        expr: it.auditId
+      - id: resource_type
+        label: Resource Type
+        expr: it.resourceScope.resourceType ?? it.resource.type
+      - id: resource
+        expr: it.resource.identifier
+      - id: action
+        expr: it.action
+      - id: actor
+        expr: it.authenticationInfo.principal.email ?? it.authenticationInfo.principal.identifier
+      - id: timestamp
+        expr: epochMs(it.timestamp)
+
+commands:
+  - command: list audit_event
+    verb: list
+    noun: audit_event
+    short: List audit trail events (last 7 days by default)
+    handler_type: endpoint
+    flags:
+      - name: resource_type
+        description: "Filter by resource type: PIPELINE, SERVICE, ENVIRONMENT, CONNECTOR, ROLE, etc."
+        completion_values: [ORGANIZATION, PROJECT, USER_GROUP, SECRET, PIPELINE, TRIGGER, TEMPLATE, INPUT_SET, SERVICE, ENVIRONMENT, DELEGATE, SERVICE_ACCOUNT, CONNECTOR, ROLE, RESOURCE_GROUP, GOVERNANCE_POLICY, GOVERNANCE_POLICY_SET, CODE_REPOSITORY, SETTING, DEPLOYMENT_FREEZE]
+      - name: action
+        description: "Filter by action: CREATE, UPDATE, DELETE, etc."
+        completion_values: [CREATE, UPDATE, DELETE, RESTORE, UPSERT, INVITE, REVOKE_INVITE, LOGIN, ENABLED, DISABLED, RERUN]
+      - name: module
+        description: Filter by module (e.g. CD, CI, CF, CE)
+    endpoint:
+      method: POST
+      path: /audit/api/audits/list
+      query_params:
+        page: flags.page
+        size: flags.limit
+      body_params:
+        filterType: '"Audit"'
+        startTime: '0'
+        resourceType: 'flags.resource_type != "" ? flags.resource_type : nil'
+        actions: 'flags.action != "" ? [flags.action] : nil'
+        modules: 'flags.module != "" ? [flags.module] : nil'
+      items_expr: it.data.content
+      get_id_expr: it.auditId
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: size
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.data.totalItems
+      columns: [id, resource_type, resource, action, actor, timestamp]
+
+  - command: get audit_event
+    verb: get
+    noun: audit_event
+    short: Get audit event YAML diff
+    handler_type: endpoint
+    endpoint:
+      path: /audit/api/auditYaml
+      query_params:
+        auditId: ctx.id
+      item_expr: it.data

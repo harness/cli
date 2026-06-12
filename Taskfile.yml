@@ -4,7 +4,7 @@ vars:
   BINARY: harness
   MAIN: ./cmd/harness/main-harness.go
   VERSION:
-    sh: echo "${VERSION:-0.1.0-dev}"
+    sh: echo "${VERSION:-$(go run ./cmd/getversion/main-getversion.go --next)-dev}"
   BUILD_TIME:
     sh: date -u +%Y%m%d%H%MZ
   LDFLAGS: >-
@@ -45,6 +45,14 @@ tasks:
       - go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o ../../bin/harness-har ./cmd/harness-har/main-harness-har.go
       - |
         echo "harness-har size: $(du -sh ../../bin/harness-har | cut -f1)"
+
+  install:
+    desc: Build and install harness binary to ~/.local/bin
+    deps: [build:main]
+    cmds:
+      - mkdir -p ~/.local/bin
+      - cp bin/{{.BINARY}} ~/.local/bin/{{.BINARY}}
+      - echo "Installed ~/.local/bin/{{.BINARY}}"
 
   dev:
     desc: Run without ldflags (version shows 0.1.0-dev / dev)

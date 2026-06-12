@@ -1,0 +1,271 @@
+spec_version: 1
+module_type: builtin
+module_desc: Harness Governance — OPA policies and policy sets
+help_text: |
+  ## Governance (governance)
+
+  The Governance module enforces Open Policy Agent (OPA) rules across Harness
+  resources. Policies are authored in Rego and grouped into policy sets that
+  are evaluated on pipeline runs or resource changes.
+
+  ### Domain Model
+
+  A policy contains Rego source and is the unit of authorship. A policy_set
+  groups policies and defines when they are evaluated (on_run, on_save, etc.).
+  A policy_evaluation is a recorded result of a policy set being triggered
+  against a resource.
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: policy
+    short_desc: A Harness OPA governance policy.
+    noun_aliases: [policies]
+    url_path: /ng/account/{{auth.account}}/module/cd/orgs/{{auth.org}}/projects/{{auth.project}}/governance/policies/{{it.identifier}}
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: name
+        expr: it.name
+      - id: type
+        expr: it.type
+      - id: updated
+        expr: epochMs(it.updated)
+      - id: created
+        expr: epochMs(it.created)
+
+  - noun: policy_set
+    short_desc: A Harness governance policy set grouping multiple policies.
+    noun_aliases: [policy_sets]
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: name
+        expr: it.name
+      - id: type
+        expr: it.type
+      - id: action
+        expr: it.action
+      - id: enabled
+        expr: it.enabled
+      - id: updated
+        expr: epochMs(it.updated)
+      - id: created
+        expr: epochMs(it.created)
+
+  - noun: policy_evaluation
+    short_desc: A Harness governance policy evaluation result.
+    noun_aliases: [policy_evaluations]
+    fields:
+      - id: id
+        label: ID
+        expr: it.evaluation_id ?? it.id
+      - id: type
+        expr: it.type
+      - id: action
+        expr: it.action
+      - id: status
+        expr: it.status
+      - id: entity
+        expr: it.entity
+      - id: created
+        expr: epochMs(it.created)
+
+commands:
+  # ── policy ────────────────────────────────────────────────────────────────────
+
+  - command: list policy
+    verb: list
+    noun: policy
+    short: List governance policies
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by name
+      - name: type
+        description: "Filter by type: pipeline, connector, service, environment, secret, template, infrastructure, sbom_enforcement"
+        completion_values: [pipeline, connector, service, environment, secret, template, infrastructure, sbom_enforcement]
+    endpoint:
+      path: /pm/api/v1/policies
+      query_params:
+        searchTerm: flags.search
+        type: flags.type
+        page: flags.page
+        per_page: flags.limit
+      items_expr: it
+      get_id_expr: it.identifier
+      paging:
+        paging_strategy: flat_list
+      columns: [identifier, name, type, updated]
+
+  - command: get policy
+    verb: get
+    noun: policy
+    short: Get policy details including Rego definition
+    handler_type: endpoint
+    endpoint:
+      path: /pm/api/v1/policies/{{ctx.id}}
+      item_expr: it
+
+  - command: create policy
+    verb: create
+    noun: policy
+    short: "Create a policy: harness create policy <id> --set name=<name> rego='package main...'"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /pm/api/v1/policies
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+      create_body_wrap: ""
+      item_expr: it
+      text_header: "\nCreated policy {{it.identifier}}\n"
+
+  - command: update policy
+    verb: update
+    noun: policy
+    short: Update a policy (name, rego)
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /pm/api/v1/policies/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated policy {{ctx.id}}\n"
+
+  - command: delete policy
+    verb: delete
+    noun: policy
+    confirm_mode: prompt
+    short: Delete a policy
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /pm/api/v1/policies/{{ctx.id}}
+
+  # ── policy_set ────────────────────────────────────────────────────────────────
+
+  - command: list policy_set
+    verb: list
+    noun: policy_set
+    short: List governance policy sets
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by name
+      - name: type
+        description: "Filter by type: pipeline, connector, service, environment, secret, template, infrastructure"
+        completion_values: [pipeline, connector, service, environment, secret, template, infrastructure]
+      - name: action
+        description: "Filter by action: onrun, onsave, onpush, onstep"
+        completion_values: [onrun, onsave, onpush, onstep]
+    endpoint:
+      path: /pm/api/v1/policysets
+      query_params:
+        searchTerm: flags.search
+        type: flags.type
+        action: flags.action
+        page: flags.page
+        per_page: flags.limit
+      items_expr: it
+      get_id_expr: it.identifier
+      paging:
+        paging_strategy: flat_list
+      columns: [identifier, name, type, action, enabled, updated]
+
+  - command: get policy_set
+    verb: get
+    noun: policy_set
+    short: Get policy set details
+    handler_type: endpoint
+    endpoint:
+      path: /pm/api/v1/policysets/{{ctx.id}}
+      item_expr: it
+
+  - command: create policy_set
+    verb: create
+    noun: policy_set
+    short: "Create a policy set: harness create policy_set <id> --set name=<name> type=pipeline action=onrun enabled=true"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /pm/api/v1/policysets
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+        enabled: 'true'
+      create_body_wrap: ""
+      item_expr: it
+      text_header: "\nCreated policy set {{it.identifier}}\n"
+
+  - command: update policy_set
+    verb: update
+    noun: policy_set
+    short: Update a policy set (name, enabled, policies)
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /pm/api/v1/policysets/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated policy set {{ctx.id}}\n"
+
+  - command: delete policy_set
+    verb: delete
+    noun: policy_set
+    confirm_mode: prompt
+    short: Delete a policy set
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /pm/api/v1/policysets/{{ctx.id}}
+
+  # ── policy_evaluation ─────────────────────────────────────────────────────────
+
+  - command: list policy_evaluation
+    verb: list
+    noun: policy_evaluation
+    short: List governance policy evaluations
+    handler_type: endpoint
+    flags:
+      - name: type
+        description: "Filter by type: pipeline, connector, service, environment, secret"
+        completion_values: [pipeline, connector, service, environment, secret, template, infrastructure, sbom, securityTests]
+      - name: action
+        description: "Filter by action: onrun, onsave, onpush"
+        completion_values: [onrun, onsave, onpush, onstep]
+      - name: status
+        description: Filter by evaluation status
+    endpoint:
+      path: /pm/api/v1/evaluations
+      query_params:
+        type: flags.type
+        action: flags.action
+        status: flags.status
+        page: flags.page
+        per_page: flags.limit
+        created_date_from: '"0"'
+      items_expr: it
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [id, type, action, status, entity, created]

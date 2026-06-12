@@ -3,18 +3,10 @@
 
 package har
 
-import (
-	_ "embed"
-
-	"github.com/harness/harness-cli/pkg/registry"
-)
-
-//go:embed har.help.txt
-var helpText string
+import "github.com/harness/harness-cli/pkg/registry"
 
 // ModuleInit registers har workflows. Commands are declared in har.spec.yaml.
 func ModuleInit(reg registry.ModuleRegistrar) {
-	reg.SetHelpText(helpText)
 	reg.RegisterWorkflow("push_artifact_maven", pushMavenArtifact)
 	reg.RegisterWorkflow("push_artifact_npm", pushNpmArtifact)
 	reg.RegisterWorkflow("push_artifact_python", pushPythonArtifact)
