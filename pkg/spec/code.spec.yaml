@@ -354,7 +354,7 @@ commands:
   - command: list pr
     verb: list
     noun: pr
-    short: "List pull requests for a repository: harness list pr <repo_id> [--state open|closed|merged|all]"
+    short: "List pull requests for a repository: harness list pr <repo_id> [--state open|closed|merged|all] [--author <id>] [--created-after <date>]"
     handler_type: endpoint
     requires_parentid: true
     parentid_label: "<repo_id>"
@@ -366,6 +366,20 @@ commands:
         completion_values: [open, closed, merged, all]
       - name: search
         description: Filter by keyword
+      - name: author
+        description: "Filter by author (principal ID number from user list)"
+      - name: created-after
+        description: "Show PRs created after this date (YYYY-MM-DD or epoch ms)"
+      - name: created-before
+        description: "Show PRs created before this date (YYYY-MM-DD or epoch ms)"
+      - name: sort
+        description: "Sort field: number, created, updated, edited, merged"
+        default: number
+        completion_values: [number, created, updated, edited, merged]
+      - name: order
+        description: "Sort direction: asc, desc"
+        default: desc
+        completion_values: [asc, desc]
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentId}}/pullreq
       items_expr: it
@@ -373,6 +387,11 @@ commands:
       query_params:
         state: 'flags.state == "all" ? "" : flags.state'
         query: flags.search
+        created_by: flags.author
+        created_gt: 'parseDateMs(flags["created-after"])'
+        created_lt: 'parseDateMs(flags["created-before"])'
+        sort: 'flags.sort == "number" ? "" : flags.sort'
+        order: 'flags.order == "desc" ? "" : flags.order'
         page: flags.page
         limit: flags.limit
       paging:

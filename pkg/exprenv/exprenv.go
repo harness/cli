@@ -89,6 +89,7 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		"duration":              exprfuncs.Duration,
 		"harScopeUrl":           exprfuncs.HarScopeUrl,
 		"epochMs":               exprfuncs.EpochMs,
+		"parseDateMs":           exprfuncs.ParseDateMs,
 		"jsonArray":             exprfuncs.JsonArray,
 		"formatRoleAssignments": exprfuncs.FormatRoleAssignments,
 		"formatRoleIds":         exprfuncs.FormatRoleIds,

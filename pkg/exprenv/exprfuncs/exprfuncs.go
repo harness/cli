@@ -210,6 +210,47 @@ func EpochMs(v any) string {
 	return time.UnixMilli(ms).UTC().Format("2006-01-02 15:04:05")
 }
 
+// ParseDateMs converts a date string to epoch milliseconds (as a string).
+// Accepts: YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, epoch ms (passthrough), or
+// relative durations like "30d" (30 days ago), "2w" (2 weeks ago), "1m" (1 month ago).
+// Returns "" for empty or unrecognized input.
+func ParseDateMs(v any) string {
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return ""
+	}
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return s
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return strconv.FormatInt(t.UnixMilli(), 10)
+	}
+	if t, err := time.Parse("2006-01-02T15:04:05", s); err == nil {
+		return strconv.FormatInt(t.UnixMilli(), 10)
+	}
+	if len(s) >= 2 {
+		numStr := s[:len(s)-1]
+		unit := s[len(s)-1]
+		if n, err := strconv.Atoi(numStr); err == nil {
+			var d time.Duration
+			switch unit {
+			case 'd':
+				d = time.Duration(n) * 24 * time.Hour
+			case 'w':
+				d = time.Duration(n) * 7 * 24 * time.Hour
+			case 'm':
+				d = time.Duration(n) * 30 * 24 * time.Hour
+			case 'h':
+				d = time.Duration(n) * time.Hour
+			}
+			if d > 0 {
+				return strconv.FormatInt(time.Now().Add(-d).UnixMilli(), 10)
+			}
+		}
+	}
+	return ""
+}
+
 // JsonArray marshals a slice to a compact JSON array string. Returns "[]" for nil.
 func JsonArray(v []any) string {
 	b, _ := json.Marshal(v)
