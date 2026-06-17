@@ -172,6 +172,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	}
 	if c.resolved.AuthType == auth.AuthTypeSSO {
 		req.Header.Set("Authorization", "Bearer "+c.resolved.SSOToken)
+		return nil, nil, fmt.Errorf("SSO/JWT authentication is not yet supported by the Harness CLI — use 'harness auth login' with a Personal Access Token instead")
 	} else {
 		req.Header.Set("x-api-key", c.resolved.PATToken)
 	}

@@ -52,6 +52,7 @@ func setInteractive(ctx *cmdctx.Ctx, profileName string) error {
 		APIURL:    p.APIUrl,
 		Token:     token,
 		AccountID: p.AccountID,
+		AuthType:  p.AuthType,
 		RegURL:    p.RegistryURL,
 		OrgID:     p.OrgID,
 		ProjectID: p.ProjectID,

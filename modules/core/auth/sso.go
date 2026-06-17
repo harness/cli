@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/client"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/console"
 	"github.com/harness/harness-cli/pkg/hlog"
@@ -89,6 +88,7 @@ func LoginSSOHandler(ctx *cmdctx.Ctx) error {
 			APIURL:    apiURL,
 			Token:     token,
 			AccountID: accountID,
+			AuthType:  auth.AuthTypeSSO,
 		})
 		if werr != nil {
 			return werr
@@ -119,39 +119,15 @@ func LoginSSOHandler(ctx *cmdctx.Ctx) error {
 	return nil
 }
 
-// resolveAPIURL determines the Harness REST API base URL for the account.
-// It prefers the subdomain from the JWT (e.g. "prod2.harness.io"), falls back
-// to mcp.harness.io, then verifies the URL works. If verification fails and
-// we're on a TTY, it prompts the user to enter the URL manually.
+// resolveAPIURL determines the Harness API base URL from the JWT subdomain claim.
+// Per-cluster JWT support is not yet available; this URL is stored in the profile
+// for when it becomes available.
 func resolveAPIURL(token, accountID, subdomain string) (string, error) {
-	candidate := mcpBaseURL
 	if subdomain != "" {
-		candidate = "https://" + subdomain
+		hlog.Debug("resolveAPIURL", "subdomain", subdomain)
+		return "https://" + subdomain, nil
 	}
-	hlog.Debug("resolveAPIURL", "candidate", candidate, "subdomain", subdomain)
-
-	resolved := &auth.ResolvedAuth{
-		APIUrl:    candidate,
-		SSOToken:  token,
-		AccountID: accountID,
-		AuthType:  auth.AuthTypeSSO,
-	}
-	c := client.New(context.Background(), resolved)
-	_, _, err := c.Get("/ng/api/user/currentUser", nil)
-	hlog.Debug("resolveAPIURL currentUser check", "url", candidate, "err", err)
-	if err == nil {
-		return candidate, nil
-	}
-
-	if console.IsBothTTY() {
-		fmt.Fprintf(os.Stderr, "Could not reach %s — please enter your Harness API URL\n", candidate)
-		apiURL, err := console.ReadPrompt("API URL", "https://app.harness.io")
-		if err != nil {
-			return "", err
-		}
-		return apiURL, nil
-	}
-	return "", fmt.Errorf("could not reach %s — re-run with --api-url to specify the URL manually", candidate)
+	return mcpBaseURL, nil
 }
 
 // --- PKCE flow ---
