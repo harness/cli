@@ -61,7 +61,7 @@ func setInteractive(ctx *cmdctx.Ctx, profileName string) error {
 		return err
 	}
 	if result == nil {
-		fmt.Println("Cancelled.")
+		fmt.Println("canceled")
 		return nil
 	}
 	return setFlags(profileName, result.OrgID, result.Project)

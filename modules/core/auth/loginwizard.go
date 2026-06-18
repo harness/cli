@@ -140,8 +140,8 @@ type wizardModel struct {
 
 	cmdCtx       *cmdctx.Ctx
 	err          string
-	cancelled    bool
-	cancelReason error // set when cancelled due to an internal error, not user action
+	canceled     bool
+	cancelReason error // set when canceled due to an internal error, not user action
 	width        int
 	height       int
 }
@@ -251,7 +251,7 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			m.cancelled = true
+			m.canceled = true
 			return m, tea.Quit
 
 		case "up":
@@ -291,7 +291,7 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = ""
 					return m, nil
 				}
-				m.cancelled = true
+				m.canceled = true
 				return m, tea.Quit
 			case stepToken:
 				if m.tokenInCustom && m.tokenHasExisting {
@@ -309,7 +309,7 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case stepOrgPick:
 				if m.setMode {
-					m.cancelled = true
+					m.canceled = true
 					return m, tea.Quit
 				}
 				m.step = stepToken
@@ -322,7 +322,7 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = ""
 				return m, nil
 			default:
-				m.cancelled = true
+				m.canceled = true
 				return m, tea.Quit
 			}
 
@@ -349,7 +349,7 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			if m.setMode {
 				m.err = msg.err.Error()
-				m.cancelled = true
+				m.canceled = true
 				m.cancelReason = msg.err
 				return m, tea.Quit
 			}
@@ -849,7 +849,7 @@ func orgItemsFromResponse(resp any, key string) ([]orgItem, error) {
 
 // RunLoginWizard runs the interactive TUI and returns the collected values.
 // Pass existing profile values so the wizard can offer "use existing" options.
-// Returns (nil, nil) if the user cancelled.
+// Returns (nil, nil) if the user canceled.
 func RunLoginWizard(ctx *cmdctx.Ctx, existing *WizardExisting) (*WizardResult, error) {
 	m := newWizardModel(existing)
 	m.cmdCtx = ctx
@@ -859,7 +859,7 @@ func RunLoginWizard(ctx *cmdctx.Ctx, existing *WizardExisting) (*WizardResult, e
 		return nil, err
 	}
 	fm := final.(wizardModel)
-	if fm.cancelled || fm.step != stepDone {
+	if fm.canceled || fm.step != stepDone {
 		return nil, nil
 	}
 	return &WizardResult{
@@ -884,7 +884,7 @@ type SetWizardInput struct {
 }
 
 // RunSetWizard starts the wizard at the org-pick step using already-validated credentials.
-// Pre-selects the currently saved org and project. Returns (nil, nil) if cancelled.
+// Pre-selects the currently saved org and project. Returns (nil, nil) if canceled.
 func RunSetWizard(ctx *cmdctx.Ctx, in *SetWizardInput) (*WizardResult, error) {
 	orgs, err := fetchOrgItems(ctx, in.APIURL, in.Token, in.AccountID, in.AuthType)
 	if err != nil {
@@ -948,7 +948,7 @@ func RunSetWizard(ctx *cmdctx.Ctx, in *SetWizardInput) (*WizardResult, error) {
 		return nil, err
 	}
 	fm := final.(wizardModel)
-	if fm.cancelled || fm.step != stepDone {
+	if fm.canceled || fm.step != stepDone {
 		return nil, fm.cancelReason
 	}
 	return &WizardResult{

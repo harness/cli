@@ -25,7 +25,7 @@ import (
 )
 
 // SseTerminalDrainDelay is how long we wait after the pipeline reaches a terminal state
-// before cancelling SSE streams, to allow straggling log events to arrive.
+// before canceling SSE streams, to allow straggling log events to arrive.
 const SseTerminalDrainDelay = 5 * time.Second
 
 // BaseSkipStepTypes are container nodes with no meaningful log content.

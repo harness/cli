@@ -160,7 +160,7 @@ func executePlan(
 	fmt.Println(warning)
 
 	if !force && !console.PromptYesNo("Do you want to continue?") {
-		return errors.New("cancelled")
+		return errors.New("canceled")
 	}
 
 	fmt.Println("Zipping source code...")

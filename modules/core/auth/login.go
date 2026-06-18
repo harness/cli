@@ -64,7 +64,7 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 			case !overwrite:
 				fmt.Fprintf(os.Stderr, "WARNING: profile %q already exists, continuing will overwrite it\n\n", profileName)
 				if !console.PromptYesNo("Overwrite?") {
-					return fmt.Errorf("Canceled by user — config not written")
+					return fmt.Errorf("canceled by user — config not written")
 				}
 				fmt.Fprintln(os.Stderr)
 			}
@@ -84,7 +84,7 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 			return err
 		}
 		if result == nil {
-			return fmt.Errorf("Canceled by user — config not written")
+			return fmt.Errorf("canceled by user — config not written")
 		}
 
 		apiURL = result.APIURL
