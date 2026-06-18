@@ -58,6 +58,7 @@ type Event struct {
 type LogKeyEntry struct {
 	LogKey     string
 	Name       string
+	FQN        string
 	Status     string
 	Depth      int
 	ParentName string
@@ -436,7 +437,7 @@ func FetchLogKeys(hc *http.Client, a *auth.ResolvedAuth, execId string) ([]LogKe
 			lk := node.LogBaseKey
 			if !seenKey[lk] {
 				seenKey[lk] = true
-				entries = append(entries, LogKeyEntry{LogKey: lk, Name: name, Status: node.Status, Depth: depth, ParentName: parentName})
+				entries = append(entries, LogKeyEntry{LogKey: lk, Name: name, FQN: node.BaseFQN, Status: node.Status, Depth: depth, ParentName: parentName})
 			}
 		}
 		for _, child := range g.NodeAdjacencyListMap[id].Children {
@@ -497,15 +498,9 @@ func FollowMulti(ctx *cmdctx.Ctx, hc *http.Client, execId, stageFilter, stepFilt
 		return true
 	}
 
-	sourceLabel := func(logKey string) string {
-		if i := strings.LastIndex(logKey, "/"); i >= 0 {
-			return logKey[i+1:]
-		}
-		return logKey
-	}
-
 	type nodeEntry struct {
 		logKey string
+		name   string
 		node   execgraph.GraphNode
 		rank   int
 	}
@@ -536,7 +531,7 @@ func FollowMulti(ctx *cmdctx.Ctx, hc *http.Client, execId, stageFilter, stepFilt
 					if !nodeStarted[lk] && nodeMatchesFilter(node, parentName) {
 						bucket := format.ClassifyExecutionStatus(node.Status)
 						if bucket == format.StatusRunning || bucket == format.StatusSuccess || bucket == format.StatusSkipped || bucket == format.StatusFailed {
-							newNodes = append(newNodes, nodeEntry{logKey: lk, node: node, rank: node.Rank})
+							newNodes = append(newNodes, nodeEntry{logKey: lk, name: name, node: node, rank: node.Rank})
 						}
 					}
 				}
@@ -596,7 +591,7 @@ func FollowMulti(ctx *cmdctx.Ctx, hc *http.Client, execId, stageFilter, stepFilt
 			if !IsTerminalStatus(e.node.Status) {
 				continue
 			}
-			source := sourceLabel(e.logKey)
+			source := e.name
 			rc := make(chan blobResult, 1)
 			blobs = append(blobs, pendingBlob{e: e, source: source, result: rc})
 			go func() {
@@ -624,7 +619,7 @@ func FollowMulti(ctx *cmdctx.Ctx, hc *http.Client, execId, stageFilter, stepFilt
 		blobIdx := 0
 		for i := range newNodes {
 			e := newNodes[i]
-			source := sourceLabel(e.logKey)
+			source := e.name
 			if format.ClassifyExecutionStatus(e.node.Status) != format.StatusSkipped {
 				startTs := e.node.StartTs
 				if startTs == 0 {

@@ -233,6 +233,9 @@ nouns:
         expr: it["log_key"]
       - id: name
         expr: it["name"]
+      - id: fqn
+        label: FQN
+        expr: it["fqn"]
       - id: status
         expr: it["status"]
 

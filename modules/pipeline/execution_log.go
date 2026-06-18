@@ -89,7 +89,7 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	type result struct {
-		key  string
+		name string
 		body string
 		err  error
 	}
@@ -104,16 +104,20 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 		if stepFlag != "" && !strings.EqualFold(e.Name, stepFlag) {
 			continue
 		}
+		label := e.FQN
+		if label == "" {
+			label = e.LogKey
+		}
 		var buf strings.Builder
 		hasContent, fetchErr := logstream.FetchAndPrintLog(hc, a, e.LogKey, fmtFlag, ctx.IsPty, &buf)
 		if fetchErr != nil {
-			results = append(results, result{key: e.LogKey, err: fetchErr})
+			results = append(results, result{name: label, err: fetchErr})
 			continue
 		}
 		if !hasContent {
 			continue
 		}
-		results = append(results, result{key: e.LogKey, body: buf.String()})
+		results = append(results, result{name: label, body: buf.String()})
 	}
 
 	if len(results) == 0 {
@@ -130,7 +134,7 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 	multiLog := len(results) > 1
 	for _, r := range results {
 		if multiLog {
-			fmt.Fprintf(w, "\n== %s ==\n", r.key)
+			fmt.Fprintf(w, "\n== %s ==\n", r.name)
 		}
 		if r.err != nil {
 			fmt.Fprintf(w, "(error: %v)\n", r.err)
@@ -204,7 +208,7 @@ func listExecutionLogsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _
 
 	rows := make([]any, len(entries))
 	for i, e := range entries {
-		rows[i] = map[string]any{"log_key": e.LogKey, "name": e.Name, "status": e.Status}
+		rows[i] = map[string]any{"log_key": e.LogKey, "name": e.Name, "fqn": e.FQN, "status": e.Status}
 	}
 	return &cmdctx.PageResult{
 		Items:       rows,
