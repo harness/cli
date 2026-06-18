@@ -137,19 +137,19 @@ func Validate(r *ResolvedAuth) error {
 		}
 	} else {
 		if r.PATToken == "" {
-			return fmt.Errorf("no token found for profile — run 'harness login' to re-authenticate")
+			return fmt.Errorf("no token found for profile — run 'harness auth login' to re-authenticate")
 		}
 		if err := ValidatePATFormat(r.PATToken); err != nil {
 			if r.Source == SourceEnv {
 				return fmt.Errorf("%s is invalid: %w", hbase.EnvAPIKey, err)
 			}
-			return fmt.Errorf("stored token is invalid — run 'harness login' to re-authenticate: %w", err)
+			return fmt.Errorf("stored token is invalid — run 'harness auth login' to re-authenticate: %w", err)
 		}
 		if tokenAcct := AccountIDFromToken(r.PATToken); tokenAcct != "" && r.AccountID != tokenAcct {
 			if r.Source == SourceEnv {
 				return fmt.Errorf("%s %q does not match account in token %q", hbase.EnvAccount, r.AccountID, tokenAcct)
 			}
-			return fmt.Errorf("stored account %q does not match token — run 'harness login' to re-authenticate", r.AccountID)
+			return fmt.Errorf("stored account %q does not match token — run 'harness auth login' to re-authenticate", r.AccountID)
 		}
 	}
 	if r.OrgID == "" {
@@ -187,7 +187,7 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	p, ok := cfg.Profiles[name]
 	if !ok {
 		if name == "default" {
-			return nil, errors.New("not logged in — run 'harness login' to get started")
+			return nil, errors.New("not logged in — run 'harness auth login' to get started")
 		}
 		return nil, fmt.Errorf("profile %q not found", name)
 	}
@@ -197,7 +197,7 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	}
 	profileCreds := creds[name]
 	if profileCreds == nil || profileCreds.Token == "" {
-		return nil, fmt.Errorf("no token found for profile %q — run 'harness login' to re-authenticate", name)
+		return nil, fmt.Errorf("no token found for profile %q — run 'harness auth login' to re-authenticate", name)
 	}
 	apiURL := p.APIUrl
 	if apiURL == "" {
