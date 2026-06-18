@@ -81,7 +81,7 @@ func FetchRange(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int
 
 		hlog.Debug("FetchRange page", "noun", ctx.Noun, "start_offset", p.StartOffset, "items", len(p.Items), "last", p.Last, "total_so_far", len(out))
 
-		if p.Last {
+		if p.Last || len(p.Items) == 0 {
 			break
 		}
 	}
