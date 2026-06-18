@@ -28,6 +28,16 @@ type FailureInfo struct {
 	Message string `json:"message"`
 }
 
+type ChildPipelineExecutionDetails struct {
+	PlanExecutionID string `json:"planExecutionId"`
+	OrgID           string `json:"orgId"`
+	ProjectID       string `json:"projectId"`
+}
+
+type StepDetails struct {
+	ChildPipelineExecutionDetails ChildPipelineExecutionDetails `json:"childPipelineExecutionDetails"`
+}
+
 type GraphNode struct {
 	UUID             string         `json:"uuid"`
 	SetupID          string         `json:"setupId"`
@@ -41,6 +51,7 @@ type GraphNode struct {
 	EndTs            int64          `json:"endTs"`
 	DelegateInfoList []DelegateInfo `json:"delegateInfoList"`
 	FailureInfo      FailureInfo    `json:"failureInfo"`
+	StepDetails      StepDetails    `json:"stepDetails"`
 
 	Rank int // computed, not from JSON
 }

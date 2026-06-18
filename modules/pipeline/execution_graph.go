@@ -141,17 +141,18 @@ func listExecutionStepsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, 
 				delegate = node.DelegateInfoList[0].Name
 			}
 			rows = append(rows, map[string]any{
-				"name":       name,
-				"type":       node.StepType,
-				"status":     status,
-				"duration":   fmtNodeDuration(node.StartTs, node.EndTs),
-				"delegate":   delegate,
-				"error":      node.FailureInfo.Message,
-				"identifier": node.Identifier,
-				"fqn":        node.BaseFQN,
-				"log_key":    node.LogBaseKey,
-				"uuid":       node.UUID,
-				"started":    node.StartTs,
+				"name":               name,
+				"type":               node.StepType,
+				"status":             status,
+				"duration":           fmtNodeDuration(node.StartTs, node.EndTs),
+				"delegate":           delegate,
+				"error":              node.FailureInfo.Message,
+				"identifier":         node.Identifier,
+				"fqn":                node.BaseFQN,
+				"log_key":            node.LogBaseKey,
+				"uuid":               node.UUID,
+				"started":            node.StartTs,
+				"child_execution_id": node.StepDetails.ChildPipelineExecutionDetails.PlanExecutionID,
 			})
 			nextDepth = depth + 1
 		}

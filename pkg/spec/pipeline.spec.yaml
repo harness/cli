@@ -269,6 +269,9 @@ nouns:
       - id: started
         label: Started
         expr: epochMs(it["started"])
+      - id: child_execution_id
+        label: Child Execution ID
+        expr: it["child_execution_id"]
 
   - noun: runtime_input_template
     short_desc: The set of runtime input placeholders (<+input>) that a pipeline requires at execution time.
