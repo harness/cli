@@ -135,15 +135,15 @@ type wizardModel struct {
 	// pre-selected values (for set-wizard mode)
 	currentOrgID     string
 	currentProjectID string
-	setMode          bool              // started at org pick; no URL/token steps
-	authType         pkgauth.AuthType  // AuthTypePAT or AuthTypeSSO
+	setMode          bool             // started at org pick; no URL/token steps
+	authType         pkgauth.AuthType // AuthTypePAT or AuthTypeSSO
 
 	cmdCtx       *cmdctx.Ctx
 	err          string
 	cancelled    bool
 	cancelReason error // set when cancelled due to an internal error, not user action
-	width     int
-	height    int
+	width        int
+	height       int
 }
 
 func buildURLOpts(existingAPIURL string) (opts []urlOpt, defaultIdx int) {
