@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/hbase"
 	"github.com/harness/harness-cli/pkg/hlog"
 )
 
@@ -170,6 +171,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating API request: %w", err)
 	}
+	req.Header.Set("X-Harness-CLI-Request", hbase.Version)
 	if c.resolved.AuthType == auth.AuthTypeSSO {
 		req.Header.Set("Authorization", "Bearer "+c.resolved.SSOToken)
 	} else {

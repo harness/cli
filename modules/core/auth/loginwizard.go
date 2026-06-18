@@ -452,9 +452,14 @@ func (m wizardModel) handleEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// custom text input
-		val := strings.TrimSpace(m.urlInput.Value())
-		if val == "" {
+		val := m.urlInput.Value()
+		if strings.TrimSpace(val) == "" {
 			val = m.urlInput.Placeholder
+		}
+		val = pkgauth.NormalizeAPIURL(val)
+		if err := pkgauth.ValidateAPIURL(val); err != nil {
+			m.err = err.Error()
+			return m, nil
 		}
 		m.apiURL = val
 		m.urlInput.Blur()

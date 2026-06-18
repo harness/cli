@@ -10,8 +10,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/mod/semver"
 
 	"github.com/harness/harness-cli/pkg/console"
+	"github.com/harness/harness-cli/pkg/hbase"
 	"github.com/harness/harness-cli/modules/code"
 	"github.com/harness/harness-cli/modules/core"
 	"github.com/harness/harness-cli/modules/iacm"
@@ -26,6 +28,11 @@ import (
 var noargsText string
 
 func main() {
+	if !semver.IsValid("v" + hbase.Version) {
+		console.PrintError(fmt.Sprintf("invalid version %q: must be a valid semver (e.g. 1.2.3)", hbase.Version))
+		os.Exit(1)
+	}
+
 	reg := registry.New()
 	reg.IsMainBinary = true
 	if err := specloader.LoadSpecs(reg); err != nil {
