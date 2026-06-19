@@ -239,6 +239,62 @@ nouns:
       - id: updated
         expr: epochMs(it.updated)
 
+  - noun: pr_check
+    short_desc: A status check on a pull request (CI, required checks, etc).
+    noun_aliases: [pr_checks]
+    fields:
+      - id: identifier
+        expr: it.check.identifier
+      - id: status
+        expr: it.check.status
+      - id: required
+        expr: it.required
+      - id: summary
+        expr: it.check.summary
+        width_max: 60
+      - id: link
+        expr: it.check.link
+      - id: reported_by
+        label: Reported By
+        expr: it.check.reported_by.display_name
+      - id: reported_by_email
+        label: Reported By Email
+        expr: it.check.reported_by.email
+      - id: reported_by_uid
+        label: Reported By UID
+        expr: it.check.reported_by.uid
+      - id: started
+        expr: epochMs(it.check.started)
+      - id: ended
+        expr: epochMs(it.check.ended)
+      - id: duration
+        expr: duration(it.check.started, it.check.ended)
+        align: right
+      - id: created
+        expr: epochMs(it.check.created)
+      - id: updated
+        expr: epochMs(it.check.updated)
+      - id: bypassable
+        expr: it.bypassable
+      - id: payload_kind
+        label: Payload Kind
+        expr: it.check.payload.kind
+      - id: pipeline_id
+        label: Pipeline
+        expr: it.check.payload.data.pipeline_identifier
+      - id: pipeline_org
+        label: Pipeline Org
+        expr: it.check.payload.data.org_identifier
+      - id: pipeline_project
+        label: Pipeline Project
+        expr: it.check.payload.data.project_identifier
+      - id: execution_id
+        label: Execution ID
+        expr: it.check.payload.data.execution_id
+      - id: stage_id
+        label: Stage ID
+        expr: it.check.payload.data.stage_identifier
+
   - noun: pr_activity
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
@@ -716,6 +772,28 @@ commands:
       paging:
         paging_strategy: flat_list
       columns: [id, kind, type, author, text, created]
+
+  # ── pr_check ─────────────────────────────────────────────────────────────────
+
+  - command: list pr_check
+    verb: list
+    noun: pr_check
+    short: "List status checks for a pull request: harness list pr_check <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/checks
+      items_expr: it.checks
+      get_id_expr: it.check.identifier
+      paging:
+        paging_strategy: flat_list
+      columns: [identifier, status, required, summary, reported_by, duration]
 
   # ── pr_comment ───────────────────────────────────────────────────────────────
 
