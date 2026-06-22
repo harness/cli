@@ -68,7 +68,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 		return nil, nil, fmt.Errorf("resolving path %q: %w", ep.Path, err)
 	}
 
-	c := client.New(ctx.Context, a)
+	c := client.New(ctx)
 	method := ep.Method
 	if method == "" {
 		method = "GET"

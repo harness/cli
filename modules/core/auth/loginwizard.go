@@ -757,7 +757,7 @@ func validateAndFetch(apiURL, token string) (accountID, regURL string, err error
 	if accountID == "" {
 		return "", "", fmt.Errorf("token does not look like a Harness PAT (expected pat.<accountID>.<...>)")
 	}
-	c := hclient.New(context.Background(), &pkgauth.ResolvedAuth{
+	c := hclient.NewWithAuth(context.Background(), &pkgauth.ResolvedAuth{
 		APIUrl:    apiURL,
 		AuthType:  pkgauth.AuthTypePAT,
 		PATToken:  token,
@@ -789,7 +789,7 @@ func newLoginClient(apiURL, token, accountID string, authType pkgauth.AuthType) 
 	} else {
 		ra.PATToken = token
 	}
-	return hclient.New(context.Background(), ra)
+	return hclient.NewWithAuth(context.Background(), ra)
 }
 
 func fetchOrgsClient(apiURL, token, accountID string, authType pkgauth.AuthType) ([]orgItem, error) {

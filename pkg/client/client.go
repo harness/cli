@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/hbase"
 	"github.com/harness/harness-cli/pkg/hlog"
 )
@@ -77,12 +78,36 @@ type Request struct {
 
 // Client makes authenticated HTTP requests to the Harness API.
 type Client struct {
-	ctx      context.Context
-	resolved *auth.ResolvedAuth
-	http     *http.Client
+	ctx        context.Context
+	resolved   *auth.ResolvedAuth
+	http       *http.Client
+	cliCommand string // value for X-CLI-Command header; "completion" for completion requests
 }
 
-func New(ctx context.Context, resolved *auth.ResolvedAuth) *Client {
+// New creates a Client from a command context.
+func New(cc *cmdctx.Ctx) *Client {
+	parts := []string{}
+	if cc.Verb != "" {
+		parts = append(parts, cc.Verb)
+	}
+	if cc.Noun != "" {
+		parts = append(parts, cc.Noun)
+	}
+	cmd := strings.Join(parts, " ")
+	if cc.IsCompletion {
+		cmd = "completion"
+	}
+	return &Client{
+		ctx:        cc.Context,
+		resolved:   cc.Auth,
+		http:       &http.Client{Timeout: 30 * time.Second},
+		cliCommand: cmd,
+	}
+}
+
+// NewWithAuth creates a Client from a bare context and resolved auth, with no
+// CLI command metadata. Used for pre-command flows like login that have no Ctx.
+func NewWithAuth(ctx context.Context, resolved *auth.ResolvedAuth) *Client {
 	return &Client{
 		ctx:      ctx,
 		resolved: resolved,
@@ -172,6 +197,10 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 		return nil, nil, fmt.Errorf("creating API request: %w", err)
 	}
 	req.Header.Set("X-Harness-CLI-Request", hbase.Version)
+	req.Header.Set("X-Harness-CLI-Run-ID", hbase.RunID)
+	if c.cliCommand != "" {
+		req.Header.Set("X-CLI-Command", c.cliCommand)
+	}
 	if c.resolved.AuthType == auth.AuthTypeSSO {
 		req.Header.Set("Authorization", "Bearer "+c.resolved.SSOToken)
 	} else {

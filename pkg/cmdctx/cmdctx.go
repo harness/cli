@@ -146,25 +146,26 @@ type GlobalFlags struct{}
 // Auth is nil for management commands (version, etc.) that do not require credentials.
 // When Auth is non-nil, OrgID and ProjectID already reflect any --org/--project overrides.
 type Ctx struct {
-	Context     context.Context
-	CancelFn    context.CancelCauseFunc
-	Auth        *auth.ResolvedAuth
-	Verb        string
-	VerbHandler string // behavioral dispatch verb; defaults to Verb when verb_handler is unset in spec
-	Noun        string
-	FieldsNoun  string // overrides Noun for field lookup when set (from spec fields_noun)
-	Id          string
-	ParentId    string            // optional parent-id arg for list commands (e.g. pipeline ID on "list execution")
-	SetArgs     map[string]string // --set key=value pairs for update verb (when HasSetArg set on spec)
-	DelArgs     []string          // --del key targets for update verb (when HasSetArg set on spec)
-	Args        []string          // extra positional args beyond [id] (when HasArgs set on spec)
-	IdParts     []string          // id split on "/" when id_parts > 1 on spec; length equals the number of actual parts
-	Level       string            // scope level: "account", "org", or "project" (empty when flag not present)
-	IsPty       bool              // true when stdout is an interactive terminal
-	Resolver    Resolver
-	GlobalFlags GlobalFlags
-	FormatFlags FormatFlags
-	PagingFlags PagingFlags
+	Context      context.Context
+	CancelFn     context.CancelCauseFunc
+	Auth         *auth.ResolvedAuth
+	Verb         string
+	VerbHandler  string // behavioral dispatch verb; defaults to Verb when verb_handler is unset in spec
+	Noun         string
+	FieldsNoun   string // overrides Noun for field lookup when set (from spec fields_noun)
+	Id           string
+	ParentId     string            // optional parent-id arg for list commands (e.g. pipeline ID on "list execution")
+	SetArgs      map[string]string // --set key=value pairs for update verb (when HasSetArg set on spec)
+	DelArgs      []string          // --del key targets for update verb (when HasSetArg set on spec)
+	Args         []string          // extra positional args beyond [id] (when HasArgs set on spec)
+	IdParts      []string          // id split on "/" when id_parts > 1 on spec; length equals the number of actual parts
+	Level        string            // scope level: "account", "org", or "project" (empty when flag not present)
+	IsPty        bool              // true when stdout is an interactive terminal
+	IsCompletion bool              // true when this ctx was built for a shell completion request
+	Resolver     Resolver
+	GlobalFlags  GlobalFlags
+	FormatFlags  FormatFlags
+	PagingFlags  PagingFlags
 	// FlagValues holds typed flag values for this command, keyed by flag name. It contains:
 	//   - all flags declared in the spec (cs.Flags), typed as string/bool/[]string
 	//   - "page"         int    (0-indexed) when the spec declares builtin_flags.page

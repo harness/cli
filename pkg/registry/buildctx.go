@@ -87,14 +87,15 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 	}
 
 	return &cmdctx.Ctx{
-		Context:  ctx,
-		CancelFn: cancel,
-		Verb:     verb,
-		Noun:     noun,
-		ParentId: parentId,
-		Level:    level,
-		Auth:     resolved,
-		Resolver: r,
+		Context:      ctx,
+		CancelFn:     cancel,
+		Verb:         verb,
+		Noun:         noun,
+		ParentId:     parentId,
+		Level:        level,
+		Auth:         resolved,
+		Resolver:     r,
+		IsCompletion: true,
 	}, nil
 }
 

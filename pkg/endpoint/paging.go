@@ -110,7 +110,7 @@ func HTTPFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount in
 		return nil, err
 	}
 	pagingData := strategy.InjectPaging(req, pg, wantStart, wantCount)
-	raw, headers, err := client.New(ctx.Context, ctx.Auth).DoRequest(*req)
+	raw, headers, err := client.New(ctx).DoRequest(*req)
 	if err != nil {
 		hlog.Debug("HTTPFetchFn error", "noun", ctx.Noun, "err", err)
 		return nil, err

@@ -19,7 +19,7 @@ func mergePRBodyFn(ctx *cmdctx.Ctx) (any, error) {
 	repoID := ctx.IdParts[0]
 	prNumber := ctx.IdParts[1]
 
-	c := client.New(ctx.Context, ctx.Auth)
+	c := client.New(ctx)
 	params := map[string]string{
 		"accountIdentifier": ctx.Auth.AccountID,
 		"orgIdentifier":     ctx.Auth.OrgID,

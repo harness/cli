@@ -90,6 +90,9 @@ type CommandIntent struct {
 	// AccountID from resolved auth. Empty for commands that skip auth.
 	AccountID string
 
+	// RunID correlates all API calls from this invocation. Mirrors hbase.RunID.
+	RunID string
+
 	Env Env
 }
 
@@ -101,6 +104,7 @@ type CommandError struct {
 	Noun      string
 	Module    string
 	AccountID string
+	RunID     string
 
 	Category   ErrorCategory
 	DurationMs int64

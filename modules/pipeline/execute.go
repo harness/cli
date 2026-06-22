@@ -69,7 +69,7 @@ func executePipelineBody(ctx *cmdctx.Ctx) (any, error) {
 
 // resolveFromTemplate fetches the pipeline's runtime input template and substitutes inputs.
 func resolveFromTemplate(ctx *cmdctx.Ctx, inputs map[string]string) (string, error) {
-	c := client.New(ctx.Context, ctx.Auth)
+	c := client.New(ctx)
 	params := map[string]string{
 		"pipelineIdentifier": ctx.Id,
 		"orgIdentifier":      ctx.Auth.OrgID,

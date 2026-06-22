@@ -9,7 +9,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/google/uuid"
 )
+
+// RunID is a UUID generated once at process startup. It is sent as
+// X-Harness-CLI-Run-ID on every outgoing API call to correlate all
+// requests from a single CLI invocation.
+var RunID = uuid.New().String()
 
 // overridden at build time via ldflags: -X github.com/harness/harness-cli/pkg/hbase.Version=x.y.z
 var Version = "0.1.0-dev"
