@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/config"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/exprenv"
 	"github.com/harness/harness-cli/pkg/hlog"
@@ -338,7 +339,7 @@ func (r *Registry) wireFlagCompletion(cmd *cobra.Command, cs *spec.CommandSpec, 
 // wireProfileCompletion registers tab-completion for the --profile flag by reading the local config file.
 func wireProfileCompletion(cmd *cobra.Command) {
 	cmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		cfg, err := auth.LoadConfig()
+		cfg, err := config.LoadConfig()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}

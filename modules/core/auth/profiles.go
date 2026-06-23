@@ -7,13 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/config"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/spec"
 )
 
 func ProfilesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*cmdctx.PageResult, error) {
-	cfg, err := auth.LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		return nil, err
 	}

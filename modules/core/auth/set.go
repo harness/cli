@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/config"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/console"
 )
@@ -30,7 +31,7 @@ func SetHandler(ctx *cmdctx.Ctx) error {
 }
 
 func setInteractive(ctx *cmdctx.Ctx, profileName string) error {
-	cfg, err := auth.LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -68,7 +69,7 @@ func setInteractive(ctx *cmdctx.Ctx, profileName string) error {
 }
 
 func setFlags(profileName, orgID, projectID string) error {
-	cfg, err := auth.LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -84,7 +85,7 @@ func setFlags(profileName, orgID, projectID string) error {
 		p.ProjectID = projectID
 	}
 
-	if err := auth.SaveConfig(cfg); err != nil {
+	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving profile: %w", err)
 	}
 

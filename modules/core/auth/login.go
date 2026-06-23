@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/config"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/console"
 )
@@ -47,7 +48,7 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 	isInteractive := console.IsBothTTY() && (apiURL == "" || token == "")
 
 	// Load config early so we can check for an existing profile.
-	cfg, err := auth.LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -158,14 +159,14 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 		}
 	}
 
-	cfg.Profiles[profileName] = &auth.Profile{
+	cfg.Profiles[profileName] = &config.Profile{
 		APIUrl:      apiURL,
 		AccountID:   accountID,
 		OrgID:       orgID,
 		ProjectID:   projectID,
 		RegistryURL: registryURL,
 	}
-	if err := auth.SaveConfig(cfg); err != nil {
+	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving profile: %w", err)
 	}
 	if err := auth.SetCredential(profileName, token); err != nil {

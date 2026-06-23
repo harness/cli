@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/config"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 )
 
@@ -16,7 +17,7 @@ func LogoutHandler(ctx *cmdctx.Ctx) error {
 		profileName = "default"
 	}
 
-	cfg, err := auth.LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -25,7 +26,7 @@ func LogoutHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	delete(cfg.Profiles, profileName)
-	if err := auth.SaveConfig(cfg); err != nil {
+	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 	if err := auth.DeleteCredential(profileName); err != nil {

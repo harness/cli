@@ -19,6 +19,7 @@ import (
 
 	"github.com/harness/harness-cli/modules/core/auth/assets"
 	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/config"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/console"
 	"github.com/harness/harness-cli/pkg/hlog"
@@ -52,7 +53,7 @@ func LoginSSOHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("invalid profile name %q: must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", profileName)
 	}
 
-	cfg, err := auth.LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -103,14 +104,14 @@ func LoginSSOHandler(ctx *cmdctx.Ctx) error {
 		projectID = result.Project
 	}
 
-	cfg.Profiles[profileName] = &auth.Profile{
+	cfg.Profiles[profileName] = &config.Profile{
 		APIUrl:    apiURL,
 		AccountID: accountID,
 		OrgID:     orgID,
 		ProjectID: projectID,
 		AuthType:  auth.AuthTypeSSO,
 	}
-	if err := auth.SaveConfig(cfg); err != nil {
+	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving profile: %w", err)
 	}
 	if err := auth.SetSSOCredentials(profileName, token, refreshToken); err != nil {
