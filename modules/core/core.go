@@ -21,14 +21,15 @@ const (
 	profilesFetchFnID = "profiles_fetch"
 
 	// mgmt
-	versionHandlerID      = "version"
-	askHandlerID          = "ask"
-	installCLIHandlerID   = "install_cli"
-	installModuleHandlerID = "install_module"
-	listModulesFetchFnID  = "list_modules_fetch"
-	getModuleHandlerID    = "get_module"
-	listNounsFetchFnID    = "list_nouns_fetch"
-	getNounHandlerID      = "get_noun"
+	debugUpdateCheckHandlerID = "debug_update_check"
+	versionHandlerID          = "version"
+	askHandlerID              = "ask"
+	installCLIHandlerID       = "install_cli"
+	installModuleHandlerID    = "install_module"
+	listModulesFetchFnID      = "list_modules_fetch"
+	getModuleHandlerID        = "get_module"
+	listNounsFetchFnID        = "list_nouns_fetch"
+	getNounHandlerID          = "get_noun"
 )
 
 func ModuleInit(reg registry.ModuleRegistrar) {
@@ -40,6 +41,7 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(envHandlerID, auth.EnvHandler)
 	reg.RegisterWorkflow(tokenHandlerID, auth.TokenHandler)
 	reg.RegisterFetchFn(profilesFetchFnID, auth.ProfilesFetchFn)
+	reg.RegisterWorkflow(debugUpdateCheckHandlerID, mgmt.DebugUpdateCheckHandler)
 	reg.RegisterWorkflow(versionHandlerID, mgmt.VersionHandler)
 	reg.RegisterWorkflow(askHandlerID, mgmt.AskHandler)
 	reg.RegisterWorkflow(installCLIHandlerID, mgmt.InstallCLIHandler)

@@ -1,17 +1,17 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package updatecheck implements background update notifications for the Harness CLI.
+// Package release manages GitHub release interactions and background update notifications
+// for the Harness CLI.
 //
 // The main process calls MaybeSpawn to potentially launch a detached subprocess, then
 // calls NagIfDue to print a notice from the cache. The subprocess is launched as
 // "harness --background-update-check" and calls RunBackgroundCheck to do the fetch.
-package updatecheck
+package release
 
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,18 +22,20 @@ import (
 	"golang.org/x/term"
 
 	"github.com/harness/harness-cli/pkg/hbase"
+	"github.com/harness/harness-cli/pkg/hlog"
 )
 
 const (
 	// FlagName is the hidden flag that triggers the background subprocess behavior.
 	FlagName = "--background-update-check"
 
-	cacheFile       = "update-check.json"
-	releasesAPIURL  = "https://app.harness.io/gateway/ng/api/harness-cli/latest-release"
-	spawnInterval   = 1 * time.Hour
-	checkInterval   = 24 * time.Hour
-	nagInterval     = 24 * time.Hour
-	httpTimeout     = 10 * time.Second
+	cacheFile = "update-check.json"
+	// Repo is the GitHub repo for all Harness CLI release operations.
+	Repo = "harness/harness-unified-cli"
+	spawnInterval = 24 * time.Hour
+	checkInterval = 24 * time.Hour
+	nagInterval   = 24 * time.Hour
+	httpTimeout   = 10 * time.Second
 )
 
 // cache is the on-disk cache written to ~/.harness/update-check.json.
@@ -48,27 +50,34 @@ type cache struct {
 // and launches a detached "harness --background-update-check" subprocess.
 // It is a no-op (never errors) — update checking must never break normal commands.
 func MaybeSpawn() {
-	if !shouldSpawn() {
+	if !shouldUpdateCheck() {
 		return
 	}
 	c := readCache()
 	now := time.Now().UTC()
 
 	if !c.LastChecked.IsZero() && now.Sub(c.LastChecked) < checkInterval {
-		return // cache is fresh
+		hlog.Debug("update check skipped", "reason", "cache fresh", "last_checked", c.LastChecked)
+		return
 	}
 	if !c.LastSpawn.IsZero() && now.Sub(c.LastSpawn) < spawnInterval {
-		return // already spawned recently
+		hlog.Debug("update check skipped", "reason", "spawned recently", "last_spawn", c.LastSpawn)
+		return
 	}
 
 	// Write last_spawn before spawning so concurrent invocations skip.
+	// If the write fails (e.g. read-only filesystem), don't spawn.
 	c.LastSpawn = now
-	_ = writeCache(c)
+	if err := writeCache(c); err != nil {
+		hlog.Debug("update check skipped", "reason", "cache write failed", "error", err)
+		return
+	}
 
 	exe, err := os.Executable()
 	if err != nil {
 		return
 	}
+	hlog.Debug("spawning background update check", "exe", exe)
 	cmd := exec.Command(exe, FlagName)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
@@ -80,25 +89,35 @@ func MaybeSpawn() {
 // RunBackgroundCheck is the subprocess entry point. It fetches the latest version,
 // updates the cache, and always exits 0.
 func RunBackgroundCheck() {
-	latest, err := fetchLatestVersion()
+	hlog.Debug("background update check starting")
+	latest, err := FetchLatestVersion()
 	if err != nil {
-		return // silent; last_spawn already written; retry after ~1h
+		hlog.Debug("background update check fetch failed", "error", err)
+		return
 	}
+	hlog.Debug("background update check fetched", "latest", latest)
 	c := readCache()
 	c.LastChecked = time.Now().UTC()
 	c.LatestVersion = latest
-	_ = writeCache(c)
+	if err := writeCache(c); err != nil {
+		hlog.Debug("background update check cache write failed", "error", err)
+		return
+	}
+	hlog.Debug("background update check cache updated")
 }
 
 // NagIfDue prints an update notice to stderr if a newer version is known and the
 // nag interval has elapsed. It reads from the cache only — no network call.
 func NagIfDue(currentVersion string) {
+	if !shouldUpdateCheck() {
+		return
+	}
 	c := readCache()
 	if c.LatestVersion == "" {
 		return
 	}
 	cur := "v" + currentVersion
-	lat := "v" + c.LatestVersion
+	lat := c.LatestVersion
 	if !semver.IsValid(cur) || !semver.IsValid(lat) {
 		return
 	}
@@ -109,13 +128,15 @@ func NagIfDue(currentVersion string) {
 	if !c.LastNotified.IsZero() && now.Sub(c.LastNotified) < nagInterval {
 		return // nagged recently
 	}
-	fmt.Fprintf(os.Stderr, "\nA new version of the Harness CLI is available: %s → %s\nRun: harness update\n\n", currentVersion, c.LatestVersion)
 	c.LastNotified = now
-	_ = writeCache(c)
+	if err := writeCache(c); err != nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\nA new version of the Harness CLI is available: %s → %s\nRun: harness install cli\n\n", currentVersion, c.LatestVersion)
 }
 
-// shouldSpawn returns false for all gating conditions that mean we skip entirely.
-func shouldSpawn() bool {
+// shouldUpdateCheck returns false for all gating conditions that mean we skip entirely.
+func shouldUpdateCheck() bool {
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
 		return false
 	}
@@ -168,29 +189,34 @@ func writeCache(c cache) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// fetchLatestVersion calls the releases API and returns the latest semver string (without "v" prefix).
-func fetchLatestVersion() (string, error) {
+// FetchLatestVersion calls the GitHub releases API and returns the latest version tag (e.g. "v1.2.3").
+func FetchLatestVersion() (string, error) {
 	client := &http.Client{Timeout: httpTimeout}
-	resp, err := client.Get(releasesAPIURL)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if err != nil {
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return "", err
 	}
-	var payload struct {
-		Version string `json:"version"`
+	if release.TagName == "" {
+		return "", fmt.Errorf("empty tag_name in response")
 	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return "", err
+	if !semver.IsValid(release.TagName) {
+		return "", fmt.Errorf("invalid version %q from API", release.TagName)
 	}
-	if !semver.IsValid("v" + payload.Version) {
-		return "", fmt.Errorf("invalid version %q from API", payload.Version)
-	}
-	return payload.Version, nil
+	return release.TagName, nil
 }

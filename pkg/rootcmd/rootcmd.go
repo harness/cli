@@ -18,7 +18,18 @@ import (
 	"github.com/harness/harness-cli/pkg/registry"
 	"github.com/harness/harness-cli/pkg/spec"
 	"github.com/harness/harness-cli/pkg/specloader"
+	"github.com/harness/harness-cli/pkg/release"
 )
+
+// MaybeRunBackgroundUpdateCheck exits if this invocation is the background update subprocess.
+func MaybeRunBackgroundUpdateCheck() {
+	for _, arg := range os.Args[1:] {
+		if arg == release.FlagName {
+			release.RunBackgroundCheck()
+			os.Exit(0)
+		}
+	}
+}
 
 // MaybeCheckSpecs runs spec validation and exits if HARNESS_CHECKSPECS=1, otherwise returns immediately.
 func MaybeCheckSpecs(reg *registry.Registry) {
@@ -128,6 +139,10 @@ func dumpModuleHelp(moduleName string, reg *registry.Registry) error {
 
 // SetupAndExecuteRootCmd wires common flags, attaches commands, and executes root.
 func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
+	if reg.IsMainBinary {
+		release.NagIfDue(hbase.Version)
+		release.MaybeSpawn()
+	}
 	bt := hbase.BuildTime
 	if bt == "" {
 		bt = "dev"

@@ -7,7 +7,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +23,7 @@ import (
 	"github.com/harness/harness-cli/pkg/hbase"
 	"github.com/harness/harness-cli/pkg/hlog"
 	"github.com/harness/harness-cli/pkg/plugin"
+	"github.com/harness/harness-cli/pkg/release"
 )
 
 var reReleaseVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
@@ -57,7 +57,7 @@ func resolveVersion(version string) (string, error) {
 		return version, nil
 	}
 	hlog.Debug("fetching latest release version")
-	v, err := fetchLatestVersion()
+	v, err := release.FetchLatestVersion()
 	if err != nil {
 		return "", fmt.Errorf("fetching latest version: %w", err)
 	}
@@ -66,7 +66,6 @@ func resolveVersion(version string) (string, error) {
 }
 
 const (
-	installRepo       = "harness/harness-unified-cli"
 	installBinaryName = "harness"
 	installBundleName = "harness-core"
 	installDefaultDir = "~/.local/bin"
@@ -237,33 +236,6 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 	return nil
 }
 
-func fetchLatestVersion() (string, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", installRepo)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-	}
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", err
-	}
-	if release.TagName == "" {
-		return "", fmt.Errorf("empty tag_name in response")
-	}
-	return release.TagName, nil
-}
 
 func detectPlatform() (string, error) {
 	var os_, arch string
@@ -289,8 +261,8 @@ func detectPlatform() (string, error) {
 func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName string) error {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", installRepo, version, base)
-	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", installRepo, version, installBinaryName, ver)
+	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
 
 	tmp, err := os.MkdirTemp("", "harness-install-*")
 	if err != nil {
@@ -335,7 +307,7 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 func releaseAssetExists(version, platform, pkgName string) (bool, error) {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", installRepo, version, base)
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Head(url)
 	if err != nil {

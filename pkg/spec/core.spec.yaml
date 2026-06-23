@@ -336,3 +336,11 @@ commands:
     dev_only: true
     handler_type: workflow
     workflow_id: debug.nonexistent
+
+  - command: debug update_check
+    verb: debug
+    noun: update_check
+    short: Run the update check and print the result
+    hidden: true
+    handler_type: workflow
+    workflow_id: debug_update_check
