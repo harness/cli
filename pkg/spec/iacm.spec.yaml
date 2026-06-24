@@ -105,14 +105,13 @@ nouns:
         expr: epochMs(it.updated)
 
   # `module` is already a CLI noun in core.spec.yaml (lists/installs loaded CLI
-  # modules). To avoid the collision, IaCM registry modules use the noun variant
-  # `module:iacm` → `harness list module:iacm` / `harness get module:iacm <id>`.
-  # NounDefs are keyed by base noun only (no per-variant fields), and the base
-  # `module` noun is owned by core, so the IaCM field set lives under a distinct
-  # `iacm_module` noun that the variant commands reference via `fields_noun`.
-  - noun: iacm_module
+  # modules). An IaCM registry module is a distinct resource, not a variant of
+  # that noun, so per the naming convention (`_` separates words in a distinct
+  # base noun; `:` is reserved for noun-variants) it gets its own base noun
+  # `registry_module` → `harness list registry_module` / `get registry_module <id>`.
+  - noun: registry_module
     short_desc: An IACM Terraform/OpenTofu module from the module registry.
-    noun_aliases: [iacm_modules]
+    noun_aliases: [registry_modules]
     fields:
       - id: id
         expr: it.id
@@ -378,12 +377,10 @@ commands:
       item_expr: it
       yaml_pick_expr: it
 
-  # ── module:iacm (registry) ──────────────────────────────────────────────────--
-  - command: list module:iacm
+  # ── registry_module (registry) ──────────────────────────────────────────────--
+  - command: list registry_module
     verb: list
-    noun: module
-    noun_variant: iacm
-    fields_noun: iacm_module
+    noun: registry_module
     short: List IACM modules at the level queried
     handler_type: endpoint
     flags:
@@ -413,13 +410,10 @@ commands:
         total_header: "X-Total-Items"
       columns: [id, name, system, updated]
 
-  - command: get module:iacm
+  - command: get registry_module
     verb: get
-    noun: module
-    noun_variant: iacm
-    fields_noun: iacm_module
+    noun: registry_module
     short: Get an IACM module by identifier
-    completion_noun: module:iacm
     handler_type: endpoint
     endpoint:
       path: /gateway/iacm/api/modules/{{ctx.id}}
