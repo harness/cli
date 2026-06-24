@@ -37,6 +37,133 @@ nouns:
       - id: updated
         expr: epochMs(it.updated)
 
+  - noun: hosts
+    short_desc: An IACM Ansible host tracked across inventories.
+    noun_aliases: [host]
+    fields:
+      - id: id
+        expr: it.id
+      - id: host_address
+        expr: it.host_address
+      - id: status
+        expr: it.last_activity?.status
+      - id: inventories
+        expr: it.inventories
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
+  - noun: inventory
+    short_desc: An IACM Ansible inventory of hosts and groups.
+    noun_aliases: [inventories]
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: name
+        expr: it.name
+      - id: type
+        expr: it.type
+      - id: description
+        expr: it.description
+      - id: account
+        expr: it.account
+      - id: org
+        expr: it.org
+      - id: project
+        expr: it.project
+      - id: tags
+        expr: it.tags
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
+  - noun: playbook
+    short_desc: An IACM Ansible playbook definition.
+    noun_aliases: [playbooks]
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: name
+        expr: it.name
+      - id: description
+        expr: it.description
+      - id: repository
+        expr: it.repository
+      - id: repository_branch
+        expr: it.repository_branch
+      - id: repository_connector
+        expr: it.repository_connector
+      - id: repository_path
+        expr: it.repository_path
+      - id: tags
+        expr: it.tags
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
+  # `module` is already a CLI noun in core.spec.yaml (lists/installs loaded CLI
+  # modules). To avoid the collision, IaCM registry modules use the noun variant
+  # `module:iacm` → `harness list module:iacm` / `harness get module:iacm <id>`.
+  # NounDefs are keyed by base noun only (no per-variant fields), and the base
+  # `module` noun is owned by core, so the IaCM field set lives under a distinct
+  # `iacm_module` noun that the variant commands reference via `fields_noun`.
+  - noun: iacm_module
+    short_desc: An IACM Terraform/OpenTofu module from the module registry.
+    noun_aliases: [iacm_modules]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: system
+        expr: it.system
+      - id: namespace
+        expr: it.namespace
+      - id: description
+        expr: it.description
+      - id: org
+        expr: it.org
+      - id: project
+        expr: it.project
+      - id: repository
+        expr: it.repository
+      - id: repository_branch
+        expr: it.repository_branch
+      - id: repository_connector
+        expr: it.repository_connector
+      - id: versions
+        expr: it.versions
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
+  - noun: provider
+    short_desc: An IACM Terraform provider from the provider registry.
+    noun_aliases: [providers]
+    fields:
+      - id: id
+        expr: it.id
+      - id: type
+        expr: it.type
+      - id: namespace
+        expr: it.namespace
+      - id: description
+        expr: it.description
+      - id: domain_prefix
+        expr: it.domain_prefix
+      - id: account
+        expr: it.account
+      - id: versions
+        expr: it.versions
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
 commands:
   - command: list workspace
     verb: list
@@ -112,3 +239,238 @@ commands:
       - name: force
         description: "Skip confirmation prompt"
         is_bool: true
+
+  # ── host (Ansible) ────────────────────────────────────────────────────────────
+  - command: list hosts
+    verb: list
+    noun: hosts
+    short: List IACM Ansible hosts at the project level
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter hosts by partial host address match
+      - name: inventory
+        description: Filter hosts by inventory membership
+      - name: status
+        description: Filter hosts by last activity status
+    endpoint:
+      path: /gateway/iacm/api/orgs/{{auth.org}}/projects/{{auth.project}}/ansible/hosts
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it
+      get_id_expr: it.id
+      completion:
+        id_expr: it.id
+        name_expr: it.host_address
+      query_params:
+        searchTerm: flags.search
+        inventory: flags.inventory
+        status: flags.status
+      paging:
+        paging_strategy: page_header
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+        total_header: "X-Total-Items"
+      columns: [id, host_address, status, updated]
+
+  - command: get hosts
+    verb: get
+    noun: hosts
+    short: Get an IACM Ansible host by identifier
+    completion_noun: hosts
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/iacm/api/orgs/{{auth.org}}/projects/{{auth.project}}/ansible/hosts/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+      yaml_pick_expr: it
+
+  # ── inventory (Ansible) ─────────────────────────────────────────────────────--
+  - command: list inventory
+    verb: list
+    noun: inventory
+    short: List IACM Ansible inventories at the project level
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter inventories by partial name match
+    endpoint:
+      path: /gateway/iacm/api/orgs/{{auth.org}}/projects/{{auth.project}}/ansible/inventory
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it
+      get_id_expr: it.identifier
+      completion:
+        id_expr: it.identifier
+        name_expr: it.name
+      query_params:
+        searchTerm: flags.search
+      paging:
+        paging_strategy: page_header
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+        total_header: "X-Total-Items"
+      columns: [identifier, name, type, updated]
+
+  - command: get inventory
+    verb: get
+    noun: inventory
+    short: Get an IACM Ansible inventory by identifier
+    completion_noun: inventory
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/iacm/api/orgs/{{auth.org}}/projects/{{auth.project}}/ansible/inventory/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+      yaml_pick_expr: it
+
+  # ── playbook (Ansible) ──────────────────────────────────────────────────────--
+  - command: list playbook
+    verb: list
+    noun: playbook
+    short: List IACM Ansible playbooks at the project level
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter playbooks by partial name match
+    endpoint:
+      path: /gateway/iacm/api/orgs/{{auth.org}}/projects/{{auth.project}}/ansible/playbook
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it
+      get_id_expr: it.identifier
+      completion:
+        id_expr: it.identifier
+        name_expr: it.name
+      query_params:
+        searchTerm: flags.search
+      paging:
+        paging_strategy: page_header
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+        total_header: "X-Total-Items"
+      columns: [identifier, name, repository, updated]
+
+  - command: get playbook
+    verb: get
+    noun: playbook
+    short: Get an IACM Ansible playbook by identifier
+    completion_noun: playbook
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/iacm/api/orgs/{{auth.org}}/projects/{{auth.project}}/ansible/playbook/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+      yaml_pick_expr: it
+
+  # ── module:iacm (registry) ──────────────────────────────────────────────────--
+  - command: list module:iacm
+    verb: list
+    noun: module
+    noun_variant: iacm
+    fields_noun: iacm_module
+    short: List IACM modules at the level queried
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter modules by partial name or provider match
+    endpoint:
+      path: /gateway/iacm/api/modules
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it
+      get_id_expr: it.id
+      completion:
+        id_expr: it.id
+        name_expr: it.name
+      query_params:
+        searchTerm: flags.search
+        scope_org: auth.org
+        scope_project: auth.project
+      paging:
+        paging_strategy: page_header
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+        total_header: "X-Total-Items"
+      columns: [id, name, system, updated]
+
+  - command: get module:iacm
+    verb: get
+    noun: module
+    noun_variant: iacm
+    fields_noun: iacm_module
+    short: Get an IACM module by identifier
+    completion_noun: module:iacm
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/iacm/api/modules/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      query_params:
+        scope_org: auth.org
+        scope_project: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  # ── provider (registry) ─────────────────────────────────────────────────────--
+  - command: list provider
+    verb: list
+    noun: provider
+    short: List IACM providers at the level queried
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter providers by partial name match
+    endpoint:
+      path: /gateway/iacm/api/providers
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it
+      get_id_expr: it.id
+      completion:
+        id_expr: it.id
+        name_expr: it.type
+      query_params:
+        searchTerm: flags.search
+      paging:
+        paging_strategy: page_header
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+        total_header: "X-Total-Items"
+      columns: [id, type, namespace, updated]
+
+  - command: get provider
+    verb: get
+    noun: provider
+    short: Get an IACM provider by identifier
+    completion_noun: provider
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/iacm/api/providers/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+      yaml_pick_expr: it
