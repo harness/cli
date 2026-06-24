@@ -165,7 +165,7 @@ commands:
       path: /ng/api/servicesV2
       get_path: /ng/api/servicesV2/{{ctx.id}}
       update_strategy: get-then-put
-      update_body_pick: it.service
+      update_body_pick: it.data.service
       update_body_wrap: ""
       item_expr: it.data
       text_header: "\nUpdated service {{ctx.id}}\n"
@@ -251,7 +251,7 @@ commands:
       path: /ng/api/environmentsV2
       get_path: /ng/api/environmentsV2/{{ctx.id}}
       update_strategy: get-then-put
-      update_body_pick: it.environment
+      update_body_pick: it.data.environment
       update_body_wrap: ""
       item_expr: it.data
       text_header: "\nUpdated environment {{ctx.id}}\n"
@@ -346,7 +346,7 @@ commands:
       path: /ng/api/infrastructures
       get_path: /ng/api/infrastructures/{{ctx.id}}
       update_strategy: get-then-put
-      update_body_pick: it.infrastructure
+      update_body_pick: it.data.infrastructure
       update_body_wrap: ""
       item_expr: it.data
       text_header: "\nUpdated infrastructure {{ctx.id}}\n"
@@ -435,7 +435,7 @@ commands:
       path: /ng/api/serviceOverrides
       get_path: /ng/api/serviceOverrides/{{ctx.id}}
       update_strategy: get-then-put
-      update_body_pick: it
+      update_body_pick: it.data
       update_body_wrap: ""
       item_expr: it.data
       text_header: "\nUpdated service override {{ctx.id}}\n"

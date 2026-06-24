@@ -535,22 +535,20 @@ func runGetThenPut(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, pat
 		return nil, fmt.Errorf("get-then-put: GET failed: %w", err)
 	}
 
-	// Unwrap the GET response the same way item_expr does for get commands.
-	unwrapped := getResult
-	if ep.ItemExpr != "" && ep.ItemExpr != "it" {
-		if v, ok := exprenv.EvalExprAny(exprenv.WithIt(exprEnv, getResult), ep.ItemExpr); ok {
-			unwrapped = v
-		}
-	}
-
-	// Extract the mutable subtree using update_body_pick expr, relative to the unwrapped item.
-	item := unwrapped
+	// Extract the mutable subtree from the root GET response.
+	// If update_body_pick is set, evaluate it against the root (same as yaml_pick_expr on the
+	// corresponding get command). Otherwise fall back to item_expr for backwards compatibility.
+	item := getResult
 	if ep.UpdateBodyPick != "" {
-		picked, ok := exprenv.EvalExprAny(exprenv.WithIt(exprEnv, unwrapped), ep.UpdateBodyPick)
+		picked, ok := exprenv.EvalExprAny(exprenv.WithIt(exprEnv, getResult), ep.UpdateBodyPick)
 		if !ok {
 			return nil, fmt.Errorf("get-then-put: update_body_pick %q did not resolve", ep.UpdateBodyPick)
 		}
 		item = picked
+	} else if ep.ItemExpr != "" && ep.ItemExpr != "it" {
+		if v, ok := exprenv.EvalExprAny(exprenv.WithIt(exprEnv, getResult), ep.ItemExpr); ok {
+			item = v
+		}
 	}
 
 	// Round-trip through JSON to get a map[string]any we can mutate.
@@ -569,7 +567,7 @@ func runGetThenPut(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, pat
 		fieldPaths[f.ID] = f
 	}
 
-	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths, ep.UpdateBodyPick); err != nil {
+	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths); err != nil {
 		return nil, err
 	}
 
@@ -677,13 +675,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		fieldPaths[f.ID] = f
 	}
 
-	// create_body_wrap acts as the pick prefix for relative path resolution.
-	pickPrefix := ""
-	if ep.CreateBodyWrap != "" {
-		pickPrefix = "it." + ep.CreateBodyWrap
-	}
-
-	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths, pickPrefix); err != nil {
+	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths); err != nil {
 		return nil, err
 	}
 
@@ -697,26 +689,14 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 }
 
 // applyMutations applies --set and --del operations to mutable in-place.
-// fieldPaths maps field IDs to their FieldDef (with Path). pickPrefix is the
-// update_body_pick prefix (e.g. "it.project") used to strip the leading path
-// so that field paths like "it.project.name" become just "name" within mutable.
-func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs []string, fieldPaths map[string]spec.FieldDef, pickPrefix string) error {
-	// Strip "it." and the pick object prefix from a field path to get a relative key.
-	// e.g. pickPrefix="it.project", field.Path="it.project.name" → "name"
-	//      pickPrefix="it.project", field.Path="it.project.tags" → "tags"
-	relPath := func(fieldPath string) string {
-		p := strings.TrimPrefix(fieldPath, "it.")
-		if pickPrefix != "" {
-			prefix := strings.TrimPrefix(pickPrefix, "it.")
-			p = strings.TrimPrefix(p, prefix+".")
-		}
-		return p
-	}
-
-	// Build a map from user-facing field ID to relative dot-path within mutable.
+// applyMutations applies --set and --del operations to mutable in-place.
+// fieldPaths maps field IDs to their FieldDef; fd.MutablePath is the dot-path
+// within mutable (relative to the update_body_pick subtree, no "it." prefix).
+func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs []string, fieldPaths map[string]spec.FieldDef) error {
+	// Build a map from user-facing field ID to its mutable_path within mutable.
 	idToRel := map[string]string{}
 	for id, fd := range fieldPaths {
-		idToRel[id] = relPath(fd.Path)
+		idToRel[id] = fd.MutablePath
 	}
 
 	for key, val := range setArgs {
