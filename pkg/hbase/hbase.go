@@ -48,6 +48,9 @@ const (
 	// EnvNoTelemetry disables all usage telemetry when set to "1".
 	EnvNoTelemetry = "HARNESS_NO_TELEMETRY"
 
+	// EnvLogFile redirects all log output to the specified file path.
+	EnvLogFile = "HARNESS_CLI_LOGFILE"
+
 	// Env var names for env-var auth mode.
 	EnvAPIKey      = "HARNESS_API_KEY"
 	EnvAccount     = "HARNESS_ACCOUNT"
