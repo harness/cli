@@ -192,6 +192,11 @@ func (r *Registry) GetNoun(noun string) *spec.NounDef {
 	return nil
 }
 
+// ResolveNounAlias implements cmdctx.Resolver.
+func (r *Registry) ResolveNounAlias(alias string) string {
+	return r.nounAliases[alias]
+}
+
 // ResolveTextFormatter implements cmdctx.Resolver.
 func (r *Registry) ResolveTextFormatter(id string) cmdctx.TextFormatterFn {
 	return r.textFormatters[id]

@@ -98,6 +98,8 @@ type Resolver interface {
 	ResolveEndpointValidator(id string) EndpointValidatorFn
 	GetSpec(verb, noun string) *spec.CommandSpec
 	GetNoun(noun string) *spec.NounDef
+	// ResolveNounAlias returns the canonical noun name for the given alias, or "" if not an alias.
+	ResolveNounAlias(alias string) string
 	RunEndpoint(ctx *Ctx, ep *spec.EndpointSpec) (any, error)
 	// FormatList renders rows through the standard list formatting pipeline (table/json/csv/tsv).
 	// fields declares the available columns; columnIDs sets the default column order (nil = all).

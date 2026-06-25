@@ -108,6 +108,12 @@ func GetNounHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("usage: harness get noun <noun>")
 	}
 
+	// Resolve alias → canonical noun name
+	canonical := ctx.Resolver.ResolveNounAlias(target)
+	if canonical != "" {
+		target = canonical
+	}
+
 	nd := ctx.Resolver.GetNoun(target)
 
 	verbInfos := ctx.Resolver.GetVerbInfos()
@@ -153,10 +159,14 @@ func GetNounHandler(ctx *cmdctx.Ctx) error {
 		fmt.Printf("%s\n", target)
 	}
 	if module != "" {
-		fmt.Printf("module: %s\n", module)
+		fmt.Printf("module:  %s\n", module)
+	}
+	if nd != nil && len(nd.NounAliases) > 0 {
+		sort.Strings(nd.NounAliases)
+		fmt.Printf("aliases: %s\n", strings.Join(nd.NounAliases, ", "))
 	}
 	if nd != nil && nd.MultiLevel {
-		fmt.Printf("scope:  account | org | project  (use --level to select)\n")
+		fmt.Printf("scope:   account | org | project  (use --level to select)\n")
 	}
 
 	// commands section
