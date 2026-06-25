@@ -238,12 +238,7 @@ func newWizardModel(existing *WizardExisting) wizardModel {
 	}
 }
 
-func (m wizardModel) Init() tea.Cmd {
-	if m.setMode {
-		return tea.Batch(func() tea.Msg { return m.spin.Tick() }, m.fetchOrgs())
-	}
-	return nil
-}
+func (m wizardModel) Init() tea.Cmd { return nil }
 
 func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {

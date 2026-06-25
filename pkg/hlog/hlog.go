@@ -58,10 +58,9 @@ func reinit() {
 	active.Store(l)
 }
 
-// SetDebug switches the logger to DEBUG level on stderr.
+// SetDebug switches the logger to DEBUG level. If no log file is configured, output goes to stderr.
 func SetDebug() {
 	state.level = slog.LevelDebug
-	state.file = nil
 	reinit()
 }
 

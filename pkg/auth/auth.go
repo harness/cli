@@ -183,7 +183,7 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 
 var (
 	hostLabelRE   = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
-	harnessHostRE = regexp.MustCompile(`^https://([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+harness\.io$`)
+	harnessHostRE = regexp.MustCompile(`^https://([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+harness\.io(/[a-z0-9_-]+)*$`)
 	harnessNameRE = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+harness\.io$`)
 )
 
