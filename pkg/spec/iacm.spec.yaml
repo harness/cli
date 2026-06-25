@@ -37,16 +37,16 @@ nouns:
       - id: updated
         expr: epochMs(it.updated)
 
-  - noun: hosts
+  - noun: host
     short_desc: An IACM Ansible host tracked across inventories.
-    noun_aliases: [host]
+    noun_aliases: [hosts]
     fields:
       - id: id
         expr: it.id
       - id: host_address
         expr: it.host_address
       - id: status
-        expr: it.last_activity?.status
+        expr: 'it.last_activity != nil ? it.last_activity.status : nil'
       - id: inventories
         expr: it.inventories
       - id: created
@@ -240,9 +240,9 @@ commands:
         is_bool: true
 
   # ── host (Ansible) ────────────────────────────────────────────────────────────
-  - command: list hosts
+  - command: list host
     verb: list
-    noun: hosts
+    noun: host
     short: List IACM Ansible hosts at the project level
     handler_type: endpoint
     flags:
@@ -276,11 +276,11 @@ commands:
         total_header: "X-Total-Items"
       columns: [id, host_address, status, updated]
 
-  - command: get hosts
+  - command: get host
     verb: get
-    noun: hosts
+    noun: host
     short: Get an IACM Ansible host by identifier
-    completion_noun: hosts
+    completion_noun: host
     handler_type: endpoint
     endpoint:
       path: /gateway/iacm/api/orgs/{{auth.org}}/projects/{{auth.project}}/ansible/hosts/{{ctx.id}}
@@ -414,6 +414,7 @@ commands:
     verb: get
     noun: registry_module
     short: Get an IACM module by identifier
+    completion_noun: registry_module
     handler_type: endpoint
     endpoint:
       path: /gateway/iacm/api/modules/{{ctx.id}}
