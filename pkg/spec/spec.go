@@ -438,5 +438,5 @@ func (cs *CommandSpec) UsageLine() string {
 	if _, after, ok := strings.Cut(short, ": "); ok {
 		short = after
 	}
-	return "usage: " + short
+	return "\nusage: " + short
 }

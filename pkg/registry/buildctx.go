@@ -165,19 +165,19 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 	}
 	vspec := verbRegistry[cs.Verb]
 	if (cs.Verb == VerbGet || cs.Verb == VerbList) && len(args) > 1 {
-		return nil, fmt.Errorf("unexpected argument %q\n%s", args[1], cs.UsageLine())
+		return nil, fmt.Errorf("unexpected argument %q%s", args[1], cs.UsageLine())
 	}
 	nd := r.GetNoun(cs.Noun)
 	if vspec.RequiresId && !cs.NoId {
 		if len(args) == 0 && !skipIdCheck {
-			return nil, fmt.Errorf("%s %s requires a positional %s argument\n%s", cs.Verb, cs.Noun, idLabel, cs.UsageLine())
+			return nil, fmt.Errorf("%s %s requires a positional %s argument%s", cs.Verb, cs.Noun, idLabel, cs.UsageLine())
 		}
 		if len(args) > 0 {
 			ctx.Id = args[0]
 		}
 	} else if vspec.AllowsId {
 		if cs.RequiresId && len(args) == 0 && !skipIdCheck {
-			return nil, fmt.Errorf("%s %s requires a positional %s argument\n%s", cs.Verb, cs.Noun, idLabel, cs.UsageLine())
+			return nil, fmt.Errorf("%s %s requires a positional %s argument%s", cs.Verb, cs.Noun, idLabel, cs.UsageLine())
 		}
 		if len(args) > 0 {
 			ctx.Id = args[0]
