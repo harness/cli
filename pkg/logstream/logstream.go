@@ -62,6 +62,7 @@ type LogKeyEntry struct {
 	Status     string
 	Depth      int
 	ParentName string
+	EndTs      int64
 }
 
 func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error {
@@ -437,7 +438,7 @@ func FetchLogKeys(ctx *cmdctx.Ctx, execId string) ([]LogKeyEntry, string, error)
 			lk := node.LogBaseKey
 			if !seenKey[lk] {
 				seenKey[lk] = true
-				entries = append(entries, LogKeyEntry{LogKey: lk, Name: name, FQN: node.BaseFQN, Status: node.Status, Depth: depth, ParentName: parentName})
+				entries = append(entries, LogKeyEntry{LogKey: lk, Name: name, FQN: node.BaseFQN, Status: node.Status, Depth: depth, ParentName: parentName, EndTs: node.EndTs})
 			}
 		}
 		for _, child := range g.NodeAdjacencyListMap[id].Children {

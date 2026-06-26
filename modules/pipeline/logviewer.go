@@ -4,6 +4,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -40,6 +41,15 @@ type lvLogLoadedMsg struct {
 type lvCountdownTickMsg struct{}
 type lvPollMsg struct{}
 
+type lvLogStreamLineMsg struct {
+	logKey string
+	lines  []string
+}
+
+type lvLogStreamDoneMsg struct {
+	logKey string
+}
+
 // --- step item ---
 
 type lvStep struct {
@@ -47,6 +57,7 @@ type lvStep struct {
 	name   string
 	status string
 	logKey string // empty for non-loggable nodes (STRATEGY etc.)
+	endTs  int64
 }
 
 // --- styles ---
@@ -75,6 +86,13 @@ func newLVStyles() lvStyles {
 	}
 }
 
+// --- SSE stream handle ---
+
+type sseStream struct {
+	cancel context.CancelFunc
+	ch     chan logstream.Event
+}
+
 // --- model ---
 
 type lvState int
@@ -93,11 +111,12 @@ type logViewModel struct {
 	execLabel string // e.g. "sawka_test2 / 2QPmypuy..."
 	steps     []lvStep
 	// selectedKey is the logKey of the highlighted step; stable across polls.
-	selectedKey  string
-	logCache     map[string]string // logKey → rendered log text
-	pipelineDone    bool
-	pollCountdown   int  // seconds remaining until next poll (counts down from lvPollIntervalSecs)
-	pollRefreshing  bool // poll fetch currently in flight
+	selectedKey   string
+	logCache      map[string]string    // logKey → rendered log text
+	activeStreams  map[string]sseStream // logKey → live SSE stream (running steps only)
+	pipelineDone  bool
+	pollCountdown  int  // seconds remaining until next poll (counts down from lvPollIntervalSecs)
+	pollRefreshing bool // poll fetch currently in flight
 
 	spin    spinner.Model
 	vp      viewport.Model
@@ -122,15 +141,16 @@ func newLogViewModel(execLabel string, ctx *cmdctx.Ctx) logViewModel {
 	vp.SoftWrap = true
 
 	return logViewModel{
-		st:        st,
-		state:     lvStateLoading,
-		execLabel: execLabel,
-		logCache:  make(map[string]string),
-		spin:      sp,
-		vp:        vp,
-		ctx:       ctx,
-		width:     80,
-		height:    24,
+		st:           st,
+		state:        lvStateLoading,
+		execLabel:    execLabel,
+		logCache:     make(map[string]string),
+		activeStreams: make(map[string]sseStream),
+		spin:         sp,
+		vp:           vp,
+		ctx:          ctx,
+		width:        80,
+		height:       24,
 	}
 }
 
@@ -156,6 +176,7 @@ func (m logViewModel) loadSteps() tea.Cmd {
 				name:   e.Name,
 				status: e.Status,
 				logKey: e.LogKey,
+				endTs:  e.EndTs,
 			})
 		}
 		return lvStepsLoadedMsg{steps: steps, pipelineStatus: pipelineStatus}
@@ -221,6 +242,9 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
+			for _, ss := range m.activeStreams {
+				ss.cancel()
+			}
 			return m, tea.Quit
 		case "r":
 			if m.state == lvStateReady && m.selectedKey != "" {
@@ -269,6 +293,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, s := range msg.steps {
 			if i, ok := existing[s.logKey]; ok {
 				m.steps[i].status = s.status
+				m.steps[i].endTs = s.endTs
 			} else {
 				m.steps = append(m.steps, s)
 			}
@@ -339,10 +364,52 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vp.GotoTop()
 		}
 		return m, nil
+
+	case lvLogStreamLineMsg:
+		for _, line := range msg.lines {
+			m.logCache[msg.logKey] += line
+		}
+		if msg.logKey == m.selectedKey {
+			atBottom := m.vp.AtBottom()
+			m.vp.SetContent(m.logCache[msg.logKey])
+			if atBottom {
+				m.vp.GotoBottom()
+			}
+		}
+		// Re-arm: read next event from the channel.
+		if ss, ok := m.activeStreams[msg.logKey]; ok {
+			return m, waitForSSEEvent(msg.logKey, ss.ch)
+		}
+		return m, nil
+
+	case lvLogStreamDoneMsg:
+		if ss, ok := m.activeStreams[msg.logKey]; ok {
+			ss.cancel()
+			delete(m.activeStreams, msg.logKey)
+		}
+		// If cache is empty (SSE produced nothing), fall back to blob fetch.
+		if _, hasCached := m.logCache[msg.logKey]; !hasCached {
+			var step *lvStep
+			for i := range m.steps {
+				if m.steps[i].logKey == msg.logKey {
+					step = &m.steps[i]
+					break
+				}
+			}
+			if step != nil && msg.logKey == m.selectedKey {
+				m.loading = true
+				m.vp.SetContent(m.st.dim.Render("loading…"))
+				return m, tea.Batch(
+					func() tea.Msg { return m.spin.Tick() },
+					m.fetchLog(step.logKey),
+				)
+			}
+		}
+		return m, nil
 	}
 
 	// spinner tick
-	if m.state == lvStateLoading || m.loading || m.pollRefreshing {
+	if m.state == lvStateLoading || m.loading || m.pollRefreshing || len(m.activeStreams) > 0 {
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
@@ -363,11 +430,42 @@ func (m *logViewModel) resizeComponents() {
 	m.vp.SetHeight(vpH)
 }
 
+// startSSEStream opens an SSE connection for a running step, registers it in
+// activeStreams, and returns the first waitForSSEEvent Cmd.
+func (m *logViewModel) startSSEStream(logKey string) tea.Cmd {
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan logstream.Event, 64)
+	m.activeStreams[logKey] = sseStream{cancel: cancel, ch: ch}
+
+	hc := &http.Client{Timeout: 90 * time.Minute}
+	a := m.ctx.Auth
+	fmtFlag := m.ctx.FormatFlags.Format
+	isPty := m.ctx.IsPty
+
+	go func() {
+		logstream.StreamSSEToChannel(ctx, hc, a, logKey, "", fmtFlag, isPty, ch) //nolint
+		close(ch)
+	}()
+
+	return waitForSSEEvent(logKey, ch)
+}
+
+// waitForSSEEvent reads one event from the SSE channel and returns it as a
+// bubbletea message. Called recursively via Cmd until the channel closes.
+func waitForSSEEvent(logKey string, ch <-chan logstream.Event) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return lvLogStreamDoneMsg{logKey: logKey}
+		}
+		return lvLogStreamLineMsg{logKey: logKey, lines: ev.Lines}
+	}
+}
+
 func (m *logViewModel) maybeLoadLog() tea.Cmd {
 	if len(m.steps) == 0 || m.selectedKey == "" {
 		return nil
 	}
-	// Find the selected step.
 	var step *lvStep
 	for i := range m.steps {
 		if m.steps[i].logKey == m.selectedKey {
@@ -383,16 +481,39 @@ func (m *logViewModel) maybeLoadLog() tea.Cmd {
 		m.vp.GotoTop()
 		return nil
 	}
+
+	terminal := logstream.IsTerminalStatus(step.status)
+
+	if terminal {
+		// Blob path: show cache if present, otherwise fetch.
+		if body, ok := m.logCache[step.logKey]; ok {
+			m.vp.SetContent(body)
+			m.vp.GotoTop()
+			return nil
+		}
+		m.loading = true
+		m.vp.SetContent(m.st.dim.Render("loading…"))
+		return tea.Batch(
+			func() tea.Msg { return m.spin.Tick() },
+			m.fetchLog(step.logKey),
+		)
+	}
+
+	// Running path: show current cache (may be empty) and ensure stream is live.
 	if body, ok := m.logCache[step.logKey]; ok {
 		m.vp.SetContent(body)
-		m.vp.GotoTop()
+		m.vp.GotoBottom()
+	} else {
+		m.vp.SetContent(m.st.dim.Render("connecting…"))
+	}
+
+	if _, streaming := m.activeStreams[step.logKey]; streaming {
+		// Stream already running in background — nothing to start.
 		return nil
 	}
-	m.loading = true
-	m.vp.SetContent(m.st.dim.Render("loading…"))
 	return tea.Batch(
 		func() tea.Msg { return m.spin.Tick() },
-		m.fetchLog(step.logKey),
+		m.startSSEStream(step.logKey),
 	)
 }
 
@@ -438,13 +559,22 @@ func (m logViewModel) renderSplit(b *strings.Builder) {
 			name = name[:maxName]
 		}
 		ss := format.BucketStyles[format.ClassifyExecutionStatus(s.status)]
+		_, streaming := m.activeStreams[s.logKey]
 		var line string
 		if i == selectedIdx {
-			content := indent + ss.NodeGlyph + " " + name
+			spinSuffix := ""
+			if streaming {
+				spinSuffix = " " + m.spin.View()
+			}
+			content := indent + ss.NodeGlyph + " " + name + spinSuffix
 			line = st.selected.Width(leftW).Render(content)
 		} else {
 			icon := lipgloss.NewStyle().Foreground(lipgloss.Color(ss.LipglossColor)).Render(ss.NodeGlyph)
-			content := indent + icon + " " + name
+			spinSuffix := ""
+			if streaming {
+				spinSuffix = " " + st.dim.Render(m.spin.View())
+			}
+			content := indent + icon + " " + name + spinSuffix
 			line = st.normal.Width(leftW).Render(content)
 		}
 		leftLines = append(leftLines, line)
