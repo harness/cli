@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/format"
 	"github.com/harness/harness-cli/pkg/logstream"
 	"github.com/harness/harness-cli/pkg/tui"
@@ -103,8 +104,7 @@ type logViewModel struct {
 	vpReady bool
 	loading bool // log fetch in flight
 
-	hc   *http.Client
-	auth *auth.ResolvedAuth
+	ctx *cmdctx.Ctx
 
 	width  int
 	height int
@@ -112,7 +112,7 @@ type logViewModel struct {
 
 const leftPanelWidth = 32
 
-func newLogViewModel(execLabel string, hc *http.Client, a *auth.ResolvedAuth) logViewModel {
+func newLogViewModel(execLabel string, ctx *cmdctx.Ctx) logViewModel {
 	st := newLVStyles()
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -128,8 +128,7 @@ func newLogViewModel(execLabel string, hc *http.Client, a *auth.ResolvedAuth) lo
 		logCache:  make(map[string]string),
 		spin:      sp,
 		vp:        vp,
-		hc:        hc,
-		auth:      a,
+		ctx:       ctx,
 		width:     80,
 		height:    24,
 	}
@@ -143,11 +142,10 @@ func (m logViewModel) Init() tea.Cmd {
 }
 
 func (m logViewModel) loadSteps() tea.Cmd {
-	hc := m.hc
-	a := m.auth
-	execID := bareExecID(a, m.execLabel)
+	ctx := m.ctx
+	execID := bareExecID(ctx.Auth, m.execLabel)
 	return func() tea.Msg {
-		entries, pipelineStatus, err := logstream.FetchLogKeys(hc, a, execID)
+		entries, pipelineStatus, err := logstream.FetchLogKeys(ctx, execID)
 		if err != nil {
 			return lvStepsLoadedMsg{err: err}
 		}
@@ -191,8 +189,8 @@ func keyDepth(logKey string) int {
 }
 
 func (m logViewModel) fetchLog(logKey string) tea.Cmd {
-	hc := m.hc
-	a := m.auth
+	hc := &http.Client{Timeout: 30 * time.Second}
+	a := m.ctx.Auth
 	return func() tea.Msg {
 		var buf strings.Builder
 		_, err := logstream.FetchAndPrintLog(hc, a, logKey, "", true, &buf)
@@ -513,8 +511,8 @@ func (m logViewModel) renderSplit(b *strings.Builder) {
 
 // RunLogViewer launches the full-screen log viewer TUI.
 // execLabel is shown in the header (e.g. "sawka_test2 / 2QPmypuy...").
-func RunLogViewer(execLabel string, hc *http.Client, a *auth.ResolvedAuth) error {
-	m := newLogViewModel(execLabel, hc, a)
+func RunLogViewer(execLabel string, ctx *cmdctx.Ctx) error {
+	m := newLogViewModel(execLabel, ctx)
 	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err

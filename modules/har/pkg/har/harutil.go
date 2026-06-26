@@ -16,6 +16,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/harness/harness-cli/pkg/auth"
 )
 
 // parseRegistryAndName splits ctx.Id ("registry/name") into its two parts.
@@ -35,9 +37,9 @@ func newHTTPClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Minute}
 }
 
-// setAuthHeader sets the x-api-key authentication header on req.
-func setAuthHeader(req *http.Request, token string) {
-	req.Header.Set("x-api-key", token)
+// setAuthHeader sets the appropriate auth header on req (Bearer for SSO, x-api-key for PAT).
+func setAuthHeader(req *http.Request, a *auth.ResolvedAuth) {
+	a.SetAuthHeader(req)
 }
 
 // doRequest executes req, reads the response body, and returns an error for non-2xx responses.

@@ -385,7 +385,7 @@ func mavenPutFile(ctx *cmdctx.Ctx, client *http.Client, registry, groupPath stri
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
-	setAuthHeader(req, ctx.Auth.PATToken)
+	setAuthHeader(req, ctx.Auth)
 	req.Header.Set("Content-Type", contentType)
 	req.ContentLength = fi.Size()
 
@@ -408,7 +408,7 @@ func mavenPutBytes(ctx *cmdctx.Ctx, client *http.Client, registry, groupPath str
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
-	setAuthHeader(req, ctx.Auth.PATToken)
+	setAuthHeader(req, ctx.Auth)
 	req.Header.Set("Content-Type", contentType)
 	req.ContentLength = int64(len(content))
 
@@ -451,7 +451,7 @@ func updateMavenMetadata(ctx *cmdctx.Ctx, client *http.Client, registry, groupPa
 	if err != nil {
 		return fmt.Errorf("building metadata GET request: %w", err)
 	}
-	setAuthHeader(getReq, ctx.Auth.PATToken)
+	setAuthHeader(getReq, ctx.Auth)
 
 	getResp, err := client.Do(getReq)
 	if err != nil {
@@ -524,7 +524,7 @@ func putBytesToURL(ctx *cmdctx.Ctx, client *http.Client, targetURL string, conte
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
-	setAuthHeader(req, ctx.Auth.PATToken)
+	setAuthHeader(req, ctx.Auth)
 	req.Header.Set("Content-Type", contentType)
 	req.ContentLength = int64(len(content))
 

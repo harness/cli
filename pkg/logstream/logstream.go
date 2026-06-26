@@ -120,7 +120,7 @@ func FetchAndPrintLog(hc *http.Client, a *auth.ResolvedAuth, logKey, fmtFlag str
 	if err != nil {
 		return false, err
 	}
-	req.Header.Set("x-api-key", a.PATToken)
+	a.SetAuthHeader(req)
 
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -330,7 +330,7 @@ func StreamSSEToChannel(ctx context.Context, hc *http.Client, a *auth.ResolvedAu
 	if err != nil {
 		return false, err
 	}
-	req.Header.Set("x-api-key", a.PATToken)
+	a.SetAuthHeader(req)
 	req.Header.Set("Accept", "text/event-stream")
 
 	resp, err := hc.Do(req)
@@ -415,8 +415,8 @@ func ExecIdFromArg(args []string) string {
 
 // FetchLogKeys fetches the execution graph for execId and returns all short log keys
 // along with the pipeline's current status string.
-func FetchLogKeys(hc *http.Client, a *auth.ResolvedAuth, execId string) ([]LogKeyEntry, string, error) {
-	exec, err := execgraph.FetchExecutionFull(hc, a, execId)
+func FetchLogKeys(ctx *cmdctx.Ctx, execId string) ([]LogKeyEntry, string, error) {
+	exec, err := execgraph.FetchExecutionFull(ctx, execId)
 	if err != nil {
 		return nil, "", err
 	}
@@ -455,8 +455,9 @@ func FetchLogKeys(hc *http.Client, a *auth.ResolvedAuth, execId string) ([]LogKe
 
 // FollowMulti follows all log keys for an execution (or a stage/step filtered subset).
 // extraSkipTypes supplements BaseSkipStepTypes — pass nil to use the base set only.
-func FollowMulti(ctx *cmdctx.Ctx, hc *http.Client, execId, stageFilter, stepFilter string, style MultiStyle, extraSkipTypes map[string]bool) error {
+func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style MultiStyle, extraSkipTypes map[string]bool) error {
 	a := ctx.Auth
+	hc := &http.Client{Timeout: 90 * time.Minute}
 	fmtFlag := ctx.FormatFlags.Format
 
 	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
@@ -506,7 +507,7 @@ func FollowMulti(ctx *cmdctx.Ctx, hc *http.Client, execId, stageFilter, stepFilt
 	}
 
 	pollOnce := func() (string, error) {
-		exec, err := execgraph.FetchExecutionFull(hc, a, execId)
+		exec, err := execgraph.FetchExecutionFull(ctx, execId)
 		if err != nil {
 			return "", err
 		}
@@ -644,7 +645,7 @@ func FollowMulti(ctx *cmdctx.Ctx, hc *http.Client, execId, stageFilter, stepFilt
 				go func() {
 					defer wg.Done()
 					sseHadContent, _ := StreamSSEToChannel(sseCtx, hc, a, lk, src, fmtFlag, ctx.IsPty, ch)
-					exec2, err2 := execgraph.FetchExecutionFull(hc, a, execId)
+					exec2, err2 := execgraph.FetchExecutionFull(ctx, execId)
 					if err2 == nil {
 						if node2, ok := FindNodeForFollow(exec2.Graph, lk); ok {
 							if !sseHadContent {

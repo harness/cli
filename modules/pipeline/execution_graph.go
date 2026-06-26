@@ -6,11 +6,8 @@ package pipeline
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
-	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/console"
 	"github.com/harness/harness-cli/pkg/execgraph"
@@ -24,8 +21,8 @@ func assignRanks(id string, depth int, nodes map[string]execgraph.GraphNode, adj
 	execgraph.AssignRanks(id, depth, nodes, adj)
 }
 
-func fetchExecutionGraph(hc *http.Client, a *auth.ResolvedAuth, execId string) (execgraph.ExecutionGraph, error) {
-	return execgraph.FetchExecutionGraph(hc, a, execId)
+func fetchExecutionGraph(ctx *cmdctx.Ctx, execId string) (execgraph.ExecutionGraph, error) {
+	return execgraph.FetchExecutionGraph(ctx, execId)
 }
 
 func reUnmarshal[T any](data any) (T, error) {
@@ -117,8 +114,7 @@ func listExecutionStepsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, 
 		execId = execId[i+1:]
 	}
 
-	hc, a := &http.Client{Timeout: 30 * time.Second}, ctx.Auth
-	g, err := fetchExecutionGraph(hc, a, execId)
+	g, err := fetchExecutionGraph(ctx, execId)
 	if err != nil {
 		return nil, err
 	}

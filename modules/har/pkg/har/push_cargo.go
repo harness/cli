@@ -92,7 +92,7 @@ func pushCargoArtifact(ctx *cmdctx.Ctx) error {
 	if err != nil {
 		return fmt.Errorf("push cargo: building request: %w", err)
 	}
-	setAuthHeader(req, ctx.Auth.PATToken)
+	setAuthHeader(req, ctx.Auth)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = int64(len(payload))
 

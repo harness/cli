@@ -103,7 +103,7 @@ func pushCondaArtifact(ctx *cmdctx.Ctx) error {
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
-	setAuthHeader(req, ctx.Auth.PATToken)
+	setAuthHeader(req, ctx.Auth)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("X-File-Name", fileName)
 	req.Header.Set("X-Subdir", meta.Subdir)

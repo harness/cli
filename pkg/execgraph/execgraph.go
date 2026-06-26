@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 
-	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/harness-cli/pkg/client"
+	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/hlog"
 )
 
@@ -109,25 +109,18 @@ func ReUnmarshal[T any](data any) (T, error) {
 	return out, nil
 }
 
-func FetchExecutionGraph(hc *http.Client, a *auth.ResolvedAuth, execId string) (ExecutionGraph, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/pipeline/api/pipelines/execution/v2/%s", a.APIUrl, url.PathEscape(execId)))
-	if err != nil {
-		return ExecutionGraph{}, err
-	}
-	q := u.Query()
-	q.Set("accountIdentifier", a.AccountID)
-	q.Set("orgIdentifier", a.OrgID)
-	q.Set("projectIdentifier", a.ProjectID)
-	q.Set("renderFullBottomGraph", "true")
-	u.RawQuery = q.Encode()
-	hlog.Debug("fetching execution graph", "execId", execId, "url", u)
-
-	req, err := http.NewRequest("GET", u.String(), nil)
-	if err != nil {
-		return ExecutionGraph{}, err
-	}
-	req.Header.Set("x-api-key", a.PATToken)
-	resp, err := hc.Do(req)
+func FetchExecutionGraph(ctx *cmdctx.Ctx, execId string) (ExecutionGraph, error) {
+	path := fmt.Sprintf("/pipeline/api/pipelines/execution/v2/%s", url.PathEscape(execId))
+	hlog.Debug("fetching execution graph", "execId", execId)
+	resp, err := client.New(ctx).DoRaw(client.Request{
+		Method: "GET",
+		Path:   path,
+		QueryParams: map[string]string{
+			"orgIdentifier":         ctx.Auth.OrgID,
+			"projectIdentifier":     ctx.Auth.ProjectID,
+			"renderFullBottomGraph": "true",
+		},
+	})
 	if err != nil {
 		return ExecutionGraph{}, err
 	}
@@ -151,25 +144,18 @@ func FetchExecutionGraph(hc *http.Client, a *auth.ResolvedAuth, execId string) (
 }
 
 // FetchExecutionFull fetches the execution graph and pipeline-level status in one call.
-func FetchExecutionFull(hc *http.Client, a *auth.ResolvedAuth, execId string) (ExecutionFull, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/pipeline/api/pipelines/execution/v2/%s", a.APIUrl, url.PathEscape(execId)))
-	if err != nil {
-		return ExecutionFull{}, err
-	}
-	q := u.Query()
-	q.Set("accountIdentifier", a.AccountID)
-	q.Set("orgIdentifier", a.OrgID)
-	q.Set("projectIdentifier", a.ProjectID)
-	q.Set("renderFullBottomGraph", "true")
-	u.RawQuery = q.Encode()
-	hlog.Debug("fetching execution full", "execId", execId, "url", u)
-
-	req, err := http.NewRequest("GET", u.String(), nil)
-	if err != nil {
-		return ExecutionFull{}, err
-	}
-	req.Header.Set("x-api-key", a.PATToken)
-	resp, err := hc.Do(req)
+func FetchExecutionFull(ctx *cmdctx.Ctx, execId string) (ExecutionFull, error) {
+	path := fmt.Sprintf("/pipeline/api/pipelines/execution/v2/%s", url.PathEscape(execId))
+	hlog.Debug("fetching execution full", "execId", execId)
+	resp, err := client.New(ctx).DoRaw(client.Request{
+		Method: "GET",
+		Path:   path,
+		QueryParams: map[string]string{
+			"orgIdentifier":         ctx.Auth.OrgID,
+			"projectIdentifier":     ctx.Auth.ProjectID,
+			"renderFullBottomGraph": "true",
+		},
+	})
 	if err != nil {
 		return ExecutionFull{}, err
 	}

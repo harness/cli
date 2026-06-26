@@ -294,7 +294,8 @@ func (r *Registry) wireFlagCompletion(cmd *cobra.Command, cs *spec.CommandSpec, 
 			if projectFlag, _ := cmd.Flags().GetString("project"); projectFlag != "" {
 				resolved.ProjectID = projectFlag
 			}
-			completions, err := completionFn(resolved, args, cmd.Flags())
+			ctx := &cmdctx.Ctx{Auth: resolved, Context: cmd.Context()}
+			completions, err := completionFn(ctx, args, cmd.Flags())
 			if err != nil {
 				return nil, cobra.ShellCompDirectiveError
 			}

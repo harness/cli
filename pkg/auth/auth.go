@@ -6,6 +6,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -40,6 +41,15 @@ type ResolvedAuth struct {
 	PATToken     string // set when AuthType == AuthTypePAT
 	SSOToken     string // set when AuthType == AuthTypeSSO
 	RefreshToken string // set when AuthType == AuthTypeSSO
+}
+
+// SetAuthHeader sets the appropriate Authorization or x-api-key header on req.
+func (a *ResolvedAuth) SetAuthHeader(req *http.Request) {
+	if a.AuthType == AuthTypeSSO {
+		req.Header.Set("Authorization", "Bearer "+a.SSOToken)
+	} else {
+		req.Header.Set("x-api-key", a.PATToken)
+	}
 }
 
 // Load populates a ResolvedAuth following the 4-step resolution order from auth.md.

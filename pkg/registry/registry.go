@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/harness/harness-cli/pkg/auth"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/console"
 	"github.com/harness/harness-cli/pkg/endpoint"
@@ -39,9 +38,9 @@ import (
 //	ctx:parentid  — optional positional [parentid] argument (AllowsParentId verbs: list)
 
 // FlagCompletionFn is a custom completion function for a flag. It receives the resolved
-// auth, the positional args already typed, and the full flag set so it can read sibling
+// context, the positional args already typed, and the full flag set so it can read sibling
 // flags (e.g. --stage when completing --step). Returns candidate strings or an error.
-type FlagCompletionFn func(a *auth.ResolvedAuth, args []string, flags *pflag.FlagSet) ([]string, error)
+type FlagCompletionFn func(ctx *cmdctx.Ctx, args []string, flags *pflag.FlagSet) ([]string, error)
 
 // Registry holds all registered CommandSpecs and builds the cobra command tree.
 type Registry struct {

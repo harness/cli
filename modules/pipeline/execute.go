@@ -7,10 +7,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/harness/harness-cli/pkg/client"
 	"github.com/harness/harness-cli/pkg/cmdctx"
@@ -282,8 +280,7 @@ func executeFollowFn(ctx *cmdctx.Ctx, result any) error {
 		return fmt.Errorf("--follow: could not extract execution ID from response")
 	}
 	fmt.Println("\nFollowing log output...")
-	hc := &http.Client{Timeout: 90 * time.Minute}
-	return logstream.FollowMulti(ctx, hc, execId, "", "", logstream.MultiStyleMarkers, nil)
+	return logstream.FollowMulti(ctx, execId, "", "", logstream.MultiStyleMarkers, nil)
 }
 
 func parseKeyValuePairs(pairs []string) (map[string]string, error) {

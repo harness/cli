@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/harness/harness-cli/pkg/auth"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 	"github.com/harness/harness-cli/pkg/console"
 	"github.com/harness/harness-cli/pkg/format"
@@ -44,8 +43,7 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 		if stg != "" || stp != "" {
 			return fmt.Errorf("--ui is not compatible with --stage or --step")
 		}
-		hc := &http.Client{Timeout: 30 * time.Second}
-		return RunLogViewer(execLabelFromID(ctx.Id), hc, ctx.Auth)
+		return RunLogViewer(execLabelFromID(ctx.Id), ctx)
 	}
 
 	stageFlag := cmdctx.GetString(ctx.FlagValues, "stage")
@@ -55,9 +53,8 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	if cmdctx.GetBool(ctx.FlagValues, "follow") {
-		hc := &http.Client{Timeout: 90 * time.Minute}
 		style := logstream.ParseMultiStyle(cmdctx.GetString(ctx.FlagValues, "format-multi"))
-		return logstream.FollowMulti(ctx, hc, execId, stageFlag, stepFlag, style, nil)
+		return logstream.FollowMulti(ctx, execId, stageFlag, stepFlag, style, nil)
 	}
 
 	a := ctx.Auth
@@ -83,7 +80,7 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	}
 
-	entries, _, err := logstream.FetchLogKeys(hc, a, execId)
+	entries, _, err := logstream.FetchLogKeys(ctx, execId)
 	if err != nil {
 		return err
 	}
@@ -145,13 +142,12 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 	return nil
 }
 
-func pipelineLogStageCompletion(a *auth.ResolvedAuth, args []string, flags *pflag.FlagSet) ([]string, error) {
+func pipelineLogStageCompletion(ctx *cmdctx.Ctx, args []string, flags *pflag.FlagSet) ([]string, error) {
 	execId := logstream.ExecIdFromArg(args)
 	if execId == "" {
 		return nil, nil
 	}
-	hc := &http.Client{Timeout: 30 * time.Second}
-	entries, _, err := logstream.FetchLogKeys(hc, a, execId)
+	entries, _, err := logstream.FetchLogKeys(ctx, execId)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +162,7 @@ func pipelineLogStageCompletion(a *auth.ResolvedAuth, args []string, flags *pfla
 	return stages, nil
 }
 
-func pipelineLogStepCompletion(a *auth.ResolvedAuth, args []string, flags *pflag.FlagSet) ([]string, error) {
+func pipelineLogStepCompletion(ctx *cmdctx.Ctx, args []string, flags *pflag.FlagSet) ([]string, error) {
 	stage, _ := flags.GetString("stage")
 	if stage == "" {
 		return nil, nil
@@ -175,8 +171,7 @@ func pipelineLogStepCompletion(a *auth.ResolvedAuth, args []string, flags *pflag
 	if execId == "" {
 		return nil, nil
 	}
-	hc := &http.Client{Timeout: 30 * time.Second}
-	entries, _, err := logstream.FetchLogKeys(hc, a, execId)
+	entries, _, err := logstream.FetchLogKeys(ctx, execId)
 	if err != nil {
 		return nil, err
 	}
@@ -200,8 +195,7 @@ func listExecutionLogsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _
 		execId = execId[i+1:]
 	}
 
-	hc := &http.Client{Timeout: 30 * time.Second}
-	entries, _, err := logstream.FetchLogKeys(hc, ctx.Auth, execId)
+	entries, _, err := logstream.FetchLogKeys(ctx, execId)
 	if err != nil {
 		return nil, err
 	}

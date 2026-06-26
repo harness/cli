@@ -23,6 +23,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/harness/harness-cli/pkg/auth"
 	"github.com/harness/harness-cli/pkg/cmdctx"
 )
 
@@ -121,7 +122,7 @@ func harV3URL(apiUrl, path string) string {
 	return apiUrl + "/gateway/har/api/v3" + path
 }
 
-func doHAR(ctx context.Context, hc *http.Client, token, url, method string, body any, out any) error {
+func doHAR(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, url, method string, body any, out any) error {
 	var bodyReader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -134,7 +135,7 @@ func doHAR(ctx context.Context, hc *http.Client, token, url, method string, body
 	if err != nil {
 		return err
 	}
-	req.Header.Set("x-api-key", token)
+	a.SetAuthHeader(req)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -157,7 +158,8 @@ func doHAR(ctx context.Context, hc *http.Client, token, url, method string, body
 }
 
 // getRegistryUUID fetches the registry via the HAR v1 API and returns its UUID.
-func getRegistryUUID(ctx context.Context, hc *http.Client, apiUrl, token, accountID, orgID, projectID, registryID string) (string, error) {
+func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryID string) (string, error) {
+	apiUrl, accountID, orgID, projectID := a.APIUrl, a.AccountID, a.OrgID, a.ProjectID
 	scope := accountID
 	if orgID != "" {
 		scope += "/" + orgID
@@ -173,7 +175,7 @@ func getRegistryUUID(ctx context.Context, hc *http.Client, apiUrl, token, accoun
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("x-api-key", token)
+	a.SetAuthHeader(req)
 
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -216,7 +218,7 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 
 	// 1. Look up registry UUID.
 	fmt.Printf("Fetching registry details for: %s\n", registryID)
-	registryUUID, err := getRegistryUUID(ctx, hc, a.APIUrl, a.PATToken, a.AccountID, a.OrgID, a.ProjectID, registryID)
+	registryUUID, err := getRegistryUUID(ctx, hc, a, registryID)
 	if err != nil {
 		return fmt.Errorf("fetching registry: %w", err)
 	}
@@ -226,7 +228,7 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 	fmt.Printf("Initiating evaluation for %s@%s\n", packageName, version)
 	evalURL := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
 	var initResp bulkEvalAcceptedResp
-	if err := doHAR(ctx, hc, a.PATToken, evalURL, "POST", bulkEvalRequest{
+	if err := doHAR(ctx, hc, a, evalURL, "POST", bulkEvalRequest{
 		RegistryId: registryUUID,
 		Artifacts:  []artifactScanInput{{PackageName: packageName, Version: version}},
 	}, &initResp); err != nil {
@@ -244,7 +246,7 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 	var statusData *bulkEvalStatusData
 	for i := 0; i < 120; i++ {
 		var statusResp bulkEvalStatusResp
-		if err := doHAR(ctx, hc, a.PATToken, statusURL, "GET", nil, &statusResp); err != nil {
+		if err := doHAR(ctx, hc, a, statusURL, "GET", nil, &statusResp); err != nil {
 			return fmt.Errorf("polling evaluation status: %w", err)
 		}
 		if statusResp.Data == nil || statusResp.Data.Status == nil {
@@ -306,7 +308,7 @@ done:
 	fmt.Println("Fetching detailed scan information...")
 	detailURL := buildScanDetailsURL(a.APIUrl, scanID, a.AccountID)
 	var detailResp scanDetailsResp
-	if err := doHAR(ctx, hc, a.PATToken, detailURL, "GET", nil, &detailResp); err != nil {
+	if err := doHAR(ctx, hc, a, detailURL, "GET", nil, &detailResp); err != nil {
 		fmt.Printf("  (could not fetch scan details: %v)\n", err)
 		return nil
 	}
@@ -480,7 +482,7 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 
 	// 1. Registry UUID.
 	fmt.Printf("Fetching registry details for: %s\n", registryID)
-	registryUUID, err := getRegistryUUID(ctx, hc, a.APIUrl, a.PATToken, a.AccountID, a.OrgID, a.ProjectID, registryID)
+	registryUUID, err := getRegistryUUID(ctx, hc, a, registryID)
 	if err != nil {
 		return fmt.Errorf("fetching registry: %w", err)
 	}
@@ -520,7 +522,7 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 
 		evalURL := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
 		var initResp bulkEvalAcceptedResp
-		if err := doHAR(ctx, hc, a.PATToken, evalURL, "POST", bulkEvalRequest{
+		if err := doHAR(ctx, hc, a, evalURL, "POST", bulkEvalRequest{
 			RegistryId: registryUUID,
 			Artifacts:  artifacts,
 		}, &initResp); err != nil {
@@ -536,7 +538,7 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		var statusData *bulkEvalStatusData
 		for poll := 0; poll < 120; poll++ {
 			var statusResp bulkEvalStatusResp
-			if err := doHAR(ctx, hc, a.PATToken, statusURL, "GET", nil, &statusResp); err != nil {
+			if err := doHAR(ctx, hc, a, statusURL, "GET", nil, &statusResp); err != nil {
 				return fmt.Errorf("batch %d: polling status: %w", i+1, err)
 			}
 			if statusResp.Data == nil || statusResp.Data.Status == nil {

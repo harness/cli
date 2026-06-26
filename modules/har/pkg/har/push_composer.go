@@ -60,7 +60,7 @@ func pushComposerArtifact(ctx *cmdctx.Ctx) error {
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
-	setAuthHeader(req, ctx.Auth.PATToken)
+	setAuthHeader(req, ctx.Auth)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = fi.Size()
 

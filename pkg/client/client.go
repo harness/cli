@@ -154,6 +154,76 @@ func (c *Client) PutRaw(path string, queryParams map[string]string, body, conten
 // If Body is a string, it is sent as-is using BodyContentType. Otherwise Body is JSON-marshaled and
 // BodyContentType defaults to "application/json". Extra per-request headers may be set via Headers.
 func (c *Client) DoRequest(r Request) (any, http.Header, error) {
+	req, u, err := c.buildRequest(r)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	start := time.Now()
+	resp, err := c.http.Do(req)
+	elapsed := time.Since(start).Milliseconds()
+	if err != nil {
+		nerr := networkError(err, c.resolved.APIUrl)
+		hlog.Info(r.Method+" "+u.Path, "ms", elapsed, "error", nerr)
+		return nil, nil, fmt.Errorf("API request failed: %w", nerr)
+	}
+	defer resp.Body.Close()
+	hlog.Info(r.Method+" "+u.Path, "status", resp.StatusCode, "ms", elapsed, "url", u.String(), "jwt", c.resolved.AuthType == auth.AuthTypeSSO)
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading API response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, resp.Header, fmt.Errorf("API error %d: %s", resp.StatusCode, APIErrorMessage(resp.StatusCode, respBody))
+	}
+	if len(respBody) == 0 {
+		return nil, resp.Header, nil
+	}
+	var result any
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, nil, fmt.Errorf("malformed API response: %w", err)
+	}
+	return result, resp.Header, nil
+}
+
+// DoRaw executes a Request and returns the raw *http.Response. The caller is responsible
+// for closing resp.Body. Use this for binary responses or large downloads.
+func (c *Client) DoRaw(r Request) (*http.Response, error) {
+	req, u, err := c.buildRequest(r)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		nerr := networkError(err, c.resolved.APIUrl)
+		hlog.Info(r.Method+" "+u.Path, "error", nerr)
+		return nil, fmt.Errorf("API request failed: %w", nerr)
+	}
+	hlog.Info(r.Method+" "+u.Path, "status", resp.StatusCode, "url", u.String(), "jwt", c.resolved.AuthType == auth.AuthTypeSSO)
+	return resp, nil
+}
+
+// DoStream executes a Request using a long-lived HTTP client suitable for streaming responses
+// (e.g. SSE). Returns the raw *http.Response; the caller is responsible for closing resp.Body.
+func (c *Client) DoStream(r Request, timeout time.Duration) (*http.Response, error) {
+	req, u, err := c.buildRequest(r)
+	if err != nil {
+		return nil, err
+	}
+	hc := &http.Client{Timeout: timeout}
+	resp, err := hc.Do(req)
+	if err != nil {
+		nerr := networkError(err, c.resolved.APIUrl)
+		hlog.Info(r.Method+" "+u.Path, "error", nerr)
+		return nil, fmt.Errorf("API request failed: %w", nerr)
+	}
+	hlog.Info(r.Method+" "+u.Path, "status", resp.StatusCode, "url", u.String(), "jwt", c.resolved.AuthType == auth.AuthTypeSSO)
+	return resp, nil
+}
+
+// buildRequest prepares an authenticated *http.Request from r, including token refresh.
+func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 	if err := auth.CheckAndUpdateAccessToken(c.resolved, time.Now()); err != nil {
 		return nil, nil, err
 	}
@@ -212,33 +282,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	for k, v := range r.Headers {
 		req.Header.Set(k, v)
 	}
-
-	start := time.Now()
-	resp, err := c.http.Do(req)
-	elapsed := time.Since(start).Milliseconds()
-	if err != nil {
-		nerr := networkError(err, c.resolved.APIUrl)
-		hlog.Info(r.Method+" "+u.Path, "ms", elapsed, "error", nerr)
-		return nil, nil, fmt.Errorf("API request failed: %w", nerr)
-	}
-	defer resp.Body.Close()
-	hlog.Info(r.Method+" "+u.Path, "status", resp.StatusCode, "ms", elapsed, "url", u.String(), "jwt", c.resolved.AuthType == auth.AuthTypeSSO)
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("reading API response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.Header, fmt.Errorf("API error %d: %s", resp.StatusCode, APIErrorMessage(resp.StatusCode, respBody))
-	}
-	if len(respBody) == 0 {
-		return nil, resp.Header, nil
-	}
-	var result any
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, nil, fmt.Errorf("malformed API response: %w", err)
-	}
-	return result, resp.Header, nil
+	return req, u, nil
 }
 
 func (c *Client) do(method, path string, queryParams map[string]string, body any) (any, http.Header, error) {
