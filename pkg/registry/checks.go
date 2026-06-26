@@ -47,6 +47,11 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 				errs = append(errs, fmt.Sprintf("command %q: body_fn %q not registered", cs.Command, cs.Endpoint.BodyFn))
 			}
 		}
+		if cs.Endpoint.QueryParamsFn != "" {
+			if _, ok := r.queryParamsFns[cs.Endpoint.QueryParamsFn]; !ok {
+				errs = append(errs, fmt.Sprintf("command %q: query_params_fn %q not registered", cs.Command, cs.Endpoint.QueryParamsFn))
+			}
+		}
 	}
 	if cs.FollowFn != "" {
 		if _, ok := r.followFns[cs.FollowFn]; !ok {

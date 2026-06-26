@@ -12,41 +12,27 @@ import (
 	"github.com/harness/harness-cli/pkg/spec"
 )
 
-const listMinePRFetchFnID = "list_mine_pr_fetch"
+const (
+	listMinePRQueryParamsFnID = "list_mine_pr_query_params"
+	listMinePRFetchFnID       = "list_mine_pr_fetch"
+)
 
-// listMinePRFetchFn is a FetchFn for "list pr:mine". It resolves the current
-// user's Code principal ID on first call then delegates to HTTPFetchFn with
-// author_id injected.
-func listMinePRFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int, cursor any) (*cmdctx.PageResult, error) {
-	principalID, err := CurrentUserPrincipalID(ctx)
+// listMinePRQueryParamsFn resolves the current user's Code numeric principal ID
+// and returns it as the author_id query param for the cross-repo PR list endpoint.
+func listMinePRQueryParamsFn(ctx *cmdctx.Ctx) (map[string]string, error) {
+	id, err := CurrentUserPrincipalID(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return map[string]string{"author_id": fmt.Sprintf("%d", id)}, nil
+}
 
-	// Clone the EndpointSpec so we don't mutate the shared spec.
-	epCopy := *ep
-	qp := make(map[string]string, len(ep.QueryParams)+3)
-	for k, v := range ep.QueryParams {
-		qp[k] = v
-	}
-	// Inject current-user filter and state. The state flag maps directly since
-	// this endpoint accepts "open", "closed", "merged" (no "all" sentinel).
-	qp["author_id"] = fmt.Sprintf("%d", principalID)
-	state := cmdctx.GetString(ctx.FlagValues, "state")
-	if state != "all" && state != "" {
-		qp["state"] = state
-	}
-	createdAfter := cmdctx.GetString(ctx.FlagValues, "created-after")
-	if createdAfter != "" {
-		qp["created_gt"] = createdAfter
-	}
-	createdBefore := cmdctx.GetString(ctx.FlagValues, "created-before")
-	if createdBefore != "" {
-		qp["created_lt"] = createdBefore
-	}
-	epCopy.QueryParams = qp
-
-	result, err := endpoint.HTTPFetchFn(ctx, &epCopy, wantStart, wantCount, cursor)
+// listMinePRFetchFn delegates to HTTPFetchFn (which picks up the author_id via
+// query_params_fn), then flattens each response item from
+// {"pull_request": {...}, "repository": {...}} into a single map with
+// "repository" nested inside, matching what the pr noun fields expect.
+func listMinePRFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int, cursor any) (*cmdctx.PageResult, error) {
+	result, err := endpoint.HTTPFetchFn(ctx, ep, wantStart, wantCount, cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -55,14 +41,13 @@ func listMinePRFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCo
 		if !ok {
 			continue
 		}
-		pr, _ := m["pull_request"].(map[string]any)
-		if pr == nil {
+		pr, ok := m["pull_request"].(map[string]any)
+		if !ok {
 			continue
 		}
-		repo := m["repository"]
 		flat := make(map[string]any, len(pr)+1)
 		maps.Copy(flat, pr)
-		flat["repository"] = repo
+		flat["repository"] = m["repository"]
 		result.Items[i] = flat
 	}
 	return result, nil

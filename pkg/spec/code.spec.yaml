@@ -476,9 +476,16 @@ commands:
         description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
     endpoint:
       path: /code/api/v1/pullreq
+      query_params_fn: list_mine_pr_query_params
       fetch_fn: list_mine_pr_fetch
       items_expr: it
       get_id_expr: string(it.number)
+      query_params:
+        state: 'flags.state == "all" ? "" : flags.state'
+        created_gt: 'parseDateMs(flags["created-after"])'
+        created_lt: 'parseDateMs(flags["created-before"])'
+        page: flags.page
+        limit: flags.limit
       paging:
         paging_strategy: page_header
         countable: false

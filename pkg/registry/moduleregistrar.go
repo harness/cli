@@ -24,6 +24,7 @@ type ModuleRegistrar interface {
 	RegisterWorkflow(shortID string, fn WorkflowFn)
 	RegisterTextFormatter(shortID string, fn cmdctx.TextFormatterFn)
 	RegisterBodyFn(shortID string, fn cmdctx.CreateBodyFn)
+	RegisterQueryParamsFn(shortID string, fn cmdctx.QueryParamsFn)
 	RegisterFollowFn(shortID string, fn cmdctx.FollowFn)
 	RegisterFetchFn(shortID string, fn cmdctx.FetchFn)
 	RegisterFlagCompletionFn(shortID string, fn FlagCompletionFn)
@@ -76,6 +77,9 @@ func (m *moduleRegistrar) Register(cs *spec.CommandSpec) error {
 	if cs.Endpoint != nil && cs.Endpoint.BodyFn != "" {
 		cs.Endpoint.BodyFn = m.qualify(cs.Endpoint.BodyFn, cmd+" body_fn", true)
 	}
+	if cs.Endpoint != nil && cs.Endpoint.QueryParamsFn != "" {
+		cs.Endpoint.QueryParamsFn = m.qualify(cs.Endpoint.QueryParamsFn, cmd+" query_params_fn", true)
+	}
 	if cs.FollowFn != "" {
 		cs.FollowFn = m.qualify(cs.FollowFn, cmd+" follow_fn", true)
 	}
@@ -110,6 +114,12 @@ func (m *moduleRegistrar) RegisterTextFormatter(shortID string, fn cmdctx.TextFo
 func (m *moduleRegistrar) RegisterBodyFn(shortID string, fn cmdctx.CreateBodyFn) {
 	if q := m.qualify(shortID, fmt.Sprintf("body_fn %q", shortID), false); q != "" {
 		m.reg.RegisterBodyFn(q, fn)
+	}
+}
+
+func (m *moduleRegistrar) RegisterQueryParamsFn(shortID string, fn cmdctx.QueryParamsFn) {
+	if q := m.qualify(shortID, fmt.Sprintf("query_params_fn %q", shortID), false); q != "" {
+		m.reg.RegisterQueryParamsFn(q, fn)
 	}
 }
 

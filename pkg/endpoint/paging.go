@@ -62,6 +62,9 @@ func BuildRequest(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (*client.Request, erro
 			qp[paramName] = result
 		}
 	}
+	if err := ApplyQueryParamsFn(ctx, ep, qp); err != nil {
+		return nil, err
+	}
 	method := ep.Method
 	if method == "" {
 		method = http.MethodGet

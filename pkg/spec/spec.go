@@ -326,6 +326,12 @@ type EndpointSpec struct {
 	// BodyFn names a registered CreateBodyFn that builds the POST body instead of the
 	// default body_params / body construction. Qualified by module at registration time.
 	BodyFn string `yaml:"body_fn,omitempty"`
+	// QueryParamsFn names a registered QueryParamsFn whose returned map is merged into
+	// the request query params after CEL query_params are evaluated. Use when a query
+	// param requires Go logic (e.g. a pre-fetch to resolve an ID) that cannot be expressed
+	// in CEL. Only applies to GET and list requests; not called for update/create strategies.
+	// Qualified by module at registration time.
+	QueryParamsFn string `yaml:"query_params_fn,omitempty"`
 	// ValidatorsEndpoint lists registered EndpointValidatorFn IDs to run after the
 	// request is built but before it is sent. Each fn receives ctx and the materialized
 	// request; return a non-nil error to abort. Qualified by module at registration time.

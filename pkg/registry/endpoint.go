@@ -134,6 +134,11 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 
 	// Priority 3: default body_params / body_fn path.
 	qp := evalQueryParams(ctx, ep.QueryParams, true, extraQueryParams)
+	if method == "GET" {
+		if err := endpoint.ApplyQueryParamsFn(ctx, ep, qp); err != nil {
+			return nil, nil, err
+		}
+	}
 	extraHeaders := evalRequestHeaders(ep, exprEnv)
 	switch method {
 	case "POST", "PUT", "PATCH", "DELETE":

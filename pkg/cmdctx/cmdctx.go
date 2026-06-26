@@ -45,6 +45,14 @@ type TextFormatterFn func(w io.Writer, d DataAccessor) error
 // CreateBodyFn builds the POST/PUT request body for an endpoint command.
 type CreateBodyFn func(ctx *Ctx) (any, error)
 
+// QueryParamsFn returns extra query parameters to merge into a request.
+// It is called after the spec's query_params CEL expressions are evaluated,
+// and its results are merged on top (so it can override CEL values too).
+// Only takes effect on GET and list requests; it is not called for
+// update/create strategies (get-then-put, set-fields) which manage their
+// own query params internally.
+type QueryParamsFn func(ctx *Ctx) (map[string]string, error)
+
 // FollowFn is called after a successful endpoint command when --follow is set.
 // result is the raw API response (same value RunEndpoint returns).
 type FollowFn func(ctx *Ctx, result any) error
@@ -94,6 +102,7 @@ type RawBody struct {
 type Resolver interface {
 	ResolveTextFormatter(id string) TextFormatterFn
 	ResolveBodyFn(id string) CreateBodyFn
+	ResolveQueryParamsFn(id string) QueryParamsFn
 	ResolveFetchFn(id string) (FetchFn, error)
 	ResolveEndpointValidator(id string) EndpointValidatorFn
 	GetSpec(verb, noun string) *spec.CommandSpec

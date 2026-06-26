@@ -53,6 +53,7 @@ type Registry struct {
 	workflows            map[string]WorkflowFn
 	textFormatters       map[string]cmdctx.TextFormatterFn
 	bodyFns              map[string]cmdctx.CreateBodyFn
+	queryParamsFns       map[string]cmdctx.QueryParamsFn
 	followFns            map[string]cmdctx.FollowFn
 	fetchFns             map[string]cmdctx.FetchFn
 	flagCompletionFns    map[string]FlagCompletionFn
@@ -69,6 +70,7 @@ func New() *Registry {
 		workflows:            map[string]WorkflowFn{},
 		textFormatters:       map[string]cmdctx.TextFormatterFn{},
 		bodyFns:              map[string]cmdctx.CreateBodyFn{},
+		queryParamsFns:       map[string]cmdctx.QueryParamsFn{},
 		followFns:            map[string]cmdctx.FollowFn{},
 		fetchFns:             map[string]cmdctx.FetchFn{},
 		flagCompletionFns:    map[string]FlagCompletionFn{},
@@ -204,6 +206,19 @@ func (r *Registry) ResolveTextFormatter(id string) cmdctx.TextFormatterFn {
 // ResolveBodyFn implements cmdctx.Resolver.
 func (r *Registry) ResolveBodyFn(id string) cmdctx.CreateBodyFn {
 	return r.bodyFns[id]
+}
+
+// ResolveQueryParamsFn implements cmdctx.Resolver.
+func (r *Registry) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn {
+	return r.queryParamsFns[id]
+}
+
+// RegisterQueryParamsFn registers a fully-qualified query params function ID.
+func (r *Registry) RegisterQueryParamsFn(id string, fn cmdctx.QueryParamsFn) {
+	if _, ok := r.queryParamsFns[id]; ok {
+		panic(fmt.Sprintf("registry: duplicate query_params_fn %q", id))
+	}
+	r.queryParamsFns[id] = fn
 }
 
 // ResolveFetchFn implements cmdctx.Resolver.
