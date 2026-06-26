@@ -21,6 +21,7 @@ nouns:
   - noun: repository
     short_desc: A Harness Code source repository.
     noun_aliases: [repo, repos, repositories]
+    multi_level: true
     url_path: /ng/account/{{auth.account}}/module/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{it.identifier}}
     fields:
       - id: identifier
@@ -71,6 +72,7 @@ nouns:
   - noun: pr
     short_desc: A Harness Code pull request.
     noun_aliases: [prs, pull_request, pull_requests]
+    multi_level: true
     url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{it.number}}/conversation
     fields:
       - id: number
@@ -168,6 +170,7 @@ nouns:
   - noun: branch
     short_desc: A git branch in a Harness Code repository.
     noun_aliases: [branches]
+    multi_level: true
     fields:
       - id: name
         expr: it.name
@@ -193,6 +196,7 @@ nouns:
   - noun: commit
     short_desc: A git commit in a Harness Code repository.
     noun_aliases: [commits]
+    multi_level: true
     fields:
       - id: sha
         expr: it.sha
@@ -218,6 +222,7 @@ nouns:
   - noun: tag
     short_desc: A git tag in a Harness Code repository.
     noun_aliases: [tags]
+    multi_level: true
     fields:
       - id: name
         expr: it.name
@@ -234,6 +239,7 @@ nouns:
   - noun: pr_comment
     short_desc: A comment on a pull request.
     noun_aliases: [pr_comments]
+    multi_level: true
     fields:
       - id: id
         label: ID
@@ -257,6 +263,7 @@ nouns:
   - noun: commit_check
     short_desc: A status check result on a specific commit (full history, not just the current PR head).
     noun_aliases: [commit_checks]
+    multi_level: true
     fields:
       - id: identifier
         expr: it.identifier
@@ -294,6 +301,7 @@ nouns:
   - noun: pr_check
     short_desc: A status check on a pull request (CI, required checks, etc).
     noun_aliases: [pr_checks]
+    multi_level: true
     fields:
       - id: identifier
         expr: it.check.identifier
@@ -350,6 +358,7 @@ nouns:
   - noun: pr_activity
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
+    multi_level: true
     fields:
       - id: id
         label: ID
@@ -582,6 +591,7 @@ commands:
     verb: create
     noun: pr
     short: "Create a pull request: harness create pr <repo_id> --set title=... source_branch=... [target_branch=main] [description=...] [-f desc.md]"
+    requires_id: true
     handler_type: endpoint
     flags_builtin:
       set: true
