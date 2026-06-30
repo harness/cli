@@ -402,6 +402,38 @@ nouns:
         expr: epochMs(it.createdAt)
         field_type: ts
 
+  - noun: agent
+    short_desc: An AI agent definition.
+    noun_aliases: [agents]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: role
+        expr: it.role
+      - id: status
+        expr: it.status
+      - id: version
+        expr: it.version
+      - id: description
+        expr: it.description
+      - id: created_at
+        label: Created
+        expr: it.created_at
+      - id: updated_at
+        label: Updated
+        expr: it.updated_at
+      - id: created_by
+        label: Created By
+        expr: it.created_by.name
+      - id: created_by_email
+        label: Created By Email
+        expr: it.created_by.email
+      - id: spec
+        expr: it.spec
+        field_type: multiline_text
+
   - noun: delegate
     short_desc: An agent installed in your infrastructure that executes pipeline tasks on Harness's behalf.
     noun_aliases: [delegates]
@@ -1316,6 +1348,92 @@ commands:
     endpoint:
       method: DELETE
       path: /ng/api/delegate-token-ng/{{ctx.id}}
+
+  - command: list agent
+    verb: list
+    noun: agent
+    short: List AI agents
+    flags_builtin:
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/agents/api/v1/agents
+      items_expr: it
+      get_id_expr: it.id
+      columns: [id, name, role, status, version]
+      completion:
+        id_expr: it.id
+        name_expr: it.name
+      paging:
+        paging_strategy: flat_list
+
+  - command: get agent
+    verb: get
+    noun: agent
+    short: Get an AI agent by identifier
+    completion_noun: agent
+    flags_builtin:
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/agents/api/v1/agents/{{ctx.id}}
+      item_expr: it
+      yaml_pick_expr: it
+      yaml_exclude: [id, status, role, version, created_at, updated_at, created_by]
+      query_params:
+        accountIdentifier: auth.account
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create agent
+    verb: create
+    noun: agent
+    requires_id: true
+    short: "Create an AI agent: harness create agent <id> -f agent.yaml"
+    long: |
+      Create an AI agent from a wrapper YAML file.
+
+      The -f file is the agent wrapper (name, description, spec, ...) — not the agent spec YAML
+      itself. The agent spec (the pipeline-like YAML with stages, steps, inputs, etc.) lives as a
+      string under the "spec" key inside the wrapper. Use 'harness get agent <id> -o yaml' to
+      produce a valid wrapper file to use as a starting point.
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      file_body: required
+      path: /gateway/agents/api/v1/agents
+      create_strategy: set-fields
+      create_body_init:
+        uid: ctx.id
+        name: ctx.id
+      item_expr: it
+      text_header: "\nCreated agent {{it.id}}\n"
+      query_params:
+        accountIdentifier: auth.account
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: update agent
+    verb: update
+    noun: agent
+    short: "Update an AI agent: harness update agent <id> -f agent.yaml"
+    long: |
+      Update an AI agent from a wrapper YAML file.
+
+      The -f file is the agent wrapper (name, description, spec, ...) — not the agent spec YAML
+      itself. The agent spec (the pipeline-like YAML with stages, steps, inputs, etc.) lives as a
+      string under the "spec" key inside the wrapper. Use 'harness get agent <id> -o yaml' to
+      produce a valid wrapper file to edit and re-apply.
+    completion_noun: agent
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      file_body: required
+      path: /gateway/agents/api/v1/agents/{{ctx.id}}
+      item_expr: it
+      text_header: "\nUpdated agent {{ctx.id}}\n"
+      query_params:
+        accountIdentifier: auth.account
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
 
   - command: get account
     verb: get

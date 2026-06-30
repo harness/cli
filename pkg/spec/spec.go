@@ -291,6 +291,9 @@ type EndpointSpec struct {
 	// subtree of the raw API response to emit. Evaluated from root ("it" = full response).
 	// Should produce an object that round-trips cleanly with the corresponding update -f.
 	YamlPickExpr string `yaml:"yaml_pick_expr,omitempty"`
+	// YamlExclude lists top-level keys to strip from the yaml_pick_expr result before emitting.
+	// Use to remove server-managed read-only fields so the output round-trips cleanly with create/update.
+	YamlExclude []string `yaml:"yaml_exclude,omitempty"`
 	// GetIdExpr, when non-empty, is an expr-lang expression evaluated against each list
 	// item to produce the composite id suitable for passing to the corresponding get command.
 	// "it" is bound to the item; parentId/parentIdParts are also available.

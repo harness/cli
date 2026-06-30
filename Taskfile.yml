@@ -66,6 +66,12 @@ tasks:
       - HARNESS_CHECKSPECS=1 ./bin/harness
       - HARNESS_CHECKSPECS=1 ./bin/harness-har
 
+  check:specs:main:
+    desc: Validate core *.spec.yaml files (skips HAR build)
+    deps: [build:main]
+    cmds:
+      - HARNESS_CHECKSPECS=1 ./bin/harness
+
   tidy:
     desc: Tidy all modules and sync go.work
     cmds:

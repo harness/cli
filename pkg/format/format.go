@@ -193,7 +193,7 @@ func FormatFieldsOutput(flags cmdctx.FormatFlags, data any, itemExpr string, fie
 // yamlPickExpr, when non-empty, enables --format yaml and defines which subtree to emit; evaluated
 // from the raw response root. textFmt, when non-nil, is used when format is "text".
 // "it" is bound to the full response; ctx, auth, flags, and helpers are also available via exprEnv.
-func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr string, yamlPickExpr string, textFmt TextFormatterFn, exprEnv map[string]any) error {
+func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr string, yamlPickExpr string, yamlExclude []string, textFmt TextFormatterFn, exprEnv map[string]any) error {
 	if flags.Format == "" {
 		if textFmt != nil {
 			flags.Format = "text"
@@ -218,6 +218,13 @@ func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr
 		picked := evalColumnExpr(withIt(exprEnv, data), yamlPickExpr)
 		if picked == nil {
 			return nil
+		}
+		if len(yamlExclude) > 0 {
+			if m, ok := picked.(map[string]any); ok {
+				for _, k := range yamlExclude {
+					delete(m, k)
+				}
+			}
 		}
 		return writeYAML(w, picked)
 	}

@@ -104,12 +104,25 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 			}
 			return c.PutRaw(path, qp, body, ct)
 		}
-		if ep.CreateBodyWrap != "" {
-			var parsed any
+		if ep.CreateBodyWrap != "" || len(ep.CreateBodyInit) > 0 {
+			var parsed map[string]any
 			if err := json.Unmarshal([]byte(body), &parsed); err != nil {
 				return nil, nil, fmt.Errorf("parsing -f body: %w", err)
 			}
-			return c.Post(path, qp, map[string]any{ep.CreateBodyWrap: parsed})
+			if len(ep.CreateBodyInit) > 0 {
+				exprEnv := exprenv.Make(ctx)
+				for dotPath, exprStr := range ep.CreateBodyInit {
+					if _, exists := parsed[dotPath]; !exists {
+						if result, ok := exprenv.EvalExprAny(exprEnv, exprStr); ok && result != nil {
+							setDotPath(parsed, dotPath, result)
+						}
+					}
+				}
+			}
+			if ep.CreateBodyWrap != "" {
+				return c.Post(path, qp, map[string]any{ep.CreateBodyWrap: parsed})
+			}
+			return c.Post(path, qp, parsed)
 		}
 		return c.PostRaw(path, qp, body, ct)
 	}
@@ -263,7 +276,7 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 			if err := yaml.Unmarshal([]byte(s), &parsed); err != nil {
 				return nil, fmt.Errorf("parsing %q as YAML: %w", ep.FieldExtract, err)
 			}
-			return result, format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, parsed, "", "", nil, exprEnv)
+			return result, format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, parsed, "", "", nil, nil, exprEnv)
 		}
 		w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 		if err != nil {
@@ -303,7 +316,7 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 			textFmt = buildDeclTextFmt(fields, ep, exprEnv)
 		}
 	}
-	return result, format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, result, ep.ItemExpr, ep.YamlPickExpr, textFmt, exprEnv)
+	return result, format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, result, ep.ItemExpr, ep.YamlPickExpr, ep.YamlExclude, textFmt, exprEnv)
 }
 
 // RunListEndpoint calls CallEndpoint then renders the result as a list.
