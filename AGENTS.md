@@ -10,6 +10,9 @@ A spec-driven Go CLI for Harness. Commands are declared in YAML spec files; the 
 # Build (requires Task: brew install go-task)
 task build                    # outputs bin/harness and bin/harness-har
 
+# Faster build when only touching core (not HAR) — HAR pulls in large libraries and is slow
+task build:main               # builds bin/harness only, skips HAR
+
 # Install to GOPATH
 go install ./cmd/harness/...
 
@@ -144,6 +147,9 @@ An empty `body_params` still sends `{}` (required by gRPC-gateway for POST/PATCH
 ```sh
 # Always copy after build
 task build && cp $(go env GOPATH)/bin/harness ~/.local/bin/harness
+
+# Faster: use task build:main when only core (non-HAR) code changed
+task build:main && cp $(go env GOPATH)/bin/harness ~/.local/bin/harness
 
 # Verify a command
 harness list kg:type

@@ -17,11 +17,11 @@ import (
 // append=true opens the file in append mode; false truncates/creates.
 func (m *logViewModel) doSaveLog(appendMode bool) {
 	node := m.selectedNode()
-	logKey := ""
+	nodeUUID := ""
 	if node != nil {
-		logKey = node.LogBaseKey
+		nodeUUID = node.UUID
 	}
-	content := console.StripANSI(m.logCache[logKey])
+	content := console.StripANSI(m.logCache[nodeUUID])
 	flag := os.O_WRONLY | os.O_CREATE
 	if appendMode {
 		flag |= os.O_APPEND

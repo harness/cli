@@ -117,6 +117,7 @@ func (m *logViewModel) renderDetailsContent(node *execgraph.GraphNode) string {
 	}
 
 	var b strings.Builder
+	b.WriteString(label("FQN:       ") + "  " + val(node.BaseFQN) + "\n")
 	b.WriteString(label("Started at:") + "  " + fmtTs(node.StartTs) + "\n")
 	b.WriteString(label("Ended at:  ") + "  " + fmtTs(node.EndTs) + "\n")
 

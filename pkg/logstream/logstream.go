@@ -263,8 +263,8 @@ func WriteEndEvent(w io.Writer, source string, node execgraph.GraphNode) {
 		if msg == "" {
 			msg = status
 		}
-		msg = strings.ReplaceAll(msg, `"`, `\"`)
-		fmt.Fprintf(w, "<<< failed %s %s \"%s\"\n", source, t.Format("15:04:05"), msg)
+		b, _ := json.Marshal(msg)
+		fmt.Fprintf(w, "<<< failed %s %s %s\n", source, t.Format("15:04:05"), string(b))
 	}
 }
 
@@ -551,7 +551,7 @@ func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style 
 					if !nodeStarted[lk] && nodeMatchesFilter(node, parentName) {
 						bucket := format.ClassifyExecutionStatus(node.Status)
 						if bucket == format.StatusRunning || bucket == format.StatusSuccess || bucket == format.StatusSkipped || bucket == format.StatusFailed {
-							newNodes = append(newNodes, nodeEntry{logKey: lk, name: name, node: node, rank: node.Rank})
+							newNodes = append(newNodes, nodeEntry{logKey: lk, name: node.BaseFQN, node: node, rank: node.Rank})
 						}
 					}
 				}

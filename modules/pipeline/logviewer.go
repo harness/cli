@@ -34,21 +34,21 @@ type lvStepsLoadedMsg struct {
 }
 
 type lvLogLoadedMsg struct {
-	logKey string
-	body   string
-	err    error
+	nodeUUID string
+	body     string
+	err      error
 }
 
 type lvCountdownTickMsg struct{}
 type lvPollMsg struct{}
 
 type lvLogStreamLineMsg struct {
-	logKey string
-	lines  []string
+	nodeUUID string
+	lines    []string
 }
 
 type lvLogStreamDoneMsg struct {
-	logKey string
+	nodeUUID string
 }
 
 // --- styles ---
@@ -103,8 +103,8 @@ type logViewModel struct {
 	steps     []execgraph.GraphNode
 	// selectedUUID is the UUID of the highlighted step; stable across polls.
 	selectedUUID    string
-	logCache        map[string]string    // logKey → rendered log text
-	activeStreams   map[string]sseStream // logKey → live SSE stream (running steps only)
+	logCache        map[string]string    // nodeUUID → rendered log text
+	activeStreams   map[string]sseStream // nodeUUID → live SSE stream (running steps only)
 	leftPanelW      int
 	leftPanelOffset int
 	pipelineDone    bool
@@ -149,7 +149,7 @@ func calcLeftPanelWidth(steps []execgraph.GraphNode, activeStreams map[string]ss
 	w := 0
 	for _, s := range steps {
 		n := s.Depth + 3 + len(execgraph.NodeName(s))
-		if _, streaming := activeStreams[s.LogBaseKey]; streaming {
+		if _, streaming := activeStreams[s.UUID]; streaming {
 			n += 2
 		}
 		if n > w {
@@ -219,13 +219,13 @@ func bareExecID(label string) string {
 	return label
 }
 
-func (m logViewModel) fetchLog(logKey string) tea.Cmd {
+func (m logViewModel) fetchLog(nodeUUID, logKey string) tea.Cmd {
 	hc := &http.Client{Timeout: 30 * time.Second}
 	a := m.ctx.Auth
 	return func() tea.Msg {
 		var buf strings.Builder
 		_, err := logstream.FetchAndPrintLog(hc, a, logKey, "", true, &buf)
-		return lvLogLoadedMsg{logKey: logKey, body: buf.String(), err: err}
+		return lvLogLoadedMsg{nodeUUID: nodeUUID, body: buf.String(), err: err}
 	}
 }
 
@@ -344,7 +344,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == lvStateReady && m.selectedUUID != "" {
 				node := m.selectedNode()
 				if node != nil {
-					if _, ok := m.logCache[node.LogBaseKey]; ok {
+					if _, ok := m.logCache[node.UUID]; ok {
 						m.saveModal = true
 						m.saveInput = ""
 						m.saveStatus = ""
@@ -357,7 +357,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == lvStateReady && m.selectedUUID != "" {
 				node := m.selectedNode()
 				if node != nil {
-					delete(m.logCache, node.LogBaseKey)
+					delete(m.logCache, node.UUID)
 				}
 				return m, m.maybeLoadLog()
 			}
@@ -481,56 +481,57 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.err != nil {
 			node := m.selectedNode()
-			if node != nil && node.LogBaseKey == msg.logKey {
+			if node != nil && node.UUID == msg.nodeUUID {
 				m.vp.SetContent(m.st.errStyle.Render("error: " + msg.err.Error()))
 				m.vp.GotoTop()
 			}
 			return m, nil
 		}
 		if msg.body == "" {
-			m.logCache[msg.logKey] = m.st.dim.Render("(no log content)")
+			m.logCache[msg.nodeUUID] = m.st.dim.Render("(no log content)")
 		} else {
-			m.logCache[msg.logKey] = msg.body
+			m.logCache[msg.nodeUUID] = msg.body
 		}
 		node := m.selectedNode()
-		if node != nil && node.LogBaseKey == msg.logKey {
-			m.vp.SetContent(m.logCache[msg.logKey])
+		if node != nil && node.UUID == msg.nodeUUID {
+			m.vp.SetContent(m.logCache[msg.nodeUUID])
 			m.vp.GotoTop()
 		}
 		return m, nil
 
 	case lvLogStreamLineMsg:
 		for _, line := range msg.lines {
-			m.logCache[msg.logKey] += line
+			m.logCache[msg.nodeUUID] += line
 		}
 		node := m.selectedNode()
-		if node != nil && node.LogBaseKey == msg.logKey {
+		if node != nil && node.UUID == msg.nodeUUID {
 			atBottom := m.vp.AtBottom()
-			m.vp.SetContent(m.logCache[msg.logKey])
+			m.vp.SetContent(m.logCache[msg.nodeUUID])
 			if atBottom {
 				m.vp.GotoBottom()
 			}
 		}
 		// Re-arm: read next event from the channel.
-		if ss, ok := m.activeStreams[msg.logKey]; ok {
-			return m, waitForSSEEvent(msg.logKey, ss.ch)
+		if ss, ok := m.activeStreams[msg.nodeUUID]; ok {
+			return m, waitForSSEEvent(msg.nodeUUID, ss.ch)
 		}
 		return m, nil
 
 	case lvLogStreamDoneMsg:
-		if ss, ok := m.activeStreams[msg.logKey]; ok {
+		if ss, ok := m.activeStreams[msg.nodeUUID]; ok {
 			ss.cancel()
-			delete(m.activeStreams, msg.logKey)
+			delete(m.activeStreams, msg.nodeUUID)
 		}
 		// If cache is empty (SSE produced nothing), fall back to blob fetch.
-		if _, hasCached := m.logCache[msg.logKey]; !hasCached {
+		if _, hasCached := m.logCache[msg.nodeUUID]; !hasCached {
 			node := m.selectedNode()
-			if node != nil && node.LogBaseKey == msg.logKey {
+			if node != nil && node.UUID == msg.nodeUUID {
+				lk := execgraph.GetLogKey(*node)
 				m.loading = true
 				m.vp.SetContent(m.st.dim.Render("loading…"))
 				return m, tea.Batch(
 					func() tea.Msg { return m.spin.Tick() },
-					m.fetchLog(node.LogBaseKey),
+					m.fetchLog(node.UUID, lk),
 				)
 			}
 		}
@@ -560,11 +561,11 @@ func (m *logViewModel) resizeComponents() {
 }
 
 // startSSEStream opens an SSE connection for a running step, registers it in
-// activeStreams, and returns the first waitForSSEEvent Cmd.
-func (m *logViewModel) startSSEStream(logKey string) tea.Cmd {
+// activeStreams keyed by nodeUUID, and returns the first waitForSSEEvent Cmd.
+func (m *logViewModel) startSSEStream(nodeUUID, logKey string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan logstream.Event, 64)
-	m.activeStreams[logKey] = sseStream{cancel: cancel, ch: ch}
+	m.activeStreams[nodeUUID] = sseStream{cancel: cancel, ch: ch}
 
 	hc := &http.Client{Timeout: 90 * time.Minute}
 	a := m.ctx.Auth
@@ -576,18 +577,18 @@ func (m *logViewModel) startSSEStream(logKey string) tea.Cmd {
 		close(ch)
 	}()
 
-	return waitForSSEEvent(logKey, ch)
+	return waitForSSEEvent(nodeUUID, ch)
 }
 
 // waitForSSEEvent reads one event from the SSE channel and returns it as a
 // bubbletea message. Called recursively via Cmd until the channel closes.
-func waitForSSEEvent(logKey string, ch <-chan logstream.Event) tea.Cmd {
+func waitForSSEEvent(nodeUUID string, ch <-chan logstream.Event) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-ch
 		if !ok {
-			return lvLogStreamDoneMsg{logKey: logKey}
+			return lvLogStreamDoneMsg{nodeUUID: nodeUUID}
 		}
-		return lvLogStreamLineMsg{logKey: logKey, lines: ev.Lines}
+		return lvLogStreamLineMsg{nodeUUID: nodeUUID, lines: ev.Lines}
 	}
 }
 
@@ -602,7 +603,8 @@ func (m *logViewModel) maybeLoadLog() tea.Cmd {
 	if node == nil {
 		return nil
 	}
-	if node.LogBaseKey == "" {
+	lk := execgraph.GetLogKey(*node)
+	if lk == "" {
 		m.vp.SetContent(m.st.dim.Render("(no logs for this step)"))
 		m.vp.GotoTop()
 		return nil
@@ -612,7 +614,7 @@ func (m *logViewModel) maybeLoadLog() tea.Cmd {
 
 	if terminal {
 		// Blob path: show cache if present, otherwise fetch.
-		if body, ok := m.logCache[node.LogBaseKey]; ok {
+		if body, ok := m.logCache[node.UUID]; ok {
 			m.vp.SetContent(body)
 			m.vp.GotoTop()
 			return nil
@@ -621,25 +623,25 @@ func (m *logViewModel) maybeLoadLog() tea.Cmd {
 		m.vp.SetContent(m.st.dim.Render("loading…"))
 		return tea.Batch(
 			func() tea.Msg { return m.spin.Tick() },
-			m.fetchLog(node.LogBaseKey),
+			m.fetchLog(node.UUID, lk),
 		)
 	}
 
 	// Running path: show current cache (may be empty) and ensure stream is live.
-	if body, ok := m.logCache[node.LogBaseKey]; ok {
+	if body, ok := m.logCache[node.UUID]; ok {
 		m.vp.SetContent(body)
 		m.vp.GotoBottom()
 	} else {
 		m.vp.SetContent(m.st.dim.Render("connecting…"))
 	}
 
-	if _, streaming := m.activeStreams[node.LogBaseKey]; streaming {
+	if _, streaming := m.activeStreams[node.UUID]; streaming {
 		// Stream already running in background — nothing to start.
 		return nil
 	}
 	return tea.Batch(
 		func() tea.Msg { return m.spin.Tick() },
-		m.startSSEStream(node.LogBaseKey),
+		m.startSSEStream(node.UUID, lk),
 	)
 }
 
@@ -677,7 +679,7 @@ const lvSpinSentinel = "\x02"
 func (m logViewModel) renderLeftPanelRow(s execgraph.GraphNode, selected bool, leftW int) string {
 	st := m.st
 	ss := format.BucketStyles[format.ClassifyExecutionStatus(s.Status)]
-	_, streaming := m.activeStreams[s.LogBaseKey]
+	_, streaming := m.activeStreams[s.UUID]
 
 	// Build plain sentinel string, apply scroll offset, truncate, then append spinner if needed.
 	indent := strings.Repeat(" ", s.Depth)

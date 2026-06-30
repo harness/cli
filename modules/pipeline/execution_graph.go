@@ -131,6 +131,7 @@ func listExecutionStepsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, 
 		}
 		m := node.ToMap()
 		m["name"] = indent + execgraph.NodeName(node)
+		m["fqn"] = node.BaseFQN
 		m["duration"] = fmtNodeDuration(node.StartTs, node.EndTs)
 		m["delegate"] = delegate
 		m["log_key"] = execgraph.GetLogKey(node)
