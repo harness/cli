@@ -28,14 +28,15 @@ const SourceEnv = "env"
 // ResolvedAuth is the result of auth resolution — the active credentials for a command invocation.
 // Credential fields are never printed; callers that display auth context must omit them.
 type ResolvedAuth struct {
-	Source      string   // "profile:<name>" or SourceEnv
-	AuthType    AuthType // AuthTypePAT or AuthTypeSSO
-	APIUrl      string
-	UIUrl       string   // Harness UI base URL; only set for SSO profiles (from JWT subdomain)
-	AccountID   string
-	OrgID       string
-	ProjectID   string
-	RegistryURL string
+	Source          string   // "profile:<name>" or SourceEnv
+	AuthType        AuthType // AuthTypePAT or AuthTypeSSO
+	ExplicitProfile string   // non-empty only when --profile flag was explicitly passed
+	APIUrl          string
+	UIUrl           string // Harness UI base URL; only set for SSO profiles (from JWT subdomain)
+	AccountID       string
+	OrgID           string
+	ProjectID       string
+	RegistryURL     string
 
 	// Exactly one of these is set depending on AuthType.
 	PATToken     string // set when AuthType == AuthTypePAT
@@ -58,7 +59,12 @@ func (a *ResolvedAuth) SetAuthHeader(req *http.Request) {
 func Load(profileFlag string) (*ResolvedAuth, error) {
 	// 1. --profile flag wins entirely; all auth env vars are ignored
 	if profileFlag != "" {
-		return resolveProfile(profileFlag)
+		r, err := resolveProfile(profileFlag)
+		if err != nil {
+			return nil, err
+		}
+		r.ExplicitProfile = profileFlag
+		return r, nil
 	}
 	// 2. HARNESS_API_KEY → env var mode, no config file read
 	if key := os.Getenv(hbase.EnvAPIKey); key != "" {
@@ -92,27 +98,36 @@ func Load(profileFlag string) (*ResolvedAuth, error) {
 	return resolveProfile("default")
 }
 
+// LoginHint returns the appropriate 'harness auth login...' command for an error hint,
+// including --profile <name> when the profile was explicitly set via the flag.
+func (r *ResolvedAuth) LoginHint(cmd string) string {
+	if r.ExplicitProfile != "" {
+		return "harness --profile " + r.ExplicitProfile + " auth " + cmd
+	}
+	return "harness auth " + cmd
+}
+
 // Validate checks that a ResolvedAuth is complete enough to make API calls.
 func Validate(r *ResolvedAuth) error {
 	if r.AuthType == AuthTypeSSO {
 		if r.SSOToken == "" {
-			return fmt.Errorf("no token found for profile — run 'harness auth loginsso' to re-authenticate")
+			return fmt.Errorf("no token found for profile — run '%s' to re-authenticate", r.LoginHint("loginsso"))
 		}
 	} else {
 		if r.PATToken == "" {
-			return fmt.Errorf("no token found for profile — run 'harness auth login' to re-authenticate")
+			return fmt.Errorf("no token found for profile — run '%s' to re-authenticate", r.LoginHint("login"))
 		}
 		if err := ValidatePATFormat(r.PATToken); err != nil {
 			if r.Source == SourceEnv {
 				return fmt.Errorf("%s is invalid: %w", hbase.EnvAPIKey, err)
 			}
-			return fmt.Errorf("stored token is invalid — run 'harness auth login' to re-authenticate: %w", err)
+			return fmt.Errorf("stored token is invalid — run '%s' to re-authenticate: %w", r.LoginHint("login"), err)
 		}
 		if tokenAcct := AccountIDFromToken(r.PATToken); tokenAcct != "" && r.AccountID != tokenAcct {
 			if r.Source == SourceEnv {
 				return fmt.Errorf("%s %q does not match account in token %q", hbase.EnvAccount, r.AccountID, tokenAcct)
 			}
-			return fmt.Errorf("stored account %q does not match token — run 'harness auth login' to re-authenticate", r.AccountID)
+			return fmt.Errorf("stored account %q does not match token — run '%s' to re-authenticate", r.AccountID, r.LoginHint("login"))
 		}
 	}
 	if r.OrgID == "" {
