@@ -30,8 +30,10 @@ const (
 	FlagName = "--background-update-check"
 
 	cacheFile = "update-check.json"
-	// Repo is the GitHub repo for all Harness CLI release operations.
-	Repo = "harness/harness-unified-cli"
+	// Repo is the current GitHub repo for Harness CLI releases.
+	Repo = "harness/cli"
+	// RepoLegacy is the old GitHub repo name, checked as a fallback during the transition window.
+	RepoLegacy    = "harness/harness-unified-cli"
 	spawnInterval = 24 * time.Hour
 	checkInterval = 24 * time.Hour
 	nagInterval   = 24 * time.Hour
@@ -190,9 +192,29 @@ func writeCache(c cache) error {
 }
 
 // FetchLatestVersion calls the GitHub releases API and returns the latest version tag (e.g. "v1.2.3").
+// It tries Repo first and falls back to RepoLegacy during the transition window.
 func FetchLatestVersion() (string, error) {
+	v, _, err := FetchLatestVersionWithRepo()
+	return v, err
+}
+
+// FetchLatestVersionWithRepo is like FetchLatestVersion but also returns the repo the version was
+// found in, so callers can use the same repo for building download URLs.
+func FetchLatestVersionWithRepo() (version, repo string, err error) {
+	for _, r := range []string{Repo, RepoLegacy} {
+		v, fetchErr := fetchLatestVersionFrom(r)
+		if fetchErr == nil {
+			return v, r, nil
+		}
+		hlog.Debug("release fetch failed, trying next repo", "repo", r, "error", fetchErr)
+	}
+	return "", "", fmt.Errorf("could not fetch latest version from %s or %s", Repo, RepoLegacy)
+}
+
+func fetchLatestVersionFrom(repo string) (string, error) {
 	client := &http.Client{Timeout: httpTimeout}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	hlog.Debug("GET", "url", url)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -200,23 +222,25 @@ func FetchLatestVersion() (string, error) {
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	resp, err := client.Do(req)
 	if err != nil {
+		hlog.Debug("GET failed", "url", url, "error", err)
 		return "", err
 	}
 	defer resp.Body.Close()
+	hlog.Debug("GET response", "url", url, "status", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
-	var release struct {
+	var rel struct {
 		TagName string `json:"tag_name"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
 		return "", err
 	}
-	if release.TagName == "" {
+	if rel.TagName == "" {
 		return "", fmt.Errorf("empty tag_name in response")
 	}
-	if !semver.IsValid(release.TagName) {
-		return "", fmt.Errorf("invalid version %q from API", release.TagName)
+	if !semver.IsValid(rel.TagName) {
+		return "", fmt.Errorf("invalid version %q from API", rel.TagName)
 	}
-	return release.TagName, nil
+	return rel.TagName, nil
 }

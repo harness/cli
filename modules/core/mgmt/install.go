@@ -261,8 +261,27 @@ func detectPlatform() (string, error) {
 func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName string) error {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
-	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
+
+	repo := release.Repo
+	client := &http.Client{Timeout: 15 * time.Second}
+	for _, r := range []string{release.Repo, release.RepoLegacy} {
+		url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", r, version, base)
+		hlog.Debug("HEAD", "url", url)
+		resp, err := client.Head(url)
+		if err != nil {
+			hlog.Debug("HEAD failed", "url", url, "error", err)
+			continue
+		}
+		resp.Body.Close()
+		hlog.Debug("HEAD response", "url", url, "status", resp.StatusCode)
+		if resp.StatusCode == http.StatusOK {
+			repo = r
+			break
+		}
+	}
+
+	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", repo, version, base)
+	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", repo, version, installBinaryName, ver)
 
 	tmp, err := os.MkdirTemp("", "harness-install-*")
 	if err != nil {
@@ -307,14 +326,22 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 func releaseAssetExists(version, platform, pkgName string) (bool, error) {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Head(url)
-	if err != nil {
-		return false, fmt.Errorf("checking release: %w", err)
+	for _, repo := range []string{release.Repo, release.RepoLegacy} {
+		url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", repo, version, base)
+		hlog.Debug("HEAD", "url", url)
+		resp, err := client.Head(url)
+		if err != nil {
+			hlog.Debug("HEAD failed", "url", url, "error", err)
+			continue
+		}
+		resp.Body.Close()
+		hlog.Debug("HEAD response", "url", url, "status", resp.StatusCode)
+		if resp.StatusCode == http.StatusOK {
+			return true, nil
+		}
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK, nil
+	return false, nil
 }
 
 func downloadFile(dest, url string) error {
