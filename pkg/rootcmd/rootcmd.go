@@ -176,11 +176,18 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 		if !isCompletionInvocation() {
 			emitBadUsage(root, reg, err)
 		}
-		if suggestion := reg.SuggestRootCommand(os.Args[1:]); suggestion != "" {
-			console.PrintError(suggestion)
-		} else {
-			console.PrintError(err.Error())
+		// Only suggest an alternative command when cobra itself couldn't dispatch
+		// (i.e. no runnable command was found). If cobra found and ran a command
+		// handler, the error came from the handler — show it as-is.
+		matched, _, _ := root.Find(os.Args[1:])
+		commandResolved := matched != nil && matched != root && matched.Runnable()
+		if !commandResolved {
+			if suggestion := reg.SuggestRootCommand(os.Args[1:]); suggestion != "" {
+				console.PrintError(suggestion)
+				os.Exit(1)
+			}
 		}
+		console.PrintError(err.Error())
 		if cmdctx.IsTimeout(err) {
 			os.Exit(hbase.TimeoutExitCode)
 		}
