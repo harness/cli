@@ -59,6 +59,33 @@ archives:
     formats: [tar.gz]
     name_template: "harness-plugin-har_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+nfpms:
+  - id: harness-core
+    package_name: harness-cli
+    ids: [harness-core]
+    formats:
+      - deb
+      - rpm
+    vendor: Harness
+    homepage: https://harness.io
+    maintainer: Harness <support@harness.io>
+    description: Harness Unified CLI
+    license: Apache-2.0
+    bindir: /usr/bin
+
+  - id: harness-plugin-har
+    package_name: harness-cli-har-plugin
+    ids: [harness-plugin-har]
+    formats:
+      - deb
+      - rpm
+    vendor: Harness
+    homepage: https://harness.io
+    maintainer: Harness <support@harness.io>
+    description: Harness HAR plugin for the Harness Unified CLI
+    license: Apache-2.0
+    bindir: /usr/bin
+
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
   algorithm: sha256
