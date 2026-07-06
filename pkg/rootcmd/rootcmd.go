@@ -144,6 +144,7 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 		hlog.SetLogFile(path)
 	}
 	reg.TelemetryEnv = telemetry.NewEnv()
+	defer telemetry.Init()()
 	if reg.IsMainBinary {
 		release.NagIfDue(hbase.Version)
 		release.MaybeSpawn()

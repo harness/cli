@@ -33,6 +33,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/harness-cli/pkg/config"
 	"github.com/harness/harness-cli/pkg/hbase"
 	"github.com/harness/harness-cli/pkg/hlog"
 )
@@ -152,6 +153,22 @@ func SetDisabled(v bool) {
 	disabled = v
 }
 
+// Init sets up the telemetry backend from config and returns a flush function
+// to defer in main. Safe to call unconditionally — no-ops when telemetry is
+// disabled or no write key is present.
+func Init() (flush func()) {
+	cfg, err := config.LoadConfig()
+	if err != nil || cfg.DisableTelemetry {
+		return func() {}
+	}
+	seg := newSegmentBackend(config.GetOrCreateTelemetryID())
+	if seg == nil {
+		return func() {}
+	}
+	SetBackend(seg)
+	return func() { seg.Close() }
+}
+
 // RecordIntent emits a [CommandIntent]. No-op when no backend is set,
 // HARNESS_NO_TELEMETRY=1, or the build is a dev build.
 func RecordIntent(e CommandIntent) {
@@ -211,9 +228,6 @@ func UserDomainFromEmail(email string) string {
 
 func shouldRecord(env Env) bool {
 	if activeBackend == nil {
-		return false
-	}
-	if env.IsDev {
 		return false
 	}
 	if disabled {
