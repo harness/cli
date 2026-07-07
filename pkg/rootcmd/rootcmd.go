@@ -19,6 +19,7 @@ import (
 	"github.com/harness/harness-cli/pkg/spec"
 	"github.com/harness/harness-cli/pkg/specloader"
 	"github.com/harness/harness-cli/pkg/release"
+	"github.com/harness/harness-cli/pkg/telemetry"
 )
 
 // MaybeRunBackgroundUpdateCheck exits if this invocation is the background update subprocess.
@@ -142,6 +143,7 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 	if path := os.Getenv(hbase.EnvLogFile); path != "" {
 		hlog.SetLogFile(path)
 	}
+	reg.TelemetryEnv = telemetry.NewEnv()
 	if reg.IsMainBinary {
 		release.NagIfDue(hbase.Version)
 		release.MaybeSpawn()
@@ -171,16 +173,70 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 	}
 
 	if err := root.Execute(); err != nil {
-		if suggestion := reg.SuggestRootCommand(os.Args[1:]); suggestion != "" {
-			console.PrintError(suggestion)
-		} else {
-			console.PrintError(err.Error())
+		if !isCompletionInvocation() {
+			emitBadUsage(root, reg, err)
 		}
+		// Only suggest an alternative command when cobra itself couldn't dispatch
+		// (i.e. no runnable command was found). If cobra found and ran a command
+		// handler, the error came from the handler — show it as-is.
+		matched, _, _ := root.Find(os.Args[1:])
+		commandResolved := matched != nil && matched != root && matched.Runnable()
+		if !commandResolved {
+			if suggestion := reg.SuggestRootCommand(os.Args[1:]); suggestion != "" {
+				console.PrintError(suggestion)
+				os.Exit(1)
+			}
+		}
+		console.PrintError(err.Error())
 		if cmdctx.IsTimeout(err) {
 			os.Exit(hbase.TimeoutExitCode)
 		}
 		os.Exit(1)
 	}
+}
+
+// emitBadUsage fires a CommandError for parse-time failures (unknown flag, unknown noun, bad args).
+// It uses cobra's Find to resolve the deepest matched command so we get a canonical verb/noun.
+// An unrecognized noun is never logged — we only record what cobra actually resolved.
+func emitBadUsage(root *cobra.Command, reg *registry.Registry, err error) {
+	matched, _, _ := root.Find(os.Args[1:])
+
+	// Walk up to the verb command (depth 1 from root).
+	verb, noun := "", ""
+	cmd := matched
+	for cmd != nil && cmd.HasParent() && cmd.Parent() != root {
+		cmd = cmd.Parent()
+	}
+	if cmd != nil && cmd != root && cmd.HasParent() {
+		verb = cmd.Name()
+		if matched != nil && matched != cmd {
+			noun = matched.Name()
+		}
+	}
+
+	var category telemetry.ErrorCategory
+	switch {
+	case verb == "":
+		category = telemetry.ErrorCategoryInvalidVerb
+	case noun != "":
+		category = telemetry.ErrorCategoryInvalidFlag
+	default:
+		category = telemetry.ErrorCategoryInvalidNoun
+	}
+
+	module := ""
+	if cs := reg.GetSpec(verb, noun); cs != nil {
+		module = cs.Module
+	}
+
+	telemetry.RecordError(telemetry.CommandError{
+		Verb:     verb,
+		Noun:     noun,
+		Module:   module,
+		Category: category,
+		RunID:    hbase.RunID,
+		Env:      reg.TelemetryEnv,
+	})
 }
 
 func isCompletionInvocation() bool {

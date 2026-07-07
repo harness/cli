@@ -17,7 +17,7 @@ import (
 
 func main() {
 	reg := registry.New()
-	if err := specloader.LoadSpec(reg, "har.spec.yaml"); err != nil {
+	if err := specloader.LoadSpec(reg, "har.spec.yaml", true); err != nil {
 		console.PrintError(err.Error())
 		os.Exit(1)
 	}

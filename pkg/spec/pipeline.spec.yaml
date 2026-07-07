@@ -524,6 +524,32 @@ commands:
       query_params:
         branch: flags.branch
 
+  - command: execute execution:abort
+    verb: execute
+    noun: execution
+    noun_variant: abort
+    short: Abort a running pipeline execution
+    confirm_mode: prompt
+    id_allow_slash: true
+    id_label: "<[pipeline/]execution-id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
+    handler_type: endpoint
+    flags:
+      - name: interrupt-type
+        default: AbortAll
+        description: "Interrupt type: AbortAll, Abort, Pause, Resume, StageRollback, ExpireAll, Retry"
+        completion_values: [AbortAll, Abort, Pause, Resume, StageRollback, ExpireAll, Retry]
+    endpoint:
+      method: PUT
+      path: /pipeline/api/pipeline/execute/interrupt/{{lastPart(ctx.id)}}
+      no_fields: true
+      text_header: "\nExecution aborted.\n"
+      query_params:
+        interruptType: 'flags["interrupt-type"]'
+
   - command: get execution
     verb: get
     noun: execution

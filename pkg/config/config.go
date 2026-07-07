@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -30,6 +31,7 @@ type Profile struct {
 	ProjectID   string   `yaml:"project_id,omitempty"`
 	RegistryURL string   `yaml:"registry_url,omitempty"`
 	AuthType    AuthType `yaml:"auth_type,omitempty"` // omitted for existing PAT profiles
+	Email       string   `yaml:"email,omitempty"`     // user email; populated on login/status, empty for legacy profiles
 }
 
 type Config struct {
@@ -54,6 +56,21 @@ func LoadConfig() (*Config, error) {
 		cfg.Profiles = make(map[string]*Profile)
 	}
 	return &cfg, nil
+}
+
+// AnyProfileMatchesDomain reports whether any profile's email belongs to domain.
+// Returns false on any error (missing file, parse failure, no email set).
+func AnyProfileMatchesDomain(domain string) bool {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return false
+	}
+	for _, p := range cfg.Profiles {
+		if i := strings.LastIndex(p.Email, "@"); i >= 0 && p.Email[i+1:] == domain {
+			return true
+		}
+	}
+	return false
 }
 
 func SaveConfig(cfg *Config) error {
