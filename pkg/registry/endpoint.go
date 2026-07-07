@@ -104,6 +104,16 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 			}
 			return c.PutRaw(path, qp, body, ct)
 		}
+		if method == "PATCH" {
+			if ep.UpdateBodyWrap != "" {
+				var parsed any
+				if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+					return nil, nil, fmt.Errorf("parsing -f body: %w", err)
+				}
+				return c.Patch(path, qp, map[string]any{ep.UpdateBodyWrap: parsed})
+			}
+			return c.PatchRaw(path, qp, body, ct)
+		}
 		if ep.CreateBodyWrap != "" || len(ep.CreateBodyInit) > 0 {
 			var parsed map[string]any
 			if err := json.Unmarshal([]byte(body), &parsed); err != nil {
