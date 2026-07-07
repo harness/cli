@@ -198,7 +198,7 @@ func (pageHeaderStrategy) ExtractPaging(_ *cmdctx.Ctx, ep *spec.EndpointSpec, ra
 // offset_limit
 // ---------------------------------------------------------------------------
 
-// offsetLimitStrategy sends offset=pageIndex*pageSize and limit=pageSize.
+// offsetLimitStrategy sends offset=wantStart and limit=pageSize directly.
 // Used for APIs that use item-count offsets rather than page numbers (e.g. FME).
 type offsetLimitStrategy struct{}
 
