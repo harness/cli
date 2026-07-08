@@ -196,6 +196,26 @@ nouns:
         expr: it.status
       - id: pipeline
         expr: it.pipelineIdentifier
+      - id: deadline
+        expr: epochMs(it.deadline)
+      - id: message
+        expr: it.details.approvalMessage
+        width_max: 60
+      - id: min_count
+        label: Min
+        expr: it.details.approvers.minimumCount
+        align: right
+      - id: user_groups
+        expr: jsonArray(it.details.approvers.userGroups)
+      - id: auto_reject
+        expr: it.details.autoRejectEnabled
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+      - id: error
+        expr: it.error_message
+        width_max: 60
 
   - noun: freeze_window
     short_desc: A scheduled deployment freeze window that blocks pipeline executions.
@@ -898,25 +918,88 @@ commands:
     verb: list
     noun: approval_instance
     short: List approval instances for a pipeline execution
-    completion_noun: execution
+    id_allow_slash: true
     requires_parentid: true
-    parentid_label: execution
+    parentid_label: "<[pipeline/]execution>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
     handler_type: endpoint
     flags:
       - name: status
         description: "Filter by status: WAITING, APPROVED, REJECTED, FAILED, ABORTED, EXPIRED"
       - name: type
         description: "Filter by type: HarnessApproval, JiraApproval, CustomApproval, ServiceNowApproval"
+      - name: node-execution-id
+        description: Filter to the approval step with this node execution (runtime) id
     endpoint:
-      path: /pipeline/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/approvals/execution/{{ctx.parentId}}
+      path: /pipeline/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/approvals/execution/{{lastPart(ctx.parentId)}}
+      fetch_fn: list_approval_instances_fetch
       items_expr: it
-      get_id_expr: it.id
+      get_id_expr: ctx.parentId + "/" + it.id
       query_params:
         approval_status: flags.status
         approval_type: flags.type
+        node_execution_id: flags["node-execution-id"]
       paging:
         paging_strategy: flat_list
-      columns: [id, type, status, pipeline]
+      columns: [id, type, status, pipeline, deadline]
+
+  - command: get approval_instance
+    verb: get
+    noun: approval_instance
+    short: Get an approval instance by id
+    id_allow_slash: true
+    id_label: "<[pipeline/]execution/approvalId>"
+    handler_type: endpoint
+    endpoint:
+      path: /pipeline/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/approvals/execution/{{ctx.idParts[len(ctx.idParts)-2]}}
+      item_expr: find(it, .id == lastPart(ctx.id))
+      fields_subset: [id, type, status, pipeline, deadline, message, min_count, user_groups, auto_reject, created, updated, error]
+
+  - command: execute approval_instance:approve
+    verb: execute
+    noun: approval_instance
+    noun_variant: approve
+    short: Approve a waiting Harness approval instance
+    confirm_mode: prompt
+    id_label: <approvalInstanceId>
+    fields_noun: approval_instance
+    handler_type: endpoint
+    flags:
+      - name: comment
+        description: Approval comment
+      - name: approver-input
+        description: "Approver input as key=value (repeatable)"
+        is_multi: true
+    endpoint:
+      method: POST
+      path: /pipeline/api/approvals/{{ctx.id}}/harness/activity
+      item_expr: it.data
+      text_header: "\nApproved approval {{ctx.id}}\n"
+      body_fn: approval_approve_body
+
+  - command: execute approval_instance:reject
+    verb: execute
+    noun: approval_instance
+    noun_variant: reject
+    short: Reject a waiting Harness approval instance
+    confirm_mode: prompt
+    id_label: <approvalInstanceId>
+    fields_noun: approval_instance
+    handler_type: endpoint
+    flags:
+      - name: comment
+        description: Rejection reason
+    endpoint:
+      method: POST
+      path: /pipeline/api/approvals/{{ctx.id}}/harness/activity
+      item_expr: it.data
+      text_header: "\nRejected approval {{ctx.id}}\n"
+      body_params:
+        action: '"REJECT"'
+        comments: flags.comment
 
   - command: list freeze_window
     verb: list
