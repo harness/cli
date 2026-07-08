@@ -24,6 +24,7 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterTextFormatter("execution_detail", formatGetExecution)
 	reg.RegisterFetchFn(listExecutionStepsFetchFnID, listExecutionStepsFetchFn)
 	reg.RegisterFetchFn(listApprovalInstancesFetchFnID, listApprovalInstancesFetchFn)
+	reg.RegisterBodyFn(approveBodyFnID, approvalApproveBody)
 	reg.RegisterFlagCompletionFn(pipelineLogStageCompletionID, pipelineLogStageCompletion)
 	reg.RegisterFlagCompletionFn(pipelineLogStepCompletionID, pipelineLogStepCompletion)
 	reg.RegisterEndpointValidatorFn(validatePipelineCreateID, validatePipelineCreate)

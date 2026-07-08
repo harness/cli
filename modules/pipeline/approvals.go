@@ -16,6 +16,28 @@ import (
 )
 
 const listApprovalInstancesFetchFnID = "list_approval_instances_fetch"
+const approveBodyFnID = "approval_approve_body"
+
+// approvalApproveBody builds the Harness approval activity body for an APPROVE
+// action: {action, comments, approverInputs?}. approverInputs is parsed from
+// repeatable --approver-input key=value flags (the array shape can't be built
+// by the spec body_params expr, which type-checks against a typed env).
+func approvalApproveBody(ctx *cmdctx.Ctx) (any, error) {
+	body := map[string]any{
+		"action":   "APPROVE",
+		"comments": cmdctx.GetString(ctx.FlagValues, "comment"),
+	}
+	pairs := cmdctx.GetStringSlice(ctx.FlagValues, "approver-input")
+	if len(pairs) > 0 {
+		inputs := make([]map[string]any, 0, len(pairs))
+		for _, p := range pairs {
+			name, value, _ := strings.Cut(p, "=")
+			inputs = append(inputs, map[string]any{"name": name, "value": value})
+		}
+		body["approverInputs"] = inputs
+	}
+	return body, nil
+}
 
 // listApprovalInstancesFetchFn runs the normal approval-list fetch, then stamps
 // each item with pipelineIdentifier (which the approvals API does not return).
