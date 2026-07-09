@@ -765,8 +765,8 @@ commands:
     noun: trigger
     short: Create a trigger for a pipeline (-f trigger.yaml)
     completion_noun: pipeline
-    requires_parentid: true
-    parentid_label: pipeline
+    requires_id: true
+    id_label: "<pipeline/id>"
     handler_type: endpoint
     endpoint:
       method: POST
@@ -774,9 +774,9 @@ commands:
       file_body: required
       content_type: application/yaml
       item_expr: it.data
-      text_header: "\nCreated trigger in pipeline {{ctx.parentId}}\n"
+      text_header: "\nCreated trigger in pipeline {{ctx.id}}\n"
       query_params:
-        targetIdentifier: ctx.parentId
+        targetIdentifier: ctx.id
 
   - command: update trigger
     verb: update
@@ -797,7 +797,7 @@ commands:
       text_header: "\nUpdated trigger {{ctx.id}}\n"
       query_params:
         targetIdentifier: flags.pipeline
-
+        
   - command: delete trigger
     verb: delete
     noun: trigger
