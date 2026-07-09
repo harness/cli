@@ -133,6 +133,7 @@ nouns:
   - noun: template
     short_desc: A reusable pipeline template for stages, steps, or full pipelines.
     noun_aliases: [templates]
+    multi_level: true
     fields:
       - id: identifier
         expr: it.identifier
@@ -144,6 +145,9 @@ nouns:
         expr: it.versionLabel
       - id: stable
         expr: it.stableTemplate
+      - id: yaml
+        expr: it.yaml
+        field_type: yaml
 
   - noun: pipeline_v1
     short_desc: A v1-schema pipeline (simplified list fields for legacy API compatibility).
@@ -957,7 +961,7 @@ commands:
         name_expr: it.name
       query_params:
         searchTerm: flags.search
-        templateListType: flags.list-type
+        templateListType: flags["list-type"]
       body_params:
         filterType: '"Template"'
       paging:
@@ -984,6 +988,54 @@ commands:
       item_expr: it.data
       query_params:
         versionLabel: flags.version
+
+  - command: create template
+    verb: create
+    noun: template
+    short: Create a template (-f template.yaml)
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /template/api/templates
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nCreated template in project [{{auth.project}}]\n"
+
+  - command: update template
+    verb: update
+    noun: template
+    short: Update a template version (-f template.yaml)
+    completion_noun: template
+    handler_type: endpoint
+    flags:
+      - name: version
+        required: true
+        description: Template version label to update
+    endpoint:
+      method: PUT
+      path: /template/api/templates/update/{{ctx.id}}/{{flags.version}}
+      file_body: required
+      content_type: application/yaml
+      no_fields: true
+      text_header: "\nUpdated template {{ctx.id}} ({{flags.version}})\n"
+
+  - command: delete template
+    verb: delete
+    noun: template
+    confirm_mode: prompt
+    short: Delete a template version by identifier
+    completion_noun: template
+    handler_type: endpoint
+    flags:
+      - name: version
+        required: true
+        description: Template version label to delete
+    endpoint:
+      method: DELETE
+      path: /template/api/templates/{{ctx.id}}/{{flags.version}}
+      item_expr: it
+      text_header: "\nDeleted template {{ctx.id}} ({{flags.version}})\n"
 
   - command: list pipeline_v1
     verb: list
