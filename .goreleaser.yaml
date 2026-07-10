@@ -24,6 +24,7 @@ builds:
       - -s -w
       - -X github.com/harness/harness-cli/pkg/hbase.Version={{.Version}}
       - -X github.com/harness/harness-cli/pkg/hbase.BuildTime={{.Date}}
+      - -X github.com/harness/harness-cli/pkg/telemetry.segmentWriteKey={{.Env.SEGMENT_WRITE_KEY}}
 
   - id: harness-plugin-har
     main: ./modules/har/cmd/harness-har/main-harness-har.go
