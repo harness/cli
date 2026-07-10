@@ -748,17 +748,77 @@ commands:
     verb: get
     noun: trigger
     short: Get a trigger by identifier
-    completion_noun: trigger
+    id_allow_slash: true
+    id_label: "<[pipeline/]id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
     handler_type: endpoint
-    flags:
-      - name: pipeline
-        required: true
-        description: Pipeline identifier the trigger belongs to
     endpoint:
-      path: /pipeline/api/triggers/{{ctx.id}}
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
       item_expr: it.data
       query_params:
-        targetIdentifier: flags.pipeline
+        targetIdentifier: ctx.idParts[0]
+
+  - command: create trigger
+    verb: create
+    noun: trigger
+    short: Create a trigger for a pipeline (-f trigger.yaml)
+    completion_noun: pipeline
+    requires_id: true
+    id_label: "<pipeline_id>"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /pipeline/api/triggers
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nCreated trigger in pipeline {{ctx.id}}\n"
+      query_params:
+        targetIdentifier: ctx.id
+
+  - command: update trigger
+    verb: update
+    noun: trigger
+    short: Update a trigger's YAML definition (-f trigger.yaml)
+    id_allow_slash: true
+    id_label: "<[pipeline/]id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
+      file_body: required
+      content_type: application/yaml
+      no_fields: true
+      text_header: "\nUpdated trigger {{lastPart(ctx.id)}}\n"
+      query_params:
+        targetIdentifier: ctx.idParts[0]
+
+  - command: delete trigger
+    verb: delete
+    noun: trigger
+    confirm_mode: prompt
+    short: Delete a trigger by identifier
+    id_allow_slash: true
+    id_label: "<[pipeline/]id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
+      item_expr: it
+      text_header: "\nDeleted trigger {{lastPart(ctx.id)}}\n"
+      query_params:
+        targetIdentifier: ctx.idParts[0]
 
   - command: list input_set
     verb: list
