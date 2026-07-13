@@ -331,6 +331,20 @@ nouns:
       - id: status
         expr: it.status
 
+  - noun: retry_history
+    short_desc: Retry lineage for a pipeline execution, including which stages are retryable.
+    fields:
+      - id: latest_execution_id
+        label: LatestExecId
+        expr: it.latestExecutionId
+      - id: retry_stages
+        expr: jsonArray(it.retryStagesMetadata.retryStagesIdentifier)
+      - id: skip_stages
+        expr: jsonArray(it.retryStagesMetadata.skipStagesIdentifier)
+      - id: error
+        expr: it.errorMessage
+        width_max: 60
+
 commands:
   - command: get pipeline
     verb: get
@@ -569,6 +583,75 @@ commands:
       text_header: "\nExecution aborted.\n"
       query_params:
         interruptType: 'flags["interrupt-type"]'
+
+  - command: execute execution:retry
+    verb: execute
+    noun: execution
+    noun_variant: retry
+    fields_noun: execution_result_dynamic
+    short: Retry a failed pipeline execution (optionally from specific stages)
+    id_parts: 2
+    id_label: "<pipeline/execution-id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
+    handler_type: endpoint
+    follow_fn: execute_v1_follow
+    flags:
+      - name: retry-stages
+        description: Stage identifier(s) to retry from (repeatable)
+        is_multi: true
+      - name: only-failed-stages
+        is_bool: true
+        description: In a failed parallel group, run only the failed stages (default runs all)
+      - name: module
+        description: Module type (CI, CD)
+      - name: notes
+        description: Notes for this execution
+      - name: input
+        description: "Runtime input as key=value (repeatable)"
+        is_multi: true
+      - name: input-file
+        description: "Path to a runtimeInputYaml file (use - for stdin)"
+      - name: follow
+        is_bool: true
+        description: Stream logs live after retry starts
+    endpoint:
+      method: POST
+      path: /pipeline/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.idParts[0]}}/execute/retry/{{ctx.idParts[1]}}
+      item_expr: it.execution_details
+      text_header: "\nRetry started successfully.\n"
+      text_footer: |
+
+        To follow:
+        harness get execution {{ctx.idParts[0]}}/{{it.execution_id}}
+        harness get execution_log {{ctx.idParts[0]}}/{{it.execution_id}} --follow
+      body_fn: execute_retry_body
+      query_params:
+        module: flags.module
+        notes: flags.notes
+        retry_stages: 'flags["retry-stages"] == nil ? "" : join(flags["retry-stages"], ",")'
+        run_all_stages: 'flags["only-failed-stages"] ? "false" : ""'
+
+  - command: get execution:retry_history
+    verb: get
+    noun: execution
+    noun_variant: retry_history
+    fields_noun: retry_history
+    short: Show the retry history and retryable stages for a pipeline execution
+    id_allow_slash: true
+    id_label: "<[pipeline/]execution-id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      path: /pipeline/api/pipeline/execute/retryHistory/{{lastPart(ctx.id)}}
+      item_expr: it.data
+      query_params:
+        pipelineIdentifier: ctx.idParts[0]
 
   - command: get execution
     verb: get
