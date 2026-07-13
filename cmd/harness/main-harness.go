@@ -29,6 +29,7 @@ var noargsText string
 
 func main() {
 	rootcmd.MaybeRunBackgroundUpdateCheck()
+	rootcmd.MaybeRunPostInstall()
 
 	if !semver.IsValid("v" + hbase.Version) {
 		console.PrintError(fmt.Sprintf("invalid version %q: must be a valid semver (e.g. 1.2.3)", hbase.Version))
