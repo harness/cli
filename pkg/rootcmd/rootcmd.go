@@ -10,16 +10,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/modules/core/mgmt"
-	"github.com/harness/harness-cli/pkg/registry"
-	"github.com/harness/harness-cli/pkg/spec"
-	"github.com/harness/harness-cli/pkg/specloader"
-	"github.com/harness/harness-cli/pkg/release"
-	"github.com/harness/harness-cli/pkg/telemetry"
+	"github.com/harness/cli/modules/core/mgmt"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/pkg/release"
+	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/specloader"
+	"github.com/harness/cli/pkg/telemetry"
 )
 
 // MaybeRunBackgroundUpdateCheck exits if this invocation is the background update subprocess.
@@ -27,6 +27,27 @@ func MaybeRunBackgroundUpdateCheck() {
 	for _, arg := range os.Args[1:] {
 		if arg == release.FlagName {
 			release.RunBackgroundCheck()
+			os.Exit(0)
+		}
+	}
+}
+
+// postInstallFlag is the hidden flag install.sh invokes right after placing a
+// fresh binary on disk, purely to fire a cli_installed telemetry event.
+const postInstallFlag = "--post-install"
+
+// MaybeRunPostInstall exits if this invocation is install.sh's post-install
+// telemetry ping. Respects the same opt-out as every other event.
+func MaybeRunPostInstall() {
+	for _, arg := range os.Args[1:] {
+		if arg == postInstallFlag {
+			flush := telemetry.Init()
+			telemetry.RecordInstall(telemetry.InstallEvent{
+				RunID:       hbase.RunID,
+				InstallType: telemetry.ResolveInstallType(),
+				Env:         telemetry.NewEnv(),
+			})
+			flush()
 			os.Exit(0)
 		}
 	}

@@ -19,10 +19,10 @@ import (
 	"github.com/jedib0t/go-pretty/v6/text"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/extractutil"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/extractutil"
+	"github.com/harness/cli/pkg/spec"
 )
 
 // TextFormatterFn is an alias for the canonical type in cmdctx.

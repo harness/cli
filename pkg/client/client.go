@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 func networkError(err error, apiURL string) error {

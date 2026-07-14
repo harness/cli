@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/harness/harness-cli/pkg/client"
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/client"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 // harnessUIDRe matches a Harness UID: exactly 22 base64url characters ([A-Za-z0-9_-]).

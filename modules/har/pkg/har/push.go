@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 // inferPackageType returns a package type string based on the file extension.

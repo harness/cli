@@ -6,8 +6,8 @@ package code
 import (
 	"fmt"
 
-	"github.com/harness/harness-cli/pkg/client"
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/client"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 // mergePRBodyFn builds the merge request body for execute pr:merge.

@@ -7,7 +7,7 @@ A unified CLI for Harness ecosystem. Manage pipelines, artifacts, code, IaCM, pl
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/harness/harness-unified-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh
 ```
 
 The installer will:
@@ -16,7 +16,7 @@ The installer will:
 - Install both the `harness` and `harness-har` binaries to `~/.local/bin` (override with `--install-dir`)
 - Optionally add `~/.local/bin` to your `PATH` and enable shell completions
 
-Prefer to install manually? Download a release archive directly from [GitHub Releases](https://github.com/harness/harness-unified-cli/releases) and place the binaries on your `PATH`.
+Prefer to install manually? Download a release archive directly from [GitHub Releases](https://github.com/harness/cli/releases) and place the binaries on your `PATH`.
 
 ### Installer flags
 
@@ -31,13 +31,13 @@ When passing flags via a pipe, use `sh -s --` — `-s` tells sh to read from std
 
 ```sh
 # install bundle (default)
-curl -fsSL https://raw.githubusercontent.com/harness/harness-unified-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh
 
 # install harness only (no harness-har)
-curl -fsSL https://raw.githubusercontent.com/harness/harness-unified-cli/main/install.sh | sh -s -- --core
+curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh -s -- --core
 
 # non-interactive install to a custom directory
-curl -fsSL https://raw.githubusercontent.com/harness/harness-unified-cli/main/install.sh | sh -s -- --non-interactive --install-dir /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh -s -- --non-interactive --install-dir /usr/local/bin
 ```
 
 ### Upgrading

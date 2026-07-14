@@ -12,10 +12,10 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/config"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/config"
+	"github.com/harness/cli/pkg/console"
 )
 
 var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)

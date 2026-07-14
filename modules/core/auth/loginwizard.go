@@ -15,23 +15,23 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	pkgauth "github.com/harness/harness-cli/pkg/auth"
-	hclient "github.com/harness/harness-cli/pkg/client"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/pkg/tui"
+	pkgauth "github.com/harness/cli/pkg/auth"
+	hclient "github.com/harness/cli/pkg/client"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/tui"
 )
 
 // WizardResult is returned by RunLoginWizard on success.
 type WizardResult struct {
-	APIURL      string
-	Token       string
-	Account     string
-	RegURL      string
-	OrgID       string
-	Project     string
-	ScopeNotSet    bool // true when org/project not configured — caller should prompt setscope
-	ScopeSkipped   bool // true when user explicitly chose to save without selecting org/project
+	APIURL       string
+	Token        string
+	Account      string
+	RegURL       string
+	OrgID        string
+	Project      string
+	ScopeNotSet  bool // true when org/project not configured — caller should prompt setscope
+	ScopeSkipped bool // true when user explicitly chose to save without selecting org/project
 }
 
 // errNoEnumPerms is set as cancelReason when a token can't list orgs/projects.
@@ -972,7 +972,6 @@ func RunSetWizard(ctx *cmdctx.Ctx, in *SetWizardInput) (*WizardResult, error) {
 }
 
 // --- helpers ---
-
 
 func truncate(s string, n int) string {
 	if len(s) <= n {

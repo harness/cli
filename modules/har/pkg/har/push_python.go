@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 // pythonPackageMeta holds the name and version extracted from a Python package.

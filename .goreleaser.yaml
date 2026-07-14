@@ -22,9 +22,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/harness/harness-cli/pkg/hbase.Version={{.Version}}
-      - -X github.com/harness/harness-cli/pkg/hbase.BuildTime={{.Date}}
-      - -X github.com/harness/harness-cli/pkg/telemetry.segmentWriteKey={{.Env.SEGMENT_WRITE_KEY}}
+      - -X github.com/harness/cli/pkg/hbase.Version={{.Version}}
+      - -X github.com/harness/cli/pkg/hbase.BuildTime={{.Date}}
+      - -X github.com/harness/cli/pkg/telemetry.segmentWriteKey={{.Env.SEGMENT_WRITE_KEY}}
 
   - id: harness-plugin-har
     main: ./modules/har/cmd/harness-har/main-harness-har.go
@@ -41,8 +41,8 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/harness/harness-cli/pkg/hbase.Version={{.Version}}
-      - -X github.com/harness/harness-cli/pkg/hbase.BuildTime={{.Date}}
+      - -X github.com/harness/cli/pkg/hbase.Version={{.Version}}
+      - -X github.com/harness/cli/pkg/hbase.BuildTime={{.Date}}
 
 archives:
   - id: harness-bundle
@@ -100,7 +100,7 @@ changelog:
 release:
   github:
     owner: harness
-    name: harness-unified-cli
+    name: cli
   draft: false
   prerelease: auto
   header: "Harness Unified CLI {{ .Tag }}"

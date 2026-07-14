@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/spec"
 )
 
 // buildTestRegistry creates a minimal registry with a few nouns and commands

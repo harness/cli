@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/harness/harness-cli/pkg/client"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/exprenv"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/client"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/exprenv"
+	"github.com/harness/cli/pkg/spec"
 )
 
 // PagingStrategy encapsulates the inject/extract logic for one paging style.

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/engine"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/tree"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/util"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/engine"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/tree"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"

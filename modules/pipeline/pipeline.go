@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/execgraph"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/registry"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/execgraph"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/registry"
 )
 
 // ModuleInit registers pipeline workflows and formatters. Commands are declared in pipeline.spec.yaml.
@@ -83,4 +83,3 @@ func formatGetExecution(w io.Writer, d cmdctx.DataAccessor) error {
 type executionGraphEnvelope struct {
 	ExecutionGraph execgraph.ExecutionGraph `json:"executionGraph"`
 }
-

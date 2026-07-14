@@ -10,10 +10,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/client"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/pkg/logstream"
+	"github.com/harness/cli/pkg/client"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/logstream"
 	"go.yaml.in/yaml/v3"
 )
 

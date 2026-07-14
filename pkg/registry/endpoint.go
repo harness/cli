@@ -12,14 +12,14 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/harness-cli/pkg/client"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/endpoint"
-	"github.com/harness/harness-cli/pkg/exprenv"
-	"github.com/harness/harness-cli/pkg/extractutil"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/client"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/endpoint"
+	"github.com/harness/cli/pkg/exprenv"
+	"github.com/harness/cli/pkg/extractutil"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/spec"
 )
 
 // CallEndpoint executes an API call described by ep using auth and flags from ctx.

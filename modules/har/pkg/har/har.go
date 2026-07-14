@@ -3,7 +3,7 @@
 
 package har
 
-import "github.com/harness/harness-cli/pkg/registry"
+import "github.com/harness/cli/pkg/registry"
 
 // ModuleInit registers har workflows. Commands are declared in har.spec.yaml.
 func ModuleInit(reg registry.ModuleRegistrar) {
@@ -27,4 +27,3 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(executeRegistryMigrateHandlerID, executeRegistryMigrateHandler)
 	reg.RegisterWorkflow(configureRegistryHandlerID, configureRegistryHandler)
 }
-

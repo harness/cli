@@ -8,11 +8,11 @@ import (
 	"io"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/execgraph"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/execgraph"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/spec"
 )
 
 const listExecutionStepsFetchFnID = "list_execution_steps_fetch"

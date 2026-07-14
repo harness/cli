@@ -8,18 +8,18 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/engine"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/migratable"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/engine"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/migratable"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	_ "github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter/har"
-	_ "github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter/jfrog"
-	_ "github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter/nexus"
+	_ "github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har"
+	_ "github.com/harness/cli/modules/har/pkg/har/migrate/adapter/jfrog"
+	_ "github.com/harness/cli/modules/har/pkg/har/migrate/adapter/nexus"
 )
 
 // MigrationService handles the migration process

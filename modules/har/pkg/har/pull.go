@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 const pullArtifactHandlerID = "pull_artifact"

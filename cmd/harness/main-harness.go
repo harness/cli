@@ -12,16 +12,16 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/modules/code"
-	"github.com/harness/harness-cli/modules/core"
-	"github.com/harness/harness-cli/modules/iacm"
-	"github.com/harness/harness-cli/modules/pipeline"
-	"github.com/harness/harness-cli/pkg/registry"
-	"github.com/harness/harness-cli/pkg/rootcmd"
-	"github.com/harness/harness-cli/pkg/spec"
-	"github.com/harness/harness-cli/pkg/specloader"
+	"github.com/harness/cli/modules/code"
+	"github.com/harness/cli/modules/core"
+	"github.com/harness/cli/modules/iacm"
+	"github.com/harness/cli/modules/pipeline"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/pkg/rootcmd"
+	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/specloader"
 )
 
 //go:embed noargs.txt
@@ -29,6 +29,7 @@ var noargsText string
 
 func main() {
 	rootcmd.MaybeRunBackgroundUpdateCheck()
+	rootcmd.MaybeRunPostInstall()
 
 	if !semver.IsValid("v" + hbase.Version) {
 		console.PrintError(fmt.Sprintf("invalid version %q: must be a valid semver (e.g. 1.2.3)", hbase.Version))

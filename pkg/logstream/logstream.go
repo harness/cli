@@ -16,12 +16,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/execgraph"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/hlog"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/execgraph"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 // SseTerminalDrainDelay is how long we wait after the pipeline reaches a terminal state

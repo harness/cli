@@ -12,8 +12,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/harness-cli/pkg/execgraph"
-	"github.com/harness/harness-cli/pkg/tui"
+	"github.com/harness/cli/pkg/execgraph"
+	"github.com/harness/cli/pkg/tui"
 )
 
 type rightTab int

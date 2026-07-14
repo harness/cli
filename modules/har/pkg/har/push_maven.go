@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 const defaultMaxConcurrentUploads = 4

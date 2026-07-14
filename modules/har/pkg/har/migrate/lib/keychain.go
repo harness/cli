@@ -1,7 +1,7 @@
 package lib
 
 import (
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 )

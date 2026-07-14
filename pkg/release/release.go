@@ -21,8 +21,8 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/term"
 
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 const (
@@ -30,10 +30,8 @@ const (
 	FlagName = "--background-update-check"
 
 	cacheFile = "update-check.json"
-	// Repo is the current GitHub repo for Harness CLI releases.
-	Repo = "harness/cli"
-	// RepoLegacy is the old GitHub repo name, checked as a fallback during the transition window.
-	RepoLegacy    = "harness/harness-unified-cli"
+	// Repo is the GitHub repo for Harness CLI releases.
+	Repo          = "harness/cli"
 	spawnInterval = 24 * time.Hour
 	checkInterval = 24 * time.Hour
 	nagInterval   = 24 * time.Hour
@@ -192,28 +190,9 @@ func writeCache(c cache) error {
 }
 
 // FetchLatestVersion calls the GitHub releases API and returns the latest version tag (e.g. "v1.2.3").
-// It tries Repo first and falls back to RepoLegacy during the transition window.
 func FetchLatestVersion() (string, error) {
-	v, _, err := FetchLatestVersionWithRepo()
-	return v, err
-}
-
-// FetchLatestVersionWithRepo is like FetchLatestVersion but also returns the repo the version was
-// found in, so callers can use the same repo for building download URLs.
-func FetchLatestVersionWithRepo() (version, repo string, err error) {
-	for _, r := range []string{Repo, RepoLegacy} {
-		v, fetchErr := fetchLatestVersionFrom(r)
-		if fetchErr == nil {
-			return v, r, nil
-		}
-		hlog.Debug("release fetch failed, trying next repo", "repo", r, "error", fetchErr)
-	}
-	return "", "", fmt.Errorf("could not fetch latest version from %s or %s", Repo, RepoLegacy)
-}
-
-func fetchLatestVersionFrom(repo string) (string, error) {
 	client := &http.Client{Timeout: httpTimeout}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo)
 	hlog.Debug("GET", "url", url)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

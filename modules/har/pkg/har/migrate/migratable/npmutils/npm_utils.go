@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types/npm"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types/npm"
 )
 
 // ExtractPackageJSONAndReadmeFromTarball extracts the root-level package.json

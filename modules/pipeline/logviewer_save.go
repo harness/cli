@@ -9,8 +9,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/tui"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/tui"
 )
 
 // doSaveLog writes the current step's log to m.saveInput.

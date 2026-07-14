@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hbase"
 )
 
 // custom "toml" parser for credentials fields

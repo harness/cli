@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 // condaIndexJSON holds the fields we need from info/index.json inside a conda package.

@@ -19,11 +19,11 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/pkg/plugin"
-	"github.com/harness/harness-cli/pkg/release"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/plugin"
+	"github.com/harness/cli/pkg/release"
 )
 
 var reReleaseVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
@@ -107,7 +107,7 @@ func checkRunningFromInstallDir(installDir string) error {
 	if exeDir != absInstall {
 		return fmt.Errorf(
 			"harness is running from %s, not the install directory %s\n"+
-				"Run the installed binary or pass --install-dir to point at %s.",
+				"Run the installed binary or pass --install-dir to point at %s",
 			exeDir, absInstall, exeDir,
 		)
 	}
@@ -302,7 +302,6 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 	return nil
 }
 
-
 func detectPlatform() (string, error) {
 	var os_, arch string
 	switch runtime.GOOS {
@@ -328,26 +327,8 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
 
-	repo := release.Repo
-	client := &http.Client{Timeout: 15 * time.Second}
-	for _, r := range []string{release.Repo, release.RepoLegacy} {
-		url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", r, version, base)
-		hlog.Debug("HEAD", "url", url)
-		resp, err := client.Head(url)
-		if err != nil {
-			hlog.Debug("HEAD failed", "url", url, "error", err)
-			continue
-		}
-		resp.Body.Close()
-		hlog.Debug("HEAD response", "url", url, "status", resp.StatusCode)
-		if resp.StatusCode == http.StatusOK {
-			repo = r
-			break
-		}
-	}
-
-	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", repo, version, base)
-	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", repo, version, installBinaryName, ver)
+	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
 
 	tmp, err := os.MkdirTemp("", "harness-install-*")
 	if err != nil {
@@ -393,21 +374,16 @@ func releaseAssetExists(version, platform, pkgName string) (bool, error) {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
 	client := &http.Client{Timeout: 15 * time.Second}
-	for _, repo := range []string{release.Repo, release.RepoLegacy} {
-		url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", repo, version, base)
-		hlog.Debug("HEAD", "url", url)
-		resp, err := client.Head(url)
-		if err != nil {
-			hlog.Debug("HEAD failed", "url", url, "error", err)
-			continue
-		}
-		resp.Body.Close()
-		hlog.Debug("HEAD response", "url", url, "status", resp.StatusCode)
-		if resp.StatusCode == http.StatusOK {
-			return true, nil
-		}
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	hlog.Debug("HEAD", "url", url)
+	resp, err := client.Head(url)
+	if err != nil {
+		hlog.Debug("HEAD failed", "url", url, "error", err)
+		return false, nil
 	}
-	return false, nil
+	resp.Body.Close()
+	hlog.Debug("HEAD response", "url", url, "status", resp.StatusCode)
+	return resp.StatusCode == http.StatusOK, nil
 }
 
 func downloadFile(dest, url string) error {

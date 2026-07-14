@@ -6,7 +6,7 @@ package mgmt
 import (
 	"fmt"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 func AskHandler(_ *cmdctx.Ctx) error {

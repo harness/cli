@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter/har/arapi"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter/har/arpkg"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arapi"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arpkg"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 
 	"github.com/google/uuid"
 	retryablehttp "github.com/hashicorp/go-retryablehttp"

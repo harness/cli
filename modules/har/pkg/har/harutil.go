@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
+	"github.com/harness/cli/pkg/auth"
 )
 
 // parseRegistryAndName splits ctx.Id ("registry/name") into its two parts.

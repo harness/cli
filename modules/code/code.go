@@ -3,7 +3,7 @@
 
 package code
 
-import "github.com/harness/harness-cli/pkg/registry"
+import "github.com/harness/cli/pkg/registry"
 
 const (
 	mergePRBodyFnID         = "merge_pr_body"

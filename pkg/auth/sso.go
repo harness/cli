@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/hlog"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 // ErrSSOSessionExpired is the sentinel for an expired SSO refresh token.

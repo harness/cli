@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
-	hclient "github.com/harness/harness-cli/pkg/client"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/config"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/hbase"
+	"github.com/harness/cli/pkg/auth"
+	hclient "github.com/harness/cli/pkg/client"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/config"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/hbase"
 )
 
 type checkResult struct {

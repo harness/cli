@@ -9,9 +9,9 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/release"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/release"
 )
 
 func DebugUpdateCheckHandler(_ *cmdctx.Ctx) error {

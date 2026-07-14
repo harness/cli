@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/spec"
 )
 
 // ApplyColumns resolves a --columns string against a set of known FieldDefs into []TableColumn.
