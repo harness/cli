@@ -4,6 +4,7 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -135,6 +136,12 @@ func listExecutionStepsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, 
 		m["duration"] = fmtNodeDuration(node.StartTs, node.EndTs)
 		m["delegate"] = delegate
 		m["log_key"] = execgraph.GetLogKey(node)
+		m["inputs"] = string(node.StepParameters)
+		if len(node.Outcomes) > 0 {
+			if b, err := json.Marshal(node.Outcomes); err == nil {
+				m["outputs"] = string(b)
+			}
+		}
 		rows = append(rows, m)
 	}
 
