@@ -424,24 +424,34 @@ func checkErrors(r statusResult) error {
 		return c.Error
 	}
 	if failed(r.Status.Profile) {
-		return fmt.Errorf("\nError: %s", msg(r.Status.Profile))
+		return fmt.Errorf("\nError: %s", maybeAppendProfileHint(msg(r.Status.Profile)))
 	}
 	if failed(r.Status.API) {
-		return fmt.Errorf("\nError: %s", msg(r.Status.API))
+		return fmt.Errorf("\nError: %s", maybeAppendProfileHint(msg(r.Status.API)))
 	}
 	if failed(r.Status.User) {
-		return fmt.Errorf("\nError: %s", msg(r.Status.User))
+		return fmt.Errorf("\nError: %s", maybeAppendProfileHint(msg(r.Status.User)))
 	}
 	if failed(r.Status.Account) {
-		return fmt.Errorf("\nError: %s", msg(r.Status.Account))
+		return fmt.Errorf("\nError: %s", maybeAppendProfileHint(msg(r.Status.Account)))
 	}
 	if r.Status.Org != nil && failed(*r.Status.Org) {
-		return fmt.Errorf("\nError: %s", msg(*r.Status.Org))
+		return fmt.Errorf("\nError: %s", maybeAppendProfileHint(msg(*r.Status.Org)))
 	}
 	if r.Status.Project != nil && failed(*r.Status.Project) {
-		return fmt.Errorf("\nError: %s", msg(*r.Status.Project))
+		return fmt.Errorf("\nError: %s", maybeAppendProfileHint(msg(*r.Status.Project)))
 	}
 	return nil
+}
+
+// maybeAppendProfileHint appends a hint pointing the user to 'harness auth profiles'
+// when the failure looks like a rejected/invalid token (401), so they have an
+// actionable next step instead of a dead-end error.
+func maybeAppendProfileHint(msg string) string {
+	if strings.Contains(msg, "401") {
+		return msg + "\n\nTip: run 'harness auth profiles' to see available profiles, then retry with --profile <name>"
+	}
+	return msg
 }
 
 func currentUserFields(u any) (email, uuid string) {
