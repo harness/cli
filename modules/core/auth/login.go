@@ -251,7 +251,7 @@ func validateToken(apiURL, token, accountID string) error {
 	case 200:
 		return nil
 	case 401:
-		return fmt.Errorf("token rejected (401) — check that your API token is valid")
+		return fmt.Errorf("token rejected (401) — check that your API token is valid\n\nTip: run 'harness auth profiles' to see available profiles, then retry with --profile <name>")
 	case 403:
 		return fmt.Errorf("token valid but access denied (403) — check account ID or RBAC permissions")
 	default:
