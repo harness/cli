@@ -9,20 +9,23 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/endpoint"
-	"github.com/harness/harness-cli/pkg/exprenv"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/pkg/plugin"
-	"github.com/harness/harness-cli/pkg/spec"
-	"github.com/harness/harness-cli/pkg/strutil"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/endpoint"
+	"github.com/harness/cli/pkg/exprenv"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/plugin"
+	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/strutil"
+	"github.com/harness/cli/pkg/telemetry"
 )
 
 // Token names for use in spec.EndpointSpec fields.
@@ -46,6 +49,7 @@ type FlagCompletionFn func(ctx *cmdctx.Ctx, args []string, flags *pflag.FlagSet)
 type Registry struct {
 	StrictYAML           bool // when true, loadSpecs rejects unknown YAML fields
 	IsMainBinary         bool // when true, commands owned by external modules are exec'd to their plugin binary
+	TelemetryEnv         telemetry.Env
 	specs                map[string][]*spec.CommandSpec
 	nouns                map[string]spec.NounDef
 	nounAliases          map[string]string // alias name → canonical noun name
@@ -893,7 +897,13 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 		if err != nil {
 			return err
 		}
-		return fn(ctx)
+		r.emitIntent(cmd, cs, ctx)
+		start := time.Now()
+		if err := fn(ctx); err != nil {
+			r.emitError(cs, ctx, err, start)
+			return err
+		}
+		return nil
 	}
 }
 
@@ -1006,6 +1016,8 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	if err != nil {
 		return err
 	}
+	r.emitIntent(cmd, cs, ctx)
+	start := time.Now()
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
 		id, err := RunUIPickerForGet(ctx, cs)
 		if err != nil {
@@ -1015,11 +1027,13 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	}
 	if cs.ConfirmMode != spec.ConfirmNone {
 		if err := runConfirmGate(cs.ConfirmMode, cs.Verb, cs.Noun, ctx.Id, ctx.IsPty, cmdctx.GetBool(ctx.FlagValues, "force")); err != nil {
+			r.emitError(cs, ctx, err, start)
 			return err
 		}
 	}
 	result, err := RunEndpoint(ctx, cs.Endpoint)
 	if err != nil {
+		r.emitError(cs, ctx, err, start)
 		return err
 	}
 	if cs.FollowFn != "" && cmdctx.GetBool(ctx.FlagValues, "follow") {
@@ -1037,6 +1051,8 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	if err != nil {
 		return err
 	}
+	r.emitIntent(cmd, cs, ctx)
+	start := time.Now()
 	if cmdctx.GetBool(ctx.FlagValues, "list-columns") {
 		fields := resolveFieldsForCommand(ctx, ep)
 		w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
@@ -1066,7 +1082,83 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 		}
 		return RunUITable(ctx, ep)
 	}
-	return RunListEndpoint(ctx, ep)
+	if err := RunListEndpoint(ctx, ep); err != nil {
+		r.emitError(cs, ctx, err, start)
+		return err
+	}
+	return nil
+}
+
+func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, tokenKind, authSource string) {
+	if a == nil {
+		return
+	}
+	accountID = a.AccountID
+	userDomain = telemetry.UserDomainFromEmail(a.Email)
+	tokenKind = string(a.TokenKind)
+	if a.Source == auth.SourceEnv {
+		authSource = "env"
+	} else {
+		authSource = "profile"
+	}
+	return
+}
+
+// telemetryAuth returns ctx.Auth, best-effort-resolving it first when the
+// command declared no_auth: true and skipped auth resolution. Errors are
+// ignored — this is telemetry only, and no_auth commands must keep working
+// when the user isn't logged in.
+func telemetryAuth(cs *spec.CommandSpec, ctx *cmdctx.Ctx) *auth.ResolvedAuth {
+	if ctx.Auth != nil || !cs.NoAuth {
+		return ctx.Auth
+	}
+	profileFlag, _ := ctx.FlagValues["profile"].(string)
+	resolved, err := auth.Resolve(profileFlag)
+	if err != nil {
+		return nil
+	}
+	return resolved
+}
+
+func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmdctx.Ctx) {
+	if telemetry.Disabled() {
+		return
+	}
+	var flags []string
+	cmd.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
+	accountID, userDomain, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	telemetry.RecordIntent(telemetry.CommandIntent{
+		Verb:       cs.Verb,
+		Noun:       cs.FullNoun(),
+		Module:     cs.Module,
+		FlagsSet:   flags,
+		AccountID:  accountID,
+		UserDomain: userDomain,
+		TokenKind:  tokenKind,
+		AuthSource: authSource,
+		RunID:      hbase.RunID,
+		Env:        r.TelemetryEnv,
+	})
+}
+
+func (r *Registry) emitError(cs *spec.CommandSpec, ctx *cmdctx.Ctx, err error, start time.Time) {
+	if telemetry.Disabled() {
+		return
+	}
+	accountID, userDomain, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	telemetry.RecordError(telemetry.CommandError{
+		Verb:       cs.Verb,
+		Noun:       cs.FullNoun(),
+		Module:     cs.Module,
+		AccountID:  accountID,
+		UserDomain: userDomain,
+		TokenKind:  tokenKind,
+		AuthSource: authSource,
+		RunID:      hbase.RunID,
+		Category:   telemetry.ClassifyError(err),
+		DurationMs: time.Since(start).Milliseconds(),
+		Env:        r.TelemetryEnv,
+	})
 }
 
 // buildFlagValues extracts typed values from cmd.Flags() for every flag declared in cs.Flags,

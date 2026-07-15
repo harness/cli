@@ -48,6 +48,12 @@ nouns:
       - id: project_id
         label: Project ID
         expr: it["project_id"]
+      - id: auth_type
+        label: Auth Type
+        expr: it["auth_type"]
+      - id: registry_url
+        label: Registry URL
+        expr: it["registry_url"]
 
   - noun: module
     short_desc: A CLI module grouping related nouns and commands.
@@ -64,6 +70,7 @@ nouns:
       - id: desc
         label: Description
         expr: it["desc"]
+        width_max: 60
 
   - noun: noun
     short_desc: A CLI noun (resource type) with its supported verbs and module.
@@ -182,7 +189,7 @@ commands:
       get_id_expr: "-"
       paging:
         paging_strategy: flat_list
-      columns: [profile, api_url, account_id, org_id, project_id]
+      columns: [profile, auth_type, api_url, account_id, org_id, project_id]
 
   - command: auth status
     verb: auth
@@ -249,16 +256,21 @@ commands:
   - command: install cli
     verb: install
     noun: cli
-    short: Install or upgrade the Harness CLI binary
+    short: Install or upgrade the Harness CLI and installed modules
     long: |
-      Install or upgrade the Harness CLI binary.
+      Install or upgrade the Harness CLI binary and any installed modules.
+
+      By default, updates the core binary and all installed Harness modules. Module
+      failures print a warning but do not fail the command. Use --core-only to skip
+      module updates.
 
       Version is optional and defaults to "latest". You may also pass "latest" explicitly.
       If the resolved version is already installed, the command exits without installing
       unless --force is passed.
 
       Examples:
-        harness install cli                          # install latest
+        harness install cli                          # install latest (core + modules)
+        harness install cli --core-only              # install core only
         harness install cli --version v1.2.3         # install a specific version
         harness install cli --force                  # reinstall even if already up to date
     no_auth: true
@@ -276,6 +288,9 @@ commands:
       - name: check
         is_bool: true
         description: Check the version without installing (prints resolved version, exits 1 if not found)
+      - name: core-only
+        is_bool: true
+        description: Only install or upgrade the core binary, skip module updates
 
   - command: install module
     verb: install

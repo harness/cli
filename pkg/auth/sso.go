@@ -15,12 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/hlog"
+	"github.com/harness/cli/pkg/hlog"
 )
 
-// ErrSSOSessionExpired is returned when the refresh token is expired and the
-// user must run 'harness auth loginsso' to obtain a new session.
-var ErrSSOSessionExpired = fmt.Errorf("SSO session expired — run 'harness auth loginsso' to log in again")
+// ErrSSOSessionExpired is the sentinel for an expired SSO refresh token.
+// Use SSOSessionExpiredError to build the user-facing error with the correct login hint.
+var ErrSSOSessionExpired = fmt.Errorf("SSO session expired")
 
 const (
 	SSOAuthServerBase      = "https://id.harness.io"
@@ -115,7 +115,7 @@ func CheckAndUpdateAccessToken(r *ResolvedAuth, now time.Time) error {
 
 	// Check refresh token expiry before attempting the network round-trip.
 	if IsAccessTokenExpiringSoon(r.RefreshToken, now) {
-		return ErrSSOSessionExpired
+		return fmt.Errorf("%w — run '%s' to log in again", ErrSSOSessionExpired, r.LoginHint("loginsso"))
 	}
 
 	newAccess, newRefresh, err := RefreshSSOToken(r.RefreshToken)

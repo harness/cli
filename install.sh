@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="harness/harness-unified-cli"
+REPO="harness/cli"
 INSTALL_DIR="${HARNESS_INSTALL_DIR:-$HOME/.local/bin}"
 USER_OVERRIDE="${HARNESS_INSTALL_DIR:+yes}"
 NONINTERACTIVE="${HARNESS_NONINTERACTIVE:-}"
@@ -188,6 +188,7 @@ main() {
 
     # install binaries
     download_and_install "$version" "$platform" "$INSTALL_DIR"
+    HARNESS_INSTALL_TYPE=script "$INSTALL_DIR/harness" --post-install >/dev/null 2>&1 || true
 
     local patched_rc=""
 

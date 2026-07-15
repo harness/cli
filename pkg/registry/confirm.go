@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/spec"
 )
 
 func verbGerund(verb string) string {

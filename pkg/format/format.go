@@ -4,6 +4,7 @@
 package format
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,10 +19,10 @@ import (
 	"github.com/jedib0t/go-pretty/v6/text"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/extractutil"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/extractutil"
+	"github.com/harness/cli/pkg/spec"
 )
 
 // TextFormatterFn is an alias for the canonical type in cmdctx.
@@ -103,14 +104,15 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		if flags.Format == "tsv" {
 			return renderTSV(w, tspec, itemsExpr, data, flags.NoHeaders, exprEnv)
 		}
+		if flags.Format == "csv" {
+			return renderCSV(w, tspec, itemsExpr, data, flags.NoHeaders, exprEnv)
+		}
 		t, err := BuildTable(tspec, itemsExpr, data, flags.NoHeaders, exprEnv)
 		if err != nil {
 			return err
 		}
 		t.SetOutputMirror(w)
 		switch flags.Format {
-		case "csv":
-			t.RenderCSV()
 		case "markdown":
 			t.RenderMarkdown()
 		default:
@@ -452,6 +454,45 @@ func BuildTable(tspec *spec.TableSpec, itemsExpr string, resp any, noHeaders boo
 	}
 
 	return t, nil
+}
+
+// renderCSV writes RFC 4180 CSV output using encoding/csv (proper quoting, no backslash escaping).
+func renderCSV(w io.Writer, tspec *spec.TableSpec, itemsExpr string, resp any, noHeaders bool, exprEnv map[string]any) error {
+	rows, err := evalItemsExpr(withIt(exprEnv, resp), itemsExpr)
+	if err != nil {
+		return fmt.Errorf("csv items_expr %q: %w", itemsExpr, err)
+	}
+
+	cw := csv.NewWriter(w)
+	ncols := len(tspec.Columns)
+
+	if !noHeaders {
+		headers := make([]string, ncols)
+		for i, col := range tspec.Columns {
+			headers[i] = col.Header
+		}
+		if err := cw.Write(headers); err != nil {
+			return err
+		}
+	}
+
+	for _, item := range rows {
+		env := withIt(exprEnv, item)
+		record := make([]string, ncols)
+		for i, col := range tspec.Columns {
+			val := evalColumnExpr(env, col.Expr)
+			if val == nil {
+				record[i] = ""
+			} else {
+				record[i] = fmt.Sprint(val)
+			}
+		}
+		if err := cw.Write(record); err != nil {
+			return err
+		}
+	}
+	cw.Flush()
+	return cw.Error()
 }
 
 // renderTSV writes tab-separated output directly. If any value in a column

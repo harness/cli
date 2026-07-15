@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/google/uuid"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/harness-cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hbase"
 )
 
 // AuthType identifies how the token in the credentials file was obtained.
@@ -30,11 +32,13 @@ type Profile struct {
 	ProjectID   string   `yaml:"project_id,omitempty"`
 	RegistryURL string   `yaml:"registry_url,omitempty"`
 	AuthType    AuthType `yaml:"auth_type,omitempty"` // omitted for existing PAT profiles
+	Email       string   `yaml:"email,omitempty"`     // user email; populated on login/status, empty for legacy profiles
 }
 
 type Config struct {
 	Profiles         map[string]*Profile `yaml:"profiles"`
 	DisableTelemetry bool                `yaml:"disable_telemetry,omitempty"`
+	TelemetryID      string              `yaml:"telemetry_id,omitempty"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -54,6 +58,37 @@ func LoadConfig() (*Config, error) {
 		cfg.Profiles = make(map[string]*Profile)
 	}
 	return &cfg, nil
+}
+
+// AnyProfileMatchesDomain reports whether any profile's email belongs to domain.
+// Returns false on any error (missing file, parse failure, no email set).
+func AnyProfileMatchesDomain(domain string) bool {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return false
+	}
+	for _, p := range cfg.Profiles {
+		if i := strings.LastIndex(p.Email, "@"); i >= 0 && p.Email[i+1:] == domain {
+			return true
+		}
+	}
+	return false
+}
+
+// GetOrCreateTelemetryID returns the stable anonymous telemetry UUID from config,
+// generating and persisting one on first use. Errors are silently ignored — callers
+// should fall back to a session-scoped ID rather than blocking startup.
+func GetOrCreateTelemetryID() string {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return uuid.New().String()
+	}
+	if cfg.TelemetryID != "" {
+		return cfg.TelemetryID
+	}
+	cfg.TelemetryID = uuid.New().String()
+	_ = SaveConfig(cfg)
+	return cfg.TelemetryID
 }
 
 func SaveConfig(cfg *Config) error {

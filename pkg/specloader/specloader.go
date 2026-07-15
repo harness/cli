@@ -11,8 +11,9 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/harness-cli/pkg/registry"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/config"
+	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/pkg/spec"
 )
 
 const (
@@ -25,14 +26,15 @@ type specVersionOnly struct {
 }
 
 type specFile struct {
-	SpecVersion    int                 `yaml:"spec_version"`
-	ModuleType     string              `yaml:"module_type"`
-	ModuleDesc     string              `yaml:"module_desc"`
-	ModuleCore     bool                `yaml:"module_core"`
-	ExternalBinary string              `yaml:"external_binary"`
-	HelpText       string              `yaml:"help_text"`
-	Nouns          []spec.NounDef      `yaml:"nouns"`
-	Commands       []*spec.CommandSpec `yaml:"commands"`
+	SpecVersion     int                 `yaml:"spec_version"`
+	ModuleType      string              `yaml:"module_type"`
+	ModuleDesc      string              `yaml:"module_desc"`
+	ModuleCore      bool                `yaml:"module_core"`
+	ExternalBinary  string              `yaml:"external_binary"`
+	HelpText        string              `yaml:"help_text"`
+	HarnessInternal bool                `yaml:"harness_internal,omitempty"`
+	Nouns           []spec.NounDef      `yaml:"nouns"`
+	Commands        []*spec.CommandSpec `yaml:"commands"`
 }
 
 // specParseError wraps a YAML parse failure, enriching it with the spec_version
@@ -47,8 +49,9 @@ func specParseError(name string, data []byte, parseErr error) error {
 
 // LoadSpecs loads all embedded spec files into reg.
 func LoadSpecs(reg *registry.Registry) error {
+	isHarnessUser := config.AnyProfileMatchesDomain("harness.io")
 	for _, name := range spec.Files() {
-		if err := LoadSpec(reg, name); err != nil {
+		if err := LoadSpec(reg, name, isHarnessUser); err != nil {
 			return err
 		}
 	}
@@ -61,7 +64,8 @@ func ReadSpecFile(moduleName string) ([]byte, error) {
 }
 
 // LoadSpec loads a single spec file (e.g. "har.spec.yaml") into reg.
-func LoadSpec(reg *registry.Registry, name string) error {
+// isHarnessUser gates modules marked harness_internal: true.
+func LoadSpec(reg *registry.Registry, name string, isHarnessUser bool) error {
 	module := strings.SplitN(filepath.Base(name), ".", 2)[0]
 	data, err := spec.Read(name)
 	if err != nil {
@@ -81,6 +85,9 @@ func LoadSpec(reg *registry.Registry, name string) error {
 	}
 	if f.SpecVersion < MinSpecVersion || f.SpecVersion > MaxSpecVersion {
 		return fmt.Errorf("spec: %s: spec_version %d out of supported range [%d, %d]", name, f.SpecVersion, MinSpecVersion, MaxSpecVersion)
+	}
+	if f.HarnessInternal && !isHarnessUser {
+		return nil
 	}
 	for i, nd := range f.Nouns {
 		if err := reg.RegisterNoun(nd); err != nil {

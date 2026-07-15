@@ -57,13 +57,13 @@ const (
 
 // VerbSpec captures all properties of a verb in one place.
 type VerbSpec struct {
-	Kind        VerbKind
-	ShortDesc   string // used as the Short field on the parent group command
-	Gerund      string // present-participle form for UX messages, e.g. "Deleting"
-	HideGroup   bool   // hides the parent group command from --help
-	SkipSetup   bool   // skips environment setup (EnsureHarnessHome etc); only version
-	RequiresId  bool   // a positional <id> arg is mandatory; sets ctx.Id
-	AllowsId    bool   // a positional <id> arg is optional; sets ctx.Id when present
+	Kind           VerbKind
+	ShortDesc      string // used as the Short field on the parent group command
+	Gerund         string // present-participle form for UX messages, e.g. "Deleting"
+	HideGroup      bool   // hides the parent group command from --help
+	SkipSetup      bool   // skips environment setup (EnsureHarnessHome etc); only version
+	RequiresId     bool   // a positional <id> arg is mandatory; sets ctx.Id
+	AllowsId       bool   // a positional <id> arg is optional; sets ctx.Id when present
 	AllowsParentId bool   // an optional positional parentid arg is accepted; sets ctx.ParentId
 }
 

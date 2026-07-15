@@ -22,8 +22,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/harness/harness-cli/pkg/hbase.Version={{.Version}}
-      - -X github.com/harness/harness-cli/pkg/hbase.BuildTime={{.Date}}
+      - -X github.com/harness/cli/pkg/hbase.Version={{.Version}}
+      - -X github.com/harness/cli/pkg/hbase.BuildTime={{.Date}}
+      - -X github.com/harness/cli/pkg/telemetry.segmentWriteKey={{.Env.SEGMENT_WRITE_KEY}}
 
   - id: harness-plugin-har
     main: ./modules/har/cmd/harness-har/main-harness-har.go
@@ -40,8 +41,8 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/harness/harness-cli/pkg/hbase.Version={{.Version}}
-      - -X github.com/harness/harness-cli/pkg/hbase.BuildTime={{.Date}}
+      - -X github.com/harness/cli/pkg/hbase.Version={{.Version}}
+      - -X github.com/harness/cli/pkg/hbase.BuildTime={{.Date}}
 
 archives:
   - id: harness-bundle
@@ -59,6 +60,33 @@ archives:
     formats: [tar.gz]
     name_template: "harness-plugin-har_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+nfpms:
+  - id: harness-core
+    package_name: harness-cli
+    ids: [harness-core]
+    formats:
+      - deb
+      - rpm
+    vendor: Harness
+    homepage: https://harness.io
+    maintainer: Harness <support@harness.io>
+    description: Harness Unified CLI
+    license: Apache-2.0
+    bindir: /usr/bin
+
+  - id: harness-plugin-har
+    package_name: harness-cli-har-plugin
+    ids: [harness-plugin-har]
+    formats:
+      - deb
+      - rpm
+    vendor: Harness
+    homepage: https://harness.io
+    maintainer: Harness <support@harness.io>
+    description: Harness HAR plugin for the Harness Unified CLI
+    license: Apache-2.0
+    bindir: /usr/bin
+
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
   algorithm: sha256
@@ -72,7 +100,7 @@ changelog:
 release:
   github:
     owner: harness
-    name: harness-unified-cli
+    name: cli
   draft: false
   prerelease: auto
   header: "Harness Unified CLI {{ .Tag }}"

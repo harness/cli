@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 func networkError(err error, apiURL string) error {
@@ -148,6 +148,16 @@ func (c *Client) PostRaw(path string, queryParams map[string]string, body, conte
 // PutRaw performs a PUT request with a raw string body and explicit Content-Type.
 func (c *Client) PutRaw(path string, queryParams map[string]string, body, contentType string) (any, http.Header, error) {
 	return c.DoRequest(Request{Method: "PUT", Path: path, QueryParams: queryParams, Body: body, BodyContentType: contentType})
+}
+
+// Patch performs a PATCH request with an optional JSON body.
+func (c *Client) Patch(path string, queryParams map[string]string, body any) (any, http.Header, error) {
+	return c.do("PATCH", path, queryParams, body)
+}
+
+// PatchRaw performs a PATCH request with a raw string body and explicit Content-Type.
+func (c *Client) PatchRaw(path string, queryParams map[string]string, body, contentType string) (any, http.Header, error) {
+	return c.DoRequest(Request{Method: "PATCH", Path: path, QueryParams: queryParams, Body: body, BodyContentType: contentType})
 }
 
 // DoRequest executes a Request and returns the decoded JSON response body, response headers, and any error.

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/execgraph"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/registry"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/execgraph"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/registry"
 )
 
 // ModuleInit registers pipeline workflows and formatters. Commands are declared in pipeline.spec.yaml.
@@ -20,9 +20,13 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterBodyFn(executePipelineBodyFnID, executePipelineBody)
 	reg.RegisterBodyFn(executeInputSetBodyFnID, executeInputSetBody)
 	reg.RegisterBodyFn(executeDynamicBodyFnID, executeDynamicBody)
+	reg.RegisterBodyFn(executeRetryBodyFnID, executeRetryBody)
 	reg.RegisterFollowFn(executeFollowFnID, executeFollowFn)
+	reg.RegisterFollowFn(executeV1FollowFnID, executeV1FollowFn)
 	reg.RegisterTextFormatter("execution_detail", formatGetExecution)
 	reg.RegisterFetchFn(listExecutionStepsFetchFnID, listExecutionStepsFetchFn)
+	reg.RegisterFetchFn(listApprovalInstancesFetchFnID, listApprovalInstancesFetchFn)
+	reg.RegisterBodyFn(approveBodyFnID, approvalApproveBody)
 	reg.RegisterFlagCompletionFn(pipelineLogStageCompletionID, pipelineLogStageCompletion)
 	reg.RegisterFlagCompletionFn(pipelineLogStepCompletionID, pipelineLogStepCompletion)
 	reg.RegisterEndpointValidatorFn(validatePipelineCreateID, validatePipelineCreate)
@@ -81,4 +85,3 @@ func formatGetExecution(w io.Writer, d cmdctx.DataAccessor) error {
 type executionGraphEnvelope struct {
 	ExecutionGraph execgraph.ExecutionGraph `json:"executionGraph"`
 }
-

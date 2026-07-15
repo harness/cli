@@ -19,11 +19,11 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/pkg/plugin"
-	"github.com/harness/harness-cli/pkg/release"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/plugin"
+	"github.com/harness/cli/pkg/release"
 )
 
 var reReleaseVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
@@ -75,16 +75,60 @@ var modulePlugins = map[string]string{
 	"har": "harness-har",
 }
 
+// downloadModuleIfNeeded checks whether the module at existingBinPath needs upgrading and, if so,
+// downloads and installs it. Returns (true, nil) when installed, (false, nil) when already up to
+// date (skipped), or (false, err) on failure. Pass existingBinPath="" to skip the version check
+// and always download.
+func downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir string, force bool, existingBinPath string) (bool, error) {
+	pkgName := fmt.Sprintf("harness-plugin-%s", moduleName)
+	if !force && existingBinPath != "" {
+		installed := plugin.QueryVersion(existingBinPath)
+		if cmp, ok := cmpVersion(version, installed); ok && cmp <= 0 {
+			return false, nil
+		}
+	}
+	hlog.Info("downloading module", "module", moduleName, "version", version, "platform", platform)
+	if err := downloadAndInstallBinary(version, platform, installDir, pkgName, binaryName); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func checkRunningFromInstallDir(installDir string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	exeDir, err1 := filepath.EvalSymlinks(filepath.Dir(exe))
+	absInstall, err2 := filepath.EvalSymlinks(installDir)
+	if err1 != nil || err2 != nil {
+		return nil
+	}
+	if exeDir != absInstall {
+		return fmt.Errorf(
+			"harness is running from %s, not the install directory %s\n"+
+				"Run the installed binary or pass --install-dir to point at %s",
+			exeDir, absInstall, exeDir,
+		)
+	}
+	return nil
+}
+
 func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	version := cmdctx.GetString(ctx.FlagValues, "version")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
+	coreOnly := cmdctx.GetBool(ctx.FlagValues, "core-only")
 
 	installDir := cmdctx.GetString(ctx.FlagValues, "install-dir")
 	if installDir == "" {
 		installDir = installDefaultDir
 	}
 	installDir = hbase.ExpandHomeDir(installDir)
+
+	if err := checkRunningFromInstallDir(installDir); err != nil {
+		return err
+	}
 
 	var err error
 	version, err = resolveVersion(version)
@@ -119,28 +163,51 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	}
 
+	installCore := true
 	if !force {
 		current := hbase.Version
 		if cmp, ok := cmpVersion(version, current); ok && cmp <= 0 {
 			if cmp < 0 {
-				fmt.Printf("Current version %s is ahead of latest %s. Use --force to reinstall.\n", current, version)
+				fmt.Printf("Core is ahead of latest (current: %s, latest: %s). Use --force to reinstall.\n", current, version)
 			} else {
-				fmt.Printf("Up to date (current: %s, latest: %s). Use --force to reinstall.\n", current, version)
+				fmt.Printf("Core is up to date (current: %s, latest: %s).\n", current, version)
 			}
-			return nil
+			installCore = false
 		}
 	}
 
-	if err := os.MkdirAll(installDir, 0755); err != nil {
-		return fmt.Errorf("creating install directory %s: %w", installDir, err)
+	if installCore {
+		if err := os.MkdirAll(installDir, 0755); err != nil {
+			return fmt.Errorf("creating install directory %s: %w", installDir, err)
+		}
+		hlog.Info("downloading", "version", version, "platform", platform)
+		if err := downloadAndInstallBinary(version, platform, installDir, installBundleName, installBinaryName); err != nil {
+			return err
+		}
+		fmt.Printf("Installed harness %s to %s/%s\n", version, installDir, installBinaryName)
 	}
 
-	hlog.Info("downloading", "version", version, "platform", platform)
-	if err := downloadAndInstallBinary(version, platform, installDir, installBundleName, installBinaryName); err != nil {
-		return err
+	if coreOnly {
+		return nil
 	}
 
-	fmt.Printf("Installed harness %s to %s/%s\n", version, installDir, installBinaryName)
+	// Update any Harness modules already installed in the same directory as core.
+	for moduleName, binaryName := range modulePlugins {
+		binPath := filepath.Join(installDir, binaryName)
+		if _, err := os.Stat(binPath); err != nil {
+			continue
+		}
+		installed, err := downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir, force, binPath)
+		if err != nil {
+			fmt.Printf("warning: could not update module %q: %v\n", moduleName, err)
+		} else if !installed {
+			existing := plugin.QueryVersion(binPath)
+			fmt.Printf("Module %q is up to date (current: %s, latest: %s).\n", moduleName, existing, version)
+		} else {
+			fmt.Printf("Installed module %q %s to %s/%s\n", moduleName, version, installDir, binaryName)
+		}
+	}
+
 	return nil
 }
 
@@ -210,9 +277,9 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 
 	if !force {
 		if binPath, err := plugin.FindBinary(binaryName); err == nil {
-			installed := plugin.QueryVersion(binPath)
-			if cmp, ok := cmpVersion(version, installed); ok && cmp <= 0 {
-				fmt.Printf("Module %q is installed at %s (installed: %s, latest: %s).\n", moduleName, binPath, installed, version)
+			existing := plugin.QueryVersion(binPath)
+			if cmp, ok := cmpVersion(version, existing); ok && cmp <= 0 {
+				fmt.Printf("Module %q is installed at %s (installed: %s, latest: %s).\n", moduleName, binPath, existing, version)
 				if cmp < 0 {
 					fmt.Printf("Installed version is ahead of latest. Use --force to reinstall.\n")
 				} else {
@@ -227,15 +294,13 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("creating install directory %s: %w", installDir, err)
 	}
 
-	hlog.Info("downloading module", "module", moduleName, "version", version, "platform", platform)
-	if err := downloadAndInstallBinary(version, platform, installDir, pkgName, binaryName); err != nil {
+	if _, err := downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir, force, ""); err != nil {
 		return err
 	}
 
 	fmt.Printf("Installed module %q %s to %s/%s\n", moduleName, version, installDir, binaryName)
 	return nil
 }
-
 
 func detectPlatform() (string, error) {
 	var os_, arch string
@@ -261,6 +326,7 @@ func detectPlatform() (string, error) {
 func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName string) error {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
+
 	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
 	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
 
@@ -307,13 +373,16 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 func releaseAssetExists(version, platform, pkgName string) (bool, error) {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
 	client := &http.Client{Timeout: 15 * time.Second}
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	hlog.Debug("HEAD", "url", url)
 	resp, err := client.Head(url)
 	if err != nil {
-		return false, fmt.Errorf("checking release: %w", err)
+		hlog.Debug("HEAD failed", "url", url, "error", err)
+		return false, nil
 	}
 	resp.Body.Close()
+	hlog.Debug("HEAD response", "url", url, "status", resp.StatusCode)
 	return resp.StatusCode == http.StatusOK, nil
 }
 

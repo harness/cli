@@ -4,29 +4,80 @@
 package pipeline
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/tui"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/execgraph"
+	"github.com/harness/cli/pkg/tui"
 )
 
-// doSaveLog writes the current step's log to m.saveInput.
-// append=true opens the file in append mode; false truncates/creates.
-func (m *logViewModel) doSaveLog(appendMode bool) {
+// hasSaveableContent reports whether the active tab has content available to save
+// for the given node.
+func (m *logViewModel) hasSaveableContent(node *execgraph.GraphNode) bool {
+	switch m.activeTab {
+	case tabLogs:
+		_, ok := m.logCache[node.UUID]
+		return ok
+	case tabInputs:
+		return len(node.StepParameters) > 0
+	case tabOutputs:
+		return len(node.Outcomes) > 0
+	default:
+		return false
+	}
+}
+
+// saveContent returns the raw text to write for the tab that initiated the save
+// (m.saveTab), for the currently selected node.
+func (m *logViewModel) saveContent() (string, error) {
 	node := m.selectedNode()
 	nodeUUID := ""
 	if node != nil {
 		nodeUUID = node.UUID
 	}
-	lc := m.logCache[nodeUUID]
-	var raw string
-	if lc != nil {
-		raw = lc.rendered()
+	switch m.saveTab {
+	case tabInputs:
+		if node == nil {
+			return "", nil
+		}
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, node.StepParameters, "", "  "); err != nil {
+			return "", err
+		}
+		return buf.String(), nil
+	case tabOutputs:
+		if node == nil {
+			return "", nil
+		}
+		b, err := json.MarshalIndent(node.Outcomes, "", "  ")
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	default: // tabLogs
+		lc := m.logCache[nodeUUID]
+		var raw string
+		if lc != nil {
+			raw = lc.rendered()
+		}
+		return console.StripANSI(raw), nil
 	}
-	content := console.StripANSI(raw)
+}
+
+// doSave writes the active tab's content (log, inputs, or outputs) to m.saveInput.
+// append=true opens the file in append mode; false truncates/creates. Append is
+// only meaningful for logs; callers must not pass true for inputs/outputs.
+func (m *logViewModel) doSave(appendMode bool) {
+	content, err := m.saveContent()
+	if err != nil {
+		m.saveStatus = "error: " + err.Error()
+		return
+	}
 	flag := os.O_WRONLY | os.O_CREATE
 	if appendMode {
 		flag |= os.O_APPEND
@@ -97,13 +148,21 @@ func (m logViewModel) renderSaveModal() string {
 	if m.saveConfirm {
 		prompt := st.normal.Render("File already exists:") + " " + st.header.Render(m.saveInput) + "\n\n" +
 			st.normal.Render("Overwrite?") + "\n\n" +
-			lipgloss.NewStyle().Bold(true).Render("y") + st.dim.Render(" yes  ") +
-			lipgloss.NewStyle().Bold(true).Render("a") + st.dim.Render(" append  ") +
-			lipgloss.NewStyle().Bold(true).Render("n") + st.dim.Render("/") +
+			lipgloss.NewStyle().Bold(true).Render("y") + st.dim.Render(" yes  ")
+		if m.saveTab == tabLogs {
+			prompt += lipgloss.NewStyle().Bold(true).Render("a") + st.dim.Render(" append  ")
+		}
+		prompt += lipgloss.NewStyle().Bold(true).Render("n") + st.dim.Render("/") +
 			lipgloss.NewStyle().Bold(true).Render("esc") + st.dim.Render(" cancel")
 		body = prompt
 	} else {
 		title := "Save log to file"
+		switch m.saveTab {
+		case tabInputs:
+			title = "Save inputs to file"
+		case tabOutputs:
+			title = "Save outputs to file"
+		}
 		inputLine := "> " + m.saveInput + "█"
 		var statusLine string
 		if m.saveStatus != "" {
@@ -114,7 +173,10 @@ func (m logViewModel) renderSaveModal() string {
 				statusLine = "\n" + st.errStyle.Render(m.saveStatus)
 			}
 		}
-		hint := "\n" + st.dim.Render("enter to save · esc to cancel")
+		hint := ""
+		if !m.saveDone {
+			hint = "\n" + st.dim.Render("enter to save · esc to cancel")
+		}
 		body = st.normal.Render(title) + "\n\n" + inputLine + statusLine + hint
 	}
 

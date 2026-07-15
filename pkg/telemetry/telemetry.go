@@ -26,13 +26,17 @@ package telemetry
 
 import (
 	"os"
+	"regexp"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"golang.org/x/term"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hbase"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/config"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 // ErrorCategory is a coarse, enum-safe classification of a command failure.
@@ -40,12 +44,16 @@ import (
 type ErrorCategory string
 
 const (
-	ErrorCategoryAuth       ErrorCategory = "auth_error"
-	ErrorCategoryAPI        ErrorCategory = "api_error"
-	ErrorCategoryNotFound   ErrorCategory = "not_found"
-	ErrorCategoryValidation ErrorCategory = "validation_error"
-	ErrorCategoryTimeout    ErrorCategory = "timeout"
-	ErrorCategoryUnknown    ErrorCategory = "unknown"
+	ErrorCategoryAuth        ErrorCategory = "auth_error"
+	ErrorCategoryAPI         ErrorCategory = "api_error"
+	ErrorCategoryNotFound    ErrorCategory = "not_found"
+	ErrorCategoryValidation  ErrorCategory = "validation_error"
+	ErrorCategoryInvalidVerb ErrorCategory = "invalid_verb"
+	ErrorCategoryInvalidNoun ErrorCategory = "invalid_noun"
+	ErrorCategoryInvalidFlag ErrorCategory = "invalid_flag"
+	ErrorCategoryBadUsage    ErrorCategory = "bad_usage" // fallback when more specific bucket can't be determined
+	ErrorCategoryTimeout     ErrorCategory = "timeout"
+	ErrorCategoryUnknown     ErrorCategory = "unknown"
 )
 
 // Env captures static facts about the runtime environment. Call [NewEnv]
@@ -59,6 +67,13 @@ type Env struct {
 	IsTTY               bool // stdout is an interactive terminal
 	IsPipelineExecution bool
 	PipelineID          string // HARNESS_PIPELINEID; empty when IsPipelineExecution is false
+
+	// AIAgent is a standardized identifier for the coding agent the CLI is
+	// running under (e.g. "claude-code", "cursor"), or "" if none is detected.
+	// See [DetectAgent].
+	AIAgent string
+
+	Locale string // from LANG/LC_ALL/LC_CTYPE, e.g. "en_US.UTF-8"
 }
 
 // NewEnv captures the current runtime environment. Call once at startup.
@@ -72,7 +87,37 @@ func NewEnv() Env {
 		IsTTY:               term.IsTerminal(int(syscall.Stdout)),
 		IsPipelineExecution: pipelineID != "",
 		PipelineID:          pipelineID,
+		AIAgent:             DetectAgent(),
+		Locale:              locale(),
 	}
+}
+
+// localePattern matches a bare POSIX/BCP-47-ish locale with the
+// encoding/modifier suffix already stripped: a 2-3 letter language code
+// optionally followed by a territory, e.g. "en", "en_US", "zh_Hans_CN".
+// The special POSIX locales "C" and "POSIX" are also accepted.
+var localePattern = regexp.MustCompile(`^(?:[a-z]{2,3}(?:_[A-Za-z]{2,4}){0,2}|C|POSIX)$`)
+
+// locale returns the first non-empty of LC_ALL, LC_CTYPE, LANG — the
+// standard POSIX precedence order for locale resolution — with the
+// encoding/modifier suffix stripped (e.g. "en_US.UTF-8" -> "en_US").
+// Returns "" if the result doesn't look like a valid locale, since these
+// env vars are user-controlled and can contain arbitrary garbage.
+func locale() string {
+	for _, k := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		v := os.Getenv(k)
+		if v == "" {
+			continue
+		}
+		if i := strings.IndexAny(v, ".@"); i >= 0 {
+			v = v[:i]
+		}
+		if localePattern.MatchString(v) {
+			return v
+		}
+		return ""
+	}
+	return ""
 }
 
 // CommandIntent is emitted once per invocation before the command executes.
@@ -90,6 +135,16 @@ type CommandIntent struct {
 	// AccountID from resolved auth. Empty for commands that skip auth.
 	AccountID string
 
+	// UserDomain is the domain portion of the user's profile email (e.g. "harness.io").
+	// Never the full email address.
+	UserDomain string
+
+	// TokenKind is the type of credential in use: "pat", "sat", "jwt", or "".
+	TokenKind string
+
+	// AuthSource is "profile" when auth came from config file, "env" when from env vars.
+	AuthSource string
+
 	// RunID correlates all API calls from this invocation. Mirrors hbase.RunID.
 	RunID string
 
@@ -100,11 +155,14 @@ type CommandIntent struct {
 // a prior [CommandIntent] for the same invocation.
 type CommandError struct {
 	// Mirror of CommandIntent identity fields for correlation.
-	Verb      string
-	Noun      string
-	Module    string
-	AccountID string
-	RunID     string
+	Verb       string
+	Noun       string
+	Module     string
+	AccountID  string
+	UserDomain string
+	TokenKind  string
+	AuthSource string
+	RunID      string
 
 	Category   ErrorCategory
 	DurationMs int64
@@ -112,10 +170,51 @@ type CommandError struct {
 	Env Env
 }
 
+// InstallEvent is emitted once by install.sh, via the hidden --post-install
+// flag, right after a fresh binary is placed on disk.
+type InstallEvent struct {
+	RunID string
+
+	// InstallType identifies how the CLI was installed. See
+	// [ResolveInstallType] for the whitelist and default.
+	InstallType string
+
+	Env Env
+}
+
+// InstallType values. Add new install methods (e.g. "brew") here as they're
+// wired up, and have the installer set [hbase.EnvInstallType] accordingly.
+const (
+	InstallTypeScript  = "script"
+	InstallTypeUnknown = "unknown"
+)
+
+// installTypeWhitelist is every value ResolveInstallType may return.
+var installTypeWhitelist = map[string]bool{
+	InstallTypeScript:  true,
+	InstallTypeUnknown: true,
+}
+
+// ResolveInstallType reads [hbase.EnvInstallType], defaulting to
+// [InstallTypeScript] when unset (install.sh is currently the only caller of
+// --post-install) and falling back to [InstallTypeUnknown] for any value
+// outside the whitelist.
+func ResolveInstallType() string {
+	v := os.Getenv(hbase.EnvInstallType)
+	if v == "" {
+		return InstallTypeScript
+	}
+	if !installTypeWhitelist[v] {
+		return InstallTypeUnknown
+	}
+	return v
+}
+
 // Backend is implemented by telemetry sinks (Segment, debug-stdout, etc.).
 type Backend interface {
 	RecordIntent(e CommandIntent)
 	RecordError(e CommandError)
+	RecordInstall(e InstallEvent)
 }
 
 var activeBackend Backend
@@ -133,10 +232,41 @@ func SetDisabled(v bool) {
 	disabled = v
 }
 
-// RecordIntent emits a [CommandIntent]. No-op when no backend is set,
-// HARNESS_NO_TELEMETRY=1, or the build is a dev build.
+// Init sets up the telemetry backend from config and returns a flush function
+// to defer in main. Safe to call unconditionally — no-ops when telemetry is
+// disabled or no write key is present.
+func Init() (flush func()) {
+	cfg, err := config.LoadConfig()
+	if err != nil || cfg.DisableTelemetry {
+		SetDisabled(true)
+		return func() {}
+	}
+	seg := newSegmentBackend(config.GetOrCreateTelemetryID())
+	if seg == nil {
+		return func() {}
+	}
+	SetBackend(seg)
+	return func() { seg.Close() }
+}
+
+// RecordIntent emits a [CommandIntent]. No-op when the user has opted out
+// (disable_telemetry or HARNESS_NO_TELEMETRY=1) — in that case it returns
+// before even logging the debug line. When opted in but no backend is set
+// (dev build, no write key), it still logs for debugging but sends nothing.
 func RecordIntent(e CommandIntent) {
-	if !shouldRecord(e.Env) {
+	if Disabled() {
+		return
+	}
+	hlog.Debug("telemetry: intent",
+		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
+		"flags", e.FlagsSet, "account", e.AccountID, "domain", e.UserDomain,
+		"token_kind", e.TokenKind, "auth_source", e.AuthSource,
+		"run_id", e.RunID, "os", e.Env.OS, "arch", e.Env.Arch,
+		"version", e.Env.Version, "is_tty", e.Env.IsTTY,
+		"is_pipeline", e.Env.IsPipelineExecution,
+		"aiagent", e.Env.AIAgent, "locale", e.Env.Locale,
+		"backend", activeBackend != nil)
+	if activeBackend == nil {
 		return
 	}
 	activeBackend.RecordIntent(e)
@@ -144,10 +274,34 @@ func RecordIntent(e CommandIntent) {
 
 // RecordError emits a [CommandError]. Same gating as [RecordIntent].
 func RecordError(e CommandError) {
-	if !shouldRecord(e.Env) {
+	if Disabled() {
+		return
+	}
+	hlog.Debug("telemetry: error",
+		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
+		"category", e.Category, "duration_ms", e.DurationMs,
+		"account", e.AccountID, "token_kind", e.TokenKind,
+		"auth_source", e.AuthSource, "run_id", e.RunID,
+		"backend", activeBackend != nil)
+	if activeBackend == nil {
 		return
 	}
 	activeBackend.RecordError(e)
+}
+
+// RecordInstall emits an [InstallEvent]. Same gating as [RecordIntent].
+func RecordInstall(e InstallEvent) {
+	if Disabled() {
+		return
+	}
+	hlog.Debug("telemetry: install",
+		"run_id", e.RunID, "install_type", e.InstallType,
+		"os", e.Env.OS, "arch", e.Env.Arch,
+		"version", e.Env.Version, "backend", activeBackend != nil)
+	if activeBackend == nil {
+		return
+	}
+	activeBackend.RecordInstall(e)
 }
 
 // ClassifyError maps err to an [ErrorCategory] without inspecting any
@@ -169,18 +323,25 @@ func ClassifyError(err error) ErrorCategory {
 	return ErrorCategoryUnknown
 }
 
-func shouldRecord(env Env) bool {
-	if activeBackend == nil {
-		return false
+// UserDomainFromEmail extracts the domain portion of an email address (e.g. "harness.io").
+// Returns empty string if email is empty or malformed.
+func UserDomainFromEmail(email string) string {
+	if i := strings.LastIndex(email, "@"); i >= 0 {
+		return email[i+1:]
 	}
-	if env.IsDev {
-		return false
-	}
+	return ""
+}
+
+// Disabled reports whether the user has opted out of telemetry, via either
+// disable_telemetry in config.yaml or HARNESS_NO_TELEMETRY=1. Distinct from
+// having no active backend (e.g. a dev build with no write key) — that case
+// still logs debug output, whereas an explicit opt-out logs nothing.
+func Disabled() bool {
 	if disabled {
-		return false
+		return true
 	}
 	if os.Getenv(hbase.EnvNoTelemetry) == "1" {
-		return false
+		return true
 	}
-	return true
+	return false
 }

@@ -8,16 +8,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/harness/harness-cli/modules/har/pkg/har"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/registry"
-	"github.com/harness/harness-cli/pkg/rootcmd"
-	"github.com/harness/harness-cli/pkg/specloader"
+	"github.com/harness/cli/modules/har/pkg/har"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/pkg/rootcmd"
+	"github.com/harness/cli/pkg/specloader"
 )
 
 func main() {
 	reg := registry.New()
-	if err := specloader.LoadSpec(reg, "har.spec.yaml"); err != nil {
+	if err := specloader.LoadSpec(reg, "har.spec.yaml", true); err != nil {
 		console.PrintError(err.Error())
 		os.Exit(1)
 	}

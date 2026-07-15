@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 // npmMinimalPackageJSON holds the fields we need from package.json.

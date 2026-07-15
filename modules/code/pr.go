@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 // createPRBodyFn builds the pull request create body.

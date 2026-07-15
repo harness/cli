@@ -15,7 +15,7 @@ import (
 // logState holds all settings that influence how the logger is built.
 // reinit() reads this and rebuilds the active logger from scratch.
 type logState struct {
-	file       *os.File  // nil means stderr
+	file       *os.File // nil means stderr
 	level      slog.Level
 	pluginName string
 }
@@ -35,7 +35,7 @@ func reinit() {
 
 	var h slog.Handler
 	if state.file == nil && term.IsTerminal(int(w.Fd())) {
-		h = tint.NewHandler(w, &tint.Options{
+		h = tint.NewTextHandler(w, &tint.Options{
 			Level:      state.level,
 			TimeFormat: "15:04:05",
 			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {

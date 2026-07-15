@@ -10,15 +10,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/modules/core/mgmt"
-	"github.com/harness/harness-cli/pkg/registry"
-	"github.com/harness/harness-cli/pkg/spec"
-	"github.com/harness/harness-cli/pkg/specloader"
-	"github.com/harness/harness-cli/pkg/release"
+	"github.com/harness/cli/modules/core/mgmt"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/pkg/release"
+	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/specloader"
+	"github.com/harness/cli/pkg/telemetry"
 )
 
 // MaybeRunBackgroundUpdateCheck exits if this invocation is the background update subprocess.
@@ -26,6 +27,27 @@ func MaybeRunBackgroundUpdateCheck() {
 	for _, arg := range os.Args[1:] {
 		if arg == release.FlagName {
 			release.RunBackgroundCheck()
+			os.Exit(0)
+		}
+	}
+}
+
+// postInstallFlag is the hidden flag install.sh invokes right after placing a
+// fresh binary on disk, purely to fire a cli_installed telemetry event.
+const postInstallFlag = "--post-install"
+
+// MaybeRunPostInstall exits if this invocation is install.sh's post-install
+// telemetry ping. Respects the same opt-out as every other event.
+func MaybeRunPostInstall() {
+	for _, arg := range os.Args[1:] {
+		if arg == postInstallFlag {
+			flush := telemetry.Init()
+			telemetry.RecordInstall(telemetry.InstallEvent{
+				RunID:       hbase.RunID,
+				InstallType: telemetry.ResolveInstallType(),
+				Env:         telemetry.NewEnv(),
+			})
+			flush()
 			os.Exit(0)
 		}
 	}
@@ -142,6 +164,8 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 	if path := os.Getenv(hbase.EnvLogFile); path != "" {
 		hlog.SetLogFile(path)
 	}
+	reg.TelemetryEnv = telemetry.NewEnv()
+	defer telemetry.Init()()
 	if reg.IsMainBinary {
 		release.NagIfDue(hbase.Version)
 		release.MaybeSpawn()
@@ -171,16 +195,72 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 	}
 
 	if err := root.Execute(); err != nil {
-		if suggestion := reg.SuggestRootCommand(os.Args[1:]); suggestion != "" {
-			console.PrintError(suggestion)
-		} else {
-			console.PrintError(err.Error())
+		// Only suggest an alternative command when cobra itself couldn't dispatch
+		// (i.e. no runnable command was found). If cobra found and ran a command
+		// handler, the error came from the handler — show it as-is.
+		matched, _, _ := root.Find(os.Args[1:])
+		commandResolved := matched != nil && matched != root && matched.Runnable()
+		if !isCompletionInvocation() && !commandResolved {
+			// emitBadUsage only for cobra parse-time failures; registry.emitError
+			// already fires for handler errors.
+			emitBadUsage(root, reg, err)
 		}
+		if !commandResolved {
+			if suggestion := reg.SuggestRootCommand(os.Args[1:]); suggestion != "" {
+				console.PrintError(suggestion)
+				os.Exit(1)
+			}
+		}
+		console.PrintError(err.Error())
 		if cmdctx.IsTimeout(err) {
 			os.Exit(hbase.TimeoutExitCode)
 		}
 		os.Exit(1)
 	}
+}
+
+// emitBadUsage fires a CommandError for parse-time failures (unknown flag, unknown noun, bad args).
+// It uses cobra's Find to resolve the deepest matched command so we get a canonical verb/noun.
+// An unrecognized noun is never logged — we only record what cobra actually resolved.
+func emitBadUsage(root *cobra.Command, reg *registry.Registry, err error) {
+	matched, _, _ := root.Find(os.Args[1:])
+
+	// Walk up to the verb command (depth 1 from root).
+	verb, noun := "", ""
+	cmd := matched
+	for cmd != nil && cmd.HasParent() && cmd.Parent() != root {
+		cmd = cmd.Parent()
+	}
+	if cmd != nil && cmd != root && cmd.HasParent() {
+		verb = cmd.Name()
+		if matched != nil && matched != cmd {
+			noun = matched.Name()
+		}
+	}
+
+	var category telemetry.ErrorCategory
+	switch {
+	case verb == "":
+		category = telemetry.ErrorCategoryInvalidVerb
+	case noun != "":
+		category = telemetry.ErrorCategoryInvalidFlag
+	default:
+		category = telemetry.ErrorCategoryInvalidNoun
+	}
+
+	module := ""
+	if cs := reg.GetSpec(verb, noun); cs != nil {
+		module = cs.Module
+	}
+
+	telemetry.RecordError(telemetry.CommandError{
+		Verb:     verb,
+		Noun:     noun,
+		Module:   module,
+		Category: category,
+		RunID:    hbase.RunID,
+		Env:      reg.TelemetryEnv,
+	})
 }
 
 func isCompletionInvocation() bool {

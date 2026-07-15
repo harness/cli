@@ -21,8 +21,8 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/term"
 
-	"github.com/harness/harness-cli/pkg/hbase"
-	"github.com/harness/harness-cli/pkg/hlog"
+	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 const (
@@ -30,8 +30,8 @@ const (
 	FlagName = "--background-update-check"
 
 	cacheFile = "update-check.json"
-	// Repo is the GitHub repo for all Harness CLI release operations.
-	Repo = "harness/harness-unified-cli"
+	// Repo is the GitHub repo for Harness CLI releases.
+	Repo          = "harness/cli"
 	spawnInterval = 24 * time.Hour
 	checkInterval = 24 * time.Hour
 	nagInterval   = 24 * time.Hour
@@ -193,6 +193,7 @@ func writeCache(c cache) error {
 func FetchLatestVersion() (string, error) {
 	client := &http.Client{Timeout: httpTimeout}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo)
+	hlog.Debug("GET", "url", url)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -200,23 +201,25 @@ func FetchLatestVersion() (string, error) {
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	resp, err := client.Do(req)
 	if err != nil {
+		hlog.Debug("GET failed", "url", url, "error", err)
 		return "", err
 	}
 	defer resp.Body.Close()
+	hlog.Debug("GET response", "url", url, "status", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
-	var release struct {
+	var rel struct {
 		TagName string `json:"tag_name"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
 		return "", err
 	}
-	if release.TagName == "" {
+	if rel.TagName == "" {
 		return "", fmt.Errorf("empty tag_name in response")
 	}
-	if !semver.IsValid(release.TagName) {
-		return "", fmt.Errorf("invalid version %q from API", release.TagName)
+	if !semver.IsValid(rel.TagName) {
+		return "", fmt.Errorf("invalid version %q from API", rel.TagName)
 	}
-	return release.TagName, nil
+	return rel.TagName, nil
 }

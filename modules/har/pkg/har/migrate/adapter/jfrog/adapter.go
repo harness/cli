@@ -14,10 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	adp "github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/tree"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/util"
+	adp "github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/tree"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/rs/zerolog/log"

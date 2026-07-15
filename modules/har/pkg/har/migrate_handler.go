@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 const executeRegistryMigrateHandlerID = "execute_registry_migrate"

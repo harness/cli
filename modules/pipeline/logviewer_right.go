@@ -12,8 +12,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/harness-cli/pkg/execgraph"
-	"github.com/harness/harness-cli/pkg/tui"
+	"github.com/harness/cli/pkg/execgraph"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/tui"
 )
 
 type rightTab int
@@ -118,6 +119,9 @@ func (m *logViewModel) renderDetailsContent(node *execgraph.GraphNode) string {
 
 	var b strings.Builder
 	b.WriteString(label("FQN:       ") + "  " + val(node.BaseFQN) + "\n")
+	ss := format.BucketStyles[format.ClassifyExecutionStatus(node.Status)]
+	statusVal := lipgloss.NewStyle().Foreground(lipgloss.Color(ss.LipglossColor)).Render(node.Status)
+	b.WriteString(label("Status:    ") + "  " + statusVal + "\n")
 	b.WriteString(label("Started at:") + "  " + fmtTs(node.StartTs) + "\n")
 	b.WriteString(label("Ended at:  ") + "  " + fmtTs(node.EndTs) + "\n")
 

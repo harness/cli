@@ -133,17 +133,48 @@ nouns:
   - noun: template
     short_desc: A reusable pipeline template for stages, steps, or full pipelines.
     noun_aliases: [templates]
+    multi_level: true
     fields:
       - id: identifier
         expr: it.identifier
       - id: name
         expr: it.name
       - id: type
-        expr: it.templateEntityType
+        expr: it.entity_type
       - id: version
-        expr: it.versionLabel
+        expr: it.version_label
       - id: stable
-        expr: it.stableTemplate
+        expr: it.stable_template
+      - id: scope
+        expr: it.scope
+      - id: updated
+        expr: epochMs(it.updated)
+      - id: yaml
+        expr: it.yaml
+        field_type: yaml
+
+  - noun: template_version
+    short_desc: A specific version of a reusable pipeline template.
+    noun_aliases: [template_versions]
+    multi_level: true
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: name
+        expr: it.name
+      - id: type
+        expr: it.entity_type
+      - id: version
+        expr: it.version_label
+      - id: stable
+        expr: it.stable_template
+      - id: scope
+        expr: it.scope
+      - id: updated
+        expr: epochMs(it.updated)
+      - id: yaml
+        expr: it.yaml
+        field_type: yaml
 
   - noun: pipeline_v1
     short_desc: A v1-schema pipeline (simplified list fields for legacy API compatibility).
@@ -196,6 +227,26 @@ nouns:
         expr: it.status
       - id: pipeline
         expr: it.pipelineIdentifier
+      - id: deadline
+        expr: epochMs(it.deadline)
+      - id: message
+        expr: it.details.approvalMessage
+        width_max: 60
+      - id: min_count
+        label: Min
+        expr: it.details.approvers.minimumCount
+        align: right
+      - id: user_groups
+        expr: jsonArray(it.details.approvers.userGroups)
+      - id: auto_reject
+        expr: it.details.autoRejectEnabled
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+      - id: error
+        expr: it.error_message
+        width_max: 60
 
   - noun: freeze_window
     short_desc: A scheduled deployment freeze window that blocks pipeline executions.
@@ -283,6 +334,10 @@ nouns:
 
   - noun: runtime_input_template
     short_desc: The set of runtime input placeholders (<+input>) that a pipeline requires at execution time.
+    fields:
+      - id: yaml
+        expr: it.inputSetTemplateYaml
+        field_type: yaml
 
   - noun: execution_result
     short_desc: Detailed execution outcome with stage and step results from a pipeline run.
@@ -310,6 +365,20 @@ nouns:
         expr: it.execution_id
       - id: status
         expr: it.status
+
+  - noun: retry_history
+    short_desc: Retry lineage for a pipeline execution, including which stages are retryable.
+    fields:
+      - id: latest_execution_id
+        label: LatestExecId
+        expr: it.latestExecutionId
+      - id: retry_stages
+        expr: jsonArray(it.retryStagesMetadata.retryStagesIdentifier)
+      - id: skip_stages
+        expr: jsonArray(it.retryStagesMetadata.skipStagesIdentifier)
+      - id: error
+        expr: it.errorMessage
+        width_max: 60
 
 commands:
   - command: get pipeline
@@ -524,6 +593,101 @@ commands:
       query_params:
         branch: flags.branch
 
+  - command: execute execution:abort
+    verb: execute
+    noun: execution
+    noun_variant: abort
+    short: Abort a running pipeline execution
+    confirm_mode: prompt
+    id_allow_slash: true
+    id_label: "<[pipeline/]execution-id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
+    handler_type: endpoint
+    flags:
+      - name: interrupt-type
+        default: AbortAll
+        description: "Interrupt type: AbortAll, Abort, Pause, Resume, StageRollback, ExpireAll, Retry"
+        completion_values: [AbortAll, Abort, Pause, Resume, StageRollback, ExpireAll, Retry]
+    endpoint:
+      method: PUT
+      path: /pipeline/api/pipeline/execute/interrupt/{{lastPart(ctx.id)}}
+      no_fields: true
+      text_header: "\nExecution aborted.\n"
+      query_params:
+        interruptType: 'flags["interrupt-type"]'
+
+  - command: execute execution:retry
+    verb: execute
+    noun: execution
+    noun_variant: retry
+    fields_noun: execution_result_dynamic
+    short: Retry a failed pipeline execution (optionally from specific stages)
+    id_parts: 2
+    id_label: "<pipeline/execution-id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
+    handler_type: endpoint
+    follow_fn: execute_v1_follow
+    flags:
+      - name: retry-stages
+        description: Stage identifier(s) to retry from (repeatable)
+        is_multi: true
+      - name: only-failed-stages
+        is_bool: true
+        description: In a failed parallel group, run only the failed stages (default runs all)
+      - name: module
+        description: Module type (CI, CD)
+      - name: notes
+        description: Notes for this execution
+      - name: input
+        description: "Runtime input as key=value (repeatable)"
+        is_multi: true
+      - name: input-file
+        description: "Path to a runtimeInputYaml file (use - for stdin)"
+      - name: follow
+        is_bool: true
+        description: Stream logs live after retry starts
+    endpoint:
+      method: POST
+      path: /pipeline/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.idParts[0]}}/execute/retry/{{ctx.idParts[1]}}
+      item_expr: it.execution_details
+      text_header: "\nRetry started successfully.\n"
+      text_footer: |
+
+        To follow:
+        harness get execution {{ctx.idParts[0]}}/{{it.execution_id}}
+        harness get execution_log {{ctx.idParts[0]}}/{{it.execution_id}} --follow
+      body_fn: execute_retry_body
+      query_params:
+        module: flags.module
+        notes: flags.notes
+        retry_stages: 'flags["retry-stages"] == nil ? "" : join(flags["retry-stages"], ",")'
+        run_all_stages: 'flags["only-failed-stages"] ? "false" : ""'
+
+  - command: get execution:retry_history
+    verb: get
+    noun: execution
+    noun_variant: retry_history
+    fields_noun: retry_history
+    short: Show the retry history and retryable stages for a pipeline execution
+    id_allow_slash: true
+    id_label: "<[pipeline/]execution-id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      path: /pipeline/api/pipeline/execute/retryHistory/{{lastPart(ctx.id)}}
+      item_expr: it.data
+      query_params:
+        pipelineIdentifier: ctx.idParts[0]
+
   - command: get execution
     verb: get
     noun: execution
@@ -702,17 +866,77 @@ commands:
     verb: get
     noun: trigger
     short: Get a trigger by identifier
-    completion_noun: trigger
+    id_allow_slash: true
+    id_label: "<[pipeline/]id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
     handler_type: endpoint
-    flags:
-      - name: pipeline
-        required: true
-        description: Pipeline identifier the trigger belongs to
     endpoint:
-      path: /pipeline/api/triggers/{{ctx.id}}
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
       item_expr: it.data
       query_params:
-        targetIdentifier: flags.pipeline
+        targetIdentifier: ctx.idParts[0]
+
+  - command: create trigger
+    verb: create
+    noun: trigger
+    short: Create a trigger for a pipeline (-f trigger.yaml)
+    completion_noun: pipeline
+    requires_id: true
+    id_label: "<pipeline_id>"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /pipeline/api/triggers
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nCreated trigger in pipeline {{ctx.id}}\n"
+      query_params:
+        targetIdentifier: ctx.id
+
+  - command: update trigger
+    verb: update
+    noun: trigger
+    short: Update a trigger's YAML definition (-f trigger.yaml)
+    id_allow_slash: true
+    id_label: "<[pipeline/]id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
+      file_body: required
+      content_type: application/yaml
+      no_fields: true
+      text_header: "\nUpdated trigger {{lastPart(ctx.id)}}\n"
+      query_params:
+        targetIdentifier: ctx.idParts[0]
+
+  - command: delete trigger
+    verb: delete
+    noun: trigger
+    confirm_mode: prompt
+    short: Delete a trigger by identifier
+    id_allow_slash: true
+    id_label: "<[pipeline/]id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
+      item_expr: it
+      text_header: "\nDeleted trigger {{lastPart(ctx.id)}}\n"
+      query_params:
+        targetIdentifier: ctx.idParts[0]
 
   - command: list input_set
     verb: list
@@ -759,6 +983,64 @@ commands:
       query_params:
         pipelineIdentifier: ctx.idParts[0]
 
+  - command: create input_set
+    verb: create
+    noun: input_set
+    short: Create an input set for a pipeline (-f input-set.yaml)
+    requires_id: true
+    completion_noun: pipeline
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /pipeline/api/inputSets
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nCreated input set in pipeline {{ctx.id}}\n"
+      query_params:
+        pipelineIdentifier: ctx.id
+
+  - command: update input_set
+    verb: update
+    noun: input_set
+    short: Update an input set's YAML definition (-f input-set.yaml)
+    id_parts: 2
+    id_label: "<pipeline/id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: input_set
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /pipeline/api/inputSets/{{lastPart(ctx.id)}}
+      file_body: required
+      content_type: application/yaml
+      no_fields: true
+      text_header: "\nUpdated input set {{lastPart(ctx.id)}}\n"
+      query_params:
+        pipelineIdentifier: ctx.idParts[0]
+
+  - command: delete input_set
+    verb: delete
+    noun: input_set
+    confirm_mode: prompt
+    short: Delete an input set by identifier
+    id_parts: 2
+    id_label: "<pipeline/id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: input_set
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /pipeline/api/inputSets/{{lastPart(ctx.id)}}
+      item_expr: it
+      text_header: "\nDeleted input set {{lastPart(ctx.id)}}\n"
+      query_params:
+        pipelineIdentifier: ctx.idParts[0]
+
   - command: get runtime_input_template
     verb: get
     noun: runtime_input_template
@@ -768,58 +1050,165 @@ commands:
     endpoint:
       method: POST
       path: /pipeline/api/inputSets/template
-      item_expr: it.data.inputSetTemplateYaml
+      item_expr: it.data
       query_params:
         pipelineIdentifier: ctx.id
 
   - command: list template
     verb: list
     noun: template
-    short: List templates in a project
+    short: List templates (defaults to project scope; use --level for account/org)
     handler_type: endpoint
     flags:
       - name: search
         description: Filter templates by name or keyword
       - name: list-type
-        default: LastUpdated
-        description: "Template list type: Stable, LastUpdated, All"
+        default: LAST_UPDATES_TEMPLATE
+        description: "Template list type: STABLE_TEMPLATE, LAST_UPDATES_TEMPLATE, ALL"
     endpoint:
-      method: POST
-      path: /template/api/templates/list
-      items_expr: it.data.content
+      path: /v1{{scopePath(auth)}}/templates
+      items_expr: it
       get_id_expr: it.identifier
       completion:
         id_expr: it.identifier
         name_expr: it.name
       query_params:
-        searchTerm: flags.search
-        templateListType: flags.list-type
-      body_params:
-        filterType: '"Template"'
+        search_term: flags.search
+        type: flags["list-type"]
       paging:
-        paging_strategy: page_index
+        paging_strategy: page_header
         countable: true
         page_index_param: page
-        page_size_param: size
-        page_size_default: 25
+        page_size_param: limit
+        page_size_default: 30
         page_size_max: 100
-        total_expr: it.data.totalElements
       columns: [identifier, name, type, version, stable]
 
   - command: get template
     verb: get
     noun: template
-    short: Get a template by identifier
+    short: Get a template's stable version by identifier
     completion_noun: template
     handler_type: endpoint
-    flags:
-      - name: version
-        description: Template version label (defaults to stable)
     endpoint:
-      path: /template/api/templates/{{ctx.id}}
-      item_expr: it.data
+      path: /v1{{scopePath(auth)}}/templates/{{ctx.id}}
+      item_expr: it.template
+      yaml_pick_expr: it.template
+
+  - command: create template
+    verb: create
+    noun: template
+    short: Create a template (-f template.yaml)
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /v1{{scopePath(auth)}}/templates
+      file_body: required
+      file_body_content_type: application/yaml
+      file_body_wrap_as_string: template_yaml
+      item_expr: it
+      fields_subset: [identifier, name, type, version, stable, scope]
+      text_header: "\nCreated template\n"
+
+  - command: list template_version
+    verb: list
+    noun: template_version
+    short: List all versions of a template
+    completion_noun: template
+    requires_parentid: true
+    parentid_label: template
+    handler_type: endpoint
+    endpoint:
+      path: /v1{{scopePath(auth)}}/templates
+      items_expr: it
+      get_id_expr: parentId + "/" + it.version_label
+      completion:
+        id_expr: it.version_label
+        name_expr: it.version_label
       query_params:
-        versionLabel: flags.version
+        identifiers: ctx.parentId
+        type: '"ALL"'
+      paging:
+        paging_strategy: page_header
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+      columns: [version, stable, type, updated]
+
+  - command: get template_version
+    verb: get
+    noun: template_version
+    short: Get a specific version of a template
+    id_parts: 2
+    id_label: "<template/version>"
+    completion_seq:
+      - completion_noun: template
+      - completion_noun: template_version
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      path: /v1{{scopePath(auth)}}/templates/{{ctx.idParts[0]}}/versions/{{lastPart(ctx.id)}}
+      item_expr: it.template
+      yaml_pick_expr: it.template
+
+  - command: update template_version
+    verb: update
+    noun: template_version
+    short: Update a template version (-f template.yaml)
+    id_parts: 2
+    id_label: "<template/version>"
+    completion_seq:
+      - completion_noun: template
+      - completion_noun: template_version
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /v1{{scopePath(auth)}}/templates/{{ctx.idParts[0]}}/versions/{{lastPart(ctx.id)}}
+      file_body: required
+      file_body_content_type: application/yaml
+      file_body_wrap_as_string: template_yaml
+      no_fields: true
+      text_header: "\nUpdated template {{ctx.idParts[0]}} version {{lastPart(ctx.id)}}\n"
+
+  - command: delete template_version
+    verb: delete
+    noun: template_version
+    confirm_mode: prompt
+    short: Delete a template version
+    id_parts: 2
+    id_label: "<template/version>"
+    completion_seq:
+      - completion_noun: template
+      - completion_noun: template_version
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /v1{{scopePath(auth)}}/templates/{{ctx.idParts[0]}}/versions/{{lastPart(ctx.id)}}
+      item_expr: it
+      text_header: "\nDeleted template {{ctx.idParts[0]}} version {{lastPart(ctx.id)}}\n"
+
+  - command: update template_version:set-stable
+    verb: update
+    noun: template_version
+    noun_variant: set-stable
+    short: Mark a template version as the stable version
+    id_parts: 2
+    id_label: "<template/version>"
+    completion_seq:
+      - completion_noun: template
+      - completion_noun: template_version
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /v1{{scopePath(auth)}}/templates/{{ctx.idParts[0]}}/versions/{{lastPart(ctx.id)}}/stable
+      no_fields: true
+      body_params: {}
+      text_header: "\nSet template {{ctx.idParts[0]}} version {{lastPart(ctx.id)}} as stable\n"
 
   - command: list pipeline_v1
     verb: list
@@ -872,25 +1261,88 @@ commands:
     verb: list
     noun: approval_instance
     short: List approval instances for a pipeline execution
-    completion_noun: execution
+    id_allow_slash: true
     requires_parentid: true
-    parentid_label: execution
+    parentid_label: "<[pipeline/]execution>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
     handler_type: endpoint
     flags:
       - name: status
         description: "Filter by status: WAITING, APPROVED, REJECTED, FAILED, ABORTED, EXPIRED"
       - name: type
         description: "Filter by type: HarnessApproval, JiraApproval, CustomApproval, ServiceNowApproval"
+      - name: node-execution-id
+        description: Filter to the approval step with this node execution (runtime) id
     endpoint:
-      path: /pipeline/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/approvals/execution/{{ctx.parentId}}
+      path: /pipeline/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/approvals/execution/{{lastPart(ctx.parentId)}}
+      fetch_fn: list_approval_instances_fetch
       items_expr: it
-      get_id_expr: it.id
+      get_id_expr: ctx.parentId + "/" + it.id
       query_params:
         approval_status: flags.status
         approval_type: flags.type
+        node_execution_id: flags["node-execution-id"]
       paging:
         paging_strategy: flat_list
-      columns: [id, type, status, pipeline]
+      columns: [id, type, status, pipeline, deadline]
+
+  - command: get approval_instance
+    verb: get
+    noun: approval_instance
+    short: Get an approval instance by id
+    id_allow_slash: true
+    id_label: "<[pipeline/]execution/approvalId>"
+    handler_type: endpoint
+    endpoint:
+      path: /pipeline/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/approvals/execution/{{ctx.idParts[len(ctx.idParts)-2]}}
+      item_expr: find(it, .id == lastPart(ctx.id))
+      fields_subset: [id, type, status, pipeline, deadline, message, min_count, user_groups, auto_reject, created, updated, error]
+
+  - command: execute approval_instance:approve
+    verb: execute
+    noun: approval_instance
+    noun_variant: approve
+    short: Approve a waiting Harness approval instance
+    confirm_mode: prompt
+    id_label: <approvalInstanceId>
+    fields_noun: approval_instance
+    handler_type: endpoint
+    flags:
+      - name: comment
+        description: Approval comment
+      - name: approver-input
+        description: "Approver input as key=value (repeatable)"
+        is_multi: true
+    endpoint:
+      method: POST
+      path: /pipeline/api/approvals/{{ctx.id}}/harness/activity
+      item_expr: it.data
+      text_header: "\nApproved approval {{ctx.id}}\n"
+      body_fn: approval_approve_body
+
+  - command: execute approval_instance:reject
+    verb: execute
+    noun: approval_instance
+    noun_variant: reject
+    short: Reject a waiting Harness approval instance
+    confirm_mode: prompt
+    id_label: <approvalInstanceId>
+    fields_noun: approval_instance
+    handler_type: endpoint
+    flags:
+      - name: comment
+        description: Rejection reason
+    endpoint:
+      method: POST
+      path: /pipeline/api/approvals/{{ctx.id}}/harness/activity
+      item_expr: it.data
+      text_header: "\nRejected approval {{ctx.id}}\n"
+      body_params:
+        action: '"REJECT"'
+        comments: flags.comment
 
   - command: list freeze_window
     verb: list

@@ -24,9 +24,10 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/harness/harness-cli/modules/pipeline"
-	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/logstream"
 )
 
 const executeWorkspaceHandlerID = "execute_workspace"

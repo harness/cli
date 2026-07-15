@@ -11,9 +11,9 @@ import (
 
 	"github.com/expr-lang/expr"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/exprenv/exprfuncs"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/exprenv/exprfuncs"
+	"github.com/harness/cli/pkg/spec"
 )
 
 func isMachineFormat(flags map[string]any) bool {
@@ -93,6 +93,7 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		"spaceAfter":            exprfuncs.SpaceAfter,
 		"duration":              exprfuncs.Duration,
 		"harScopeUrl":           exprfuncs.HarScopeUrl,
+		"scopePath":             exprfuncs.HarScopeUrl,
 		"epochMs":               exprfuncs.EpochMs,
 		"parseDateMs":           exprfuncs.ParseDateMs,
 		"jsonArray":             exprfuncs.JsonArray,

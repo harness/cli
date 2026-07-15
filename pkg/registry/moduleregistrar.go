@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/spec"
 )
 
 // WorkflowFn is a named workflow handler registered in the Registry.

@@ -1,4 +1,4 @@
-# harness-unified-cli — Agent Guide
+# harness/cli — Agent Guide
 
 ## What this repo is
 

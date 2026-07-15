@@ -1,6 +1,7 @@
 spec_version: 1
 module_type: builtin
 module_desc: Harness Knowledge Graph — schema types, queryable types, relationships, connections, and HQL query execution
+harness_internal: true
 help_text: |
   ## Knowledge Graph (kg)
 

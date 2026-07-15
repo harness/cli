@@ -16,11 +16,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/execgraph"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/logstream"
-	"github.com/harness/harness-cli/pkg/tui"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/execgraph"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/logstream"
+	"github.com/harness/cli/pkg/tui"
 )
 
 const lvPollIntervalSecs = 2
@@ -174,6 +174,7 @@ type logViewModel struct {
 	activeTab rightTab
 
 	saveModal   bool
+	saveTab     rightTab // which tab's content is being saved (Logs, Inputs, or Outputs)
 	saveInput   string
 	saveStatus  string // "" = typing, error message, or "saved to <file>"
 	saveDone    bool   // true after successful write, waiting for dismiss
@@ -332,23 +333,23 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					ss.cancel()
 				}
 				return m, tea.Quit
-			case "esc", "n":
+			case "esc":
 				if m.saveConfirm {
-					// "n" or esc on confirm → back to filename input
+					// esc on confirm dismisses the whole modal
+					m.saveConfirm = false
+				}
+				m.saveModal = false
+				m.saveInput = ""
+				m.saveStatus = ""
+				m.saveDone = false
+			case "n":
+				if m.saveConfirm {
+					// "n" on confirm → back to filename input
 					m.saveConfirm = false
 					m.saveStatus = ""
-					if msg.String() == "esc" {
-						// esc from confirm dismisses the whole modal
-						m.saveModal = false
-						m.saveInput = ""
-						m.saveDone = false
-					}
-				} else {
-					m.saveModal = false
-					m.saveInput = ""
+				} else if !m.saveDone {
+					m.saveInput += "n"
 					m.saveStatus = ""
-					m.saveDone = false
-					m.saveConfirm = false
 				}
 			case "enter":
 				if m.saveDone {
@@ -362,15 +363,15 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 					if _, err := os.Stat(m.saveInput); err == nil {
-						// file exists — ask overwrite/append
+						// file exists — ask overwrite (and append, for logs)
 						m.saveConfirm = true
 					} else {
-						m.doSaveLog(false)
+						m.doSave(false)
 					}
 				}
 			case "y":
 				if m.saveConfirm {
-					m.doSaveLog(false)
+					m.doSave(false)
 					m.saveConfirm = false
 				} else if !m.saveDone {
 					m.saveInput += "y"
@@ -378,8 +379,11 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "a":
 				if m.saveConfirm {
-					m.doSaveLog(true)
-					m.saveConfirm = false
+					// Append is only supported when saving logs.
+					if m.saveTab == tabLogs {
+						m.doSave(true)
+						m.saveConfirm = false
+					}
 				} else if !m.saveDone {
 					m.saveInput += "a"
 					m.saveStatus = ""
@@ -407,13 +411,12 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			if m.state == lvStateReady && m.selectedUUID != "" {
 				node := m.selectedNode()
-				if node != nil {
-					if _, ok := m.logCache[node.UUID]; ok {
-						m.saveModal = true
-						m.saveInput = ""
-						m.saveStatus = ""
-						m.saveDone = false
-					}
+				if node != nil && m.hasSaveableContent(node) {
+					m.saveModal = true
+					m.saveTab = m.activeTab
+					m.saveInput = ""
+					m.saveStatus = ""
+					m.saveDone = false
 				}
 			}
 			return m, nil
@@ -422,6 +425,10 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				node := m.selectedNode()
 				if node != nil {
 					delete(m.logCache, node.UUID)
+					if ss, ok := m.activeStreams[node.UUID]; ok {
+						ss.cancel()
+						delete(m.activeStreams, node.UUID)
+					}
 				}
 				return m, m.maybeLoadLog()
 			}
@@ -458,6 +465,13 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.clampLeftOffset()
 			}
 			return m, nil
+		case "tab":
+			if m.state == lvStateReady {
+				m.activeTab = (m.activeTab + 1) % rightTab(len(tabDefs))
+				m.syncViewportForTab()
+				return m, m.maybeLoadLog()
+			}
+			return m, nil
 		case "l", "d", "i", "o":
 			if m.state == lvStateReady {
 				for _, td := range tabDefs {
@@ -491,8 +505,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		for _, s := range msg.steps {
 			if i, ok := existing[s.UUID]; ok {
-				m.steps[i].Status = s.Status
-				m.steps[i].EndTs = s.EndTs
+				m.steps[i] = s
 			} else {
 				m.steps = append(m.steps, s)
 			}
@@ -545,7 +558,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.err != nil {
 			node := m.selectedNode()
-			if node != nil && node.UUID == msg.nodeUUID {
+			if node != nil && node.UUID == msg.nodeUUID && m.activeTab == tabLogs {
 				m.vp.SetContent(m.st.errStyle.Render("error: " + msg.err.Error()))
 				m.vp.GotoTop()
 			}
@@ -557,7 +570,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logCache[msg.nodeUUID] = msg.content
 		}
 		node := m.selectedNode()
-		if node != nil && node.UUID == msg.nodeUUID {
+		if node != nil && node.UUID == msg.nodeUUID && m.activeTab == tabLogs {
 			m.vp.SetContent(m.logCache[msg.nodeUUID].rendered())
 			m.vp.GotoTop()
 		}
@@ -571,7 +584,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		node := m.selectedNode()
-		if node != nil && node.UUID == msg.nodeUUID && lc != nil {
+		if node != nil && node.UUID == msg.nodeUUID && lc != nil && m.activeTab == tabLogs {
 			atBottom := m.vp.AtBottom()
 			m.vp.SetContent(lc.rendered())
 			if atBottom {
@@ -862,7 +875,10 @@ func (m logViewModel) renderSplit(b *strings.Builder) {
 	}
 
 	// help line: left side is fixed, right side shows poll state / scroll %
-	helpLeft := "  ↑/↓ select · l/d/i/o tab · pgup/pgdn scroll · r refresh · s save · q quit"
+	helpLeft := "  ↑/↓ select · l/d/i/o/tab tab · pgup/pgdn scroll · r refresh · q quit"
+	if m.activeTab == tabLogs || m.activeTab == tabInputs || m.activeTab == tabOutputs {
+		helpLeft = "  ↑/↓ select · l/d/i/o/tab tab · pgup/pgdn scroll · r refresh · s save · q quit"
+	}
 
 	var helpRight string
 	if !m.pipelineDone {

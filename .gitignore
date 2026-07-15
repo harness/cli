@@ -19,3 +19,4 @@ CLAUDE.local.md
 internal-docs/
 *~
 .claude/settings.local.md
+.cursor/

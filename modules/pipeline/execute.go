@@ -10,16 +10,17 @@ import (
 	"os"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/client"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/hlog"
-	"github.com/harness/harness-cli/pkg/logstream"
+	"github.com/harness/cli/pkg/client"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/logstream"
 	"go.yaml.in/yaml/v3"
 )
 
 const executePipelineBodyFnID = "execute_body"
 const executeInputSetBodyFnID = "execute_inputset_body"
 const executeDynamicBodyFnID = "execute_dynamic_body"
+const executeRetryBodyFnID = "execute_retry_body"
 
 // executePipelineBody builds the runtimeInputYaml request body for pipeline execution.
 // --input-file <file>: use pre-filled YAML directly.
@@ -66,10 +67,20 @@ func executePipelineBody(ctx *cmdctx.Ctx) (any, error) {
 }
 
 // resolveFromTemplate fetches the pipeline's runtime input template and substitutes inputs.
+// The pipeline id is taken from ctx.Id, which is correct for commands whose id is the
+// pipeline itself (e.g. execute pipeline). Commands with a compound id such as
+// "<pipeline>/<execution-id>" must call resolveFromTemplateForPipeline directly.
 func resolveFromTemplate(ctx *cmdctx.Ctx, inputs map[string]string) (string, error) {
+	return resolveFromTemplateForPipeline(ctx, ctx.Id, inputs)
+}
+
+// resolveFromTemplateForPipeline fetches the given pipeline's runtime input template and
+// substitutes inputs. The pipeline id is passed explicitly so callers with a compound id
+// (e.g. retry, which is invoked as "<pipeline>/<execution-id>") can supply the correct value.
+func resolveFromTemplateForPipeline(ctx *cmdctx.Ctx, pipelineID string, inputs map[string]string) (string, error) {
 	c := client.New(ctx)
 	params := map[string]string{
-		"pipelineIdentifier": ctx.Id,
+		"pipelineIdentifier": pipelineID,
 		"orgIdentifier":      ctx.Auth.OrgID,
 		"projectIdentifier":  ctx.Auth.ProjectID,
 	}
@@ -78,7 +89,7 @@ func resolveFromTemplate(ctx *cmdctx.Ctx, inputs map[string]string) (string, err
 		params["branch"] = branch
 	}
 
-	hlog.Debug("fetching runtime input template", "pipeline", ctx.Id)
+	hlog.Debug("fetching runtime input template", "pipeline", pipelineID)
 	raw, _, err := c.Post("/pipeline/api/inputSets/template", params, map[string]any{})
 	if err != nil {
 		return "", fmt.Errorf("fetching runtime input template: %w", err)
@@ -225,6 +236,47 @@ func executeDynamicBody(ctx *cmdctx.Ctx) (any, error) {
 	return map[string]any{"yaml": yamlStr}, nil
 }
 
+// executeRetryBody builds the RerunPipelineRequest body: {"inputs_yaml": "<yaml>"} for the
+// v1 retry endpoint. The pipeline id comes from ctx.IdParts[0] since retry is invoked as
+// "<pipeline>/<execution-id>". An empty inputs_yaml is valid when the pipeline has no runtime inputs.
+func executeRetryBody(ctx *cmdctx.Ctx) (any, error) {
+	inputFile := cmdctx.GetString(ctx.FlagValues, "input-file")
+	inputPairs := cmdctx.GetStringSlice(ctx.FlagValues, "input")
+
+	inputs, err := parseKeyValuePairs(inputPairs)
+	if err != nil {
+		return nil, err
+	}
+	if inputFile == "" && len(inputs) == 0 {
+		return map[string]any{"inputs_yaml": ""}, nil
+	}
+	var yamlStr string
+	if inputFile != "" {
+		yamlStr, err = readInputFile(inputFile)
+		if err != nil {
+			return nil, err
+		}
+		if len(inputs) > 0 {
+			yamlStr, err = mergeIntoTemplate(yamlStr, inputs)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		var pipelineID string
+		if len(ctx.IdParts) > 0 {
+			pipelineID = ctx.IdParts[0]
+		}
+		yamlStr, err = resolveFromTemplateForPipeline(ctx, pipelineID, inputs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	hlog.Debug("execute retry inputs_yaml:\n" + yamlStr)
+	return map[string]any{"inputs_yaml": yamlStr}, nil
+}
+
 // executeInputSetBody builds the MergeInputSetRequest body for the /inputSetList endpoint.
 func executeInputSetBody(ctx *cmdctx.Ctx) (any, error) {
 	inputSetIDs := cmdctx.GetStringSlice(ctx.FlagValues, "input-set")
@@ -276,6 +328,21 @@ func executeFollowFn(ctx *cmdctx.Ctx, result any) error {
 	data, _ := m["data"].(map[string]any)
 	plan, _ := data["planExecution"].(map[string]any)
 	execId, _ := plan["uuid"].(string)
+	if execId == "" {
+		return fmt.Errorf("--follow: could not extract execution ID from response")
+	}
+	fmt.Println("\nFollowing log output...")
+	return logstream.FollowMulti(ctx, execId, "", "", logstream.MultiStyleMarkers, nil)
+}
+
+const executeV1FollowFnID = "execute_v1_follow"
+
+// executeV1FollowFn is the follow_fn for v1 execute endpoints (e.g. retry). Unlike the legacy
+// response, v1 nests the execution id at execution_details.execution_id.
+func executeV1FollowFn(ctx *cmdctx.Ctx, result any) error {
+	m, _ := result.(map[string]any)
+	details, _ := m["execution_details"].(map[string]any)
+	execId, _ := details["execution_id"].(string)
 	if execId == "" {
 		return fmt.Errorf("--follow: could not extract execution ID from response")
 	}

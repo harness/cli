@@ -6,7 +6,7 @@ package format
 import (
 	"testing"
 
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/spec"
 )
 
 var testFields = []spec.FieldDef{
@@ -66,8 +66,8 @@ func TestApplyColumns(t *testing.T) {
 			want:  []spec.TableColumn{{Header: "Last Run", Expr: "it.lastRun", FieldType: "epoch_ms"}},
 		},
 		{
-			name:  "unknown field ID returns error",
-			input: "bogus",
+			name:    "unknown field ID returns error",
+			input:   "bogus",
 			wantErr: true,
 		},
 		// --- replace mode: ad-hoc id:expr ---

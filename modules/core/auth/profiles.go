@@ -7,9 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/config"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/spec"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/config"
+	"github.com/harness/cli/pkg/spec"
 )
 
 func ProfilesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*cmdctx.PageResult, error) {
@@ -28,15 +29,27 @@ func ProfilesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*c
 	}
 	sort.Strings(names)
 
+	creds, _ := auth.LoadCredentials() // best-effort; nil means no creds file
+
 	items := make([]any, 0, len(names))
 	for _, name := range names {
 		p := cfg.Profiles[name]
+		authType := "PAT"
+		if p.AuthType == "sso" {
+			authType = "SSO"
+		} else if creds != nil {
+			if c, ok := creds[name]; ok && auth.TokenType(c.Token) == auth.TokenKindSAT {
+				authType = "SAT"
+			}
+		}
 		items = append(items, map[string]any{
-			"profile":    name,
-			"api_url":    p.APIUrl,
-			"account_id": p.AccountID,
-			"org_id":     p.OrgID,
-			"project_id": p.ProjectID,
+			"profile":      name,
+			"api_url":      p.APIUrl,
+			"account_id":   p.AccountID,
+			"org_id":       p.OrgID,
+			"project_id":   p.ProjectID,
+			"auth_type":    authType,
+			"registry_url": p.RegistryURL,
 		})
 	}
 

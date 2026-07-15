@@ -18,12 +18,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/migratable/npmutils"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/engine"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types/npm"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/migratable/sizeutil"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/engine"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/migratable/npmutils"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/migratable/sizeutil"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types/npm"
 
 	"github.com/google/uuid"
 	"github.com/pterm/pterm"

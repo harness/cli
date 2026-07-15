@@ -6,8 +6,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/tree"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/tree"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 
 	"github.com/rs/zerolog/log"
 )

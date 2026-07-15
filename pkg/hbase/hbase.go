@@ -18,10 +18,10 @@ import (
 // requests from a single CLI invocation.
 var RunID = uuid.New().String()
 
-// overridden at build time via ldflags: -X github.com/harness/harness-cli/pkg/hbase.Version=x.y.z
+// overridden at build time via ldflags: -X github.com/harness/cli/pkg/hbase.Version=x.y.z
 var Version = "0.1.0-dev"
 
-// overridden at build time via ldflags: -X github.com/harness/harness-cli/pkg/hbase.BuildTime=yyyymmddhhmmZ
+// overridden at build time via ldflags: -X github.com/harness/cli/pkg/hbase.BuildTime=yyyymmddhhmmZ
 var BuildTime = ""
 
 // TimeoutExitCode is the exit code used when a command is killed by --timeout.
@@ -47,6 +47,11 @@ const (
 
 	// EnvNoTelemetry disables all usage telemetry when set to "1".
 	EnvNoTelemetry = "HARNESS_NO_TELEMETRY"
+
+	// EnvInstallType identifies how the CLI was installed (e.g. "script"),
+	// set by the installer before invoking --post-install. See
+	// [telemetry.ResolveInstallType] for the whitelist and default.
+	EnvInstallType = "HARNESS_INSTALL_TYPE"
 
 	// EnvLogFile redirects all log output to the specified file path.
 	EnvLogFile = "HARNESS_CLI_LOGFILE"

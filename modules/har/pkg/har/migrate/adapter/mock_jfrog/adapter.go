@@ -3,9 +3,9 @@ package mock_jfrog
 import (
 	"context"
 
-	adp "github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/adapter/jfrog"
-	"github.com/harness/harness-cli/modules/har/pkg/har/migrate/types"
+	adp "github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/jfrog"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 )
 
 func init() {

@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/harness-cli/pkg/console"
+	"github.com/harness/cli/pkg/console"
 )
 
 // Column defines a table column header and its display width.

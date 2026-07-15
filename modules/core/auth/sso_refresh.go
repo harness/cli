@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/format"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/format"
 )
 
 func SSORefreshHandler(ctx *cmdctx.Ctx) error {
@@ -33,7 +33,7 @@ func SSORefreshHandler(ctx *cmdctx.Ctx) error {
 
 	newAccess, newRefresh, err := auth.RefreshSSOToken(resolved.RefreshToken)
 	if err != nil {
-		return fmt.Errorf("%w\n\nRun 'harness auth loginsso' to log in again", err)
+		return fmt.Errorf("%w\n\nRun '%s' to log in again", err, resolved.LoginHint("loginsso"))
 	}
 
 	profileName := strings.TrimPrefix(resolved.Source, "profile:")
@@ -64,11 +64,25 @@ func formatTokenExpiry(token string) string {
 	if err != nil {
 		return fmt.Sprintf("unknown (%v)", err)
 	}
+	date := exp.Local().Format("Jan 2, 2006 15:04")
 	remaining := time.Until(exp)
 	if remaining <= 0 {
-		return fmt.Sprintf("%s %s (expired %s ago)",
-			console.RedX(), exp.Local().Format(time.RFC3339), (-remaining).Round(time.Second))
+		return fmt.Sprintf("%s %s (expired %s ago)", console.RedX(), date, roughDuration(-remaining))
 	}
-	return fmt.Sprintf("%s %s (expires in %s)",
-		console.GreenCheck(), exp.Local().Format(time.RFC3339), remaining.Round(time.Second))
+	return fmt.Sprintf("%s %s (%s)", console.GreenCheck(), date, fineDuration(remaining))
+}
+
+// fineDuration formats a duration at h/m/s granularity for short-lived tokens.
+func fineDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }

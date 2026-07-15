@@ -14,14 +14,14 @@ import (
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
 
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
-	"github.com/harness/harness-cli/pkg/endpoint"
-	"github.com/harness/harness-cli/pkg/exprenv"
-	"github.com/harness/harness-cli/pkg/extractutil"
-	"github.com/harness/harness-cli/pkg/format"
-	"github.com/harness/harness-cli/pkg/spec"
-	"github.com/harness/harness-cli/pkg/tui"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/endpoint"
+	"github.com/harness/cli/pkg/exprenv"
+	"github.com/harness/cli/pkg/extractutil"
+	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/tui"
 )
 
 // uiDetailModel holds the state for the drilldown detail overlay.
@@ -342,7 +342,7 @@ func (m uiTableModel) fetchPage(page int) tea.Cmd {
 		last := meta == nil || (meta.Count < pageSize)
 		if meta != nil && meta.HasTotal {
 			total = meta.Total
-			last = (offset+meta.Count) >= int(meta.Total)
+			last = (offset + meta.Count) >= int(meta.Total)
 		}
 
 		return uiPageMsg{page: page, rows: rows, items: items, total: total, last: last}

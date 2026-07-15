@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
 )
 
 func SSOStatusHandler(ctx *cmdctx.Ctx) error {

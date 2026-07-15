@@ -12,10 +12,10 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/harness/harness-cli/pkg/auth"
-	"github.com/harness/harness-cli/pkg/config"
-	"github.com/harness/harness-cli/pkg/cmdctx"
-	"github.com/harness/harness-cli/pkg/console"
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/config"
+	"github.com/harness/cli/pkg/console"
 )
 
 var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
@@ -176,12 +176,15 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 		}
 	}
 
+	email := fetchTokenEmail(apiURL, token, accountID)
+
 	cfg.Profiles[profileName] = &config.Profile{
 		APIUrl:      apiURL,
 		AccountID:   accountID,
 		OrgID:       orgID,
 		ProjectID:   projectID,
 		RegistryURL: registryURL,
+		Email:       email,
 	}
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving profile: %w", err)
@@ -248,7 +251,7 @@ func validateToken(apiURL, token, accountID string) error {
 	case 200:
 		return nil
 	case 401:
-		return fmt.Errorf("token rejected (401) — check that your API token is valid")
+		return fmt.Errorf("token rejected (401) — check that your API token is valid\n\nTip: run 'harness auth profiles' to see available profiles, then retry with --profile <name>")
 	case 403:
 		return fmt.Errorf("token valid but access denied (403) — check account ID or RBAC permissions")
 	default:
