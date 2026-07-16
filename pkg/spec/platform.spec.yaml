@@ -237,6 +237,7 @@ nouns:
       - id: permissions
         expr: jsonArray(it.role.permissions)
         field_type: set
+        width_max: 60
         mutable_path: permissions
       - id: harness_managed
         expr: it.harnessManaged
@@ -832,6 +833,7 @@ commands:
           name,
           description,
           scopes,
+          permissions,
           harness_managed,
           created_at,
           updated_at,
