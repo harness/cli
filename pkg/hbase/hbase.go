@@ -70,9 +70,13 @@ const (
 	// (default https://id.harness.io).
 	EnvSSOAuthServerURL = "HARNESS_SSO_AUTH_SERVER_URL"
 
-	// EnvMCPBaseURL overrides the MCP gateway base URL
-	// (default https://mcp.harness.io/cli).
-	EnvMCPBaseURL = "HARNESS_MCP_BASE_URL"
+	// EnvSSOBaseURL overrides the SSO API base URL used for SSO-authenticated
+	// requests (default https://mcp.harness.io/cli).
+	EnvSSOBaseURL = "HARNESS_SSO_BASE_URL"
+
+	// EnvSSOClientID overrides the SSO OAuth client ID
+	// (default harness-cli-client).
+	EnvSSOClientID = "HARNESS_SSO_CLIENT_ID"
 
 	// Defaults applied when env vars are not set.
 	DefaultAPIURL      = "https://app.harness.io"
