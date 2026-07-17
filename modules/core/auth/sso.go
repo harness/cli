@@ -134,7 +134,7 @@ func LoginSSOHandler(ctx *cmdctx.Ctx) error {
 // All SSO traffic is routed through mcp.harness.io regardless of the per-cluster
 // subdomain in the JWT; the gateway handles cluster routing internally.
 func resolveAPIURL(token, accountID, subdomain string) (string, error) {
-	if v := os.Getenv(hbase.EnvMCPBaseURL); v != "" {
+	if v := os.Getenv(hbase.EnvSSOBaseURL); v != "" {
 		return v, nil
 	}
 	return mcpBaseURL, nil
@@ -170,7 +170,7 @@ func runPKCEFlow(meta *auth.AuthServerMeta) (token, refreshToken, accountID, sub
 		return "", "", "", "", "", fmt.Errorf("starting local callback server on port %d: %w", ssoPort, err)
 	}
 
-	authURL := buildAuthURL(meta.AuthorizationEndpoint, auth.SSOClientID, redirectURI, challenge, state)
+	authURL := buildAuthURL(meta.AuthorizationEndpoint, auth.SSOClientIDValue(), redirectURI, challenge, state)
 	fmt.Fprintf(os.Stderr, "\nOpening browser for SSO login…\n%s\n\n", authURL)
 	_ = console.OpenBrowser(authURL)
 
@@ -179,7 +179,7 @@ func runPKCEFlow(meta *auth.AuthServerMeta) (token, refreshToken, accountID, sub
 		return "", "", "", "", "", fmt.Errorf("callback failed: %w", err)
 	}
 
-	rawToken, rawRefreshToken, err := auth.ExchangeCode(meta.TokenEndpoint, auth.SSOClientID, code, verifier, redirectURI)
+	rawToken, rawRefreshToken, err := auth.ExchangeCode(meta.TokenEndpoint, auth.SSOClientIDValue(), code, verifier, redirectURI)
 	if err != nil {
 		return "", "", "", "", "", fmt.Errorf("token exchange failed: %w", err)
 	}

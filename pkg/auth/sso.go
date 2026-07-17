@@ -42,6 +42,15 @@ func SSOAuthServerURL() string {
 	return SSOAuthServerBase
 }
 
+// SSOClientIDValue returns the SSO OAuth client ID, honoring the
+// HARNESS_SSO_CLIENT_ID override and falling back to SSOClientID.
+func SSOClientIDValue() string {
+	if v := os.Getenv(hbase.EnvSSOClientID); v != "" {
+		return v
+	}
+	return SSOClientID
+}
+
 // AuthServerMeta holds the endpoints from OAuth2 authorization server discovery.
 type AuthServerMeta struct {
 	Issuer                string `json:"issuer"`
@@ -99,7 +108,7 @@ func RefreshSSOToken(oldRefreshToken string) (accessToken, refreshToken string, 
 	params := url.Values{}
 	params.Set("grant_type", "refresh_token")
 	params.Set("refresh_token", oldRefreshToken)
-	params.Set("client_id", SSOClientID)
+	params.Set("client_id", SSOClientIDValue())
 	newAccess, newRefresh, err := doTokenRequest(meta.TokenEndpoint, params)
 	if err != nil {
 		return "", "", fmt.Errorf("token refresh failed: %w", err)
