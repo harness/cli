@@ -55,17 +55,11 @@ func executeAgentInstall(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("invalid --method %q: must be \"helm\" or \"yaml\"", method)
 	}
 
-	a := *ctx.Auth
-	switch ctx.Level {
-	case "org":
-		a.ProjectID = ""
-	case "account":
-		a.OrgID, a.ProjectID = "", ""
+	cs := ctx.Resolver.GetSpec("get", "gitops_agent")
+	if cs == nil || cs.Endpoint == nil {
+		return errors.New("get gitops_agent command spec not found")
 	}
-	qp := map[string]string{"accountIdentifier": a.AccountID, "orgIdentifier": a.OrgID, "projectIdentifier": a.ProjectID}
-
-	c := client.New(ctx)
-	agentResp, _, err := c.Get(fmt.Sprintf("/gitops/api/v1/agents/%s", agentID), qp)
+	agentResp, err := registry.CallEndpoint(ctx, cs.Endpoint)
 	if err != nil {
 		return fmt.Errorf("fetching agent %q: %w (has it been created with 'harness create gitops_agent'?)", agentID, err)
 	}
@@ -93,6 +87,13 @@ func executeAgentInstall(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("namespace is required: set it via -f install.yaml, or it must already be set on the agent (see 'harness get gitops_agent %s')", agentID)
 	}
 
+	a := *ctx.Auth
+	switch ctx.Level {
+	case "org":
+		a.ProjectID = ""
+	case "account":
+		a.OrgID, a.ProjectID = "", ""
+	}
 	reqBody := map[string]any{
 		"accountIdentifier": a.AccountID,
 		"orgIdentifier":     a.OrgID,
@@ -121,9 +122,10 @@ func executeAgentInstall(ctx *cmdctx.Ctx) error {
 	if !strings.HasSuffix(outPath, ".yaml") && !strings.HasSuffix(outPath, ".yaml.txt") {
 		return fmt.Errorf("output file must end with .yaml or .yaml.txt")
 	}
-	
+
 	path := fmt.Sprintf("/gitops/api/v1/agents/%s/helm-overrides", agentID)
 
+	c := client.New(ctx)
 	resp, err := c.DoRaw(client.Request{Method: "POST", Path: path, Body: reqBody})
 	if err != nil {
 		return err
