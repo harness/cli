@@ -40,7 +40,13 @@ help_text: |
   current scope and `get gitops_application <agent>/<app>` for full detail.
   Create with `create gitops_application <agent> -f app.yaml --cluster <cluster>
   [--repo <repo>]` — `-f` is the Argo CD Application manifest (metadata + spec);
-  cluster and repo are passed as flags.
+  cluster and repo are passed as flags. Sync with
+  `execute gitops_application:sync <agent>/<app> [--revision <sha>] [--prune]
+  [--dry-run]`. Refresh with
+  `execute gitops_application:refresh <agent>/<app> [--hard]`. Update with
+  `update gitops_application <agent>/<app> -f app.yaml` — export first with
+  `get gitops_application <agent>/<app> --yaml -o app.yaml`, edit, then apply.
+  Pass `--cluster` / `--repo` only when changing Harness linkage validation.
 
   A **gitops-cluster** is a Kubernetes cluster registered with a GitOps agent.
   List with `list gitops_cluster`; get with `get gitops_cluster <agent>/<cluster_id>`.
@@ -390,6 +396,8 @@ commands:
     endpoint:
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}
       item_expr: it
+      yaml_pick_expr: it.app
+      yaml_exclude: [status, operation]
       fields_subset: [name, agent, cluster, repo, project, namespace, sync_status, health, revision, repo_url, path, target_revision, created, updated]
 
   - command: create gitops_application
@@ -420,6 +428,85 @@ commands:
         skipRepoValidation: 'flags["skip-repo-validation"] ? "true" : nil'
       item_expr: it
       text_header: "\nCreated gitops application {{it.name}}\n\nGet it with: harness get gitops_application {{ctx.id}}/{{it.name}}\n"
+
+  - command: update gitops_application
+    verb: update
+    noun: gitops_application
+    id_parts: 2
+    id_label: "<agent/app>"
+    short: "Update a GitOps application: harness update gitops_application <agent/app> -f app.yaml [--cluster <cluster>] [--repo <repo>]"
+    handler_type: endpoint
+    flags:
+      - name: cluster
+        description: "GitOps cluster identifier (when changing cluster/destination binding)"
+      - name: repo
+        description: "GitOps repository identifier on the agent"
+      - name: skip-repo-validation
+        description: "Skip repository validation (use when repo is not registered on the agent)"
+        is_bool: true
+    endpoint:
+      method: PUT
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}
+      file_body: required
+      update_body_wrap: application
+      query_params:
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+        clusterIdentifier: 'flags.cluster != "" ? flags.cluster : nil'
+        repoIdentifier: 'flags.repo != "" ? flags.repo : nil'
+        skipRepoValidation: 'flags["skip-repo-validation"] ? "true" : nil'
+      item_expr: it
+      fields_subset: [name, agent, cluster, repo, namespace, sync_status, health, revision, repo_url, path, target_revision]
+      text_header: "\nUpdated gitops application {{ctx.id}}\n"
+
+  - command: execute gitops_application:sync
+    verb: execute
+    noun: gitops_application
+    noun_variant: sync
+    id_parts: 2
+    id_label: "<agent/app>"
+    confirm_mode: prompt
+    short: "Sync a GitOps application: harness execute gitops_application:sync <agent/app> [--revision <sha>] [--prune] [--dry-run]"
+    handler_type: endpoint
+    flags:
+      - name: revision
+        description: Target revision to sync to (commit, branch, or tag)
+      - name: prune
+        description: Delete resources from the cluster that are not in git
+        is_bool: true
+      - name: dry-run
+        description: Simulate sync without applying changes
+        is_bool: true
+    endpoint:
+      method: POST
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/sync
+      body_params:
+        revision: 'flags.revision != "" ? flags.revision : nil'
+        prune: 'flags.prune ? true : nil'
+        dryRun: 'flags["dry-run"] ? true : nil'
+      item_expr: it
+      fields_subset: [name, agent, sync_status, health, revision]
+      text_header: "\nSync triggered for {{ctx.id}}\n"
+
+  - command: execute gitops_application:refresh
+    verb: execute
+    noun: gitops_application
+    noun_variant: refresh
+    id_parts: 2
+    id_label: "<agent/app>"
+    short: "Refresh a GitOps application: harness execute gitops_application:refresh <agent/app> [--hard]"
+    handler_type: endpoint
+    flags:
+      - name: hard
+        description: Hard refresh — invalidate manifest caches and force regeneration
+        is_bool: true
+    endpoint:
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}
+      query_params:
+        query.refresh: 'flags.hard ? "hard" : "normal"'
+      item_expr: it
+      fields_subset: [name, agent, sync_status, health, revision]
+      text_header: "\nRefreshed {{ctx.id}}\n"
 
   - command: list gitops_cluster
     verb: list
