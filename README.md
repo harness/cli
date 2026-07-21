@@ -102,6 +102,8 @@ curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh -s
 
 Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases) and place the binaries on your `PATH`. Both `tar.gz` bundles (core + `har`) and per-binary archives are published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and `darwin_arm64`.
 
+This is also the path to take if `curl | sh` doesn't work in your environment — e.g. WSL behind a corporate SSL-inspecting proxy, air-gapped/vetted-binary environments, or scripted installs — see [`docs/manual-install.md`](docs/manual-install.md) for step-by-step instructions.
+
 ---
 
 ## 🔄 Upgrade
