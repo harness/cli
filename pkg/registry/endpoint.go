@@ -750,10 +750,6 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, err
 	}
 
-	for _, key := range ep.YamlExclude {
-		delete(mutable, key)
-	}
-
 	var updateBody any = mutable
 	if ep.UpdateBodyWrap != "" {
 		updateBody = map[string]any{ep.UpdateBodyWrap: mutable}
