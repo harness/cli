@@ -147,6 +147,7 @@ nouns:
         expr: it.app.spec.project
       - id: namespace
         expr: it.app.spec.destination.namespace
+        mutable_path: spec.destination.namespace
       - id: sync_status
         label: Sync
         expr: it.app.status.sync.status
@@ -159,10 +160,13 @@ nouns:
         label: Repo URL
         expr: it.app.spec.source.repoURL
         width_max: 60
+        mutable_path: spec.source.repoURL
       - id: path
         expr: it.app.spec.source.path
+        mutable_path: spec.source.path
       - id: target_revision
         expr: it.app.spec.source.targetRevision
+        mutable_path: spec.source.targetRevision
       - id: created
         expr: it.createdAt ?? it.app.creationTimestampTs
       - id: updated
@@ -203,14 +207,17 @@ nouns:
         expr: it.identifier
       - id: name
         expr: 'it.repository.name != "" ? it.repository.name : it.identifier'
+        mutable_path: name
       - id: agent
         expr: it.agentIdentifier
       - id: repo_url
         label: Repo URL
         expr: it.repository.repo
         width_max: 60
+        mutable_path: repo
       - id: type
         expr: it.repository.type
+        mutable_path: type
       - id: connection
         label: Connection
         expr: it.repository.connectionState.status
@@ -239,6 +246,7 @@ nouns:
         expr: it.identifier
       - id: name
         expr: 'it.name ?? (it.appset ?? it.applicationset ?? {}).metadata.name'
+        mutable_path: metadata.name
       - id: agent
         expr: it.agentIdentifier
       - id: project
@@ -449,8 +457,20 @@ commands:
     noun: gitops_application
     id_parts: 2
     id_label: "<agent/app>"
-    short: "Update a GitOps application: harness update gitops_application <agent/app> -f app.yaml [--cluster <cluster>] [--repo <repo>]"
+    short: "Update a GitOps application: harness update gitops_application <agent/app> [-f app.yaml] [--set target_revision=...] [--cluster <cluster>] [--repo <repo>]"
+    long: |
+      Two update modes:
+        --set   Quick scalar edits (target_revision, path, namespace, repo_url).
+                Uses get-then-put — no file needed.
+        -f      Full Argo CD Application manifest. Use for syncPolicy, labels,
+                multi-source, or structural changes.
+
+      --cluster / --repo / --skip-repo-validation only affect Harness linkage
+      validation on PUT; omit them when not changing cluster/repo binding.
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     flags:
       - name: cluster
         description: "GitOps cluster identifier (when changing cluster/destination binding)"
@@ -462,8 +482,11 @@ commands:
     endpoint:
       method: PUT
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: it.app
       update_body_wrap: application
+      yaml_exclude: [status, operation, creationTimestampTs]
       query_params:
         orgIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
@@ -636,12 +659,18 @@ commands:
       fields_subset: [identifier, name, agent, server, connection]
       text_header: "\nCreated gitops cluster {{it.agentIdentifier}}/{{it.identifier}}\n\nGet it with: harness get gitops_cluster {{it.agentIdentifier}}/{{it.identifier}}\n"
 
+
+  # an extra updateFields list has to be sent for the cluster update in the PUT body, this is not supported by the CLI yet. should we ask the user to provide the list?
   - command: update gitops_cluster
     verb: update
     noun: gitops_cluster
     id_parts: 2
     id_label: "<agent/cluster_id>"
     short: "Update a GitOps cluster: harness update gitops_cluster <agent/cluster_id> -f cluster.yaml [--force-update]"
+    long: |
+      Cluster updates require a full manifest file (-f). Field-level --set is
+      not supported — the API requires an updatedFields array in the PUT body,
+      which the CLI does not populate. Export with get --yaml, edit, then apply.
     handler_type: endpoint
     flags:
       - name: force-update
@@ -762,13 +791,23 @@ commands:
     noun: gitops_repository
     id_parts: 2
     id_label: "<agent/repo_id>"
-    short: "Update a GitOps repository: harness update gitops_repository <agent/repo_id> -f repo.yaml"
+    short: "Update a GitOps repository: harness update gitops_repository <agent/repo_id> [-f repo.yaml] [--set repo_url=...]"
+    long: |
+      Update via --set for URL, name, or type. Credential changes (password,
+      SSH key) require -f with a full manifest — GET masks secrets and cannot
+      round-trip them via --set.
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PUT
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/repositories/{{ctx.idParts[1]}}
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: it.repository
       update_body_wrap: repo
+      yaml_exclude: [connectionState, info, refreshRequestedAt, password]
       query_params:
         orgIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
@@ -882,13 +921,18 @@ commands:
     noun: gitops_application_set
     id_parts: 2
     id_label: "<agent/uuid>"
-    short: "Update a GitOps ApplicationSet: harness update gitops_application_set <agent/uuid> -f appset.yaml [--upsert] [--dry-run]"
+    short: "Update a GitOps ApplicationSet: harness update gitops_application_set <agent/uuid> [-f appset.yaml] [--set name=...] [--upsert] [--dry-run]"
     long: |
-      Updates an ApplicationSet from an Argo CD manifest file. Export the current
-      manifest first with `get gitops_application_set <agent>/<uuid> --yaml -o
-      appset.yaml`, edit the file, then apply. Edit spec/generators/template only;
-      do not strip metadata fields the API may require on PUT.
+      Two update modes:
+        --set name=...   Quick rename via get-then-put (preserves uid/project from GET).
+        -f appset.yaml   Full manifest for generators, template, or spec changes.
+                         Export first: get gitops_application_set <agent>/<uuid> --yaml -o appset.yaml
+
+      Structural edits (generators, template) require -f.
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     flags:
       - name: upsert
         description: Create the ApplicationSet if it does not exist
@@ -899,8 +943,12 @@ commands:
     endpoint:
       method: PUT
       path: /gitops/api/v1/applicationset
-      file_body: required
+      get_path: /gitops/api/v1/applicationset/{{ctx.idParts[1]}}
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: it.appset ?? it.applicationset
       update_body_wrap: applicationset
+      yaml_exclude: [status]
       query_params:
         agentIdentifier: ctx.idParts[0]
         orgIdentifier: 'auth.org != "" ? auth.org : nil'
