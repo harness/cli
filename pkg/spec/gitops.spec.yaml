@@ -68,7 +68,12 @@ help_text: |
   A **gitops-application-set** is an Argo CD ApplicationSet that generates
   multiple applications from a template. List with `list gitops_application_set`;
   get with `get gitops_application_set <agent>/<uuid>` — use the UUID from list
-  output, not the display name.
+  output, not the display name. Create with
+  `create gitops_application_set <agent> -f appset.yaml` (the server assigns
+  the UUID). Update with `update gitops_application_set <agent>/<uuid> -f
+  appset.yaml` — export first with `get gitops_application_set <agent>/<uuid>
+  --yaml -o appset.yaml`, edit, then apply. Delete with
+  `delete gitops_application_set <agent>/<uuid>`.
 
   ### Nouns
 
@@ -233,14 +238,14 @@ nouns:
         label: UUID
         expr: it.identifier
       - id: name
-        expr: 'it.name ?? (it.applicationset ?? {}).metadata.name'
+        expr: 'it.name ?? (it.appset ?? it.applicationset ?? {}).metadata.name'
       - id: agent
         expr: it.agentIdentifier
       - id: project
-        expr: '(it.applicationset ?? {}).spec.template.spec.project'
+        expr: '(it.appset ?? it.applicationset ?? {}).spec.template.spec.project'
       - id: generators
         label: Generators
-        expr: 'len((it.applicationset ?? {}).spec.generators ?? [])'
+        expr: 'len((it.appset ?? it.applicationset ?? {}).spec.generators ?? [])'
         align: right
       - id: org_id
         expr: it.orgIdentifier
@@ -813,7 +818,7 @@ commands:
       get_id_expr: it.agentIdentifier + "/" + it.identifier
       completion:
         id_expr: it.agentIdentifier + "/" + it.identifier
-        name_expr: 'it.name ?? (it.applicationset ?? {}).metadata.name'
+        name_expr: 'it.name ?? (it.appset ?? it.applicationset ?? {}).metadata.name'
       body_params:
         accountIdentifier: auth.account
         orgIdentifier: 'auth.org != "" ? auth.org : nil'
@@ -833,6 +838,95 @@ commands:
     id_parts: 2
     id_label: "<agent/uuid>"
     endpoint:
-      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applicationsets/{{ctx.idParts[1]}}
+      path: /gitops/api/v1/applicationset/{{ctx.idParts[1]}}
+      query_params:
+        agentIdentifier: ctx.idParts[0]
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
       item_expr: it
+      yaml_pick_expr: it.appset ?? it.applicationset
+      yaml_exclude: [status]
       fields_subset: [identifier, name, agent, project, generators, org_id, project_id, created, updated]
+
+  - command: create gitops_application_set
+    verb: create
+    noun: gitops_application_set
+    requires_id: true
+    short: "Create a GitOps ApplicationSet: harness create gitops_application_set <agent> -f appset.yaml [--upsert] [--dry-run]"
+    handler_type: endpoint
+    flags:
+      - name: upsert
+        description: Update existing ApplicationSet if one with the same name already exists
+        is_bool: true
+      - name: dry-run
+        description: Validate the manifest without persisting changes
+        is_bool: true
+    endpoint:
+      method: POST
+      path: /gitops/api/v1/applicationset
+      file_body: required
+      create_body_wrap: applicationset
+      query_params:
+        agentIdentifier: ctx.id
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      body_params:
+        upsert: 'flags.upsert ? true : nil'
+        dryRun: 'flags["dry-run"] ? true : nil'
+      item_expr: it
+      fields_subset: [identifier, name, agent, project, generators]
+      text_header: "\nCreated gitops application set {{it.name}}\n\nGet it with: harness get gitops_application_set {{ctx.id}}/{{it.identifier}}\n"
+
+  - command: update gitops_application_set
+    verb: update
+    noun: gitops_application_set
+    id_parts: 2
+    id_label: "<agent/uuid>"
+    short: "Update a GitOps ApplicationSet: harness update gitops_application_set <agent/uuid> -f appset.yaml [--upsert] [--dry-run]"
+    long: |
+      Updates an ApplicationSet from an Argo CD manifest file. Export the current
+      manifest first with `get gitops_application_set <agent>/<uuid> --yaml -o
+      appset.yaml`, edit the file, then apply. Edit spec/generators/template only;
+      do not strip metadata fields the API may require on PUT.
+    handler_type: endpoint
+    flags:
+      - name: upsert
+        description: Create the ApplicationSet if it does not exist
+        is_bool: true
+      - name: dry-run
+        description: Validate the manifest without persisting changes
+        is_bool: true
+    endpoint:
+      method: PUT
+      path: /gitops/api/v1/applicationset
+      file_body: required
+      update_body_wrap: applicationset
+      query_params:
+        agentIdentifier: ctx.idParts[0]
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      body_params:
+        upsert: 'flags.upsert ? true : nil'
+        dryRun: 'flags["dry-run"] ? true : nil'
+      item_expr: it
+      fields_subset: [identifier, name, agent, project, generators]
+      text_header: "\nUpdated gitops application set {{ctx.id}}\n"
+
+  - command: delete gitops_application_set
+    verb: delete
+    noun: gitops_application_set
+    id_parts: 2
+    id_label: "<agent/uuid>"
+    confirm_mode: prompt
+    short: "Delete a GitOps ApplicationSet: harness delete gitops_application_set <agent/uuid>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gitops/api/v1/applicationset/{{ctx.idParts[1]}}
+      query_params:
+        agentIdentifier: ctx.idParts[0]
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      item_expr: it
+      fields_subset: [identifier, name, agent, project, generators]
+      text_header: "\nDeleted gitops application set {{ctx.id}}\n"
