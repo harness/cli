@@ -47,9 +47,14 @@ help_text: |
   `update gitops_application <agent>/<app> -f app.yaml` — export first with
   `get gitops_application <agent>/<app> --yaml -o app.yaml`, edit, then apply.
   Pass `--cluster` / `--repo` only when changing Harness linkage validation.
-
+  Delete with `delete gitops_application <agent>/<app>` — use
+  `--propagation-policy foreground|background`, `--no-cascade`, or
+  `--remove-finalizers` for stuck apps.
   A **gitops-cluster** is a Kubernetes cluster registered with a GitOps agent.
   List with `list gitops_cluster`; get with `get gitops_cluster <agent>/<cluster_id>`.
+  Register with `create gitops_cluster <agent>/<cluster_id> -f cluster.yaml`.
+  Update with `update gitops_cluster <agent>/<cluster_id> -f cluster.yaml`.
+  Delete with `delete gitops_cluster <agent>/<cluster_id>`.
 
   A **gitops-repository** is a Git repo configured on a GitOps agent for
   manifest sources. List with `list gitops_repository`; get with
@@ -459,6 +464,50 @@ commands:
       fields_subset: [name, agent, cluster, repo, namespace, sync_status, health, revision, repo_url, path, target_revision]
       text_header: "\nUpdated gitops application {{ctx.id}}\n"
 
+  - command: delete gitops_application
+    verb: delete
+    noun: gitops_application
+    id_parts: 2
+    id_label: "<agent/app>"
+    confirm_mode: prompt
+    short: "Delete a GitOps application: harness delete gitops_application <agent/app> [--propagation-policy foreground|background] [--no-cascade] [--remove-finalizers] [--app-namespace <ns>]"
+    long: |
+      Deletes an Argo CD Application on the agent. You will be prompted to confirm
+      unless --force is passed.
+      Deletion modes:
+        (default)           Cascade delete using API defaults
+        --propagation-policy foreground   Wait for all K8s child resources to be removed first
+        --propagation-policy background   Remove the Application immediately; K8s cleanup is async
+        --no-cascade                      Remove only the Argo CD Application record; K8s resources stay running
+      Use --remove-finalizers only when the app is stuck and cannot be deleted.
+    handler_type: endpoint
+    flags:
+      - name: propagation-policy
+        description: "Cascade mode: foreground (wait for K8s cleanup) or background (async cleanup)"
+        completion_values: [foreground, background]
+      - name: no-cascade
+        description: Non-cascading delete — remove Argo app record only, leave K8s resources running
+        is_bool: true
+      - name: remove-finalizers
+        description: Strip existing finalizers before deletion (unblocks stuck apps)
+        is_bool: true
+      - name: app-namespace
+        description: Argo CD application namespace override (non-default namespace only)
+    endpoint:
+      method: DELETE
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}
+      query_params:
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+        request.cascade: 'flags["no-cascade"] ? "false" : (flags["propagation-policy"] != "" ? "true" : nil)'
+        request.propagationPolicy: 'flags["propagation-policy"] != "" ? flags["propagation-policy"] : nil'
+        request.appNamespace: 'flags["app-namespace"] != "" ? flags["app-namespace"] : nil'
+        options.removeExistingFinalizers: 'flags["remove-finalizers"] ? "true" : nil'
+      item_expr: it
+      fields_subset: [name, agent, namespace, sync_status, health]
+      text_header: "\nDeleted gitops application {{ctx.id}}\n"
+
+
   - command: execute gitops_application:sync
     verb: execute
     noun: gitops_application
@@ -547,7 +596,84 @@ commands:
     endpoint:
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/clusters/{{ctx.idParts[1]}}
       item_expr: it
+      yaml_pick_expr: it.cluster
+      yaml_exclude: [connectionState, info, serverVersion, refreshRequestedAt]
       fields_subset: [identifier, name, agent, server, connection, org_id, project_id, created, updated]
+
+  - command: create gitops_cluster
+    verb: create
+    noun: gitops_cluster
+    id_parts: 2
+    id_label: "<agent/cluster_id>"
+    short: "Register a cluster on a GitOps agent: harness create gitops_cluster <agent/cluster_id> -f cluster.yaml [--upsert]"
+    handler_type: endpoint
+    flags:
+      - name: upsert
+        description: Update existing cluster if identifier already exists
+        is_bool: true
+    endpoint:
+      method: POST
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/clusters
+      file_body: required
+      create_body_wrap: cluster
+      query_params:
+        identifier: ctx.idParts[1]
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      body_params:
+        upsert: 'flags.upsert ? true : nil'
+      item_expr: it
+      fields_subset: [identifier, name, agent, server, connection]
+      text_header: "\nCreated gitops cluster {{it.agentIdentifier}}/{{it.identifier}}\n\nGet it with: harness get gitops_cluster {{it.agentIdentifier}}/{{it.identifier}}\n"
+
+  - command: update gitops_cluster
+    verb: update
+    noun: gitops_cluster
+    id_parts: 2
+    id_label: "<agent/cluster_id>"
+    short: "Update a GitOps cluster: harness update gitops_cluster <agent/cluster_id> -f cluster.yaml [--force-update]"
+    handler_type: endpoint
+    flags:
+      - name: force-update
+        description: Force update even when server-side validation would reject changes
+        is_bool: true
+    endpoint:
+      method: PUT
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/clusters/{{ctx.idParts[1]}}
+      file_body: required
+      update_body_wrap: cluster
+      query_params:
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+        forceUpdate: 'flags["force-update"] ? "true" : nil'
+      item_expr: it
+      fields_subset: [identifier, name, agent, server, connection]
+      text_header: "\nUpdated gitops cluster {{ctx.id}}\n"
+
+  - command: delete gitops_cluster
+    verb: delete
+    noun: gitops_cluster
+    id_parts: 2
+    id_label: "<agent/cluster_id>"
+    confirm_mode: prompt
+    short: "Delete a GitOps cluster: harness delete gitops_cluster <agent/cluster_id> [--force-delete] [--query-name <argo_name>]"
+    handler_type: endpoint
+    flags:
+      - name: force-delete
+        description: Delete even if applications are still deployed on the cluster
+        is_bool: true
+      - name: query-name
+        description: Argo CD cluster display name (required if cluster was renamed from its Harness identifier)
+    endpoint:
+      method: DELETE
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/clusters/{{ctx.idParts[1]}}
+      query_params:
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+        forceDelete: 'flags["force-delete"] ? "true" : nil'
+        query.name: 'flags["query-name"] != "" ? flags["query-name"] : nil'
+      item_expr: it
+      text_header: "\nDeleted gitops cluster {{ctx.id}}\n"
 
   - command: list gitops_repository
     verb: list
