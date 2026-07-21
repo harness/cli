@@ -108,7 +108,13 @@ func SaveCredentials(creds map[string]*ProfileCredentials) error {
 		}
 		sb.WriteString("\n")
 	}
-	return os.WriteFile(path, []byte(sb.String()), 0600)
+	if err := os.WriteFile(path, []byte(sb.String()), 0600); err != nil {
+		return err
+	}
+	if err := restrictToCurrentUser(path); err != nil {
+		return err
+	}
+	return nil
 }
 
 // SetCredential adds or updates the token for the named profile and saves.
