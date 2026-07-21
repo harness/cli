@@ -36,8 +36,7 @@ const (
 	EnvCheckSpecs = "HARNESS_CHECKSPECS"
 
 	// EnvDebugCompletion enables debug logging for completion invocations, writing to CompletionDebugLogFile.
-	EnvDebugCompletion     = "HARNESS_DEBUG_COMPLETION"
-	CompletionDebugLogFile = "/tmp/harness-completion-debug.log"
+	EnvDebugCompletion = "HARNESS_DEBUG_COMPLETION"
 
 	// EnvPipelineID is set by the Harness platform when running inside a pipeline.
 	EnvPipelineID = "HARNESS_PIPELINEID"
@@ -85,6 +84,16 @@ const (
 
 func GetCredentialsFilePath() string {
 	return ExpandHomeDir(filepath.Join(HarnessHome, CredentialsFileName))
+}
+
+// CompletionDebugLogFile returns the path used for completion debug logging
+// when EnvDebugCompletion is set. On Windows there's no /tmp, so it falls
+// back to os.TempDir().
+func CompletionDebugLogFile() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.TempDir(), "harness-completion-debug.log")
+	}
+	return "/tmp/harness-completion-debug.log"
 }
 
 // IsDev reports whether this is a development build (Version ends with "-dev").

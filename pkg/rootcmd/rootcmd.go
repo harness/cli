@@ -77,7 +77,7 @@ func MaybeCheckSpecs(reg *registry.Registry) {
 // --spec and --modulehelp flags for use by the plugin host.
 func SetupAndExecutePluginRootCmd(root *cobra.Command, reg *registry.Registry, moduleName string) {
 	if os.Getenv(hbase.EnvDebugCompletion) == "1" && isCompletionInvocation() {
-		hlog.SetDebugFile(hbase.CompletionDebugLogFile)
+		hlog.SetDebugFile(hbase.CompletionDebugLogFile())
 	}
 	hlog.SetPlugin(moduleName)
 	root.Flags().Bool("spec", false, "Dump the module spec YAML to stdout")
@@ -176,7 +176,7 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 	}
 	root.Version = fmt.Sprintf("%s (%s)", hbase.Version, bt)
 	if os.Getenv(hbase.EnvDebugCompletion) == "1" && isCompletionInvocation() {
-		hlog.SetDebugFile(hbase.CompletionDebugLogFile)
+		hlog.SetDebugFile(hbase.CompletionDebugLogFile())
 	}
 	root.SilenceUsage = true
 	root.SilenceErrors = true
