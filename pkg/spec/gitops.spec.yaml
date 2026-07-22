@@ -308,7 +308,6 @@ commands:
     endpoint:
       path: /gitops/api/v1/agents/{{ctx.id}}
       item_expr: it
-      yaml_pick_expr: it
       fields_subset: [identifier, name, type, scope, health, connected, namespace, apps, version, upgrade_available, description, prefixed_identifier, last_heartbeat, org_id, project_id, created, updated]
 
   - command: create gitops_agent
