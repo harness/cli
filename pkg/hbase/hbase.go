@@ -55,6 +55,9 @@ const (
 	// EnvLogFile redirects all log output to the specified file path.
 	EnvLogFile = "HARNESS_CLI_LOGFILE"
 
+	// EnvCLIHome overrides the harness home directory (default ~/.harness).
+	EnvCLIHome = "HARNESS_CLI_HOME"
+
 	// Env var names for env-var auth mode.
 	EnvAPIKey      = "HARNESS_API_KEY"
 	EnvAPIJWT      = "HARNESS_API_JWT"
@@ -83,7 +86,7 @@ const (
 )
 
 func GetCredentialsFilePath() string {
-	return ExpandHomeDir(filepath.Join(HarnessHome, CredentialsFileName))
+	return filepath.Join(GetHarnessHomeDir(), CredentialsFileName)
 }
 
 // CompletionDebugLogFile returns the path used for completion debug logging
@@ -106,12 +109,17 @@ func IsPipelineExecution() bool {
 	return os.Getenv(EnvPipelineID) != ""
 }
 
+// GetHarnessHomeDir returns the harness home directory, defaulting to
+// ~/.harness unless overridden by EnvCLIHome.
 func GetHarnessHomeDir() string {
+	if dir := os.Getenv(EnvCLIHome); dir != "" {
+		return ExpandHomeDir(dir)
+	}
 	return ExpandHomeDir(HarnessHome)
 }
 
 func GetConfigFilePath() string {
-	return ExpandHomeDir(filepath.Join(HarnessHome, ConfigFileName))
+	return filepath.Join(GetHarnessHomeDir(), ConfigFileName)
 }
 
 // EnsureHarnessHome creates ~/.harness with 0700 permissions if it does not exist.

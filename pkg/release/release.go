@@ -162,7 +162,7 @@ func isCompletionInvocation() bool {
 }
 
 func cachePath() string {
-	return hbase.ExpandHomeDir(filepath.Join(hbase.HarnessHome, cacheFile))
+	return filepath.Join(hbase.GetHarnessHomeDir(), cacheFile)
 }
 
 func readCache() cache {
