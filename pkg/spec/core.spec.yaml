@@ -355,6 +355,9 @@ commands:
       get_id_expr: it["module"]
       paging:
         paging_strategy: flat_list
+      completion:
+        id_expr: it["module"]
+        name_expr: it["desc"]
       columns: [module, type, installed, version, desc]
 
   - command: get module
