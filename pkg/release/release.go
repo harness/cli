@@ -161,12 +161,12 @@ func isCompletionInvocation() bool {
 	return false
 }
 
-func cachePath() string {
+func updateCheckCachePath() string {
 	return filepath.Join(hbase.GetHarnessHomeDir(), cacheFile)
 }
 
 func readCache() cache {
-	data, err := os.ReadFile(cachePath())
+	data, err := os.ReadFile(updateCheckCachePath())
 	if err != nil {
 		return cache{}
 	}
@@ -178,7 +178,7 @@ func readCache() cache {
 }
 
 func writeCache(c cache) error {
-	path := cachePath()
+	path := updateCheckCachePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
