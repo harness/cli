@@ -200,9 +200,6 @@ func TestCallEndpointFull_ErrorPaths(t *testing.T) {
 				flags = map[string]any{}
 			}
 			// slurp_file_error: file flag points at non-existent path — set inline
-			if tc.name == "slurp_file_error" {
-				// already set above
-			}
 			// normalize_file_body_error: write a JSON file but claim content-type yaml
 			if tc.name == "normalize_file_body_error" {
 				flags["file"] = tempFile(t, `{"key":"val"}`, ".json")

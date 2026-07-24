@@ -25,23 +25,25 @@ import (
 
 type noopResolver struct{}
 
-func (noopResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn                        { return nil }
-func (noopResolver) ResolveBodyFn(id string) cmdctx.CreateBodyFn                                  { return nil }
-func (noopResolver) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn                          { return nil }
-func (noopResolver) ResolveFlagResolveFn(id string) cmdctx.FlagResolveFn                          { return nil }
-func (noopResolver) ResolveFetchFn(id string) (cmdctx.FetchFn, error)                             { return nil, nil }
-func (noopResolver) ResolveEndpointValidator(id string) cmdctx.EndpointValidatorFn                { return nil }
-func (noopResolver) GetSpec(verb, noun string) *spec.CommandSpec                                  { return nil }
-func (noopResolver) GetNoun(noun string) *spec.NounDef                                            { return nil }
-func (noopResolver) ResolveNounAlias(alias string) string                                         { return "" }
-func (noopResolver) RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error)              { return nil, nil }
-func (noopResolver) FormatList(*cmdctx.Ctx, []any, []spec.FieldDef, []string) error               { return nil }
-func (noopResolver) FetchItems(*cmdctx.Ctx, *spec.EndpointSpec, cmdctx.PagingFlags) ([]any, error) { return nil, nil }
-func (noopResolver) GetModuleMetas() []spec.ModuleMeta                                            { return nil }
-func (noopResolver) GetSpecsForModule(string) []*spec.CommandSpec                                 { return nil }
-func (noopResolver) GetAllSpecs() []*spec.CommandSpec                                             { return nil }
-func (noopResolver) GetVerbInfos() []spec.VerbInfo                                                { return nil }
-func (noopResolver) ResolveCommandFields(*spec.CommandSpec) []spec.FieldDef                       { return nil }
+func (noopResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn           { return nil }
+func (noopResolver) ResolveBodyFn(id string) cmdctx.CreateBodyFn                     { return nil }
+func (noopResolver) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn             { return nil }
+func (noopResolver) ResolveFlagResolveFn(id string) cmdctx.FlagResolveFn             { return nil }
+func (noopResolver) ResolveFetchFn(id string) (cmdctx.FetchFn, error)                { return nil, nil }
+func (noopResolver) ResolveEndpointValidator(id string) cmdctx.EndpointValidatorFn   { return nil }
+func (noopResolver) GetSpec(verb, noun string) *spec.CommandSpec                     { return nil }
+func (noopResolver) GetNoun(noun string) *spec.NounDef                               { return nil }
+func (noopResolver) ResolveNounAlias(alias string) string                            { return "" }
+func (noopResolver) RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) { return nil, nil }
+func (noopResolver) FormatList(*cmdctx.Ctx, []any, []spec.FieldDef, []string) error  { return nil }
+func (noopResolver) FetchItems(*cmdctx.Ctx, *spec.EndpointSpec, cmdctx.PagingFlags) ([]any, error) {
+	return nil, nil
+}
+func (noopResolver) GetModuleMetas() []spec.ModuleMeta                      { return nil }
+func (noopResolver) GetSpecsForModule(string) []*spec.CommandSpec           { return nil }
+func (noopResolver) GetAllSpecs() []*spec.CommandSpec                       { return nil }
+func (noopResolver) GetVerbInfos() []spec.VerbInfo                          { return nil }
+func (noopResolver) ResolveCommandFields(*spec.CommandSpec) []spec.FieldDef { return nil }
 
 type spyResolver struct {
 	noopResolver
@@ -283,12 +285,16 @@ func TestExecuteAgentInstall_fullPath(t *testing.T) {
 			setup: func(dir string) map[string]any { return map[string]any{"output_file": filepath.Join(dir, "out.yaml")} },
 		},
 		{
-			name:  ".yaml.txt extension accepted",
-			setup: func(dir string) map[string]any { return map[string]any{"output_file": filepath.Join(dir, "out.yaml.txt")} },
+			name: ".yaml.txt extension accepted",
+			setup: func(dir string) map[string]any {
+				return map[string]any{"output_file": filepath.Join(dir, "out.yaml.txt")}
+			},
 		},
 		{
-			name:       "write error on bad path",
-			setup:      func(dir string) map[string]any { return map[string]any{"output_file": filepath.Join(dir, "nodir", "out.yaml")} },
+			name: "write error on bad path",
+			setup: func(dir string) map[string]any {
+				return map[string]any{"output_file": filepath.Join(dir, "nodir", "out.yaml")}
+			},
 			wantErrSub: "writing",
 		},
 	}
@@ -359,13 +365,17 @@ func TestModuleInit_RegistersWorkflow(t *testing.T) {
 
 type moduleInitSpy struct{ register func(id string) }
 
-func (s *moduleInitSpy) Register(*spec.CommandSpec) error                                        { return nil }
-func (s *moduleInitSpy) RegisterWorkflow(id string, _ registry.WorkflowFn)                      { if s.register != nil { s.register(id) } }
-func (s *moduleInitSpy) RegisterTextFormatter(string, cmdctx.TextFormatterFn)                   {}
-func (s *moduleInitSpy) RegisterBodyFn(string, cmdctx.CreateBodyFn)                             {}
-func (s *moduleInitSpy) RegisterQueryParamsFn(string, cmdctx.QueryParamsFn)                     {}
-func (s *moduleInitSpy) RegisterFollowFn(string, cmdctx.FollowFn)                               {}
-func (s *moduleInitSpy) RegisterFetchFn(string, cmdctx.FetchFn)                                 {}
-func (s *moduleInitSpy) RegisterFlagCompletionFn(string, registry.FlagCompletionFn)             {}
-func (s *moduleInitSpy) RegisterFlagResolveFn(string, cmdctx.FlagResolveFn)                     {}
-func (s *moduleInitSpy) RegisterEndpointValidatorFn(string, cmdctx.EndpointValidatorFn)         {}
+func (s *moduleInitSpy) Register(*spec.CommandSpec) error { return nil }
+func (s *moduleInitSpy) RegisterWorkflow(id string, _ registry.WorkflowFn) {
+	if s.register != nil {
+		s.register(id)
+	}
+}
+func (s *moduleInitSpy) RegisterTextFormatter(string, cmdctx.TextFormatterFn)           {}
+func (s *moduleInitSpy) RegisterBodyFn(string, cmdctx.CreateBodyFn)                     {}
+func (s *moduleInitSpy) RegisterQueryParamsFn(string, cmdctx.QueryParamsFn)             {}
+func (s *moduleInitSpy) RegisterFollowFn(string, cmdctx.FollowFn)                       {}
+func (s *moduleInitSpy) RegisterFetchFn(string, cmdctx.FetchFn)                         {}
+func (s *moduleInitSpy) RegisterFlagCompletionFn(string, registry.FlagCompletionFn)     {}
+func (s *moduleInitSpy) RegisterFlagResolveFn(string, cmdctx.FlagResolveFn)             {}
+func (s *moduleInitSpy) RegisterEndpointValidatorFn(string, cmdctx.EndpointValidatorFn) {}

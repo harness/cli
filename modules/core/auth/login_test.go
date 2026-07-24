@@ -167,8 +167,8 @@ func TestLoginHandler_nonInteractive_badPATFormat(t *testing.T) {
 func TestLoginHandler_nonInteractive_accountMismatch(t *testing.T) {
 	// Token has account "acctid", flag passes "otheracct" → mismatch error.
 	ctx := isolatedCtx(t, map[string]any{
-		"api-token": validToken,
-		"account":   "otheracct",
+		"api-token":   validToken,
+		"account":     "otheracct",
 		"no-validate": true,
 	})
 	err := LoginHandler(ctx)
