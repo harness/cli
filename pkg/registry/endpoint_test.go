@@ -157,11 +157,11 @@ func testNounRegistry(t *testing.T) *Registry {
 
 func TestCallEndpointFull_ErrorPaths(t *testing.T) {
 	tests := []struct {
-		name     string
-		setup    func(*cmdctx.Ctx) // optional ctx mutation
-		flags    map[string]any
-		ep       *spec.EndpointSpec
-		wantErr  string
+		name    string
+		setup   func(*cmdctx.Ctx) // optional ctx mutation
+		flags   map[string]any
+		ep      *spec.EndpointSpec
+		wantErr string
 	}{
 		{
 			name:    "nil_auth",
@@ -229,9 +229,9 @@ func TestCallEndpointFull_ErrorPaths(t *testing.T) {
 
 func TestCallEndpointFull_ValidatorAbort(t *testing.T) {
 	tests := []struct {
-		name    string
-		ep      *spec.EndpointSpec
-		flags   map[string]any
+		name  string
+		ep    *spec.EndpointSpec
+		flags map[string]any
 	}{
 		{
 			// validator in the standard file-body path (Priority 1, non-envelope)
@@ -248,11 +248,11 @@ func TestCallEndpointFull_ValidatorAbort(t *testing.T) {
 			// validator in the yaml-envelope path (Priority 1, envelope branch)
 			name: "yaml_envelope_path",
 			ep: &spec.EndpointSpec{
-				Path:                "/x",
-				Method:              "POST",
-				FileBody:            spec.FileBodyOptional,
+				Path:                 "/x",
+				Method:               "POST",
+				FileBody:             spec.FileBodyOptional,
 				FileBodyYamlEnvelope: "service",
-				ValidatorsEndpoint:  []string{"test:abort"},
+				ValidatorsEndpoint:   []string{"test:abort"},
 			},
 			flags: map[string]any{"file": ""},
 		},
@@ -581,18 +581,18 @@ func TestCallEndpointFull_Priority2_UpdateStrategies(t *testing.T) {
 	getResp := `{"it":{"name":"old"},"name":"old"}`
 
 	tests := []struct {
-		name        string
-		ep          *spec.EndpointSpec
-		setArgs     map[string]string
-		delArgs     []string
-		resps       []string
-		checkCall   int // which call index to inspect
-		wantMethod  string
-		checkBody   func(t *testing.T, body []byte)
+		name       string
+		ep         *spec.EndpointSpec
+		setArgs    map[string]string
+		delArgs    []string
+		resps      []string
+		checkCall  int // which call index to inspect
+		wantMethod string
+		checkBody  func(t *testing.T, body []byte)
 	}{
 		{
-			name: "get_then_put_issues_get_first",
-			ep:   &spec.EndpointSpec{Path: "/widgets/w1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut, UpdateBodyPick: "it"},
+			name:  "get_then_put_issues_get_first",
+			ep:    &spec.EndpointSpec{Path: "/widgets/w1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut, UpdateBodyPick: "it"},
 			resps: []string{getResp, `{}`}, checkCall: 0, wantMethod: "GET",
 		},
 		{
@@ -607,8 +607,8 @@ func TestCallEndpointFull_Priority2_UpdateStrategies(t *testing.T) {
 			},
 		},
 		{
-			name: "get_then_put_with_wrap",
-			ep:   &spec.EndpointSpec{Path: "/widgets/w1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut, UpdateBodyPick: "it", UpdateBodyWrap: "widget"},
+			name:  "get_then_put_with_wrap",
+			ep:    &spec.EndpointSpec{Path: "/widgets/w1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut, UpdateBodyPick: "it", UpdateBodyWrap: "widget"},
 			resps: []string{getResp, `{}`}, checkCall: 1, wantMethod: "PUT",
 			checkBody: func(t *testing.T, body []byte) {
 				if _, ok := bodyMap(t, body)["widget"]; !ok {
@@ -726,9 +726,9 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 
 func TestCallEndpointFull_Priority2_SetFields(t *testing.T) {
 	tests := []struct {
-		name     string
-		setArgs  map[string]string
-		ep       *spec.EndpointSpec
+		name      string
+		setArgs   map[string]string
+		ep        *spec.EndpointSpec
 		checkBody func(t *testing.T, m map[string]any)
 	}{
 		{
@@ -810,13 +810,13 @@ func TestCallEndpointFull_Priority3_DefaultDispatch(t *testing.T) {
 			wantBodyNil: true,
 		},
 		{
-			name: "POST_body_params",
-			ep:   &spec.EndpointSpec{Path: "/items", Method: "POST", BodyParams: map[string]string{"name": `"hello"`}},
+			name:       "POST_body_params",
+			ep:         &spec.EndpointSpec{Path: "/items", Method: "POST", BodyParams: map[string]string{"name": `"hello"`}},
 			wantMethod: "POST", wantBodyKey: "name", wantCT: "application/json",
 		},
 		{
-			name: "PUT_body_params",
-			ep:   &spec.EndpointSpec{Path: "/items/1", Method: "PUT", BodyParams: map[string]string{"val": `"v"`}},
+			name:       "PUT_body_params",
+			ep:         &spec.EndpointSpec{Path: "/items/1", Method: "PUT", BodyParams: map[string]string{"val": `"v"`}},
 			wantMethod: "PUT", wantBodyKey: "val",
 		},
 		{
@@ -826,8 +826,8 @@ func TestCallEndpointFull_Priority3_DefaultDispatch(t *testing.T) {
 			wantBodyNil: true,
 		},
 		{
-			name:    "DELETE_with_body",
-			ep:      &spec.EndpointSpec{Path: "/items/1", Method: "DELETE", BodyParams: map[string]string{"reason": `"gone"`}},
+			name:       "DELETE_with_body",
+			ep:         &spec.EndpointSpec{Path: "/items/1", Method: "DELETE", BodyParams: map[string]string{"reason": `"gone"`}},
 			wantMethod: "DELETE", wantBodyKey: "reason",
 		},
 		{
@@ -838,35 +838,35 @@ func TestCallEndpointFull_Priority3_DefaultDispatch(t *testing.T) {
 			wantMethod: "POST", wantBodyKey: "k",
 		},
 		{
-			name:    "extra_query_params_forwarded",
-			ep:      &spec.EndpointSpec{Path: "/items"},
-			extraQP: map[string]string{"page": "3"},
+			name:       "extra_query_params_forwarded",
+			ep:         &spec.EndpointSpec{Path: "/items"},
+			extraQP:    map[string]string{"page": "3"},
 			wantMethod: "GET", wantQPKey: "page",
 		},
 		{
-			name: "empty_expr_param_omitted",
-			ep:   &spec.EndpointSpec{Path: "/items", QueryParams: map[string]string{"missing": "flags.nonexistent"}},
+			name:       "empty_expr_param_omitted",
+			ep:         &spec.EndpointSpec{Path: "/items", QueryParams: map[string]string{"missing": "flags.nonexistent"}},
 			wantMethod: "GET",
 		},
 		// extraHeaders branches
 		{
-			name: "GET_with_extra_headers",
-			ep:   &spec.EndpointSpec{Path: "/items", RequestHeaders: map[string]string{"X-Acct": "auth.account"}},
+			name:       "GET_with_extra_headers",
+			ep:         &spec.EndpointSpec{Path: "/items", RequestHeaders: map[string]string{"X-Acct": "auth.account"}},
 			wantMethod: "GET", wantHeader: map[string]string{"X-Acct": "acct"},
 		},
 		{
-			name: "POST_with_extra_headers",
-			ep:   &spec.EndpointSpec{Path: "/items", Method: "POST", RequestHeaders: map[string]string{"X-Acct": "auth.account"}},
+			name:       "POST_with_extra_headers",
+			ep:         &spec.EndpointSpec{Path: "/items", Method: "POST", RequestHeaders: map[string]string{"X-Acct": "auth.account"}},
 			wantMethod: "POST", wantCT: "application/json", wantHeader: map[string]string{"X-Acct": "acct"},
 		},
 		{
-			name: "PUT_nil_body_with_extra_headers",
-			ep:   &spec.EndpointSpec{Path: "/items/1", Method: "PUT", RequestHeaders: map[string]string{"X-Acct": "auth.account"}},
+			name:       "PUT_nil_body_with_extra_headers",
+			ep:         &spec.EndpointSpec{Path: "/items/1", Method: "PUT", RequestHeaders: map[string]string{"X-Acct": "auth.account"}},
 			wantMethod: "PUT", wantCT: "application/json", wantHeader: map[string]string{"X-Acct": "acct"},
 		},
 		{
-			name: "DELETE_with_extra_headers",
-			ep:   &spec.EndpointSpec{Path: "/items/1", Method: "DELETE", RequestHeaders: map[string]string{"X-Acct": "auth.account"}},
+			name:       "DELETE_with_extra_headers",
+			ep:         &spec.EndpointSpec{Path: "/items/1", Method: "DELETE", RequestHeaders: map[string]string{"X-Acct": "auth.account"}},
 			wantMethod: "DELETE", wantHeader: map[string]string{"X-Acct": "acct"},
 		},
 	}
@@ -1202,7 +1202,7 @@ func TestParseArrayFlag(t *testing.T) {
 		want []string
 	}{
 		{`["a","b","c"]`, []string{"a", "b", "c"}},
-		{`[invalid`, []string{"[invalid"}},     // invalid JSON falls back to comma split
+		{`[invalid`, []string{"[invalid"}}, // invalid JSON falls back to comma split
 		{"a, b, c", []string{"a", "b", "c"}},
 		{"foo", []string{"foo"}},
 		{" a , b ", []string{"a", "b"}},
@@ -1554,9 +1554,9 @@ func TestFirstNonEmptyMap(t *testing.T) {
 
 func TestResolveContentType(t *testing.T) {
 	tests := []struct {
-		method      string
+		method        string
 		epContentType string
-		want        string
+		want          string
 	}{
 		{"POST", "", "application/json"},
 		{"PUT", "", "application/json"},
@@ -1664,10 +1664,10 @@ func TestGetDotPathMap(t *testing.T) {
 	}{
 		{"flat", false, "x"},
 		{"missing", true, ""},
-		{"str", true, ""},            // value is not a map
+		{"str", true, ""}, // value is not a map
 		{"nested.inner", false, "y"},
 		{"nested.missing", true, ""},
-		{"str.x", true, ""},          // intermediate not a map
+		{"str.x", true, ""}, // intermediate not a map
 	}
 	for _, tc := range tests {
 		got := getDotPathMap(m, tc.path)
@@ -1692,23 +1692,23 @@ func TestGetDotPathMap(t *testing.T) {
 
 func TestGetDotPathSlice(t *testing.T) {
 	m := map[string]any{
-		"list":  []any{"a", "b"},
-		"strs":  []string{"c", "d"},
-		"str":   "not-a-slice",
+		"list": []any{"a", "b"},
+		"strs": []string{"c", "d"},
+		"str":  "not-a-slice",
 		"nested": map[string]any{
 			"items": []any{"e"},
 		},
 	}
 
 	tests := []struct {
-		path     string
-		wantNil  bool
-		wantLen  int
+		path    string
+		wantNil bool
+		wantLen int
 	}{
 		{"list", false, 2},
-		{"strs", false, 2},       // []string converted to []any
+		{"strs", false, 2}, // []string converted to []any
 		{"missing", true, 0},
-		{"str", true, 0},         // not a slice
+		{"str", true, 0}, // not a slice
 		{"nested.items", false, 1},
 		{"nested.missing", true, 0},
 	}

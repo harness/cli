@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
+
 	"github.com/harness/cli/pkg/auth"
 	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/spf13/pflag"
 )
 
 func testCtx(flags map[string]any) *cmdctx.Ctx {
