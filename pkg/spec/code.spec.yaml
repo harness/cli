@@ -451,7 +451,7 @@ commands:
     endpoint:
       method: PATCH
       path: /code/api/v1/repos/{{ctx.id}}
-      update_strategy: get-then-put
+      update_strategy: get-then-patch
       update_body_pick: it
       no_fields: true
       text_header: "\nUpdated repository {{ctx.id}}\n"
@@ -619,7 +619,7 @@ commands:
     endpoint:
       method: PATCH
       path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}
-      update_strategy: get-then-put
+      update_strategy: get-then-patch
       update_body_pick: it
       no_fields: true
       text_header: "\nUpdated PR #{{ctx.idParts[1]}}\n"

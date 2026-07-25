@@ -140,7 +140,7 @@ commands:
       method: PATCH
       file_body: optional
       path: /pm/api/v1/policies/{{ctx.id}}
-      update_strategy: get-then-put
+      update_strategy: get-then-patch
       update_body_pick: it
       update_body_wrap: ""
       item_expr: it
@@ -227,7 +227,7 @@ commands:
       method: PATCH
       file_body: optional
       path: /pm/api/v1/policysets/{{ctx.id}}
-      update_strategy: get-then-put
+      update_strategy: get-then-patch
       update_body_pick: it
       update_body_wrap: ""
       item_expr: it
