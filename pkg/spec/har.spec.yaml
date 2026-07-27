@@ -194,6 +194,26 @@ commands:
         short: t
         description: "Package type (docker, helm, generic, maven, npm, python, nuget, rpm, cargo, go, conda, dart, composer, swift). Inferred from file extension if not set."
 
+  - command: push artifact:generic
+    verb: push
+    noun: artifact
+    noun_variant: generic
+    short: Push one or more generic artifacts to a Harness registry
+    has_args: true
+    id_allow_slash: true
+    id_label: "<registry/name>"
+    args_label: "<path> [<path>...]"
+    completion_seq:
+      - completion_noun: registry
+      - completion_noun: artifact
+    handler_type: workflow
+    workflow_id: push_artifact_generic
+    flags:
+      - name: version
+        description: "Artifact version (default: 1.0.0)"
+      - name: include-hidden
+        description: "Include hidden files and directories (names starting with '.') when walking directory inputs"
+
   - command: push artifact:maven
     verb: push
     noun: artifact
