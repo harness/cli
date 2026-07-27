@@ -74,6 +74,21 @@ tasks:
     cmds:
       - HARNESS_CHECKSPECS=1 ./bin/harness
 
+  test:
+    desc: Run all unit tests
+    deps: [test:main, test:har]
+
+  test:main:
+    desc: Run unit tests for the main module
+    cmds:
+      - go test ./...
+
+  test:har:
+    desc: Run unit tests for the HAR external module
+    dir: modules/har
+    cmds:
+      - go test ./...
+
   tidy:
     desc: Tidy all modules and sync go.work
     cmds:
