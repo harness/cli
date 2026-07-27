@@ -19,4 +19,5 @@ CLAUDE.local.md
 internal-docs/
 *~
 .claude/settings.local.md
+.claude/
 .cursor/
