@@ -416,6 +416,62 @@ commands:
     handler_type: workflow
     workflow_id: push_artifact_puppet
 
+  - command: push artifact:debian
+    verb: push
+    noun: artifact
+    noun_variant: debian
+    short: Push a Debian package (.deb or .dsc) to a Harness registry
+    long: |
+      Push a Debian .deb binary package or a .dsc source package to a Harness Artifact Registry.
+      For .dsc uploads, provide --source-file and/or --origin-source-file for the accompanying source tarballs.
+    has_args: true
+    id_allow_slash: false
+    id_label: "<registry>"
+    args_label: "<local-file>"
+    completion_seq:
+      - completion_noun: registry
+    handler_type: workflow
+    workflow_id: push_artifact_debian
+    flags:
+      - name: distribution
+        description: "Debian distribution name (e.g. focal, bullseye) (required)"
+        required: true
+      - name: component
+        description: "Debian component name (e.g. main, contrib, non-free) (required)"
+        required: true
+      - name: source-file
+        description: "Path to source tarball (.tar.xz/.tar.gz) — only for .dsc uploads"
+      - name: origin-source-file
+        description: "Path to orig source tarball — only for .dsc uploads"
+
+  - command: push artifact:conan
+    verb: push
+    noun: artifact
+    noun_variant: conan
+    short: Push a Conan package to a Harness registry
+    long: |
+      Push a Conan v2 package to a Harness Artifact Registry.
+      <reference> is of the form name/version[@user/channel].
+      <recipe-dir> must contain the exported recipe-layer files (conanfile.py, conanmanifest.txt, conan_export.tgz, conan_sources.tgz).
+      Use --package-dir and --package-id to also upload a binary package layer.
+    has_args: true
+    id_allow_slash: false
+    id_label: "<registry>"
+    args_label: "<name/version[@user/channel]> <recipe-dir>"
+    completion_seq:
+      - completion_noun: registry
+    handler_type: workflow
+    workflow_id: push_artifact_conan
+    flags:
+      - name: recipe-revision
+        description: "Recipe revision (RREV). Defaults to the MD5 of conanmanifest.txt"
+      - name: package-dir
+        description: "Directory containing package-layer files (conaninfo.txt, conanmanifest.txt, conan_package.tgz)"
+      - name: package-id
+        description: "Conan package ID (PKGID, 40-char SHA-1); required with --package-dir"
+      - name: package-revision
+        description: "Package revision (PREV). Defaults to the MD5 of the package's conanmanifest.txt"
+
   - command: push artifact:helm
     verb: push
     noun: artifact
