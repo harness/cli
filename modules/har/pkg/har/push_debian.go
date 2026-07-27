@@ -29,11 +29,7 @@ func pushDebianArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("push debian artifact requires a file path: push artifact <registry> <file>")
 	}
 
-	registry, _, err := parseRegistryAndName(ctx.Id)
-	if err != nil {
-		return err
-	}
-
+	registry := ctx.Id
 	filePath := ctx.Args[0]
 	distribution := cmdctx.GetString(ctx.FlagValues, "distribution")
 	component := cmdctx.GetString(ctx.FlagValues, "component")

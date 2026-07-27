@@ -9,16 +9,44 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
-	"net/textproto"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/harness/cli/pkg/auth"
 )
+
+// atomicWrite writes content to path via a temp file + rename, ensuring an
+// incomplete write never leaves a partial file. perm is applied before rename.
+func atomicWrite(path string, content []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".harness-tmp-*")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("writing temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("setting permissions: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("renaming temp file: %w", err)
+	}
+	return nil
+}
 
 // parseRegistryAndName splits ctx.Id ("registry/name") into its two parts.
 func parseRegistryAndName(id string) (registry, name string, err error) {
@@ -73,34 +101,6 @@ func buildPkgURL(registryURL, accountID, subpath string) (string, error) {
 	q.Set("accountIdentifier", accountID)
 	base.RawQuery = q.Encode()
 	return base.String(), nil
-}
-
-// multipartFile builds a multipart/form-data body containing a single file field.
-// Returns the body as a pipe reader, the content-type header value (includes boundary),
-// and any error. The caller must close the writer after copying their data.
-//
-// Typical usage:
-//
-//	pr, contentType, pw, err := newMultipartFile("file", "app.jar")
-//	go func() { defer pw.Close(); io.Copy(pw, fileReader) }()
-//	req, _ := http.NewRequest("POST", uploadURL, pr)
-//	req.Header.Set("Content-Type", contentType)
-func newMultipartFile(fieldName, filename string) (io.Reader, string, *multipart.Writer, error) {
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
-
-	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, fieldName, filename))
-	h.Set("Content-Type", "application/octet-stream")
-
-	_, err := mw.CreatePart(h)
-	if err != nil {
-		pw.Close()
-		pr.Close()
-		return nil, "", nil, fmt.Errorf("creating multipart field: %w", err)
-	}
-
-	return pr, mw.FormDataContentType(), mw, nil
 }
 
 // readFileFromTarGz reads the contents of the first file in archivePath whose path

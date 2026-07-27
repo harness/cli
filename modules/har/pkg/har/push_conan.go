@@ -1,3 +1,4 @@
+
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -62,11 +63,7 @@ func pushConanArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("push conan artifact requires: push artifact <registry> <reference> <recipe-dir>")
 	}
 
-	registry, _, err := parseRegistryAndName(ctx.Id)
-	if err != nil {
-		return err
-	}
-
+	registry := ctx.Id
 	reference := ctx.Args[0]
 	recipeDir := ctx.Args[1]
 

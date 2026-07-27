@@ -421,9 +421,6 @@ commands:
     noun: artifact
     noun_variant: debian
     short: Push a Debian package (.deb or .dsc) to a Harness registry
-    long: |
-      Push a Debian .deb binary package or a .dsc source package to a Harness Artifact Registry.
-      For .dsc uploads, provide --source-file and/or --origin-source-file for the accompanying source tarballs.
     has_args: true
     id_allow_slash: false
     id_label: "<registry>"
@@ -449,11 +446,6 @@ commands:
     noun: artifact
     noun_variant: conan
     short: Push a Conan package to a Harness registry
-    long: |
-      Push a Conan v2 package to a Harness Artifact Registry.
-      <reference> is of the form name/version[@user/channel].
-      <recipe-dir> must contain the exported recipe-layer files (conanfile.py, conanmanifest.txt, conan_export.tgz, conan_sources.tgz).
-      Use --package-dir and --package-id to also upload a binary package layer.
     has_args: true
     id_allow_slash: false
     id_label: "<registry>"
@@ -994,11 +986,11 @@ commands:
     workflow_id: configure_registry
     flags:
       - name: client
-        description: "Package manager client to configure (npm)"
+        description: "Package manager client to configure (npm, maven, pip, nuget)"
         required: true
-        completion_values: [npm]
+        completion_values: [npm, maven, pip, nuget]
       - name: scope
         description: "npm scope, e.g. @myorg (optional; configures default registry if omitted)"
       - name: global
-        description: "Write config to ~/.npmrc (default: ./.npmrc in current directory)"
+        description: "Write config to the global/user-level config file instead of the local project directory (pip, npm)"
         is_bool: true
