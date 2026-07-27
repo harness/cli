@@ -194,6 +194,26 @@ commands:
         short: t
         description: "Package type (docker, helm, generic, maven, npm, python, nuget, rpm, cargo, go, conda, dart, composer, swift). Inferred from file extension if not set."
 
+  - command: push artifact:generic
+    verb: push
+    noun: artifact
+    noun_variant: generic
+    short: Push one or more generic artifacts to a Harness registry
+    has_args: true
+    id_allow_slash: true
+    id_label: "<registry/name>"
+    args_label: "<path> [<path>...]"
+    completion_seq:
+      - completion_noun: registry
+      - completion_noun: artifact
+    handler_type: workflow
+    workflow_id: push_artifact_generic
+    flags:
+      - name: version
+        description: "Artifact version (default: 1.0.0)"
+      - name: include-hidden
+        description: "Include hidden files and directories (names starting with '.') when walking directory inputs"
+
   - command: push artifact:maven
     verb: push
     noun: artifact
@@ -395,6 +415,54 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_puppet
+
+  - command: push artifact:debian
+    verb: push
+    noun: artifact
+    noun_variant: debian
+    short: Push a Debian package (.deb or .dsc) to a Harness registry
+    has_args: true
+    id_allow_slash: false
+    id_label: "<registry>"
+    args_label: "<local-file>"
+    completion_seq:
+      - completion_noun: registry
+    handler_type: workflow
+    workflow_id: push_artifact_debian
+    flags:
+      - name: distribution
+        description: "Debian distribution name (e.g. focal, bullseye) (required)"
+        required: true
+      - name: component
+        description: "Debian component name (e.g. main, contrib, non-free) (required)"
+        required: true
+      - name: source-file
+        description: "Path to source tarball (.tar.xz/.tar.gz) — only for .dsc uploads"
+      - name: origin-source-file
+        description: "Path to orig source tarball — only for .dsc uploads"
+
+  - command: push artifact:conan
+    verb: push
+    noun: artifact
+    noun_variant: conan
+    short: Push a Conan package to a Harness registry
+    has_args: true
+    id_allow_slash: false
+    id_label: "<registry>"
+    args_label: "<name/version[@user/channel]> <recipe-dir>"
+    completion_seq:
+      - completion_noun: registry
+    handler_type: workflow
+    workflow_id: push_artifact_conan
+    flags:
+      - name: recipe-revision
+        description: "Recipe revision (RREV). Defaults to the MD5 of conanmanifest.txt"
+      - name: package-dir
+        description: "Directory containing package-layer files (conaninfo.txt, conanmanifest.txt, conan_package.tgz)"
+      - name: package-id
+        description: "Conan package ID (PKGID, 40-char SHA-1); required with --package-dir"
+      - name: package-revision
+        description: "Package revision (PREV). Defaults to the MD5 of the package's conanmanifest.txt"
 
   - command: push artifact:helm
     verb: push
@@ -918,11 +986,11 @@ commands:
     workflow_id: configure_registry
     flags:
       - name: client
-        description: "Package manager client to configure (npm)"
+        description: "Package manager client to configure (npm, maven, pip, nuget)"
         required: true
-        completion_values: [npm]
+        completion_values: [npm, maven, pip, nuget]
       - name: scope
         description: "npm scope, e.g. @myorg (optional; configures default registry if omitted)"
       - name: global
-        description: "Write config to ~/.npmrc (default: ./.npmrc in current directory)"
+        description: "Write config to the global/user-level config file instead of the local project directory (pip, npm)"
         is_bool: true

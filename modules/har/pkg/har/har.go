@@ -7,6 +7,9 @@ import "github.com/harness/cli/pkg/registry"
 
 // ModuleInit registers har workflows. Commands are declared in har.spec.yaml.
 func ModuleInit(reg registry.ModuleRegistrar) {
+	reg.RegisterWorkflow("push_artifact_generic", pushGenericArtifact)
+	reg.RegisterWorkflow("push_artifact_debian", pushDebianArtifact)
+	reg.RegisterWorkflow("push_artifact_conan", pushConanArtifact)
 	reg.RegisterWorkflow("push_artifact_maven", pushMavenArtifact)
 	reg.RegisterWorkflow("push_artifact_npm", pushNpmArtifact)
 	reg.RegisterWorkflow("push_artifact_python", pushPythonArtifact)
