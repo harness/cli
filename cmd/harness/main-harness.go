@@ -90,5 +90,5 @@ func renderModules(metas []spec.ModuleMeta) string {
 	for _, m := range visible {
 		fmt.Fprintf(&sb, "  %-*s  %s\n", maxLen, m.Name, m.Desc)
 	}
-	return sb.String()
+	return strings.TrimRight(sb.String(), "\n")
 }
