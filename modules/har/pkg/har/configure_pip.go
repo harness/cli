@@ -38,6 +38,13 @@ func configurePip(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("writing pip.conf: %w", err)
 	}
 
+	_ = savePkgmgrConfig("pip", pkgmgrSavedConfig{
+		RegistryIdentifier: registryID,
+		RegistryURL:        registryURL,
+		OrgID:              a.OrgID,
+		ProjectID:          a.ProjectID,
+	})
+
 	fmt.Printf("Configured pip → %s (%s)\n", registryURL, pipConfPath)
 	return nil
 }

@@ -61,6 +61,13 @@ func configureNpm(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("writing .npmrc: %w", err)
 	}
 
+	_ = savePkgmgrConfig("npm", pkgmgrSavedConfig{
+		RegistryIdentifier: registryID,
+		RegistryURL:        registryURL,
+		OrgID:              a.OrgID,
+		ProjectID:          a.ProjectID,
+	})
+
 	loc := npmrcPath
 	if global {
 		loc = "~/.npmrc"
@@ -126,7 +133,7 @@ func writeNpmrc(npmrcPath, registryURL, scope, authToken string) error {
 			if scope != "" && strings.HasPrefix(trimmed, scope+":registry=") {
 				lines = append(lines, scopeRegistryLine)
 				scopeFound = true
-			} else if scope == "" && strings.HasPrefix(trimmed, "registry=") && !strings.Contains(trimmed, ":") {
+			} else if scope == "" && strings.HasPrefix(trimmed, "registry="){
 				lines = append(lines, scopeRegistryLine)
 				scopeFound = true
 			} else if strings.HasPrefix(trimmed, "//"+registryHost+"/:_authToken=") {

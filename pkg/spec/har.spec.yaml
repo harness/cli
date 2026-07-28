@@ -954,6 +954,61 @@ commands:
         description: "Path to lock file (package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle)"
         required: true
 
+  - command: execute artifact:npm_install
+    verb: execute
+    noun: artifact
+    noun_variant: npm_install
+    short: Run npm install via the Harness firewall wrapper
+    no_id: true
+    has_args: true
+    args_label: "[-- <npm-args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_npm_install
+
+  - command: execute artifact:npm_ci
+    verb: execute
+    noun: artifact
+    noun_variant: npm_ci
+    short: Run npm ci via the Harness firewall wrapper
+    no_id: true
+    has_args: true
+    args_label: "[-- <npm-args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_npm_ci
+
+  - command: execute artifact:pip_install
+    verb: execute
+    noun: artifact
+    noun_variant: pip_install
+    short: Run pip install via the Harness firewall wrapper
+    no_id: true
+    has_args: true
+    args_label: "[-- <pip-args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_pip_install
+
+  - command: execute artifact:mvn_install
+    verb: execute
+    noun: artifact
+    noun_variant: mvn_install
+    short: Run mvn install via the Harness firewall wrapper
+    no_id: true
+    has_args: true
+    args_label: "[-- <mvn-args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_mvn_install
+
+  - command: execute artifact:dotnet_restore
+    verb: execute
+    noun: artifact
+    noun_variant: dotnet_restore
+    short: Run dotnet restore via the Harness firewall wrapper
+    no_id: true
+    has_args: true
+    args_label: "[-- <dotnet-args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_dotnet_restore
+
   - command: execute registry:migrate
     verb: execute
     noun: registry

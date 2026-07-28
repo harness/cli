@@ -29,4 +29,9 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(executeRegistryFirewallScanHandlerID, executeRegistryFirewallScanHandler)
 	reg.RegisterWorkflow(executeRegistryMigrateHandlerID, executeRegistryMigrateHandler)
 	reg.RegisterWorkflow(configureRegistryHandlerID, configureRegistryHandler)
+	reg.RegisterWorkflow(executeArtifactNpmInstallHandlerID, executeArtifactNpmInstallHandler)
+	reg.RegisterWorkflow(executeArtifactNpmCiHandlerID, executeArtifactNpmCiHandler)
+	reg.RegisterWorkflow(executeArtifactPipInstallHandlerID, executeArtifactPipInstallHandler)
+	reg.RegisterWorkflow(executeArtifactMvnInstallHandlerID, executeArtifactMvnInstallHandler)
+	reg.RegisterWorkflow(executeArtifactDotnetRestoreHandlerID, executeArtifactDotnetRestoreHandler)
 }
