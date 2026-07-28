@@ -1,5 +1,9 @@
 Harness CLI — Quick Reference
 
+This reference is short and complete — agents should read all of it, not pipe it
+through head/tail. The output-format and paging rules near the bottom are the
+parts most often truncated and contain important usage info.
+
 Grammar:
   harness <verb> <noun> [id] [flags]              get, update, delete, execute
   harness list <noun> [scope] [flags]             scope narrows results to a parent resource
@@ -32,31 +36,28 @@ Scope flags (all commands):
   --level project|org|account      set scope for multi-level nouns (e.g. secrets, users)
   --timeout <seconds>              abort after this many seconds; accepts decimals (e.g. 1.5); 0 = no timeout; exits 124
 
-Common output flags:
-  --json                           shorthand for --format json
-  --yaml                           shorthand for --format yaml
+Output formats:
+  - table / csv / tsv (list) — the noun's projected columns, shaped by --columns
+    (a subset, not the whole object). table prints the paging footer
+    (Showing X-Y of Z); tsv is a clean pick for shell/awk.
+  - json (any verb) — the raw API response: the full object + envelope (ids,
+    timestamps, status), ignores --columns. Reach for it when the field you need
+    isn't a column, or to see the full response of a create/update/execute.
+  - yaml (get) — the full data object, envelope stripped: the body that
+    round-trips through update -f and create -f.
+  - text (any non-list verb) — the default human-readable summary.
 
-Output flags (list):
-  --format table|json|jsonl|csv|tsv|markdown    output format (default: table)
-  --columns <ids or exprs>                      customize columns (e.g. "name,org" or "+tags")
-  --list-columns                                print available column IDs for this command
+  --format <fmt>                 table|text|csv|tsv|json|yaml (default: table for list, text for get)
+  --json / --yaml                shorthands for --format json / --format yaml
+  --columns <ids or exprs>       customize columns (e.g. "name,org" or "+tags")
+  --list-columns / --list-fields print available column/field IDs
+  --fields <ids>                 extract tab-separated field values for $() capture
 
 Paging flags (list):
-  --all                                         fetch all items
-  --limit <n>                                   max items to return (default 20)
-  --offset <n>                                  start at this item offset (default 0)
-  --count                                       print total count instead of results
-
-Output flags (get):
-  --format text|json|yaml          output format (default: text)
-  --format yaml                    emit the object only (no envelope), ready to edit and pass back with update -f
-  --fields <ids>                   extract field values, tab-separated (e.g. "name,git_url"); for shell $() capture
-  --list-fields                    print available field IDs for this command
-
-Output flags (create, update):
-  --format text|json               output format (default: text)
-  --fields <ids>                   extract field values, tab-separated (e.g. "name,git_url"); for shell $() capture
-  --list-fields                    print available field IDs for this command
+  --all                            fetch all items
+  --limit <n>                      max items to return (default 20)
+  --offset <n>                     start at this item offset (default 0)
+  --count                          print total count instead of results
 
 Examples:
   harness list project
