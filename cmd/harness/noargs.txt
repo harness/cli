@@ -13,9 +13,6 @@ Auth:
   harness auth status          show resolved account, org, and project
   harness auth login           interactive setup
 
-Modules:
-{{modules}}
-
 Discover:
   harness get module <name>          domain model, nouns, and guides for a module
   harness get noun <noun>            fields and commands for a specific noun
@@ -31,7 +28,7 @@ Common verbs:
 
 Scope flags (all commands):
   --org, --project                 override resolved scope
-  --profile                        use a named auth profile
+  --profile <name>                 use a preconfigured profile (account, org, project, and identity)
   --debug                          enable debug logging
   --level project|org|account      set scope for multi-level nouns (e.g. secrets, users)
   --timeout <seconds>              abort after this many seconds; accepts decimals (e.g. 1.5); 0 = no timeout; exits 124
@@ -53,11 +50,14 @@ Output formats:
   --list-columns / --list-fields print available column/field IDs
   --fields <ids>                 extract tab-separated field values for $() capture
 
-Paging flags (list):
+Paging flags (for list commands; defaults to 20 items):
   --all                            fetch all items
   --limit <n>                      max items to return (default 20)
   --offset <n>                     start at this item offset (default 0)
   --count                          print total count instead of results
+
+Modules:
+{{modules}}
 
 Examples:
   harness list project
@@ -65,5 +65,3 @@ Examples:
   harness get pipeline my-pipeline
   harness execute pipeline my-pipeline
   harness get module pipeline
-
-For detailed help on any command:  harness <verb> <noun> --help
