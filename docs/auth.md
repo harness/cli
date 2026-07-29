@@ -110,6 +110,8 @@ harness auth setscope --org myorg --project myproject
 
 `auth status` handles SATs differently: instead of calling `GET /ng/api/user/currentUser`, it calls `POST /ng/api/token/validate` and shows the service account identity. 403 responses on the Account/Org/Project checks are shown as warnings (not errors) since the SA may have resource-level access without enumeration permissions.
 
+`auth login` validates SATs the same way. PATs are verified with `GET /ng/api/accounts/{accountID}`, but that endpoint needs account-view permission, which service accounts are rarely granted — so for SATs login calls `POST /ng/api/token/validate` instead. A 403 from that endpoint means the service account is disabled or has no access to the account at all; `--no-validate` writes the profile without the check.
+
 ---
 
 ## Commands
