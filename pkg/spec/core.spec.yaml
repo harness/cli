@@ -72,6 +72,18 @@ nouns:
         expr: it["desc"]
         width_max: 60
 
+  - noun: plugin
+    short_desc: A separately-installed binary the host dispatches to via exec.
+    noun_aliases: [plugins]
+    fields:
+      - id: plugin
+        expr: it["plugin"]
+      - id: version
+        expr: it["version"]
+      - id: binary_path
+        label: Binary Path
+        expr: it["binary_path"]
+
   - noun: noun
     short_desc: A CLI noun (resource type) with its supported verbs and module.
     noun_aliases: [nouns]
@@ -338,6 +350,23 @@ commands:
       - name: check
         is_bool: true
         description: Check the version without installing (prints resolved version, exits 1 if not found)
+
+  - command: install plugin
+    verb: install
+    noun: plugin
+    short: Install a plugin from a local binary
+    long: |
+      Install a plugin into the harness home directory (~/.harness).
+
+      Currently supports a direct path to a plugin binary.
+
+      Examples:
+        harness install plugin ./bin/harness-har     # install from a local binary
+    no_auth: true
+    handler_type: workflow
+    workflow_id: install_plugin
+    id_label: binary-path
+    id_allow_slash: true
 
   - command: list module
     verb: list

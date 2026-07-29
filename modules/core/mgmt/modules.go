@@ -264,7 +264,15 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 		}
 		installed := "yes"
 		version := hbase.Version
-		if m.ExternalBinary != "" {
+		switch {
+		case m.BinaryPath != "":
+			// Dynamically-installed plugin: trust the spec's provenance rather
+			// than shelling out to the binary.
+			version = m.Version
+			if _, err := os.Stat(hbase.ExpandHomeDir(m.BinaryPath)); err != nil {
+				installed = "no"
+			}
+		case m.ExternalBinary != "":
 			binPath, err := plugin.FindBinary(m.ExternalBinary)
 			if err != nil {
 				installed = "no"

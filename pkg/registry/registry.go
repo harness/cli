@@ -91,18 +91,50 @@ func (r *Registry) SetModuleMeta(m spec.ModuleMeta) {
 	r.moduleMetas = append(r.moduleMetas, m)
 }
 
+// moduleMeta returns the ModuleMeta for a module, or nil if not registered.
+func (r *Registry) moduleMeta(module string) *spec.ModuleMeta {
+	for i := range r.moduleMetas {
+		if r.moduleMetas[i].Name == module {
+			return &r.moduleMetas[i]
+		}
+	}
+	return nil
+}
+
 // externalBinaryFor returns the ExternalBinary name for the given module, or "".
 // Returns "" when IsMainBinary is false.
 func (r *Registry) externalBinaryFor(module string) string {
 	if !r.IsMainBinary {
 		return ""
 	}
-	for _, m := range r.moduleMetas {
-		if m.Name == module {
-			return m.ExternalBinary
-		}
+	if m := r.moduleMeta(module); m != nil {
+		return m.ExternalBinary
 	}
 	return ""
+}
+
+// isPluginModule reports whether commands in module dispatch to an external
+// binary — either a build-time external_binary or a dynamically-installed
+// binary_path. Returns false when IsMainBinary is false (a plugin binary never
+// re-dispatches to itself).
+func (r *Registry) isPluginModule(module string) bool {
+	if !r.IsMainBinary {
+		return false
+	}
+	if m := r.moduleMeta(module); m != nil {
+		return m.IsPlugin()
+	}
+	return false
+}
+
+// HasModule reports whether a module with the given name has been registered.
+func (r *Registry) HasModule(name string) bool {
+	for _, m := range r.moduleMetas {
+		if m.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // GetModuleMetas returns metadata for all loaded modules, sorted by spec.ModuleOrder.
@@ -195,6 +227,59 @@ func (r *Registry) moduleForNoun(noun string) string {
 func (r *Registry) GetNoun(noun string) *spec.NounDef {
 	if nd, ok := r.nouns[noun]; ok {
 		return &nd
+	}
+	return nil
+}
+
+// CheckNoConflicts reports the first way the given nouns/commands would collide
+// with anything already registered, without mutating the registry. It is the
+// read-only precondition for atomically loading an untrusted (plugin) spec:
+// callers run it before touching the registry so a spec that would partially
+// register — leaking dangling nouns before a later command collision aborts —
+// is rejected whole. Returns nil when the spec can be loaded cleanly.
+//
+// A plugin can never override a builtin: nouns, noun aliases, and verb+noun
+// command identities are all single-owner, and builtins load first.
+func (r *Registry) CheckNoConflicts(nouns []spec.NounDef, cmds []*spec.CommandSpec) error {
+	// Nouns and aliases share one namespace (see RegisterNoun). Track names the
+	// spec itself introduces so intra-spec dups are caught too.
+	introduced := map[string]bool{}
+	claim := func(name, kind string) error {
+		if _, exists := r.nouns[name]; exists {
+			return fmt.Errorf("noun %q is already registered by module %q", name, r.moduleForNoun(name))
+		}
+		if owner, exists := r.nounAliases[name]; exists {
+			return fmt.Errorf("noun/alias %q is already claimed by noun %q (module %q)", name, owner, r.moduleForNoun(owner))
+		}
+		if introduced[name] {
+			return fmt.Errorf("noun/alias %q is declared twice in the same spec", name)
+		}
+		introduced[name] = true
+		return nil
+	}
+	for _, nd := range nouns {
+		if err := claim(nd.Noun, "noun"); err != nil {
+			return err
+		}
+		for _, alias := range nd.NounAliases {
+			if err := claim(alias, "alias"); err != nil {
+				return err
+			}
+		}
+	}
+	seenCmd := map[string]bool{}
+	for _, cs := range cmds {
+		if cs == nil {
+			continue
+		}
+		key := cs.Verb + " " + cs.FullNoun()
+		if r.GetSpec(cs.Verb, cs.FullNoun()) != nil {
+			return fmt.Errorf("command %q is already registered", key)
+		}
+		if seenCmd[key] {
+			return fmt.Errorf("command %q is declared twice in the same spec", key)
+		}
+		seenCmd[key] = true
 	}
 	return nil
 }
@@ -341,7 +426,7 @@ func (r *Registry) Register(cs *spec.CommandSpec) error {
 	if err := validateSpec(cs, vs); err != nil {
 		return err
 	}
-	if r.IsMainBinary && r.externalBinaryFor(cs.Module) != "" {
+	if r.isPluginModule(cs.Module) {
 		cs.External = true
 	}
 	existing := r.specs[cs.Verb]
@@ -782,19 +867,37 @@ func (r *Registry) bindHandler(cmd *cobra.Command, cs *spec.CommandSpec) {
 	}
 }
 
-// execPluginRunE returns a RunE that delegates to plugin.Exec (platform-specific).
-func execPluginRunE(extBin, moduleName string) func(*cobra.Command, []string) error {
+// execPluginRunE returns a RunE that resolves the plugin binary and delegates
+// to plugin.Exec (platform-specific).
+//
+// Two resolution modes:
+//   - binaryPath set (dynamically-installed plugin from ~/.harness/spec): exec
+//     that path directly. version is stamped into HARNESS_PLUGIN for the
+//     plugin-side self-check.
+//   - binaryPath empty (build-time external_binary plugin): resolve extBin via
+//     plugin.FindBinary (next to the main binary, then PATH).
+func execPluginRunE(extBin, binaryPath, moduleName, version string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		binPath, err := plugin.FindBinary(extBin)
-		if err != nil {
-			var nfe *plugin.NotFoundError
-			if errors.As(err, &nfe) {
-				noun := strings.Fields(cmd.Use)[0]
-				return fmt.Errorf("%q is provided by the %q module, which is not installed\n\nTo install it, run:\n  harness install module %s", noun, moduleName, moduleName)
-			}
-			return err
+		var binPath string
+		if binaryPath != "" {
+			binPath = hbase.ExpandHomeDir(binaryPath)
 		}
-		hlog.Debug("module exec", "binary", binPath, "args", os.Args[1:])
+		if binPath == "" {
+			resolved, err := plugin.FindBinary(extBin)
+			if err != nil {
+				var nfe *plugin.NotFoundError
+				if errors.As(err, &nfe) {
+					noun := strings.Fields(cmd.Use)[0]
+					return fmt.Errorf("%q is provided by the %q module, which is not installed\n\nTo install it, run:\n  harness install module %s", noun, moduleName, moduleName)
+				}
+				return err
+			}
+			binPath = resolved
+		}
+		// HARNESS_PLUGIN lets a well-behaved plugin self-check that the grammar
+		// the host parsed came from this binary.
+		os.Setenv("HARNESS_PLUGIN", moduleName+" "+version)
+		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", os.Args[1:])
 		return plugin.Exec(binPath, os.Args[1:])
 	}
 }
@@ -836,8 +939,8 @@ func (r *Registry) FetchItems(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, pf cmdctx.
 // to delegate to the plugin binary. Flags are registered via the normal bind
 // path so --help shows the full flag list.
 func (r *Registry) bindExternalCmd(cmd *cobra.Command, cs *spec.CommandSpec) {
-	extBin := r.externalBinaryFor(cs.Module)
-	if extBin == "" {
+	meta := r.moduleMeta(cs.Module)
+	if meta == nil || !meta.IsPlugin() {
 		panic(fmt.Sprintf("bindExternalCmd: no external binary registered for module %q", cs.Module))
 	}
 	switch cs.HandlerType {
@@ -848,7 +951,7 @@ func (r *Registry) bindExternalCmd(cmd *cobra.Command, cs *spec.CommandSpec) {
 			r.bindEndpointCmd(cmd, cs)
 		}
 	}
-	cmd.RunE = execPluginRunE(extBin, cs.Module)
+	cmd.RunE = execPluginRunE(meta.ExternalBinary, meta.BinaryPath, cs.Module, meta.Version)
 }
 
 // bindWorkflowCmd wires flags and RunE for a workflow-backed command.

@@ -3,6 +3,12 @@ version: "3"
 vars:
   BINARY: harness
   MAIN: ./cmd/harness/main-harness.go
+  # devhome doubles as a dev HARNESS_CLI_HOME: plugin binaries live in
+  # devhome/bin and their specs (grammar + provenance) in devhome/spec, exactly
+  # as ~/.harness would hold them in production. Run the CLI against it with:
+  #   HARNESS_CLI_HOME=devhome ./bin/harness ...
+  # Gitignored and visible (not dot-prefixed) so specs are easy to inspect.
+  DEVHOME: devhome
   VERSION:
     sh: echo "${VERSION:-$(go run ./cmd/getversion/main-getversion.go --next)-dev}"
   BUILD_TIME:
@@ -24,10 +30,22 @@ tasks:
       - go build -ldflags "{{.LDFLAGS}}" -o bin/{{.BINARY}} {{.MAIN}}
 
   build:har:
-    desc: Build the harness-har binary (HAR external module)
-    dir: modules/har
+    desc: Build the harness-har binary into devhome/bin (dev plugin home)
+    deps: [build:main]
     cmds:
-      - go build -ldflags "{{.LDFLAGS}}" -o ../../bin/harness-har ./cmd/harness-har/main-harness-har.go
+      - mkdir -p {{.DEVHOME}}/bin
+      - cd modules/har && go build -ldflags "{{.LDFLAGS}}" -o ../../{{.DEVHOME}}/bin/harness-har ./cmd/harness-har/main-harness-har.go
+      - task: dev:plugin:har
+
+  dev:plugin:har:
+    desc: Install the built harness-har binary into devhome via `install plugin`
+    internal: true
+    cmds:
+      # Use the real installer path: `install plugin` runs the identity gate,
+      # captures --spec, and stamps provenance into devhome/spec. Exactly what a
+      # user gets from `harness install plugin <binary>`.
+      - HARNESS_CLI_HOME={{.DEVHOME}} ./bin/{{.BINARY}} install plugin {{.DEVHOME}}/bin/harness-har
+      - echo "Run with HARNESS_CLI_HOME={{.DEVHOME}} ./bin/harness ..."
 
   build:opt:
     desc: Build all optimized binaries (stripped symbols, no DWARF)
@@ -41,12 +59,13 @@ tasks:
         echo "harness size: $(du -sh bin/{{.BINARY}} | cut -f1)"
 
   build:opt:har:
-    desc: Build optimized harness-har binary
-    dir: modules/har
+    desc: Build optimized harness-har binary into devhome/bin
     cmds:
-      - go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o ../../bin/harness-har ./cmd/harness-har/main-harness-har.go
+      - mkdir -p {{.DEVHOME}}/bin
+      - cd modules/har && go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o ../../{{.DEVHOME}}/bin/harness-har ./cmd/harness-har/main-harness-har.go
       - |
-        echo "harness-har size: $(du -sh ../../bin/harness-har | cut -f1)"
+        echo "harness-har size: $(du -sh {{.DEVHOME}}/bin/harness-har | cut -f1)"
+      - task: dev:plugin:har
 
   install:
     desc: Build and install harness binary to ~/.local/bin
@@ -66,7 +85,7 @@ tasks:
     deps: [build:main, build:har]
     cmds:
       - HARNESS_CHECKSPECS=1 ./bin/harness
-      - HARNESS_CHECKSPECS=1 ./bin/harness-har
+      - HARNESS_CHECKSPECS=1 ./{{.DEVHOME}}/bin/harness-har
 
   check:specs:main:
     desc: Validate core *.spec.yaml files (skips HAR build)

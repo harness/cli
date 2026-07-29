@@ -6,6 +6,7 @@
 */.DS_Store
 dist/
 bin/
+devhome/
 mcp-server/
 out
 out.json
