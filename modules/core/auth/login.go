@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/harness/cli/pkg/auth"
@@ -230,11 +231,25 @@ func fetchRegistryURL(apiURL, token, accountID string) (string, error) {
 	return parsed.Data.RegistryURL, nil
 }
 
-// validateToken calls GET /ng/api/accounts/{accountID} to verify the token.
+// validateToken verifies the token against the API. PATs are checked by reading the account
+// resource; SATs use the token introspection endpoint instead, since service accounts are
+// rarely granted account-view permission and would otherwise fail with a 403.
 func validateToken(apiURL, token, accountID string) error {
 	c := &http.Client{Timeout: 10 * time.Second}
-	url := fmt.Sprintf("%s/ng/api/accounts/%s?accountIdentifier=%s", apiURL, accountID, accountID)
-	req, err := http.NewRequest("GET", url, nil)
+	isSAT := auth.TokenType(token) == auth.TokenKindSAT
+
+	var req *http.Request
+	var err error
+	if isSAT {
+		url := fmt.Sprintf("%s/ng/api/token/validate?accountIdentifier=%s", apiURL, accountID)
+		req, err = http.NewRequest("POST", url, strings.NewReader(token))
+		if err == nil {
+			req.Header.Set("Content-Type", "text/plain")
+		}
+	} else {
+		url := fmt.Sprintf("%s/ng/api/accounts/%s?accountIdentifier=%s", apiURL, accountID, accountID)
+		req, err = http.NewRequest("GET", url, nil)
+	}
 	if err != nil {
 		return fmt.Errorf("building validation request: %w", err)
 	}
@@ -253,6 +268,9 @@ func validateToken(apiURL, token, accountID string) error {
 	case 401:
 		return fmt.Errorf("token rejected (401) — check that your API token is valid\n\nTip: run 'harness auth profiles' to see available profiles, then retry with --profile <name>")
 	case 403:
+		if isSAT {
+			return fmt.Errorf("service account token rejected (403) — the service account may be disabled or lack access to this account\n\nTip: pass --no-validate to write the profile anyway, then run 'harness auth status' to see which scopes are reachable")
+		}
 		return fmt.Errorf("token valid but access denied (403) — check account ID or RBAC permissions")
 	default:
 		// Try to extract a message from JSON
