@@ -526,7 +526,6 @@ Filter with `--from` and `--to` for a specific time window.
 | `eval_metric`     |  ✓   |  ✓  |   S    |   ✓    |         |
 | `eval_metric_set` |  ✓   |  ✓  |   S    |   ✓    |         |
 | `eval_target`     |  ✓   |  ✓  |   S    |   ✓    |         |
-| `eval_model`      |  ✓   |  ✓  |   S    |   ✓    |         |
 | `eval_suite`      |  ✓   |  ✓  |        |   ✓    |         |
 | `eval_suite:run`  |      |     |        |        |    ✓    |
 
