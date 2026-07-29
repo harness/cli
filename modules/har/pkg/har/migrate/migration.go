@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	_ "github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har"
+	_ "github.com/harness/cli/modules/har/pkg/har/migrate/adapter/harbor"
 	_ "github.com/harness/cli/modules/har/pkg/har/migrate/adapter/jfrog"
 	_ "github.com/harness/cli/modules/har/pkg/har/migrate/adapter/nexus"
 )
