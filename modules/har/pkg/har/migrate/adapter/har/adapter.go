@@ -2,10 +2,12 @@ package har
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
 	adp "github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
@@ -112,10 +114,21 @@ func (a *harAdapter) UploadFile(
 		err = a.client.uploadDartFile(registry, artifactName, version, f, file)
 	case types.RAW:
 		err = a.client.uploadRawFile(registry, f, file)
+	case types.DEBIAN:
+		err = a.client.uploadDebianFile(registry, f, file, metadata)
+	case types.PUPPET:
+		err = a.client.uploadPuppetFile(registry, f, file)
+	case types.CONAN:
+		err = a.client.uploadConanFile(registry, file, metadata)
+	default:
+		return fmt.Errorf("unsupported artifact type for upload: %s", artifactType)
 	}
 	if err != nil {
+		if errors.Is(err, types.ErrArtifactAlreadyExists) {
+			return err
+		}
 		a.logger.Error().Err(err).Msgf("Failed to upload file %s to registry: %s", f.Uri, registry)
-		return fmt.Errorf("failed to upload file %s to registry: %s, %v", f.Uri, registry, err)
+		return fmt.Errorf("failed to upload file %s to registry: %s, %w", f.Uri, registry, err)
 	}
 	return nil
 }
@@ -132,6 +145,10 @@ func (a *harAdapter) AddNPMTag(registry string, name string, version string, uri
 func (a *harAdapter) VersionExists(ctx context.Context, p types.Package, registryRef, pkg, version string, artifactType types.ArtifactType) (bool, error) {
 	if artifactType == types.HELM_LEGACY {
 		artifactType = types.HELM
+	}
+	if artifactType == types.HELM_HTTP {
+		// HAR stores the chart by its leaf name; nested names like "team-a/abc" must resolve to "abc".
+		pkg = path.Base(pkg)
 	}
 	return a.client.artifactVersionExists(ctx, registryRef, pkg, version, artifactType)
 }

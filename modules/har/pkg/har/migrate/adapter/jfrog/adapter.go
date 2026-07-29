@@ -384,10 +384,402 @@ func (a *adapter) GetPackages(registry string, artifactType types.ArtifactType, 
 			Size:     -1,
 		})
 		return packages, nil
+	} else if artifactType == types.PUPPET {
+		files, err := tree.GetAllFiles(root)
+		if err != nil {
+			return nil, fmt.Errorf("get all files: %w", err)
+		}
+		pkgMap := make(map[string]bool)
+		for _, file := range files {
+			if file.Folder {
+				continue
+			}
+			pkgName, _, ok := util.ParsePuppetFileNameWithPath(file.Uri)
+			if !ok {
+				continue
+			}
+			pkgMap[pkgName] = true
+		}
+		for pkgName := range pkgMap {
+			packages = append(packages, types.Package{
+				Registry: registry,
+				Path:     "/",
+				Name:     pkgName,
+				Size:     -1,
+			})
+		}
+		log.Info().Msgf("Found %d PUPPET packages", len(packages))
+		return packages, nil
+	} else if artifactType == types.CONAN {
+		files, err := tree.GetAllFiles(root)
+		if err != nil {
+			return nil, fmt.Errorf("get all files: %w", err)
+		}
+		packages = append(packages, util.GetConanPackages(files, registry)...)
+		log.Info().Msgf("Found %d CONAN packages", len(packages))
+		return packages, nil
+	} else if artifactType == types.HELM_HTTP {
+		seenPath := make(map[string]bool)
+		files, err := tree.GetAllFiles(root)
+		if err != nil {
+			return nil, fmt.Errorf("get all files: %w", err)
+		}
+		for _, f := range files {
+			if f.Folder {
+				continue
+			}
+			if !util.IsHelmChartArchive(f.Uri) {
+				continue
+			}
+			leafName, ver, ok := util.ParseChartFileName(f.Name)
+			if !ok {
+				log.Warn().Msgf("HELM_HTTP: skipping chart file with non-conforming name: %s", f.Uri)
+				continue
+			}
+			relPath := strings.TrimPrefix(f.Uri, "/")
+			seenPath[relPath] = true
+			nestedName := leafName
+			if dir := strings.Trim(path.Dir(relPath), "/"); dir != "" && dir != "." {
+				nestedName = dir + "/" + leafName
+			}
+			packages = append(packages, types.Package{
+				Registry: registry,
+				Path:     "/",
+				Name:     nestedName,
+				Version:  ver,
+				Size:     f.Size,
+				URL:      f.Uri,
+			})
+		}
+		indexPkgs, err := a.enumerateHelmIndex(registry, root)
+		if err != nil {
+			log.Warn().Err(err).Msgf("HELM_HTTP: failed to enumerate index.yaml for registry %s; relying on tree sweep only", registry)
+		}
+		for _, pkg := range indexPkgs {
+			relPath := chartRepoRelPath(pkg.URL)
+			if seenPath[relPath] {
+				continue
+			}
+			seenPath[relPath] = true
+			packages = append(packages, pkg)
+		}
+		return packages, nil
+	} else if artifactType == types.DEBIAN {
+		distsNode, err := tree.GetNodeForPath(root, "/dists")
+		if err != nil {
+			return nil, fmt.Errorf("get dists folder: %w", err)
+		}
+		for _, distNode := range distsNode.Children {
+			if distNode.IsLeaf {
+				continue
+			}
+			releaseNode, err := tree.GetNodeForPath(&distNode, "InRelease")
+			if err != nil {
+				releaseNode, err = tree.GetNodeForPath(&distNode, "Release")
+				if err != nil {
+					log.Warn().Msgf("Skipping %s: no Release or InRelease file found", distNode.Name)
+					continue
+				}
+			}
+			releaseFile, _, err := a.DownloadFile(registry, releaseNode.File.Uri)
+			if err != nil {
+				log.Warn().Msgf("Failed to download Release file for %s: %v", distNode.Name, err)
+				continue
+			}
+			components, architectures, err := parseDebianRelease(releaseFile)
+			releaseFile.Close()
+			if err != nil {
+				log.Warn().Msgf("Failed to parse Release file for %s: %v", distNode.Name, err)
+				continue
+			}
+			for _, component := range components {
+				for _, arch := range architectures {
+					packagesPath := fmt.Sprintf("/dists/%s/%s/binary-%s/Packages", distNode.Name, component, arch)
+					packagesNode, err := tree.GetNodeForPath(root, packagesPath)
+					if err != nil {
+						packagesPath = fmt.Sprintf("/dists/%s/%s/binary-%s/Packages.gz", distNode.Name, component, arch)
+						packagesNode, err = tree.GetNodeForPath(root, packagesPath)
+						if err != nil {
+							log.Warn().Msgf("Packages file not found: %s", packagesPath)
+							continue
+						}
+					}
+					packagesFile, _, err := a.DownloadFile(registry, packagesNode.File.Uri)
+					if err != nil {
+						log.Warn().Msgf("Failed to download Packages file %s: %v", packagesPath, err)
+						continue
+					}
+					debPackages, err := extractDebianPackages(packagesFile, registry, distNode.Name, component, strings.HasSuffix(packagesPath, ".gz"))
+					packagesFile.Close()
+					if err != nil {
+						log.Warn().Msgf("Failed to extract Debian packages from %s: %v", packagesPath, err)
+						continue
+					}
+					packages = append(packages, debPackages...)
+				}
+				sourcesPath := fmt.Sprintf("/dists/%s/%s/source/Sources", distNode.Name, component)
+				sourcesNode, err := tree.GetNodeForPath(root, sourcesPath)
+				if err != nil {
+					sourcesPath = fmt.Sprintf("/dists/%s/%s/source/Sources.gz", distNode.Name, component)
+					sourcesNode, err = tree.GetNodeForPath(root, sourcesPath)
+					if err != nil {
+						log.Debug().Msgf("Sources file not found: %s", sourcesPath)
+						continue
+					}
+				}
+				sourcesFile, _, err := a.DownloadFile(registry, sourcesNode.File.Uri)
+				if err != nil {
+					log.Warn().Msgf("Failed to download Sources file %s: %v", sourcesPath, err)
+					continue
+				}
+				sourcePackages, err := extractDebianSourcePackages(sourcesFile, registry, distNode.Name, component, strings.HasSuffix(sourcesPath, ".gz"))
+				sourcesFile.Close()
+				if err != nil {
+					log.Warn().Msgf("Failed to extract Debian source packages from %s: %v", sourcesPath, err)
+					continue
+				}
+				packages = append(packages, sourcePackages...)
+			}
+		}
+		return packages, nil
 	} else {
 		return []types.Package{}, errors.New("unknown artifact type")
 	}
 
+	return packages, nil
+}
+
+func (a *adapter) enumerateHelmIndex(registry string, root *types.TreeNode) ([]types.Package, error) {
+	node, err := tree.GetNodeForPath(root, "/index.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("get node for path: %w", err)
+	}
+	file, _, err := a.DownloadFile(registry, node.File.Uri)
+	if err != nil {
+		return nil, fmt.Errorf("download index.yaml: %w", err)
+	}
+	defer file.Close()
+
+	tmp, err := os.CreateTemp("", "index-*.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("create temp index file: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+
+	if _, err := io.Copy(tmp, file); err != nil {
+		return nil, fmt.Errorf("copy index.yaml to temp: %w", err)
+	}
+	index, err := repo.LoadIndexFile(tmp.Name())
+	if err != nil {
+		return nil, fmt.Errorf("load index file: %w", err)
+	}
+
+	var packages []types.Package
+	for name, entries := range index.Entries {
+		for _, ver := range entries {
+			if len(ver.URLs) == 0 {
+				log.Warn().Msgf("Skipping helm chart with no URLs: %s %s", name, ver.Version)
+				continue
+			}
+			nestedName, err2 := getNestedName(name, ver.URLs)
+			if err2 != nil {
+				log.Error().Err(err2).Msgf("Failed to get package name: %s %s", name, ver.Version)
+				continue
+			}
+			chartUrl := ver.URLs[0]
+			if strings.HasPrefix(chartUrl, "local://") {
+				chartUrl = strings.TrimPrefix(chartUrl, "local://")
+			}
+			packages = append(packages, types.Package{
+				Registry: registry,
+				Path:     "/",
+				Name:     nestedName,
+				Size:     -1,
+				URL:      chartUrl,
+				Version:  ver.Version,
+			})
+		}
+	}
+	return packages, nil
+}
+
+func chartRepoRelPath(chartURL string) string {
+	parsed, err := url.Parse(chartURL)
+	if err != nil {
+		return strings.TrimPrefix(chartURL, "/")
+	}
+	p := parsed.Path
+	if strings.HasPrefix(p, "/") {
+		splits := strings.Split(p, "/")
+		if len(splits) >= 4 {
+			return strings.Join(splits[3:], "/")
+		}
+		return strings.TrimPrefix(p, "/")
+	}
+	return p
+}
+
+func parseDebianRelease(file io.Reader) ([]string, []string, error) {
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read Release file: %w", err)
+	}
+	var components, architectures []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Components:") {
+			components = strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "Components:")))
+		} else if strings.HasPrefix(line, "Architectures:") {
+			architectures = strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "Architectures:")))
+		}
+	}
+	if len(components) == 0 {
+		return nil, nil, fmt.Errorf("no components found in Release file")
+	}
+	if len(architectures) == 0 {
+		return nil, nil, fmt.Errorf("no architectures found in Release file")
+	}
+	return components, architectures, nil
+}
+
+func extractDebianPackages(file io.Reader, registry, distribution, component string, isGzipped bool) ([]types.Package, error) {
+	var reader io.Reader = file
+	if isGzipped {
+		gz, err := gzip.NewReader(file)
+		if err != nil {
+			return nil, fmt.Errorf("create gzip reader: %w", err)
+		}
+		defer gz.Close()
+		reader = gz
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read Packages file: %w", err)
+	}
+	var packages []types.Package
+	for _, paragraph := range strings.Split(string(data), "\n\n") {
+		if strings.TrimSpace(paragraph) == "" {
+			continue
+		}
+		var filename string
+		var size int
+		for _, line := range strings.Split(paragraph, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "Filename:") {
+				filename = strings.TrimSpace(strings.TrimPrefix(line, "Filename:"))
+			} else if strings.HasPrefix(line, "Size:") {
+				fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(line, "Size:")), "%d", &size)
+			}
+		}
+		if filename != "" {
+			packages = append(packages, types.Package{
+				Registry: registry,
+				Path:     "/",
+				Name:     path.Base(filename),
+				URL:      filename,
+				Size:     size,
+				Metadata: map[string]string{
+					"distribution": distribution,
+					"component":    component,
+				},
+			})
+		}
+	}
+	return packages, nil
+}
+
+func extractDebianSourcePackages(file io.Reader, registry, distribution, component string, isGzipped bool) ([]types.Package, error) {
+	var reader io.Reader = file
+	if isGzipped {
+		gz, err := gzip.NewReader(file)
+		if err != nil {
+			return nil, fmt.Errorf("create gzip reader: %w", err)
+		}
+		defer gz.Close()
+		reader = gz
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read Sources file: %w", err)
+	}
+	var packages []types.Package
+	for _, paragraph := range strings.Split(string(data), "\n\n") {
+		if strings.TrimSpace(paragraph) == "" {
+			continue
+		}
+		var packageName, version, directory string
+		var dscFiles []types.Package
+		var allFiles []string
+		inFilesSection := false
+		for _, line := range strings.Split(paragraph, "\n") {
+			if strings.HasPrefix(line, "Package:") {
+				packageName = strings.TrimSpace(strings.TrimPrefix(line, "Package:"))
+				inFilesSection = false
+				continue
+			}
+			if strings.HasPrefix(line, "Version:") {
+				version = strings.TrimSpace(strings.TrimPrefix(line, "Version:"))
+				inFilesSection = false
+				continue
+			}
+			if strings.HasPrefix(line, "Files:") {
+				inFilesSection = true
+				continue
+			}
+			if strings.HasPrefix(line, "Directory:") {
+				directory = strings.TrimSpace(strings.TrimPrefix(line, "Directory:"))
+				inFilesSection = false
+				continue
+			}
+			if inFilesSection && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+				inFilesSection = false
+			}
+			if inFilesSection && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
+				fields := strings.Fields(line)
+				if len(fields) >= 3 {
+					filename := fields[2]
+					allFiles = append(allFiles, filename)
+					if strings.HasSuffix(filename, ".dsc") {
+						var size int
+						fmt.Sscanf(fields[1], "%d", &size)
+						filePath := filename
+						if directory != "" {
+							filePath = directory + "/" + filename
+						}
+						dscFiles = append(dscFiles, types.Package{
+							Registry: registry,
+							Path:     "/",
+							Name:     filename,
+							URL:      filePath,
+							Size:     size,
+							Metadata: map[string]string{
+								"distribution": distribution,
+								"component":    component,
+								"packageName":  packageName,
+								"fullVersion":  version,
+							},
+						})
+					}
+				}
+			}
+		}
+		for i := range dscFiles {
+			var sourceFiles []string
+			for _, filename := range allFiles {
+				if strings.Contains(filename, ".orig.tar.") || strings.Contains(filename, ".tar.") {
+					sourceFiles = append(sourceFiles, filename)
+				}
+			}
+			if len(sourceFiles) > 0 {
+				dscFiles[i].Metadata["sourceFiles"] = strings.Join(sourceFiles, ",")
+			}
+			if directory != "" {
+				dscFiles[i].Metadata["directory"] = directory
+			}
+		}
+		packages = append(packages, dscFiles...)
+	}
 	return packages, nil
 }
 
@@ -563,7 +955,7 @@ func (a *adapter) GetVersions(
 		return versions, nil
 	}
 
-	if artifactType == types.HELM_LEGACY {
+	if artifactType == types.HELM_LEGACY || artifactType == types.HELM_HTTP {
 		return []types.Version{
 			{
 				Registry: registry,
@@ -573,6 +965,36 @@ func (a *adapter) GetVersions(
 				Size:     -1,
 			},
 		}, nil
+	}
+
+	if artifactType == types.PUPPET {
+		files, err := tree.GetAllFiles(node)
+		if err != nil {
+			return nil, fmt.Errorf("get all files: %w", err)
+		}
+		versionMap := make(map[string]bool)
+		for _, file := range files {
+			if file.Folder {
+				continue
+			}
+			pkgName, version, ok := util.ParsePuppetFileNameWithPath(file.Uri)
+			if !ok || pkgName != pkg {
+				continue
+			}
+			versionMap[version] = true
+		}
+		var versions []types.Version
+		for version := range versionMap {
+			versions = append(versions, types.Version{
+				Registry: registry,
+				Pkg:      pkg,
+				Path:     "/",
+				Name:     version,
+				Size:     -1,
+			})
+		}
+		log.Info().Msgf("Found %d versions for PUPPET package %s", len(versions), pkg)
+		return versions, nil
 	}
 
 	if artifactType == types.PYTHON {

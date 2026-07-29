@@ -147,7 +147,7 @@ func (c *client) uploadRawFile(registry string, f *types.File, file io.ReadClose
 	fileUri := strings.TrimPrefix(f.Uri, "/")
 	defer file.Close()
 
-	_, err := c.pkgClient.UploadGenericFileToPathWithBodyWithResponse(
+	resp, err := c.pkgClient.UploadGenericFileToPathWithBodyWithResponse(
 		context.Background(),
 		c.accountID,
 		registry,
@@ -157,6 +157,12 @@ func (c *client) uploadRawFile(registry string, f *types.File, file io.ReadClose
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upload raw file '%s': %w", fileUri, err)
+	}
+	if resp.StatusCode() == http2.StatusConflict {
+		return types.ErrArtifactAlreadyExists
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() > 299 {
+		return fmt.Errorf("failed to upload raw file '%s', status %d", fileUri, resp.StatusCode())
 	}
 
 	return nil
@@ -814,6 +820,9 @@ func (c *client) artifactVersionExists(
 		if err != nil {
 			return false, fmt.Errorf("failed to get artifact versions: %w", err)
 		}
+		if response.StatusCode() == http2.StatusNotFound {
+			return false, nil
+		}
 		if response.StatusCode() != http2.StatusOK {
 			return false, fmt.Errorf("failed to get artifact versions: %s", response.Status())
 		}
@@ -900,5 +909,182 @@ func (c *client) createGoVersion(
 			artifactName, version, resp.StatusCode, string(body))
 	}
 
+	return nil
+}
+
+func (c *client) uploadDebianFile(
+	registry string,
+	f *types.File,
+	file io.ReadCloser,
+	metadata map[string]interface{},
+) error {
+	distribution, _ := metadata["distribution"].(string)
+	component, _ := metadata["component"].(string)
+	fileType, _ := metadata["fileType"].(string)
+	packageName, _ := metadata["packageName"].(string)
+	version, _ := metadata["version"].(string)
+
+	if distribution == "" {
+		return fmt.Errorf("distribution is required in metadata for debian upload")
+	}
+	if component == "" {
+		return fmt.Errorf("component is required in metadata for debian upload")
+	}
+	if fileType == "" {
+		fileType = "deb"
+	}
+	if fileType == "src" {
+		if packageName == "" {
+			return fmt.Errorf("packageName is required in metadata for debian src upload")
+		}
+		if version == "" {
+			return fmt.Errorf("version is required in metadata for debian src upload")
+		}
+	}
+
+	endpoint := fileType // "deb", "dsc", or "src"
+	baseURL := fmt.Sprintf("%s/pkg/%s/%s/debian/%s?distribution=%s&component=%s",
+		c.url, c.accountID, registry, endpoint,
+		strings.ReplaceAll(distribution, " ", "%20"),
+		strings.ReplaceAll(component, " ", "%20"),
+	)
+	if fileType == "src" {
+		baseURL += "&package=" + packageName + "&version=" + version
+	}
+
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+	go func() {
+		defer pw.Close()
+		defer writer.Close()
+		part, err := writer.CreateFormFile("file", f.Name)
+		if err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			pw.CloseWithError(err)
+		}
+	}()
+
+	req, err := http2.NewRequest(http2.MethodPut, baseURL, pr)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to upload debian file '%s': %w", f.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to upload debian file '%s', status %d: %s", f.Name, resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+func (c *client) uploadPuppetFile(
+	registry string,
+	f *types.File,
+	file io.ReadCloser,
+) error {
+	uploadURL := fmt.Sprintf("%s/pkg/%s/%s/puppet/upload", c.url, c.accountID, registry)
+
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+	go func() {
+		defer pw.Close()
+		defer writer.Close()
+		part, err := writer.CreateFormFile("file", f.Name)
+		if err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			pw.CloseWithError(err)
+		}
+	}()
+
+	req, err := http2.NewRequest(http2.MethodPut, uploadURL, pr)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to upload puppet file '%s': %w", f.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to upload puppet file '%s', status %d: %s", f.Name, resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+func (c *client) uploadConanFile(
+	registry string,
+	file io.ReadCloser,
+	metadata map[string]interface{},
+) error {
+	defer file.Close()
+
+	name, _ := metadata["name"].(string)
+	version, _ := metadata["version"].(string)
+	rrev, _ := metadata["rrev"].(string)
+	filename, _ := metadata["filename"].(string)
+	user, _ := metadata["user"].(string)
+	channel, _ := metadata["channel"].(string)
+	sha1, _ := metadata["sha1"].(string)
+	layer, _ := metadata["layer"].(string)
+	pkgid, _ := metadata["pkgid"].(string)
+	prev, _ := metadata["prev"].(string)
+
+	if name == "" || version == "" || rrev == "" || filename == "" {
+		return fmt.Errorf("uploadConanFile: missing required metadata fields (name=%q, version=%q, rrev=%q, filename=%q)",
+			name, version, rrev, filename)
+	}
+	if layer == "package" && (pkgid == "" || prev == "") {
+		return fmt.Errorf("uploadConanFile: package layer requires pkgid and prev (pkgid=%q, prev=%q)", pkgid, prev)
+	}
+
+	if user == "" {
+		user = "_"
+	}
+	if channel == "" {
+		channel = "_"
+	}
+
+	var uploadURL string
+	if layer == "package" {
+		uploadURL = fmt.Sprintf("%s/pkg/%s/%s/conan/v2/conans/%s/%s/%s/%s/revisions/%s/packages/%s/revisions/%s/files/%s",
+			c.url, c.accountID, registry, name, version, user, channel, rrev, pkgid, prev, filename)
+	} else {
+		uploadURL = fmt.Sprintf("%s/pkg/%s/%s/conan/v2/conans/%s/%s/%s/%s/revisions/%s/files/%s",
+			c.url, c.accountID, registry, name, version, user, channel, rrev, filename)
+	}
+
+	req, err := http2.NewRequest(http2.MethodPut, uploadURL, file)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if sha1 != "" {
+		req.Header.Set("X-Checksum-Sha1", sha1)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to upload conan file '%s': %w", filename, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http2.StatusConflict {
+		return types.ErrArtifactAlreadyExists
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to upload conan file '%s', status %d: %s", filename, resp.StatusCode, string(body))
+	}
 	return nil
 }
