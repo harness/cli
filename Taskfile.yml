@@ -38,6 +38,9 @@ tasks:
     run: once
     cmds:
       - mkdir -p {{.DEVHOME}}/bin
+      # Plugins used to build into bin/ (next to bin/harness, where FindBinary
+      # looks first). Remove any leftover so it can't shadow the devhome copy.
+      - rm -f bin/harness-har
       - cd modules/har && go build -ldflags "{{.LDFLAGS}}" -o ../../{{.DEVHOME}}/bin/harness-har ./cmd/harness-har/main-harness-har.go
       - task: dev:plugin:har
 

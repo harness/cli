@@ -101,18 +101,6 @@ func (r *Registry) moduleMeta(module string) *spec.ModuleMeta {
 	return nil
 }
 
-// externalBinaryFor returns the ExternalBinary name for the given module, or "".
-// Returns "" when IsMainBinary is false.
-func (r *Registry) externalBinaryFor(module string) string {
-	if !r.IsMainBinary {
-		return ""
-	}
-	if m := r.moduleMeta(module); m != nil {
-		return m.ExternalBinary
-	}
-	return ""
-}
-
 // isPluginModule reports whether commands in module dispatch to an external
 // binary — either a build-time external_binary or a dynamically-installed
 // binary_path. Returns false when IsMainBinary is false (a plugin binary never
@@ -867,32 +855,19 @@ func (r *Registry) bindHandler(cmd *cobra.Command, cs *spec.CommandSpec) {
 	}
 }
 
-// execPluginRunE returns a RunE that resolves the plugin binary and delegates
-// to plugin.Exec (platform-specific).
-//
-// Two resolution modes:
-//   - binaryPath set (dynamically-installed plugin from ~/.harness/spec): exec
-//     that path directly. version is stamped into HARNESS_PLUGIN for the
-//     plugin-side self-check.
-//   - binaryPath empty (build-time external_binary plugin): resolve extBin via
-//     plugin.FindBinary (next to the main binary, then PATH).
+// execPluginRunE returns a RunE that resolves the plugin binary via
+// plugin.Resolve and delegates to plugin.Exec (platform-specific). version is
+// stamped into HARNESS_PLUGIN for the plugin-side self-check.
 func execPluginRunE(extBin, binaryPath, moduleName, version string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		var binPath string
-		if binaryPath != "" {
-			binPath = hbase.ExpandHomeDir(binaryPath)
-		}
-		if binPath == "" {
-			resolved, err := plugin.FindBinary(extBin)
-			if err != nil {
-				var nfe *plugin.NotFoundError
-				if errors.As(err, &nfe) {
-					noun := strings.Fields(cmd.Use)[0]
-					return fmt.Errorf("%q is provided by the %q module, which is not installed\n\nTo install it, run:\n  harness install module %s", noun, moduleName, moduleName)
-				}
-				return err
+		binPath, err := plugin.Resolve(extBin, binaryPath)
+		if err != nil {
+			var nfe *plugin.NotFoundError
+			if errors.As(err, &nfe) {
+				noun := strings.Fields(cmd.Use)[0]
+				return fmt.Errorf("%q is provided by the %q module, which is not installed\n\nTo install it, run:\n  harness install module %s", noun, moduleName, moduleName)
 			}
-			binPath = resolved
+			return err
 		}
 		// HARNESS_PLUGIN lets a well-behaved plugin self-check that the grammar
 		// the host parsed came from this binary.

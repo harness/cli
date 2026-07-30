@@ -9,9 +9,28 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/harness/cli/pkg/hbase"
 )
 
 var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+\S*`)
+
+// Resolve returns the absolute path of the binary a plugin module dispatches to.
+// This is the single resolution point for every host→plugin hop (command exec,
+// completion), so they can never disagree about which binary serves a module:
+//   - binaryPath set (dynamically-installed plugin, from the home spec's
+//     provenance): that exact path.
+//   - binaryPath empty (build-time external_binary): extBin located via FindBinary.
+func Resolve(extBin, binaryPath string) (string, error) {
+	if binaryPath != "" {
+		return hbase.ExpandHomeDir(binaryPath), nil
+	}
+	binPath, err := FindBinary(extBin)
+	if err != nil {
+		return "", err
+	}
+	return binPath, nil
+}
 
 // FindBinary resolves extBin to an absolute path. It first checks the directory
 // containing the current executable, then falls back to exec.LookPath.
@@ -40,16 +59,6 @@ func QueryVersion(binPath string) string {
 		return m
 	}
 	return ""
-}
-
-// QueryModuleHelp runs `[binPath] --modulehelp` and returns its stdout.
-// Returns "" if the binary exits non-zero or produces no output.
-func QueryModuleHelp(binPath string) string {
-	out, err := exec.Command(binPath, "--modulehelp").Output()
-	if err != nil {
-		return ""
-	}
-	return string(out)
 }
 
 // NotFoundError is returned by FindBinary when the binary cannot be located.

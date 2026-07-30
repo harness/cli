@@ -62,13 +62,8 @@ func GetModuleHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	}
 
-	// render help text: use embedded text, fall back to querying the plugin binary, or plain list
+	// render help text from the spec (plugin specs carry it too), or a plain list
 	helpText := meta.HelpText
-	if helpText == "" && meta.ExternalBinary != "" {
-		if binPath, err := plugin.FindBinary(meta.ExternalBinary); err == nil {
-			helpText = plugin.QueryModuleHelp(binPath)
-		}
-	}
 	if helpText != "" {
 		nounBlock := RenderNounBlock(meta.Name, nouns, ctx.Resolver)
 		fmt.Print(strings.ReplaceAll(helpText, "{{nouns}}", nounBlock))
