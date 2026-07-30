@@ -17,6 +17,7 @@ import (
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/config"
 	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
@@ -242,12 +243,14 @@ func validateToken(apiURL, token, accountID string) error {
 	var err error
 	if isSAT {
 		url := fmt.Sprintf("%s/ng/api/token/validate?accountIdentifier=%s", apiURL, accountID)
+		hlog.Debug("validating token", "kind", "SAT", "method", "POST", "url", url)
 		req, err = http.NewRequest("POST", url, strings.NewReader(token))
 		if err == nil {
 			req.Header.Set("Content-Type", "text/plain")
 		}
 	} else {
 		url := fmt.Sprintf("%s/ng/api/accounts/%s?accountIdentifier=%s", apiURL, accountID, accountID)
+		hlog.Debug("validating token", "kind", "PAT", "method", "GET", "url", url)
 		req, err = http.NewRequest("GET", url, nil)
 	}
 	if err != nil {
