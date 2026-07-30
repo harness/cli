@@ -1,6 +1,6 @@
 spec_version: 1
 module_type: builtin
-module_desc: Harness AI Evals — datasets, evaluations, runs, metrics, metric sets, suites, targets, and models
+module_desc: Harness AI Evals — datasets, evaluations, runs, metrics, metric sets, suites, and targets
 harness_internal: true
 help_text: |
   ## AI Evals (aievals)
@@ -25,8 +25,7 @@ help_text: |
   pass/fail thresholds.
 
   An eval_target points at the LLM endpoint being tested (e.g. a Harness AI
-  Gateway route). An eval_model defines a provider + model ID used as a judge
-  or target (e.g. openai / gpt-4o).
+  Gateway route).
 
   An eval_suite groups multiple evaluations that should run together. Trigger
   the whole suite with `execute eval_suite:run <suite_id>`.
@@ -34,9 +33,9 @@ help_text: |
   ### Typical workflow
 
     harness create eval_dataset --set name=smoke identifier=smoke
-    harness create eval_target  --set name=my-llm identifier=my-llm type=prompt
-    harness create eval_metric_set --set name=basic identifier=basic
-    harness create evaluation   --set name=v1 identifier=v1 dataset_id=<id> target_id=<id>
+    harness create eval_target  --set name=my-llm type=prompt
+    harness create eval_metric_set --set name=basic
+    harness create evaluation   --set name=v1 dataset_id=<id> target_id=<id>
     harness execute evaluation:run <eval_id>
     harness list eval_run <eval_id>
 
@@ -63,9 +62,9 @@ nouns:
         expr: it.item_count
         align: right
       - id: created
-        expr: epochMs(it.created)
+        expr: it.created
       - id: updated
-        expr: epochMs(it.updated)
+        expr: it.updated
 
   - noun: evaluation
     short_desc: An AI Eval wiring a dataset, target, and metric set. Trigger runs via execute action run.
@@ -97,7 +96,7 @@ nouns:
         expr: it.total_runs
         align: right
       - id: created
-        expr: epochMs(it.created_at)
+        expr: it.created_at
 
   - noun: eval_run
     short_desc: A single execution of an AI Eval with per-item scores and an aggregate pass rate.
@@ -124,9 +123,9 @@ nouns:
         expr: it.failed_count
         align: right
       - id: started
-        expr: epochMs(it.started_at)
+        expr: it.started_at
       - id: finished
-        expr: epochMs(it.completed_at)
+        expr: it.completed_at
 
   - noun: eval_metric
     short_desc: An AI Evals metric (e.g. exact_match, rubric_judge, contains, geval).
@@ -181,24 +180,6 @@ nouns:
         expr: it.connector_ref
       - id: description
         expr: it.description
-
-  - noun: eval_model
-    short_desc: An AI Evals model definition (provider + model ID for use as judge or target).
-    noun_aliases: [eval_models]
-    fields:
-      - id: id
-        label: ID
-        expr: it.id
-      - id: name
-        expr: it.name
-      - id: provider
-        expr: it.provider
-      - id: model_id
-        label: Model
-        expr: it.model_id
-      - id: is_active
-        label: Active
-        expr: it.is_active
 
   - noun: eval_suite
     short_desc: A named collection of evaluations run together.
@@ -322,7 +303,7 @@ commands:
   - command: create evaluation
     verb: create
     noun: evaluation
-    short: "Create an AI Eval: harness create evaluation --set name=... identifier=... dataset_id=... target_id=..."
+    short: "Create an AI Eval: harness create evaluation --set name=... dataset_id=... target_id=..."
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -376,7 +357,7 @@ commands:
       request_headers:
         Harness-Account: auth.account
       items_expr: it.data
-      get_id_expr: it.id
+      get_id_expr: it.run_id
       query_params:
         page: flags.page
         limit: flags.limit
@@ -441,7 +422,7 @@ commands:
   - command: create eval_metric
     verb: create
     noun: eval_metric
-    short: "Create an AI Evals metric: harness create eval_metric --set name=... identifier=... kind=exact_match"
+    short: "Create an AI Evals metric: harness create eval_metric --set name=... type=heuristic dimension=correctness kind=exact_match"
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -507,7 +488,7 @@ commands:
   - command: create eval_metric_set
     verb: create
     noun: eval_metric_set
-    short: "Create an AI Evals metric set: harness create eval_metric_set --set name=... identifier=..."
+    short: "Create an AI Evals metric set: harness create eval_metric_set --set name=..."
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -573,7 +554,7 @@ commands:
   - command: create eval_target
     verb: create
     noun: eval_target
-    short: "Create an AI Evals target: harness create eval_target --set name=... identifier=... type=prompt"
+    short: "Create an AI Evals target: harness create eval_target --set name=... type=prompt"
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -595,72 +576,6 @@ commands:
     endpoint:
       method: DELETE
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}
-      request_headers:
-        Harness-Account: auth.account
-      item_expr: it
-
-  # ── eval_model ────────────────────────────────────────────────────────────────
-
-  - command: list eval_model
-    verb: list
-    noun: eval_model
-    short: List AI Evals model definitions
-    handler_type: endpoint
-    endpoint:
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/models
-      request_headers:
-        Harness-Account: auth.account
-      items_expr: it.data
-      get_id_expr: it.id
-      query_params:
-        page: flags.page
-        limit: flags.limit
-      paging:
-        paging_strategy: page_index
-        countable: true
-        page_index_param: page
-        page_size_param: limit
-        page_size_default: 20
-        page_size_max: 200
-        total_expr: it.total_elements
-      columns: [id, name, provider, model_id, is_active]
-
-  - command: get eval_model
-    verb: get
-    noun: eval_model
-    short: Get an AI Evals model by ID
-    handler_type: endpoint
-    endpoint:
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/models/{{ctx.id}}
-      request_headers:
-        Harness-Account: auth.account
-      item_expr: it
-
-  - command: create eval_model
-    verb: create
-    noun: eval_model
-    short: "Create an AI Evals model: harness create eval_model --set name=... identifier=... provider=openai model_id=gpt-4o"
-    handler_type: endpoint
-    flags_builtin:
-      set: true
-    endpoint:
-      method: POST
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/models
-      request_headers:
-        Harness-Account: auth.account
-      create_strategy: set-fields
-      create_body_wrap: ""
-      text_header: "\nCreated model {{it.id}}\n"
-
-  - command: delete eval_model
-    verb: delete
-    noun: eval_model
-    confirm_mode: prompt
-    short: Delete an AI Evals model by ID
-    handler_type: endpoint
-    endpoint:
-      method: DELETE
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/models/{{ctx.id}}
       request_headers:
         Harness-Account: auth.account
       item_expr: it
