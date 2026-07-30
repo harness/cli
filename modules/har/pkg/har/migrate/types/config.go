@@ -35,6 +35,10 @@ var (
 	DART        ArtifactType = "DART"
 	RAW         ArtifactType = "RAW"
 	SWIFT       ArtifactType = "SWIFT"
+	DEBIAN      ArtifactType = "DEBIAN"
+	CONAN       ArtifactType = "CONAN"
+	PUPPET      ArtifactType = "PUPPET"
+	HELM_HTTP   ArtifactType = "HELM_HTTP"
 )
 
 // Config represents the top-level configuration structure

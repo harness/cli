@@ -132,7 +132,16 @@ func IsFileLevelFilterableArtifact(artifactType types.ArtifactType) bool {
 func IsPackageLevelFilterableArtifact(artifactType types.ArtifactType) bool {
 
 	switch artifactType {
-	case types.DOCKER, types.HELM, types.HELM_LEGACY, types.RPM, types.CONDA, types.COMPOSER, types.SWIFT:
+	case types.DOCKER, types.HELM, types.HELM_LEGACY, types.HELM_HTTP, types.RPM, types.CONDA, types.COMPOSER, types.SWIFT, types.CONAN:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsMetadataDrivenArtifact(artifactType types.ArtifactType) bool {
+	switch artifactType {
+	case types.RPM, types.DEBIAN:
 		return true
 	default:
 		return false
