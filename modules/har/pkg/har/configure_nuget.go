@@ -33,6 +33,13 @@ func configureNuget(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("writing NuGet.Config: %w", err)
 	}
 
+	_ = savePkgmgrConfig("nuget", pkgmgrSavedConfig{
+		RegistryIdentifier: registryID,
+		RegistryURL:        registryURL,
+		OrgID:              a.OrgID,
+		ProjectID:          a.ProjectID,
+	})
+
 	fmt.Printf("Configured NuGet → %s (%s)\n", registryURL, configPath)
 	return nil
 }
