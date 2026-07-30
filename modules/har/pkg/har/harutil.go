@@ -7,6 +7,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,6 +102,40 @@ func buildPkgURL(registryURL, accountID, subpath string) (string, error) {
 	q.Set("accountIdentifier", accountID)
 	base.RawQuery = q.Encode()
 	return base.String(), nil
+}
+
+// savePkgmgrConfig writes a pkgmgrSavedConfig to ~/.harness/<name>-pkgmgr.json.
+func savePkgmgrConfig(name string, cfg pkgmgrSavedConfig) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(home, ".harness")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWrite(filepath.Join(dir, name+"-pkgmgr.json"), data, 0600)
+}
+
+// loadPkgmgrConfig reads ~/.harness/<name>-pkgmgr.json; returns nil if absent.
+func loadPkgmgrConfig(name string) *pkgmgrSavedConfig {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".harness", name+"-pkgmgr.json"))
+	if err != nil {
+		return nil
+	}
+	var cfg pkgmgrSavedConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil
+	}
+	return &cfg
 }
 
 // readFileFromTarGz reads the contents of the first file in archivePath whose path

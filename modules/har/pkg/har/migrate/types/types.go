@@ -13,6 +13,7 @@ var (
 	ErrArtifactNotFound        = errors.New("artifact not found")
 	ErrRegistryNotFound        = errors.New("ar not found")
 	ErrInvalidCredentials      = errors.New("invalid credentials")
+	ErrArtifactAlreadyExists   = errors.New("artifact already exists")
 )
 
 type File struct {
@@ -41,6 +42,7 @@ type Package struct {
 	Size     int
 	URL      string
 	Version  string
+	Metadata map[string]string
 }
 
 type Version struct {

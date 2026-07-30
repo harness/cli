@@ -216,7 +216,7 @@ The CLI reads auth from the active profile (typically `~/.harness/profiles.yaml`
 
 | File | Commands |
 |------|---------|
-| `aievals.spec.yaml` | list/get/create/delete for eval_dataset, evaluation, eval_run, eval_metric, eval_metric_set, eval_target, eval_model, eval_suite; execute evaluation:run, execute eval_suite:run |
+| `aievals.spec.yaml` | list/get/create/delete for eval_dataset, evaluation, eval_run, eval_metric, eval_metric_set, eval_target, eval_suite; execute evaluation:run, execute eval_suite:run |
 | `code.spec.yaml` | list/get/create/update/delete repository; list/get/create/update/execute pr (pr:merge, pr:close); list/get/create/delete branch; list/get commit; list/create/delete tag; list pr_activity |
 | `kg.spec.yaml` | list/get kg:type; list kg:queryable_type, kg:related_type, kg:connection; execute hql:grammar, hql:validate, hql:run, hql:explain |
 | `platform.spec.yaml` | Platform resources (projects, orgs, etc.) |

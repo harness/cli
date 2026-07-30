@@ -14,6 +14,7 @@ var (
 	JFROG      RegistryType = "JFROG"
 	MOCK_JFROG RegistryType = "MOCK_JFROG"
 	NEXUS      RegistryType = "NEXUS"
+	HARBOR     RegistryType = "HARBOR"
 )
 
 type ArtifactType string
@@ -34,6 +35,10 @@ var (
 	DART        ArtifactType = "DART"
 	RAW         ArtifactType = "RAW"
 	SWIFT       ArtifactType = "SWIFT"
+	DEBIAN      ArtifactType = "DEBIAN"
+	CONAN       ArtifactType = "CONAN"
+	PUPPET      ArtifactType = "PUPPET"
+	HELM_HTTP   ArtifactType = "HELM_HTTP"
 )
 
 // Config represents the top-level configuration structure
@@ -159,7 +164,7 @@ func validateCredentials(registry RegistryConfig) error {
 
 	// Check supported registry types
 	switch registry.Type {
-	case HAR, JFROG, NEXUS, MOCK_JFROG:
+	case HAR, JFROG, NEXUS, MOCK_JFROG, HARBOR:
 		// These are supported
 	default:
 		return fmt.Errorf("unsupported registry type: %s", registry.Type)

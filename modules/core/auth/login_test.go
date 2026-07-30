@@ -5,6 +5,7 @@ package auth
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -367,6 +368,77 @@ func TestValidateToken(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err, tc.wantErrSub)
 			}
 		})
+	}
+}
+
+// satToken is a syntactically valid SAT whose account segment is "acctid".
+const satToken = "sat.acctid.tokenid.secret123"
+
+func TestValidateToken_endpointByTokenKind(t *testing.T) {
+	tests := []struct {
+		name       string
+		token      string
+		wantMethod string
+		wantPath   string
+		wantBody   string
+	}{
+		{
+			name:       "SAT uses token introspection",
+			token:      satToken,
+			wantMethod: "POST",
+			wantPath:   "/ng/api/token/validate",
+			wantBody:   satToken,
+		},
+		{
+			name:       "PAT uses account lookup",
+			token:      validToken,
+			wantMethod: "GET",
+			wantPath:   "/ng/api/accounts/acctid",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotMethod, gotPath, gotBody string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotMethod, gotPath = r.Method, r.URL.Path
+				b, _ := io.ReadAll(r.Body)
+				gotBody = string(b)
+				w.Write([]byte(`{"data":{}}`))
+			}))
+			defer srv.Close()
+
+			if err := validateToken(srv.URL, tc.token, "acctid"); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotMethod != tc.wantMethod {
+				t.Errorf("method = %q, want %q", gotMethod, tc.wantMethod)
+			}
+			if gotPath != tc.wantPath {
+				t.Errorf("path = %q, want %q", gotPath, tc.wantPath)
+			}
+			if gotBody != tc.wantBody {
+				t.Errorf("body = %q, want %q", gotBody, tc.wantBody)
+			}
+		})
+	}
+}
+
+func TestValidateToken_SAT403MentionsServiceAccount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+	}))
+	defer srv.Close()
+
+	err := validateToken(srv.URL, satToken, "acctid")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "service account token rejected (403)") {
+		t.Fatalf("error = %q, want the service-account-specific 403 message", err)
+	}
+	if !strings.Contains(err.Error(), "--no-validate") {
+		t.Fatalf("error = %q, want a --no-validate escape hatch in the hint", err)
 	}
 }
 

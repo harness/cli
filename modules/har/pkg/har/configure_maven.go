@@ -34,6 +34,13 @@ func configureMaven(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("writing settings.xml: %w", err)
 	}
 
+	_ = savePkgmgrConfig("maven", pkgmgrSavedConfig{
+		RegistryIdentifier: registryID,
+		RegistryURL:        registryURL,
+		OrgID:              a.OrgID,
+		ProjectID:          a.ProjectID,
+	})
+
 	fmt.Printf("Configured Maven → %s (%s)\n", registryURL, settingsPath)
 	return nil
 }
@@ -52,6 +59,33 @@ func writeMavenSettings(settingsPath, registryID, registryURL, authToken string)
 		URL      string   `xml:"url"`
 		MirrorOf string   `xml:"mirrorOf"`
 	}
+	type RepoEnabled struct {
+		Enabled bool `xml:"enabled"`
+	}
+	type Repository struct {
+		ID        string      `xml:"id"`
+		URL       string      `xml:"url"`
+		Releases  RepoEnabled `xml:"releases"`
+		Snapshots RepoEnabled `xml:"snapshots"`
+	}
+	type PluginRepository struct {
+		ID        string      `xml:"id"`
+		URL       string      `xml:"url"`
+		Releases  RepoEnabled `xml:"releases"`
+		Snapshots RepoEnabled `xml:"snapshots"`
+	}
+	type Profile struct {
+		XMLName      xml.Name `xml:"profile"`
+		ID           string   `xml:"id"`
+		Repositories struct {
+			XMLName    xml.Name     `xml:"repositories"`
+			Repository []Repository `xml:"repository"`
+		}
+		PluginRepositories struct {
+			XMLName          xml.Name           `xml:"pluginRepositories"`
+			PluginRepository []PluginRepository `xml:"pluginRepository"`
+		}
+	}
 	type Settings struct {
 		XMLName xml.Name `xml:"settings"`
 		Xmlns   string   `xml:"xmlns,attr"`
@@ -62,6 +96,14 @@ func writeMavenSettings(settingsPath, registryID, registryURL, authToken string)
 		Mirrors struct {
 			XMLName xml.Name `xml:"mirrors"`
 			Mirror  []Mirror `xml:"mirror"`
+		}
+		Profiles struct {
+			XMLName xml.Name  `xml:"profiles"`
+			Profile []Profile `xml:"profile"`
+		}
+		ActiveProfiles struct {
+			XMLName       xml.Name `xml:"activeProfiles"`
+			ActiveProfile []string `xml:"activeProfile"`
 		}
 	}
 
@@ -75,23 +117,50 @@ func writeMavenSettings(settingsPath, registryID, registryURL, authToken string)
 
 	serverID := "harness-" + registryID
 
+	// Strip any Harness-managed mirrors entirely — mirrorOf: "*" breaks
+	// resolution of Maven's own core lifecycle plugins, so previously
+	// written broken configs self-heal here with no replacement.
 	var mirrors []Mirror
 	for _, m := range settings.Mirrors.Mirror {
-		if m.ID == serverID {
-			continue
-		}
-		if strings.HasPrefix(m.ID, "harness-") && m.MirrorOf == "*" {
+		if strings.HasPrefix(m.ID, "harness-") {
 			continue
 		}
 		mirrors = append(mirrors, m)
 	}
-	mirrors = append(mirrors, Mirror{
-		ID:       serverID,
-		Name:     "Harness " + registryID,
-		URL:      registryURL,
-		MirrorOf: "*",
-	})
 	settings.Mirrors.Mirror = mirrors
+
+	var profiles []Profile
+	for _, p := range settings.Profiles.Profile {
+		if strings.HasPrefix(p.ID, "harness-") {
+			continue
+		}
+		profiles = append(profiles, p)
+	}
+	newProfile := Profile{ID: serverID}
+	newProfile.Repositories.Repository = []Repository{{
+		ID:        serverID,
+		URL:       registryURL,
+		Releases:  RepoEnabled{Enabled: true},
+		Snapshots: RepoEnabled{Enabled: true},
+	}}
+	newProfile.PluginRepositories.PluginRepository = []PluginRepository{{
+		ID:        serverID,
+		URL:       registryURL,
+		Releases:  RepoEnabled{Enabled: true},
+		Snapshots: RepoEnabled{Enabled: true},
+	}}
+	profiles = append(profiles, newProfile)
+	settings.Profiles.Profile = profiles
+
+	var activeProfiles []string
+	for _, ap := range settings.ActiveProfiles.ActiveProfile {
+		if strings.HasPrefix(ap, "harness-") {
+			continue
+		}
+		activeProfiles = append(activeProfiles, ap)
+	}
+	activeProfiles = append(activeProfiles, serverID)
+	settings.ActiveProfiles.ActiveProfile = activeProfiles
 
 	var servers []Server
 	for _, s := range settings.Servers.Server {
