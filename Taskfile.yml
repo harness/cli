@@ -26,12 +26,16 @@ tasks:
 
   build:main:
     desc: Build the harness binary
+    # once: several tasks depend on this (build:har, check:specs, install). Without
+    # it Task's default run:always rebuilds bin/harness for each dependent, and
+    # parallel deps race on the same output path.
+    run: once
     cmds:
       - go build -ldflags "{{.LDFLAGS}}" -o bin/{{.BINARY}} {{.MAIN}}
 
   build:har:
     desc: Build the harness-har binary into devhome/bin (dev plugin home)
-    deps: [build:main]
+    run: once
     cmds:
       - mkdir -p {{.DEVHOME}}/bin
       - cd modules/har && go build -ldflags "{{.LDFLAGS}}" -o ../../{{.DEVHOME}}/bin/harness-har ./cmd/harness-har/main-harness-har.go
@@ -40,6 +44,8 @@ tasks:
   dev:plugin:har:
     desc: Install the built harness-har binary into devhome via `install plugin`
     internal: true
+    # The installer is bin/harness itself, hence the build:main dep.
+    deps: [build:main]
     cmds:
       # Use the real installer path: `install plugin` runs the identity gate,
       # captures --spec, and stamps provenance into devhome/spec. Exactly what a
@@ -48,24 +54,15 @@ tasks:
       - echo "Run with HARNESS_CLI_HOME={{.DEVHOME}} ./bin/harness ..."
 
   build:opt:
-    desc: Build all optimized binaries (stripped symbols, no DWARF)
-    deps: [build:opt:main, build:opt:har]
-
-  build:opt:main:
-    desc: Build optimized harness binary
+    desc: Report release binary sizes (goreleaser's flags; bin/opt-* are throwaway)
     cmds:
-      - go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o bin/{{.BINARY}} {{.MAIN}}
-      - |
-        echo "harness size: $(du -sh bin/{{.BINARY}} | cut -f1)"
-
-  build:opt:har:
-    desc: Build optimized harness-har binary into devhome/bin
-    cmds:
-      - mkdir -p {{.DEVHOME}}/bin
-      - cd modules/har && go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o ../../{{.DEVHOME}}/bin/harness-har ./cmd/harness-har/main-harness-har.go
-      - |
-        echo "harness-har size: $(du -sh {{.DEVHOME}}/bin/harness-har | cut -f1)"
-      - task: dev:plugin:har
+      # Same flags as .goreleaser.yaml, so these sizes match what ships. Written
+      # to bin/opt-* rather than the normal paths: this is only for reading sizes,
+      # so it must not clobber the debuggable binaries or the devhome plugin.
+      - mkdir -p bin
+      - go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o bin/opt-{{.BINARY}} {{.MAIN}}
+      - cd modules/har && go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o ../../bin/opt-{{.BINARY}}-har ./cmd/harness-har/main-harness-har.go
+      - ls -lh bin/opt-*
 
   install:
     desc: Build and install harness binary to ~/.local/bin
