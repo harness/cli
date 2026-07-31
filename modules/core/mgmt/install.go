@@ -5,6 +5,7 @@ package mgmt
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
@@ -68,11 +69,36 @@ func resolveVersion(version string) (string, error) {
 const (
 	installBinaryName = "harness"
 	installBundleName = "harness-core"
-	installDefaultDir = "~/.local/bin"
 )
 
 var modulePlugins = map[string]string{
 	"har": "harness-har",
+}
+
+func defaultInstallDir() string {
+	if runtime.GOOS == "windows" {
+		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+			return filepath.Join(localAppData, "Programs", "harness")
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, "AppData", "Local", "Programs", "harness")
+		}
+	}
+	return "~/.local/bin"
+}
+
+func installedBinaryName(base string) string {
+	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(base), ".exe") {
+		return base + ".exe"
+	}
+	return base
+}
+
+func archiveExtensionForPlatform(platform string) string {
+	if strings.HasPrefix(platform, "windows_") {
+		return ".zip"
+	}
+	return ".tar.gz"
 }
 
 // downloadModuleIfNeeded checks whether the module at existingBinPath needs upgrading and, if so,
@@ -122,7 +148,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 
 	installDir := cmdctx.GetString(ctx.FlagValues, "install-dir")
 	if installDir == "" {
-		installDir = installDefaultDir
+		installDir = defaultInstallDir()
 	}
 	installDir = hbase.ExpandHomeDir(installDir)
 
@@ -148,7 +174,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 			return err
 		}
 		if !exists {
-			fmt.Printf("Version %s not found\n", version)
+			fmt.Printf("Version %s not found for platform %s\n", version, platform)
 			os.Exit(1)
 		}
 		current := hbase.Version
@@ -184,7 +210,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		if err := downloadAndInstallBinary(version, platform, installDir, installBundleName, installBinaryName); err != nil {
 			return err
 		}
-		fmt.Printf("Installed harness %s to %s/%s\n", version, installDir, installBinaryName)
+		fmt.Printf("Installed harness %s to %s\n", version, filepath.Join(installDir, installedBinaryName(installBinaryName)))
 	}
 
 	if coreOnly {
@@ -193,7 +219,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 
 	// Update any Harness modules already installed in the same directory as core.
 	for moduleName, binaryName := range modulePlugins {
-		binPath := filepath.Join(installDir, binaryName)
+		binPath := filepath.Join(installDir, installedBinaryName(binaryName))
 		if _, err := os.Stat(binPath); err != nil {
 			continue
 		}
@@ -204,7 +230,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 			existing := plugin.QueryVersion(binPath)
 			fmt.Printf("Module %q is up to date (current: %s, latest: %s).\n", moduleName, existing, version)
 		} else {
-			fmt.Printf("Installed module %q %s to %s/%s\n", moduleName, version, installDir, binaryName)
+			fmt.Printf("Installed module %q %s to %s\n", moduleName, version, filepath.Join(installDir, installedBinaryName(binaryName)))
 		}
 	}
 
@@ -231,7 +257,7 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 
 	installDir := cmdctx.GetString(ctx.FlagValues, "install-dir")
 	if installDir == "" {
-		installDir = installDefaultDir
+		installDir = defaultInstallDir()
 	}
 	installDir = hbase.ExpandHomeDir(installDir)
 
@@ -298,7 +324,7 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	fmt.Printf("Installed module %q %s to %s/%s\n", moduleName, version, installDir, binaryName)
+	fmt.Printf("Installed module %q %s to %s\n", moduleName, version, filepath.Join(installDir, installedBinaryName(binaryName)))
 	return nil
 }
 
@@ -309,6 +335,8 @@ func detectPlatform() (string, error) {
 		os_ = "darwin"
 	case "linux":
 		os_ = "linux"
+	case "windows":
+		os_ = "windows"
 	default:
 		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
@@ -326,8 +354,10 @@ func detectPlatform() (string, error) {
 func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName string) error {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
+	ext := archiveExtensionForPlatform(platform)
+	archiveName := base + ext
 
-	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	archiveURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", release.Repo, version, archiveName)
 	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
 
 	tmp, err := os.MkdirTemp("", "harness-install-*")
@@ -336,25 +366,26 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 	}
 	defer os.RemoveAll(tmp)
 
-	archivePath := filepath.Join(tmp, base+".tar.gz")
-	if err := downloadFile(archivePath, tarURL); err != nil {
+	archivePath := filepath.Join(tmp, archiveName)
+	if err := downloadFile(archivePath, archiveURL); err != nil {
 		if strings.Contains(err.Error(), "HTTP 404") {
-			return fmt.Errorf("%s %s not found", pkgName, version)
+			return fmt.Errorf("%s %s not found for platform %s", pkgName, version, platform)
 		}
 		return fmt.Errorf("downloading release: %w", err)
 	}
 
 	hlog.Debug("verifying checksum")
-	if err := verifyChecksum(archivePath, base+".tar.gz", checksumURL); err != nil {
+	if err := verifyChecksum(archivePath, archiveName, checksumURL); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
-	binaryPath := filepath.Join(tmp, binaryName)
-	if err := extractBinaryFromTar(archivePath, binaryName, binaryPath); err != nil {
+	memberName := installedBinaryName(binaryName)
+	binaryPath := filepath.Join(tmp, memberName)
+	if err := extractBinaryFromArchive(archivePath, memberName, binaryPath, ext); err != nil {
 		return fmt.Errorf("extracting binary: %w", err)
 	}
 
-	dest := filepath.Join(destDir, binaryName)
+	dest := filepath.Join(destDir, memberName)
 	staging := dest + ".new"
 	if err := os.Rename(binaryPath, staging); err != nil {
 		return fmt.Errorf("staging binary: %w", err)
@@ -373,8 +404,9 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 func releaseAssetExists(version, platform, pkgName string) (bool, error) {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
+	ext := archiveExtensionForPlatform(platform)
 	client := &http.Client{Timeout: 15 * time.Second}
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s%s", release.Repo, version, base, ext)
 	hlog.Debug("HEAD", "url", url)
 	resp, err := client.Head(url)
 	if err != nil {
@@ -478,6 +510,43 @@ func extractBinaryFromTar(archivePath, binaryName, dest string) error {
 			out.Close()
 			return err
 		}
+	}
+	return fmt.Errorf("binary %q not found in archive", binaryName)
+}
+
+func extractBinaryFromArchive(archivePath, binaryName, dest, ext string) error {
+	switch ext {
+	case ".zip":
+		return extractBinaryFromZip(archivePath, binaryName, dest)
+	default:
+		return extractBinaryFromTar(archivePath, binaryName, dest)
+	}
+}
+
+func extractBinaryFromZip(archivePath, binaryName, dest string) error {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if filepath.Base(f.Name) != binaryName {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, err = io.Copy(out, rc)
+		out.Close()
+		rc.Close()
+		return err
 	}
 	return fmt.Errorf("binary %q not found in archive", binaryName)
 }
