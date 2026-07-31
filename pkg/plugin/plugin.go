@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -17,9 +18,11 @@ var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+\S*`)
 // containing the current executable, then falls back to exec.LookPath.
 func FindBinary(extBin string) (string, error) {
 	if self, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(self), extBin)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
+		for _, name := range siblingBinaryNames(extBin) {
+			candidate := filepath.Join(filepath.Dir(self), name)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, nil
+			}
 		}
 	}
 	binPath, err := exec.LookPath(extBin)
@@ -27,6 +30,13 @@ func FindBinary(extBin string) (string, error) {
 		return "", &NotFoundError{Binary: extBin}
 	}
 	return binPath, nil
+}
+
+func siblingBinaryNames(extBin string) []string {
+	if runtime.GOOS != "windows" || strings.HasSuffix(strings.ToLower(extBin), ".exe") {
+		return []string{extBin}
+	}
+	return []string{extBin, extBin + ".exe"}
 }
 
 // QueryVersion runs `[binPath] version` and returns the semver string (e.g. "1.2.3-dev")
