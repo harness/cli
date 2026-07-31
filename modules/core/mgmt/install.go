@@ -22,7 +22,6 @@ import (
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/hlog"
-	"github.com/harness/cli/pkg/plugin"
 	"github.com/harness/cli/pkg/release"
 )
 
@@ -70,29 +69,6 @@ const (
 	installBundleName = "harness-core"
 	installDefaultDir = "~/.local/bin"
 )
-
-var modulePlugins = map[string]string{
-	"har": "harness-har",
-}
-
-// downloadModuleIfNeeded checks whether the module at existingBinPath needs upgrading and, if so,
-// downloads and installs it. Returns (true, nil) when installed, (false, nil) when already up to
-// date (skipped), or (false, err) on failure. Pass existingBinPath="" to skip the version check
-// and always download.
-func downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir string, force bool, existingBinPath string) (bool, error) {
-	pkgName := fmt.Sprintf("harness-plugin-%s", moduleName)
-	if !force && existingBinPath != "" {
-		installed := plugin.QueryVersion(existingBinPath)
-		if cmp, ok := cmpVersion(version, installed); ok && cmp <= 0 {
-			return false, nil
-		}
-	}
-	hlog.Info("downloading module", "module", moduleName, "version", version, "platform", platform)
-	if err := downloadAndInstallBinary(version, platform, installDir, pkgName, binaryName); err != nil {
-		return false, err
-	}
-	return true, nil
-}
 
 func checkRunningFromInstallDir(installDir string) error {
 	exe, err := os.Executable()
@@ -191,115 +167,34 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	}
 
-	// Update any Harness modules already installed in the same directory as core.
-	for moduleName, binaryName := range modulePlugins {
-		binPath := filepath.Join(installDir, binaryName)
-		if _, err := os.Stat(binPath); err != nil {
-			continue
-		}
-		installed, err := downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir, force, binPath)
-		if err != nil {
-			fmt.Printf("warning: could not update module %q: %v\n", moduleName, err)
-		} else if !installed {
-			existing := plugin.QueryVersion(binPath)
-			fmt.Printf("Module %q is up to date (current: %s, latest: %s).\n", moduleName, existing, version)
-		} else {
-			fmt.Printf("Installed module %q %s to %s/%s\n", moduleName, version, installDir, binaryName)
+	// Bring any installed plugins up to the version we just installed. Plugins
+	// live in ~/.harness/bin and are tracked by their spec, not by sitting next
+	// to core, so this no longer depends on installDir.
+	for _, name := range installedRegistryPlugins() {
+		if err := installRegistryPlugin(name, version, force, false); err != nil {
+			fmt.Printf("warning: could not update plugin %q: %v\n", name, err)
 		}
 	}
 
 	return nil
 }
 
+// InstallModuleHandler installs a module that ships as a plugin. "module" is the
+// feature-area axis and "plugin" is the deployment-type axis; a module that
+// isn't compiled in is installed exactly like any other plugin, so this hands
+// off to the one install path rather than duplicating it.
 func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 	moduleName := ctx.Id
 	if moduleName == "" {
-		return fmt.Errorf("module name is required (supported: har)")
+		return fmt.Errorf("module name is required (supported: %s)", registryNames())
 	}
-	binaryName, ok := modulePlugins[moduleName]
-	if !ok {
-		supported := make([]string, 0, len(modulePlugins))
-		for k := range modulePlugins {
-			supported = append(supported, k)
-		}
-		return fmt.Errorf("unknown module %q — supported: %s", moduleName, strings.Join(supported, ", "))
+	if _, ok := pluginRegistry[moduleName]; !ok {
+		return fmt.Errorf("unknown module %q — supported: %s", moduleName, registryNames())
 	}
-
 	version := cmdctx.GetString(ctx.FlagValues, "version")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
-
-	installDir := cmdctx.GetString(ctx.FlagValues, "install-dir")
-	if installDir == "" {
-		installDir = installDefaultDir
-	}
-	installDir = hbase.ExpandHomeDir(installDir)
-
-	var err error
-	version, err = resolveVersion(version)
-	if err != nil {
-		return err
-	}
-
-	platform, err := detectPlatform()
-	if err != nil {
-		return err
-	}
-	hlog.Debug("platform detected", "platform", platform)
-
-	pkgName := fmt.Sprintf("harness-plugin-%s", moduleName)
-
-	if check {
-		exists, err := releaseAssetExists(version, platform, pkgName)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			fmt.Printf("Module %q version %s not found\n", moduleName, version)
-			os.Exit(1)
-		}
-		if binPath, err := plugin.FindBinary(binaryName); err == nil {
-			installed := plugin.QueryVersion(binPath)
-			if cmp, ok := cmpVersion(version, installed); ok {
-				if cmp > 0 {
-					fmt.Printf("Upgrade available for module %q: %s (current: %s)\n", moduleName, version, installed)
-				} else if cmp < 0 {
-					fmt.Printf("Current version %s of module %q is ahead of latest %s\n", installed, moduleName, version)
-				} else {
-					fmt.Printf("Module %q is up to date (current: %s)\n", moduleName, installed)
-				}
-				return nil
-			}
-		}
-		fmt.Printf("Module %q %s is available to install\n", moduleName, version)
-		return nil
-	}
-
-	if !force {
-		if binPath, err := plugin.FindBinary(binaryName); err == nil {
-			existing := plugin.QueryVersion(binPath)
-			if cmp, ok := cmpVersion(version, existing); ok && cmp <= 0 {
-				fmt.Printf("Module %q is installed at %s (installed: %s, latest: %s).\n", moduleName, binPath, existing, version)
-				if cmp < 0 {
-					fmt.Printf("Installed version is ahead of latest. Use --force to reinstall.\n")
-				} else {
-					fmt.Printf("Up to date. Use --force to reinstall.\n")
-				}
-				return nil
-			}
-		}
-	}
-
-	if err := os.MkdirAll(installDir, 0755); err != nil {
-		return fmt.Errorf("creating install directory %s: %w", installDir, err)
-	}
-
-	if _, err := downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir, force, ""); err != nil {
-		return err
-	}
-
-	fmt.Printf("Installed module %q %s to %s/%s\n", moduleName, version, installDir, binaryName)
-	return nil
+	return installRegistryPlugin(moduleName, version, force, check)
 }
 
 func detectPlatform() (string, error) {
@@ -323,12 +218,21 @@ func detectPlatform() (string, error) {
 	return os_ + "_" + arch, nil
 }
 
+// releaseURLs returns the tarball and checksum-file URLs for a package in the
+// Harness release matching version. Shared by the core install and the plugin
+// install so both derive artifact URLs the same way.
+func releaseURLs(version, platform, pkgName string) (tarURL, checksumURL string) {
+	ver := strings.TrimPrefix(version, "v")
+	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
+	tarURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	checksumURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
+	return tarURL, checksumURL
+}
+
 func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName string) error {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-
-	tarURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
-	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
+	tarURL, checksumURL := releaseURLs(version, platform, pkgName)
 
 	tmp, err := os.MkdirTemp("", "harness-install-*")
 	if err != nil {

@@ -48,7 +48,6 @@ type specFile struct {
 	ModuleType      string              `yaml:"module_type"`
 	ModuleDesc      string              `yaml:"module_desc"`
 	ModuleCore      bool                `yaml:"module_core"`
-	ExternalBinary  string              `yaml:"external_binary"`
 	HelpText        string              `yaml:"help_text"`
 	HarnessInternal bool                `yaml:"harness_internal,omitempty"`
 	Nouns           []spec.NounDef      `yaml:"nouns"`
@@ -220,18 +219,17 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, isHarnessUse
 		nounOrder[i] = nd.Noun
 	}
 	reg.SetModuleMeta(spec.ModuleMeta{
-		Name:           module,
-		Type:           f.ModuleType,
-		Desc:           f.ModuleDesc,
-		Core:           f.ModuleCore,
-		HelpText:       f.HelpText,
-		NounOrder:      nounOrder,
-		ExternalBinary: f.ExternalBinary,
-		FromSpecDir:    fromSpecDir,
-		Version:        f.Version,
-		BinaryPath:     f.BinaryPath,
-		Source:         f.Source,
-		GeneratedAt:    f.GeneratedAt,
+		Name:        module,
+		Type:        f.ModuleType,
+		Desc:        f.ModuleDesc,
+		Core:        f.ModuleCore,
+		HelpText:    f.HelpText,
+		NounOrder:   nounOrder,
+		FromSpecDir: fromSpecDir,
+		Version:     f.Version,
+		BinaryPath:  f.BinaryPath,
+		Source:      f.Source,
+		GeneratedAt: f.GeneratedAt,
 	})
 	mod := reg.Module(module)
 	for i, cmd := range f.Commands {

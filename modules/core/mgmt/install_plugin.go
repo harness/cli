@@ -4,10 +4,15 @@
 package mgmt
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -19,46 +24,441 @@ import (
 	"github.com/harness/cli/pkg/specloader"
 )
 
-// InstallPluginHandler installs a plugin from a local binary path. This is the
-// simplest install form — a direct binary, no tarball fetch. It runs the shared
-// install routine: identity gate (--version --json) → capture grammar (--spec) →
-// write <name>.spec.yaml with the host-owned provenance block. Core is the only
-// writer of spec files.
+// pluginRegistry is the optional name→artifact resolver behind the bare-name
+// install form (`install plugin har`, `install module har`). It maps a plugin
+// name to its release package name; the tarball URL is derived from that plus
+// the version and platform. It starts as a hardcoded map and can later become a
+// hosted index with no change to the install mechanism — nothing is *gated* by
+// it, since URL and path installs cover secret/internal/third-party plugins.
+var pluginRegistry = map[string]string{
+	"har": "harness-plugin-har",
+}
+
+func registryNames() string {
+	names := make([]string, 0, len(pluginRegistry))
+	for k := range pluginRegistry {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// InstallPluginHandler installs a plugin from a tarball URL, a local tarball, a
+// local binary, or a bare registry name. All four forms funnel into the same
+// routine: get a binary on disk → identity gate (--identity) → install into
+// ~/.harness/bin → capture grammar (--spec) → write <name>.spec.yaml with the
+// host-owned provenance block. Core is the only writer of spec files.
 func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 	ref := ctx.Id
 	if ref == "" {
-		return fmt.Errorf("install plugin requires a binary path: harness install plugin <binary-path>")
+		return fmt.Errorf("install plugin requires a tarball URL, a local tarball or binary path, or a plugin name (%s)", registryNames())
+	}
+	version := cmdctx.GetString(ctx.FlagValues, "version")
+	force := cmdctx.GetBool(ctx.FlagValues, "force")
+	check := cmdctx.GetBool(ctx.FlagValues, "check")
+
+	switch {
+	case strings.HasPrefix(ref, "http://"), strings.HasPrefix(ref, "https://"):
+		// A bare URL has no discoverable checksum file and no promised name.
+		res, err := installPluginFromURL(ref, "", ref, "")
+		if err != nil {
+			return err
+		}
+		res.report()
+		return nil
+	case looksLikePath(ref):
+		res, err := installPluginFromPath(ref)
+		if err != nil {
+			return err
+		}
+		res.report()
+		return nil
+	default:
+		// Bare name → registry lookup. Same path `install module` takes.
+		if err := plugin.ValidateName(ref); err != nil {
+			return fmt.Errorf("%q is not a URL, an existing file, or a valid plugin name — supported names: %s", ref, registryNames())
+		}
+		if _, ok := pluginRegistry[ref]; !ok {
+			return fmt.Errorf("unknown plugin %q — supported: %s\n\nTo install an unregistered plugin, pass its tarball URL or path", ref, registryNames())
+		}
+		return installRegistryPlugin(ref, version, force, check)
+	}
+}
+
+// looksLikePath reports whether ref should be treated as a filesystem path
+// rather than a registry name. A ref containing a separator is always a path
+// (so a typo'd path errors as a missing file, not an unknown plugin); a bare
+// word is a path only if a file by that name actually exists.
+func looksLikePath(ref string) bool {
+	if strings.ContainsAny(ref, `/\`) || strings.HasPrefix(ref, "~") || strings.HasPrefix(ref, ".") {
+		return true
+	}
+	_, err := os.Stat(ref)
+	return err == nil
+}
+
+// installRegistryPlugin installs a plugin named in pluginRegistry from the
+// Harness GitHub release matching version ("" / "latest" resolves to the latest
+// core release). check reports availability and drift without installing.
+//
+// This is the only ref form that does an up-to-date check: a name means "get me
+// the current one", so reinstalling an identical version is wasted work. An
+// explicit URL or path names a specific artifact and is always installed.
+func installRegistryPlugin(name, version string, force, check bool) error {
+	pkgName, ok := pluginRegistry[name]
+	if !ok {
+		return fmt.Errorf("unknown plugin %q — supported: %s", name, registryNames())
 	}
 
-	// Only the local-binary form is supported today; URL / name resolution
-	// funnel here later (they all end at a binary on disk).
-	binPath, err := filepath.Abs(hbase.ExpandHomeDir(ref))
-	if err != nil {
-		return fmt.Errorf("resolving %q: %w", ref, err)
-	}
-	info, err := os.Stat(binPath)
-	if err != nil {
-		return fmt.Errorf("no binary at %q: %w", binPath, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("%q is a directory, not a plugin binary", binPath)
-	}
-
-	// Identity gate: prove it's a cooperating harness plugin before we trust its
-	// name or grammar.
-	id, err := plugin.QueryIdentity(binPath)
+	version, err := resolveVersion(version)
 	if err != nil {
 		return err
 	}
-	hlog.Info("plugin identity verified", "name", id.Name, "version", id.Version)
-
-	// Capture the plugin's self-contained grammar.
-	grammar, err := exec.Command(binPath, "--spec").Output()
+	platform, err := detectPlatform()
 	if err != nil {
-		return fmt.Errorf("plugin %q failed to emit its spec (--spec): %w", id.Name, err)
+		return err
+	}
+	hlog.Debug("platform detected", "platform", platform)
+
+	installed := installedPluginVersion(name)
+
+	if check {
+		exists, err := releaseAssetExists(version, platform, pkgName)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			fmt.Printf("Plugin %q version %s not found\n", name, version)
+			os.Exit(1)
+		}
+		if installed == "" {
+			fmt.Printf("Plugin %q %s is available to install\n", name, version)
+			return nil
+		}
+		cmp, ok := cmpVersion(version, installed)
+		switch {
+		case !ok:
+			fmt.Printf("Plugin %q is installed (current: %s, latest: %s)\n", name, installed, version)
+		case cmp > 0:
+			fmt.Printf("Upgrade available for plugin %q: %s (current: %s)\n", name, version, installed)
+		case cmp < 0:
+			fmt.Printf("Current version %s of plugin %q is ahead of latest %s\n", installed, name, version)
+		default:
+			fmt.Printf("Plugin %q is up to date (current: %s)\n", name, installed)
+		}
+		return nil
 	}
 
-	// Write the spec = grammar + host-owned provenance into ~/.harness/spec.
+	if !force && installed != "" {
+		if cmp, ok := cmpVersion(version, installed); ok && cmp <= 0 {
+			if cmp < 0 {
+				fmt.Printf("Plugin %q is ahead of latest (installed: %s, latest: %s). Use --force to reinstall.\n", name, installed, version)
+			} else {
+				fmt.Printf("Plugin %q is up to date (installed: %s, latest: %s). Use --force to reinstall.\n", name, installed, version)
+			}
+			return nil
+		}
+	}
+
+	tarURL, checksumURL := releaseURLs(version, platform, pkgName)
+	hlog.Info("downloading plugin", "plugin", name, "version", version, "platform", platform)
+	// expectName: the registry promised us this plugin, so a tarball that
+	// identifies as something else is a bad registry entry, not a new plugin —
+	// and must be rejected before it lands anywhere on disk.
+	res, err := installPluginFromURL(tarURL, checksumURL, tarURL, name)
+	if err != nil {
+		return err
+	}
+	res.report()
+	return nil
+}
+
+// installedPlugin is what a successful install produces: the gated identity and
+// the path the binary actually landed at.
+type installedPlugin struct {
+	id      *plugin.Identity
+	binPath string
+}
+
+func (p installedPlugin) report() {
+	fmt.Printf("Installed plugin %q %s to %s\n", p.id.Name, p.id.Version, p.binPath)
+}
+
+// installPluginFromURL downloads a tarball (verifying its checksum when
+// checksumURL is set) and installs the plugin binary inside it.
+func installPluginFromURL(tarURL, checksumURL, source, expectName string) (*installedPlugin, error) {
+	tmp, err := os.MkdirTemp("", "harness-plugin-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+
+	archivePath := filepath.Join(tmp, filepath.Base(tarURL))
+	if err := downloadFile(archivePath, tarURL); err != nil {
+		if strings.Contains(err.Error(), "HTTP 404") {
+			return nil, fmt.Errorf("no plugin tarball at %s", tarURL)
+		}
+		return nil, fmt.Errorf("downloading plugin: %w", err)
+	}
+	if checksumURL != "" {
+		hlog.Debug("verifying checksum")
+		if err := verifyChecksum(archivePath, filepath.Base(archivePath), checksumURL); err != nil {
+			return nil, fmt.Errorf("checksum verification failed: %w", err)
+		}
+	}
+	return installPluginFromTarball(archivePath, tmp, source, expectName)
+}
+
+// installPluginFromPath installs from a local tarball or a local plugin binary.
+func installPluginFromPath(ref string) (*installedPlugin, error) {
+	path, err := filepath.Abs(hbase.ExpandHomeDir(ref))
+	if err != nil {
+		return nil, fmt.Errorf("resolving %q: %w", ref, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("no file at %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%q is a directory, not a plugin tarball or binary", path)
+	}
+	// No expected name: the user named an artifact directly, so whatever it
+	// identifies as is what they asked for.
+	if isTarball(path) {
+		tmp, err := os.MkdirTemp("", "harness-plugin-*")
+		if err != nil {
+			return nil, fmt.Errorf("creating temp dir: %w", err)
+		}
+		defer os.RemoveAll(tmp)
+		return installPluginFromTarball(path, tmp, path, "")
+	}
+	return installPluginBinary(path, path, "")
+}
+
+func isTarball(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
+}
+
+// installPluginFromTarball extracts the plugin binary from archivePath into
+// workDir and installs it.
+func installPluginFromTarball(archivePath, workDir, source, expectName string) (*installedPlugin, error) {
+	stageDir := filepath.Join(workDir, "extract")
+	if err := os.MkdirAll(stageDir, 0700); err != nil {
+		return nil, fmt.Errorf("creating staging dir: %w", err)
+	}
+	binPath, err := extractPluginBinary(archivePath, stageDir)
+	if err != nil {
+		return nil, err
+	}
+	return installPluginBinary(binPath, source, expectName)
+}
+
+// installPluginBinary is the shared tail of every install form: check the file
+// name against the required convention, gate the binary on its identity, copy it
+// into ~/.harness/bin, capture its grammar, and write the spec with host-owned
+// provenance.
+//
+// Both checks run before the copy so a binary that isn't a cooperating harness
+// plugin never lands in the bin dir; --spec runs after, on the installed path,
+// so the captured grammar comes from the binary that will actually be exec'd.
+//
+// The file name is required to be harness-<name> and to agree with the gated
+// identity name. The convention is enforced here rather than only at tarball
+// selection so that a plugin cannot be built and installed under a name that
+// would make it unfindable once it ships in a release archive.
+//
+// expectName, when non-empty, is the name the caller was promised (a registry
+// lookup). A mismatch is checked before the copy, so a bad registry entry can't
+// install a different plugin than the one asked for.
+func installPluginBinary(srcPath, source, expectName string) (*installedPlugin, error) {
+	fileName, ok := plugin.NameFromBinary(srcPath)
+	if !ok {
+		return nil, fmt.Errorf("%s: plugin binary %q must be named %s<name> (lowercase alphanumeric, single dashes as separators)",
+			source, filepath.Base(srcPath), plugin.BinaryPrefix)
+	}
+	id, err := plugin.QueryIdentity(srcPath)
+	if err != nil {
+		// QueryIdentity names no path, since srcPath may be a scratch extract
+		// dir that means nothing to the user. Report the ref they gave us.
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	if id.Name != fileName {
+		return nil, fmt.Errorf("%s: binary is named %q but identifies as plugin %q — the file name must be %s",
+			source, filepath.Base(srcPath), id.Name, plugin.BinaryName(id.Name))
+	}
+	if expectName != "" && id.Name != expectName {
+		return nil, fmt.Errorf("%s identifies as plugin %q, expected %q", source, id.Name, expectName)
+	}
+	hlog.Info("plugin identity verified", "name", id.Name, "version", id.Version)
+
+	// Rebuild the destination name from the gated identity rather than reusing
+	// the source name, keeping only the .exe suffix, which the OS needs.
+	destName := plugin.BinaryName(id.Name)
+	if strings.HasSuffix(filepath.Base(srcPath), ".exe") {
+		destName += ".exe"
+	}
+	binPath, err := installToBinDir(srcPath, destName)
+	if err != nil {
+		return nil, err
+	}
+
+	grammar, err := exec.Command(binPath, "--spec").Output()
+	if err != nil {
+		return nil, fmt.Errorf("plugin %q failed to emit its spec (--spec): %w", id.Name, err)
+	}
+	if err := writePluginSpec(id, binPath, source, grammar); err != nil {
+		return nil, err
+	}
+	return &installedPlugin{id: id, binPath: binPath}, nil
+}
+
+// installToBinDir copies src into ~/.harness/bin/<name>, staging then renaming
+// so a concurrent dispatch never sees a half-written binary. Copying src onto
+// itself is a no-op: that is the dev flow, where the binary is built directly
+// into the bin dir and then installed from there.
+func installToBinDir(src, name string) (string, error) {
+	binDir := hbase.GetHarnessBinDir()
+	if err := os.MkdirAll(binDir, 0700); err != nil {
+		return "", fmt.Errorf("creating plugin bin dir %q: %w", binDir, err)
+	}
+	// Absolute: binary_path is dispatched from whatever directory the user
+	// happens to be in, and HARNESS_CLI_HOME may itself be relative.
+	binDir, err := filepath.Abs(binDir)
+	if err != nil {
+		return "", fmt.Errorf("resolving plugin bin dir %q: %w", binDir, err)
+	}
+	dest := filepath.Join(binDir, name)
+	if sameFile(src, dest) {
+		hlog.Debug("plugin binary already in place", "path", dest)
+		if err := os.Chmod(dest, 0755); err != nil {
+			return "", fmt.Errorf("setting permissions on %q: %w", dest, err)
+		}
+		return dest, nil
+	}
+	staging := dest + ".new"
+	if err := copyFile(src, staging, 0755); err != nil {
+		os.Remove(staging)
+		return "", fmt.Errorf("staging plugin binary: %w", err)
+	}
+	if err := os.Rename(staging, dest); err != nil {
+		os.Remove(staging)
+		return "", fmt.Errorf("installing plugin binary %q: %w", dest, err)
+	}
+	hlog.Debug("installed plugin binary", "path", dest)
+	return dest, nil
+}
+
+func sameFile(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
+}
+
+func copyFile(src, dest string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	// O_CREATE respects umask, so set the mode explicitly.
+	if err := os.Chmod(dest, mode); err != nil {
+		return err
+	}
+	return nil
+}
+
+// extractPluginBinary unpacks the plugin binary out of a tarball into destDir and
+// returns its path. The plugin binary is identified by name: exactly one regular
+// file entry must be named harness-<name>[.exe]. Entry names are flattened to
+// their base name, so a hostile archive cannot write outside destDir, and only
+// the matching entry is written at all.
+//
+// Matching on the name rather than on the tar exec bit means an archive built by
+// a tool that does not preserve file modes still installs — the extracted file is
+// chmod'd executable here regardless. Licenses, docs, and any co-bundled
+// non-plugin binary (the core `harness` binary, notably) simply do not match.
+func extractPluginBinary(archivePath, destDir string) (string, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", filepath.Base(archivePath), err)
+	}
+	defer gzr.Close()
+
+	var matched []string
+	tr := tar.NewReader(gzr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := filepath.Base(hdr.Name)
+		if _, ok := plugin.NameFromBinary(name); !ok {
+			continue
+		}
+		out := filepath.Join(destDir, name)
+		dst, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		if err != nil {
+			return "", err
+		}
+		_, err = io.Copy(dst, tr)
+		dst.Close()
+		if err != nil {
+			return "", err
+		}
+		// O_CREATE respects umask, so set the mode explicitly.
+		if err := os.Chmod(out, 0755); err != nil {
+			return "", err
+		}
+		matched = append(matched, name)
+	}
+
+	switch len(matched) {
+	case 1:
+		return filepath.Join(destDir, matched[0]), nil
+	case 0:
+		return "", fmt.Errorf("%s holds no file named %s<name> — not a harness plugin tarball",
+			filepath.Base(archivePath), plugin.BinaryPrefix)
+	}
+	sort.Strings(matched)
+	return "", fmt.Errorf("%s holds %d plugin binaries (%s) — install one plugin at a time",
+		filepath.Base(archivePath), len(matched), strings.Join(matched, ", "))
+}
+
+// writePluginSpec writes ~/.harness/spec/<name>.spec.yaml: the plugin's own
+// grammar plus the host-owned provenance block. The spec file is one YAML
+// document, so provenance is decoded into the same mapping and re-encoded rather
+// than spliced onto the grammar bytes.
+func writePluginSpec(id *plugin.Identity, binPath, source string, grammar []byte) error {
 	specDir := specloader.HomeSpecDir()
 	if err := os.MkdirAll(specDir, 0700); err != nil {
 		return fmt.Errorf("creating spec dir %q: %w", specDir, err)
@@ -67,9 +467,6 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("securing spec dir %q: %w", specDir, err)
 	}
 
-	// The spec file is one YAML document: the plugin's grammar plus the
-	// host-owned provenance fields. Decode the grammar, add provenance to the
-	// same mapping, and encode the whole thing once.
 	var doc yaml.Node
 	if err := yaml.Unmarshal(grammar, &doc); err != nil {
 		return fmt.Errorf("plugin %q emitted invalid spec YAML: %w", id.Name, err)
@@ -83,27 +480,56 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 	}
 	setMapField(root, "version", id.Version)
 	setMapField(root, "binary_path", binPath)
-	setMapField(root, "source", "local:"+binPath)
+	setMapField(root, "source", source)
 	setMapField(root, "generated_at", time.Now().UTC().Format(time.RFC3339))
 
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return fmt.Errorf("encoding spec: %w", err)
 	}
-
 	specPath := filepath.Join(specDir, id.Name+".spec.yaml")
 	if err := os.WriteFile(specPath, out, 0600); err != nil {
 		return fmt.Errorf("writing spec %q: %w", specPath, err)
 	}
 	hlog.Debug("wrote plugin spec", "path", specPath, "binary", binPath)
-
-	fmt.Printf("Installed plugin %q %s to %s\n", id.Name, id.Version, hbase.GetHarnessHomeDir())
 	return nil
 }
 
+// installedPluginVersion returns the provenance version recorded in the
+// installed spec for name, or "" when the plugin is not installed. The spec is
+// the source of truth for what is installed, so this never execs the binary.
+func installedPluginVersion(name string) string {
+	path := filepath.Join(specloader.HomeSpecDir(), name+".spec.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var f struct {
+		Version string `yaml:"version"`
+	}
+	if err := yaml.Unmarshal(data, &f); err != nil {
+		return ""
+	}
+	return f.Version
+}
+
+// installedRegistryPlugins returns the registry-known plugins that are currently
+// installed, in a stable order. `install cli` uses this to keep Harness plugins
+// in step with core; plugins installed by URL or path are deliberately excluded
+// since we have no artifact to re-fetch them from.
+func installedRegistryPlugins() []string {
+	var names []string
+	for name := range pluginRegistry {
+		if installedPluginVersion(name) != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // setMapField sets key to a scalar value on a YAML mapping node, replacing an
-// existing entry or appending a new key/value pair. This lets provenance be
-// written as part of the spec document rather than spliced onto its bytes.
+// existing entry or appending a new key/value pair.
 func setMapField(m *yaml.Node, key, value string) {
 	val := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
 	for i := 0; i+1 < len(m.Content); i += 2 {

@@ -16,7 +16,6 @@ import (
 	"github.com/harness/cli/pkg/console"
 	"github.com/harness/cli/pkg/format"
 	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/plugin"
 	"github.com/harness/cli/pkg/spec"
 )
 
@@ -259,21 +258,12 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 		}
 		installed := "yes"
 		version := hbase.Version
-		switch {
-		case m.BinaryPath != "":
-			// Dynamically-installed plugin: trust the spec's provenance rather
-			// than shelling out to the binary.
+		if m.BinaryPath != "" {
+			// Plugin: trust the spec's provenance, which install captured from
+			// --identity. Listing never execs a binary to read a version.
 			version = m.Version
 			if _, err := os.Stat(hbase.ExpandHomeDir(m.BinaryPath)); err != nil {
 				installed = "no"
-			}
-		case m.ExternalBinary != "":
-			binPath, err := plugin.FindBinary(m.ExternalBinary)
-			if err != nil {
-				installed = "no"
-				version = ""
-			} else {
-				version = plugin.QueryVersion(binPath)
 			}
 		}
 		items = append(items, map[string]any{

@@ -122,6 +122,13 @@ func GetConfigFilePath() string {
 	return filepath.Join(GetHarnessHomeDir(), ConfigFileName)
 }
 
+// GetHarnessBinDir returns the directory installed plugin binaries live in:
+// ~/.harness/bin. This is a directory the CLI always owns and can write to,
+// unlike the core binary's own directory (owned by brew/deb/rpm/scoop).
+func GetHarnessBinDir() string {
+	return filepath.Join(GetHarnessHomeDir(), "bin")
+}
+
 // EnsureHarnessHome creates ~/.harness with 0700 permissions if it does not exist.
 // Returns an error if the directory cannot be created or if the path exists but is not a directory.
 func EnsureHarnessHome() error {

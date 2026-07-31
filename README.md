@@ -121,7 +121,7 @@ harness install cli --core-only      # skip module updates
 | Flag                   | Description                                                          |
 | ---------------------- | -------------------------------------------------------------------- |
 | `--version <v>`        | Version to install (default: `latest`)                               |
-| `--install-dir <path>` | Directory to install into (default: `~/.local/bin`)                  |
+| `--install-dir <path>` | Directory to install the core binary into (default: `~/.local/bin`)  |
 | `--force`              | Install even if the current version is already up to date            |
 | `--check`              | Print the resolved version without installing; exits 1 if not found  |
 | `--core-only`          | Only install the core binary, skip module updates                    |
@@ -130,6 +130,17 @@ External modules are managed the same way:
 
 ```sh
 harness install module har           # install the Artifact Registry plugin
+```
+
+Modules that aren't compiled into the CLI ship as plugins — separate binaries the
+CLI installs into `~/.harness/bin` and dispatches to. `install module` is a
+convenience form of `install plugin`, which also takes a tarball URL or a local
+path for plugins that aren't Harness modules:
+
+```sh
+harness install plugin har                             # by name (same as install module har)
+harness install plugin https://example.com/foo.tar.gz  # from a tarball URL
+harness install plugin ./foo.tar.gz                    # from a local tarball
 ```
 
 ---
@@ -330,6 +341,7 @@ Legend used in the tables below:
 | `version`            | Print the CLI version                                       |
 | `install cli`        | Install or upgrade the Harness CLI and installed modules    |
 | `install module`     | Install a Harness CLI module (e.g. `har`)                   |
+| `install plugin`     | Install a plugin by name, tarball URL, or local path        |
 | `list module`        | Show all available modules                                  |
 | `get module <name>`  | Domain model, nouns, and guides for a module                |
 | `list noun`          | Show all registered nouns (supports `--matrix`)             |

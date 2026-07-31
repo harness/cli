@@ -103,7 +103,7 @@ func TestIsPluginModule(t *testing.T) {
 	tests := []struct {
 		name         string
 		isMainBinary bool
-		moduleName   string // non-empty → SetModuleMeta with ExternalBinary "harness-har"
+		moduleName   string // non-empty → SetModuleMeta with a plugin BinaryPath
 		lookup       string
 		want         bool
 	}{
@@ -116,7 +116,7 @@ func TestIsPluginModule(t *testing.T) {
 			r := New()
 			r.IsMainBinary = tc.isMainBinary
 			if tc.moduleName != "" {
-				r.SetModuleMeta(spec.ModuleMeta{Name: tc.moduleName, ExternalBinary: "harness-har"})
+				r.SetModuleMeta(spec.ModuleMeta{Name: tc.moduleName, BinaryPath: "/tmp/harness-har"})
 			}
 			if got := r.isPluginModule(tc.lookup); got != tc.want {
 				t.Errorf("isPluginModule(%q) = %v, want %v", tc.lookup, got, tc.want)
@@ -313,13 +313,13 @@ func TestRegister_VerbHandlerDefaultsToVerb(t *testing.T) {
 func TestRegister_IsMainBinarySetsExternal(t *testing.T) {
 	r := registryWithNoop(t)
 	r.IsMainBinary = true
-	r.SetModuleMeta(spec.ModuleMeta{Name: "har", ExternalBinary: "harness-har"})
+	r.SetModuleMeta(spec.ModuleMeta{Name: "har", BinaryPath: "/tmp/harness-har"})
 	cs := wfSpec(VerbList, "artifact", "har")
 	if err := r.Register(cs); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	if !cs.External {
-		t.Fatal("Register must set External=true when IsMainBinary and module has ExternalBinary")
+		t.Fatal("Register must set External=true when IsMainBinary and module has a BinaryPath")
 	}
 }
 

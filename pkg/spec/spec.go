@@ -100,13 +100,12 @@ type Flag struct {
 
 // ModuleMeta holds metadata declared at the top level of a spec file.
 type ModuleMeta struct {
-	Name           string
-	Type           string // e.g. "builtin"
-	Desc           string
-	Core           bool     // true for CLI-internal modules (auth, mgmt) that are hidden from "list module"
-	HelpText       string   // contents of <module>.help.txt, empty if none
-	NounOrder      []string // noun names in spec-file declaration order, for conceptual ordering
-	ExternalBinary string   // when set, commands in this module are dispatched to this external binary
+	Name      string
+	Type      string // e.g. "builtin"
+	Desc      string
+	Core      bool     // true for CLI-internal modules (auth, mgmt) that are hidden from "list module"
+	HelpText  string   // contents of <module>.help.txt, empty if none
+	NounOrder []string // noun names in spec-file declaration order, for conceptual ordering
 
 	// FromSpecDir is true when this module was loaded from ~/.harness/spec (a
 	// dynamically-installed plugin) rather than compiled into the binary. It is
@@ -122,11 +121,12 @@ type ModuleMeta struct {
 	GeneratedAt string // when this grammar was captured from the binary (RFC3339)
 }
 
-// IsPlugin reports whether commands in this module dispatch to an external
-// binary — either a build-time external_binary or a dynamically-installed
-// binary_path from ~/.harness/spec.
+// IsPlugin reports whether commands in this module dispatch to a separately
+// installed binary rather than running in-process. Plugins reach the host only
+// through ~/.harness/spec, so a binary_path in the provenance block is the
+// signal.
 func (m ModuleMeta) IsPlugin() bool {
-	return m.ExternalBinary != "" || m.BinaryPath != ""
+	return m.BinaryPath != ""
 }
 
 // VerbInfo carries display metadata for a registered verb.
@@ -461,7 +461,7 @@ type CommandSpec struct {
 	CompletionSeq    []CompletionSeqStep `yaml:"completion_seq,omitempty"`  // slash-delimited multi-part ID completion; overrides completion_noun when set
 	Module           string              `yaml:"-"`                         // set at registration time by ModuleRegistrar; drives workflow/formatter namespacing
 	SpecFile         string              `yaml:"-"`                         // spec filename, set at load time; used in error messages
-	External         bool                `yaml:"-"`                         // set at registration time on the main binary when the module has an external_binary; never in spec YAML
+	External         bool                `yaml:"-"`                         // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
 }
 
 // FullNoun returns "noun:variant" when NounVariant is set, otherwise just Noun.

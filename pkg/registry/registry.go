@@ -101,10 +101,9 @@ func (r *Registry) moduleMeta(module string) *spec.ModuleMeta {
 	return nil
 }
 
-// isPluginModule reports whether commands in module dispatch to an external
-// binary — either a build-time external_binary or a dynamically-installed
-// binary_path. Returns false when IsMainBinary is false (a plugin binary never
-// re-dispatches to itself).
+// isPluginModule reports whether commands in module dispatch to a separately
+// installed plugin binary (its spec carries a binary_path). Returns false when
+// IsMainBinary is false (a plugin binary never re-dispatches to itself).
 func (r *Registry) isPluginModule(module string) bool {
 	if !r.IsMainBinary {
 		return false
@@ -858,14 +857,14 @@ func (r *Registry) bindHandler(cmd *cobra.Command, cs *spec.CommandSpec) {
 // execPluginRunE returns a RunE that resolves the plugin binary via
 // plugin.Resolve and delegates to plugin.Exec (platform-specific). version is
 // stamped into HARNESS_PLUGIN for the plugin-side self-check.
-func execPluginRunE(extBin, binaryPath, moduleName, version string) func(*cobra.Command, []string) error {
+func execPluginRunE(binaryPath, moduleName, version string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		binPath, err := plugin.Resolve(extBin, binaryPath)
+		binPath, err := plugin.Resolve(binaryPath)
 		if err != nil {
 			var nfe *plugin.NotFoundError
 			if errors.As(err, &nfe) {
 				noun := strings.Fields(cmd.Use)[0]
-				return fmt.Errorf("%q is provided by the %q module, which is not installed\n\nTo install it, run:\n  harness install module %s", noun, moduleName, moduleName)
+				return fmt.Errorf("%q is provided by the %q module, whose binary is missing\n\nTo reinstall it, run:\n  harness install plugin %s", noun, moduleName, moduleName)
 			}
 			return err
 		}
@@ -926,7 +925,7 @@ func (r *Registry) bindExternalCmd(cmd *cobra.Command, cs *spec.CommandSpec) {
 			r.bindEndpointCmd(cmd, cs)
 		}
 	}
-	cmd.RunE = execPluginRunE(meta.ExternalBinary, meta.BinaryPath, cs.Module, meta.Version)
+	cmd.RunE = execPluginRunE(meta.BinaryPath, cs.Module, meta.Version)
 }
 
 // bindWorkflowCmd wires flags and RunE for a workflow-backed command.

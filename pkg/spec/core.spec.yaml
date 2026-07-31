@@ -291,6 +291,9 @@ commands:
       failures print a warning but do not fail the command. Use --core-only to skip
       module updates.
 
+      --install-dir applies to the core binary only; modules and plugins always
+      install into ~/.harness/bin, a directory the CLI owns.
+
       Version is optional and defaults to "latest". You may also pass "latest" explicitly.
       If the resolved version is already installed, the command exits without installing
       unless --force is passed.
@@ -324,9 +327,7 @@ commands:
     noun: module
     short: Install a Harness CLI module
     long: |
-      Install a Harness CLI module binary from the GitHub release.
-
-      Currently supported modules: har
+      Install a Harness CLI module.
 
       Version defaults to "latest". Use --force to reinstall even if already up to date.
 
@@ -342,8 +343,6 @@ commands:
     flags:
       - name: version
         description: "Version to install (default: latest)"
-      - name: install-dir
-        description: "Directory to install into (default: ~/.local/bin)"
       - name: force
         is_bool: true
         description: Install even if the current version is already up to date
@@ -354,19 +353,39 @@ commands:
   - command: install plugin
     verb: install
     noun: plugin
-    short: Install a plugin from a local binary
+    short: Install a plugin
     long: |
       Install a plugin into the harness home directory (~/.harness).
 
-      Currently supports a direct path to a plugin binary.
+      <ref> may be:
+        - a plugin name, resolved to a Harness release (currently: har)
+        - a tarball URL
+        - a local tarball
+        - a local plugin binary
+
+      --version, --force, and --check apply only to the plugin-name form; a URL or
+      path already names a specific artifact and is always installed. Version
+      defaults to "latest".
 
       Examples:
-        harness install plugin ./bin/harness-har     # install from a local binary
+        harness install plugin har                             # install by name
+        harness install plugin https://example.com/foo.tar.gz  # install from a tarball URL
+        harness install plugin ./foo.tar.gz                    # install from a local tarball
+        harness install plugin ./bin/harness-har               # install from a local binary
     no_auth: true
     handler_type: workflow
     workflow_id: install_plugin
-    id_label: binary-path
+    id_label: ref
     id_allow_slash: true
+    flags:
+      - name: version
+        description: "Version to install (default: latest)"
+      - name: force
+        is_bool: true
+        description: Install even if the current version is already up to date
+      - name: check
+        is_bool: true
+        description: Check the version without installing (prints resolved version, exits 1 if not found)
 
   - command: list module
     verb: list

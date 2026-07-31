@@ -31,7 +31,7 @@ func execPluginCompletion(r *Registry, module string) ([]string, cobra.ShellComp
 	}
 	// Same resolution as command dispatch (execPluginRunE), so completions can
 	// never come from a different binary than the one that runs the command.
-	binPath, err := plugin.Resolve(meta.ExternalBinary, meta.BinaryPath)
+	binPath, err := plugin.Resolve(meta.BinaryPath)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveError
 	}

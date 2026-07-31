@@ -5,8 +5,10 @@ package plugin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -25,6 +27,37 @@ func ValidateName(name string) error {
 	return nil
 }
 
+// BinaryPrefix is the required prefix on every plugin binary's file name. The
+// convention is load-bearing, not cosmetic: it is how a plugin binary is picked
+// out of a release tarball that also holds licenses, docs, and other binaries,
+// and it lets the file name be cross-checked against the gated identity name.
+const BinaryPrefix = "harness-"
+
+// BinaryName is the file name a plugin named name must be shipped and installed
+// under. Callers derive this from a gated identity, never from an archive entry
+// or a user-supplied path, so the install destination is always predictable.
+func BinaryName(name string) string {
+	return BinaryPrefix + name
+}
+
+// NameFromBinary extracts the plugin name from a binary's file name, which must
+// be harness-<name>[.exe]. It reports whether the file name conforms; a
+// non-conforming name is not a plugin binary as far as the host is concerned.
+//
+// path may be a full path — only the base name is considered.
+func NameFromBinary(path string) (string, bool) {
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(base, ".exe")
+	name, ok := strings.CutPrefix(base, BinaryPrefix)
+	if !ok {
+		return "", false
+	}
+	if !nameRe.MatchString(name) {
+		return "", false
+	}
+	return name, true
+}
+
 // Identity is the sentinel-gated object a cooperating harness plugin emits from
 // `<plugin> --identity`. harness_plugin_name is both the gate and the name: the
 // harness_ prefix makes it an unforgeable sentinel, so a binary that emits this
@@ -39,17 +72,20 @@ type Identity struct {
 // sentinel object. It is the plugin identity gate: it fails unless the output
 // is JSON with a non-empty, well-formed harness_plugin_name. version is trusted
 // only after the gate passes; build_time is displayed-only and never compared.
+//
+// Errors name no path: binPath is often a scratch extract dir that means nothing
+// to the user, so the caller supplies the ref it wants reported.
 func QueryIdentity(binPath string) (*Identity, error) {
 	out, err := exec.Command(binPath, "--identity").Output()
 	if err != nil {
-		return nil, fmt.Errorf("%q did not respond to `--identity` — is it a harness plugin?", binPath)
+		return nil, errors.New("did not respond to `--identity` — is it a harness plugin?")
 	}
 	var id Identity
 	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &id); err != nil {
-		return nil, fmt.Errorf("%q is not a harness plugin: `--identity` did not emit a JSON identity object", binPath)
+		return nil, errors.New("not a harness plugin: `--identity` did not emit a JSON identity object")
 	}
 	if id.Name == "" {
-		return nil, fmt.Errorf("%q is not a harness plugin: `--version --json` output has no harness_plugin_name", binPath)
+		return nil, errors.New("not a harness plugin: `--identity` output has no harness_plugin_name")
 	}
 	if err := ValidateName(id.Name); err != nil {
 		return nil, err
