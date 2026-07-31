@@ -9,7 +9,7 @@ with a single consistent grammar.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Made with Go](https://img.shields.io/badge/Made_with-Go-00ADD8.svg?logo=go)](https://go.dev)
-[![Platform: macOS · Linux](https://img.shields.io/badge/Platform-macOS_·_Linux-lightgrey.svg)](#install)
+[![Platform: macOS · Linux · Windows](https://img.shields.io/badge/Platform-macOS_·_Linux_·_Windows-lightgrey.svg)](#install)
 [![Releases](https://img.shields.io/badge/Downloads-GitHub_Releases-brightgreen.svg)](https://github.com/harness/cli/releases)
 
 [Install](#-install) ·
@@ -65,24 +65,37 @@ with a single consistent grammar.
 
 ### Recommended: one-line installer
 
+**macOS / Linux**
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh
 ```
 
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
+```
+
 The installer will:
 
-- Download the latest `harness-bundle` for your platform (macOS and Linux, `amd64` / `arm64`).
-- Install the `harness` and `harness-har` binaries to `~/.local/bin` (override with `--install-dir`).
-- Optionally add `~/.local/bin` to your `PATH` and enable shell completions.
+- Download the latest `harness-bundle` for your platform (macOS, Linux, and Windows — `amd64` / `arm64`).
+- Install `harness` and `harness-har` to `~/.local/bin` on Unix or `%LOCALAPPDATA%\Programs\harness` on Windows (override with `--install-dir` / `-InstallDir`).
+- Optionally add the install directory to your `PATH` and enable shell completions.
 
 ### Installer flags
 
 | Flag                   | Description                                                    |
 | ---------------------- | -------------------------------------------------------------- |
-| `--install-dir <path>` | Override the install directory (default: `~/.local/bin`)       |
+| `--install-dir <path>` | Override the install directory (default: `~/.local/bin` on Unix, `%LOCALAPPDATA%\Programs\harness` on Windows) |
 | `--core`               | Install only the `harness` binary (skip `harness-har`)         |
 | `--non-interactive`    | Skip all prompts (useful for CI, Docker, provisioning scripts) |
 | `--no-verify`          | Skip checksum verification                                     |
+
+Windows PowerShell flags: `-InstallDir`, `-Version`, `-Core`, `-NonInteractive`, `-NoVerify`.
+
+> [!NOTE]
+> `install.ps1` reads assets from GitHub Releases by default. Set `HARNESS_INSTALL_BASE_URL` to a local directory or internal mirror holding the release zip and checksums file to install from there instead — useful for air-gapped environments and for testing unreleased builds.
 
 > [!TIP]
 > When passing flags through a pipe, use `sh -s --` — `-s` tells `sh` to read from stdin, and `--` separates `sh`'s own options from the installer flags.
@@ -98,9 +111,17 @@ curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh -s
 curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh -s -- --non-interactive --install-dir /usr/local/bin
 ```
 
+```powershell
+# Windows — install core + har bundle (default)
+irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
+
+# Windows — core only, non-interactive
+$env:HARNESS_NONINTERACTIVE=1; $env:HARNESS_CORE_ONLY=1; irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
+```
+
 ### Manual install
 
-Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases) and place the binaries on your `PATH`. Both `tar.gz` bundles (core + `har`) and per-binary archives are published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and `darwin_arm64`.
+Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases) and place the binaries on your `PATH`. Unix bundles are `tar.gz`; Windows bundles are `zip`. Published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64`, `windows_amd64`, and `windows_arm64`.
 
 This is also the path to take if `curl | sh` doesn't work in your environment — e.g. WSL behind a corporate SSL-inspecting proxy, air-gapped/vetted-binary environments, or scripted installs — see [`docs/manual-install.md`](docs/manual-install.md) for step-by-step instructions.
 
