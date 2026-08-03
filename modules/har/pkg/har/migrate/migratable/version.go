@@ -34,6 +34,7 @@ type Version struct {
 	registry        types.RegistryInfo
 	existingFileMap map[string]bool
 	dryRunStats     *types.DryRunStats
+	existingIndex   *types.ExistingIndex
 }
 
 func NewVersionJob(
@@ -50,6 +51,7 @@ func NewVersionJob(
 	config *types.Config,
 	registry types.RegistryInfo,
 	dryRunStats *types.DryRunStats,
+	existingIndex *types.ExistingIndex,
 ) engine.Job {
 	jobID := uuid.New().String()
 
@@ -78,6 +80,7 @@ func NewVersionJob(
 		registry:        registry,
 		existingFileMap: make(map[string]bool),
 		dryRunStats:     dryRunStats,
+		existingIndex:   existingIndex,
 	}
 }
 
@@ -104,20 +107,20 @@ func (r *Version) Pre(ctx context.Context) error {
 		return nil
 	}
 
-	// reading all existing files for this version from destination
-
+	// If an upfront index was built by registry.go, skip the per-version API
+	// call entirely — the index already has everything. Fall back to the
+	// per-version lookup only when no index is available.
 	if !r.config.Overwrite && (r.artifactType != types.MAVEN && r.artifactType != types.NPM && r.pkg.Name != "" && r.version.Name != "") {
-
-		existingFiles, err := r.getAllExistingFilesForThisVersion(ctx)
-
-		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to get existing files, will proceed with migration")
-		} else {
-			// Populate existingFileMap with file name
-			for _, fileName := range existingFiles {
-				r.existingFileMap[fileName] = true
+		if r.existingIndex == nil {
+			existingFiles, err := r.getAllExistingFilesForThisVersion(ctx)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to get existing files, will proceed with migration")
+			} else {
+				for _, fileName := range existingFiles {
+					r.existingFileMap[strings.ToLower(fileName)] = true
+				}
+				logger.Info().Msgf("Found %d existing files for version %s", len(r.existingFileMap), r.version.Name)
 			}
-			logger.Info().Msgf("Found %d existing files for version %s", len(r.existingFileMap), r.version.Name)
 		}
 	}
 	logger.Info().
@@ -174,16 +177,25 @@ func (r *Version) Migrate(ctx context.Context) error {
 					continue
 				}
 			}
-			// Check if file already exists in destination
-
-			lowerCaseNormalizeFileName := strings.ToLower(file.Name)
-			if r.existingFileMap[lowerCaseNormalizeFileName] {
+			// Check if file already exists in destination (index takes priority).
+			// GENERIC/RAW: v1 HAR stores full path in Name; use Uri to match.
+			// All other types: Name is a basename; use it directly.
+			fileKey := file.Name
+			if r.artifactType == types.GENERIC || r.artifactType == types.RAW {
+				fileKey = strings.TrimPrefix(file.Uri, "/")
+			}
+			alreadyExists := false
+			if r.existingIndex != nil {
+				alreadyExists = r.existingIndex.HasFile(r.pkg.Name, r.version.Name, fileKey, r.artifactType)
+			} else {
+				alreadyExists = r.existingFileMap[strings.ToLower(fileKey)]
+			}
+			if alreadyExists {
 				util.GetSkipPrinter().Println(fmt.Sprintf("Registry [%s], Package [%s/%s], File [%s] already exists",
 					r.destRegistry,
 					r.pkg.Name, r.version.Name, file.Name))
 				logger.Info().Msgf("Skipping file %s as it already exists in destination", file.Uri)
 
-				// Add to statistics
 				stat := types.FileStat{
 					Name:     file.Name,
 					Registry: r.srcRegistry,

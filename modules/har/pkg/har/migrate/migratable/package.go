@@ -53,6 +53,7 @@ type Package struct {
 	config                *types.Config
 	registry              types.RegistryInfo
 	dryRunStats           *types.DryRunStats
+	existingIndex         *types.ExistingIndex
 }
 
 func NewPackageJob(
@@ -69,6 +70,7 @@ func NewPackageJob(
 	config *types.Config,
 	registry types.RegistryInfo,
 	dryRunStats *types.DryRunStats,
+	existingIndex *types.ExistingIndex,
 ) engine.Job {
 	jobID := uuid.New().String()
 
@@ -95,6 +97,7 @@ func NewPackageJob(
 		config:                config,
 		registry:              registry,
 		dryRunStats:           dryRunStats,
+		existingIndex:         existingIndex,
 	}
 }
 
@@ -315,7 +318,7 @@ func (r *Package) Migrate(ctx context.Context) error {
 				return fmt.Errorf("get version failed: %w", err)
 			}
 			job := NewVersionJob(r.srcAdapter, r.destAdapter, r.srcRegistry, r.destRegistry, r.artifactType, r.pkg,
-				version, versionNode, r.stats, r.mapping, r.config, r.registry, r.dryRunStats)
+				version, versionNode, r.stats, r.mapping, r.config, r.registry, r.dryRunStats, r.existingIndex)
 			jobs = append(jobs, job)
 		}
 
