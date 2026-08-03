@@ -114,30 +114,65 @@ func (m *MigrationService) writeDryRunOutput(logger zerolog.Logger) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	files := m.dryRunStats.Files
+	dirs := m.dryRunStats.Directories
+
 	fileListPath := filepath.Join(outputDir, fmt.Sprintf("file_list_%s.json", timestamp))
-	fileListData, err := json.MarshalIndent(m.dryRunStats.Files, "", "  ")
+	fileListData, err := json.MarshalIndent(files, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal file list: %w", err)
 	}
 	if err := os.WriteFile(fileListPath, fileListData, 0644); err != nil {
 		return fmt.Errorf("failed to write file list: %w", err)
 	}
-	logger.Info().Str("path", fileListPath).Int("total_files", len(m.dryRunStats.Files)).Msg("File list written")
+	logger.Info().Str("path", fileListPath).Int("total_files", len(files)).Msg("File list written")
 
 	dirStructPath := filepath.Join(outputDir, fmt.Sprintf("directory_structure_%s.json", timestamp))
-	dirStructData, err := json.MarshalIndent(m.dryRunStats.Directories, "", "  ")
+	dirStructData, err := json.MarshalIndent(dirs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal directory structure: %w", err)
 	}
 	if err := os.WriteFile(dirStructPath, dirStructData, 0644); err != nil {
 		return fmt.Errorf("failed to write directory structure: %w", err)
 	}
-	logger.Info().Str("path", dirStructPath).Int("total_registries", len(m.dryRunStats.Directories)).Msg("Directory structure written")
+	logger.Info().Str("path", dirStructPath).Int("total_registries", len(dirs)).Msg("Directory structure written")
 
-	fmt.Printf("\n=== Dry Run Complete ===\n")
-	fmt.Printf("Total files found: %d\n", len(m.dryRunStats.Files))
-	fmt.Printf("File list written to: %s\n", fileListPath)
-	fmt.Printf("Directory structure written to: %s\n", dirStructPath)
+	// Tally totals from the directory tree.
+	totalRegistries := len(dirs)
+	var totalPackages, totalVersions, totalVersionFiles int
+	for _, reg := range dirs {
+		if reg == nil {
+			continue
+		}
+		totalPackages += len(reg.Packages)
+		for _, pkg := range reg.Packages {
+			if pkg == nil {
+				continue
+			}
+			totalVersions += len(pkg.Versions)
+			for _, ver := range pkg.Versions {
+				if ver == nil {
+					continue
+				}
+				totalVersionFiles += len(ver.Files)
+			}
+		}
+	}
+
+	migratedCount := totalVersionFiles
+	migratedCountLabel := "Total files (filtered):"
+	if migratedCount == 0 && totalPackages > 0 {
+		migratedCount = totalPackages
+		migratedCountLabel = "Total packages (filtered):"
+	}
+
+	fmt.Printf("\n==== Dry Run Summary ====\n")
+	fmt.Printf("%-30s %d\n", "Total registries:", totalRegistries)
+	fmt.Printf("%-30s %d\n", "Total packages:", totalPackages)
+	fmt.Printf("%-30s %d\n", "Total versions:", totalVersions)
+	fmt.Printf("%-30s %d\n", migratedCountLabel, migratedCount)
+	fmt.Printf("%-30s %s\n", "File list:", fileListPath)
+	fmt.Printf("%-30s %s\n", "Directory structure:", dirStructPath)
 
 	return nil
 }
