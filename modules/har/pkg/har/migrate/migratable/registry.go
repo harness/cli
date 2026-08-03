@@ -12,6 +12,7 @@ import (
 	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
 	"github.com/google/uuid"
+	"github.com/pterm/pterm"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -136,32 +137,83 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		return fmt.Errorf("get files from registry %s failed: %w", r.srcRegistry, err2)
 	}
 
-	// In dry-run mode, collect all files and initialize directory entry for this registry
+	pterm.Info.Println(fmt.Sprintf("Pulled %d file(s) from registry %s", len(files), r.srcRegistry))
+
+	// Keep a copy of the original file list before any filtering. This is used
+	// to build an unfilteredRoot for PYTHON so version enumeration is not broken
+	// when date filtering prunes .pypi index files.
+	originalFiles := files
+
+	// In dry-run mode, collect all files using thread-safe methods.
 	if r.config.DryRun && r.dryRunStats != nil {
-		// Add all files to the file list
+		var entries []types.DryRunFileEntry
 		for _, file := range files {
-			entry := types.DryRunFileEntry{
+			entries = append(entries, types.DryRunFileEntry{
 				Registry:     r.srcRegistry,
 				Name:         file.Name,
 				Uri:          file.Uri,
 				Size:         file.Size,
 				LastModified: file.LastModified,
-			}
-			r.dryRunStats.Files = append(r.dryRunStats.Files, entry)
+			})
 		}
+		r.dryRunStats.AddFiles(entries...)
+		r.dryRunStats.EnsureRegistry(r.srcRegistry)
 		logger.Info().Msgf("Dry-run: collected %d files from registry %s", len(files), r.srcRegistry)
+	}
 
-		// Initialize directory entry for this registry
-		if r.dryRunStats.Directories[r.srcRegistry] == nil {
-			r.dryRunStats.Directories[r.srcRegistry] = &types.DryRunDirectoryEntry{
-				Registry: r.srcRegistry,
-				Packages: make(map[string]*types.DryRunPackageEntry),
+	// Date-based filtering: query the source for file timestamps and narrow the
+	// file list to files that satisfy the configured createdAfter/downloadedAfter
+	// thresholds. Index/metadata files (PyPI .pypi/) are always preserved so
+	// package enumeration is not broken.
+	currArtifactType := r.artifactType
+	var dateFilteredFiles []types.File
+	dateFilterActive := false
+
+	if util.IsTimeBasedFilterPresent(r.mapping) {
+		dateFilterActive = true
+		df := r.mapping.DateFilter
+		if err := util.ValidateDateFilter(df); err != nil {
+			logger.Error().Err(err).Msg("Date filter validation failed")
+			return err
+		}
+
+		searchedFiles, searchErr := r.srcAdapter.SearchFiles(r.srcRegistry)
+		if searchErr != nil {
+			logger.Error().Msgf("Failed to search files from registry %s", r.srcRegistry)
+			return fmt.Errorf("search files from registry %s failed: %w", r.srcRegistry, searchErr)
+		}
+		logger.Info().Msgf("Applying time based filter (match: %s)", df.Match)
+		filteredURIs := util.CreateMapOfFilteredFile(searchedFiles, r.mapping)
+		logger.Info().Msgf("Time-based filter includes %d file(s) out of %d", len(filteredURIs), len(searchedFiles))
+
+		// Preserve index/metadata files regardless of date — enumeration reads them.
+		indexCount := 0
+		for _, f := range files {
+			if util.IsPackageIndexFile(r.artifactType, f.Uri) {
+				if _, ok := filteredURIs[f.Uri]; !ok {
+					filteredURIs[f.Uri] = struct{}{}
+					indexCount++
+				}
 			}
+		}
+		if indexCount > 0 {
+			logger.Info().Msgf("Preserving %d index/metadata file(s) exempt from date filter", indexCount)
+		}
+
+		dateFilteredFiles = util.FilterFilesByDate(files, filteredURIs)
+		logger.Info().Msgf("Count of filtered files by date filter: %d -> %d", len(files), len(dateFilteredFiles))
+		skippedByFilter := len(files) - len(dateFilteredFiles)
+		pterm.Info.Println(fmt.Sprintf("Registry %s: %d file(s) pulled, %d under skip condition (date/pattern filters)",
+			r.srcRegistry, len(files), skippedByFilter))
+
+		// Narrow the tree for all types EXCEPT metadata-driven types (RPM, DEBIAN)
+		// which need the full file tree to read repomd.xml / Packages.gz metadata.
+		if !util.IsMetadataDrivenArtifact(currArtifactType) {
+			files = dateFilteredFiles
 		}
 	}
 
 	// Filter files based on include/exclude patterns
-	currArtifactType := r.artifactType
 	if util.IsFileLevelFilterableArtifact(currArtifactType) {
 		if len(r.mapping.IncludePatterns) > 0 || len(r.mapping.ExcludePatterns) > 0 {
 			originalCount := len(files)
@@ -174,10 +226,31 @@ func (r *Registry) Migrate(ctx context.Context) error {
 
 	root := tree.TransformToTree(files)
 
+	// For PYTHON (IsAtomicVersionArtifact), build an unfilteredRoot from the
+	// original file list so version.go can recover distributions that were pruned
+	// by date or pattern filters. Other types pass nil.
+	var unfilteredRoot *types.TreeNode
+	if dateFilterActive && util.IsAtomicVersionArtifact(currArtifactType) {
+		recoveryFiles := originalFiles
+		if util.IsFileLevelFilterableArtifact(currArtifactType) &&
+			(len(r.mapping.IncludePatterns) > 0 || len(r.mapping.ExcludePatterns) > 0) {
+			recoveryFiles = util.FilterFilesByPatterns(originalFiles, r.mapping.IncludePatterns, r.mapping.ExcludePatterns)
+		}
+		unfilteredRoot = tree.TransformToTree(recoveryFiles)
+	}
+
 	pkgs, err := r.srcAdapter.GetPackages(r.srcRegistry, r.artifactType, root)
 	if err != nil {
 		logger.Error().Msg("Failed to get packages")
 		return fmt.Errorf("get packages failed: %w", err)
+	}
+
+	// For metadata-driven types, re-apply date filter at the package level.
+	if dateFilterActive && util.IsMetadataDrivenArtifact(currArtifactType) {
+		originalPkgCount := len(pkgs)
+		pkgs = util.FilterPackagesByFileName(pkgs, dateFilteredFiles)
+		logger.Info().Msgf("Date filter (post-GetPackages): %d -> %d packages for %s",
+			originalPkgCount, len(pkgs), currArtifactType)
 	}
 
 	// applying package level filter
@@ -199,7 +272,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 			return fmt.Errorf("get node for path %s failed: %w", pkg.Path, err2)
 		}
 		job := NewPackageJob(r.srcAdapter, r.destAdapter, r.srcRegistry, r.sourcePackageHostname, r.destRegistry, r.artifactType, pkg, treeNode,
-			r.stats, r.mapping, r.config, r.registry, r.dryRunStats)
+			r.stats, r.mapping, r.config, r.registry, r.dryRunStats, unfilteredRoot)
 		jobs = append(jobs, job)
 	}
 
