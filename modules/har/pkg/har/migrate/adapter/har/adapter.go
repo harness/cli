@@ -172,3 +172,7 @@ func (a *harAdapter) CreateVersion(registry string, artifactName string, version
 		return fmt.Errorf("not implemented")
 	}
 }
+
+func (a *harAdapter) SearchFiles(_ string) ([]types.SearchedFile, error) {
+	return nil, fmt.Errorf("date filter (SearchFiles) is not supported for this source adapter")
+}

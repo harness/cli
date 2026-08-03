@@ -66,6 +66,7 @@ type Adapter interface {
 		files []*types.PackageFiles,
 		metadata map[string]interface{},
 	) error
+	SearchFiles(registry string) ([]types.SearchedFile, error)
 }
 
 var registry = map[types.RegistryType]Factory{}
