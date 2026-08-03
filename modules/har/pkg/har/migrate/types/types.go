@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -142,8 +143,124 @@ type DryRunVersionEntry struct {
 	Files []DryRunVersionFileEntry `json:"files"`
 }
 
-// DryRunStats holds the dry-run statistics
+// SearchedFile represents a file entry returned by the JFrog AQL search API.
+type SearchedFile struct {
+	Repo     string         `json:"repo"`
+	Path     string         `json:"path"`
+	Name     string         `json:"name"`
+	Created  string         `json:"created"`
+	Modified string         `json:"modified"`
+	Stats    []DownloadStat `json:"stats"`
+}
+
+// DownloadStat holds a single download timestamp for a SearchedFile.
+type DownloadStat struct {
+	Downloaded string `json:"downloaded"`
+}
+
+// DryRunStats holds the dry-run statistics.
+//
+// A single DryRunStats is shared across the registry/package/version/file jobs
+// that the migration engine runs concurrently, so all access to the Files slice
+// and the Directories map (and the nested maps/slices) must go through the
+// methods below, which are guarded by mu.
 type DryRunStats struct {
+	mu          sync.Mutex
 	Files       []DryRunFileEntry                // All files from GetFiles
 	Directories map[string]*DryRunDirectoryEntry // Directory structure built incrementally
+}
+
+// AddFiles appends the given file entries to the shared Files slice.
+func (s *DryRunStats) AddFiles(entries ...DryRunFileEntry) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Files = append(s.Files, entries...)
+}
+
+func (s *DryRunStats) ensureRegistryLocked(registry string) *DryRunDirectoryEntry {
+	if s.Directories == nil {
+		s.Directories = make(map[string]*DryRunDirectoryEntry)
+	}
+	dirEntry := s.Directories[registry]
+	if dirEntry == nil {
+		dirEntry = &DryRunDirectoryEntry{
+			Registry: registry,
+			Packages: make(map[string]*DryRunPackageEntry),
+		}
+		s.Directories[registry] = dirEntry
+	}
+	return dirEntry
+}
+
+// EnsureRegistry creates the directory entry for the given registry if it does
+// not already exist.
+func (s *DryRunStats) EnsureRegistry(registry string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureRegistryLocked(registry)
+}
+
+// EnsurePackage creates the registry and package entries if they do not already exist.
+func (s *DryRunStats) EnsurePackage(registry, pkg string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dirEntry := s.ensureRegistryLocked(registry)
+	if dirEntry.Packages[pkg] == nil {
+		dirEntry.Packages[pkg] = &DryRunPackageEntry{
+			Name:     pkg,
+			Versions: make(map[string]*DryRunVersionEntry),
+		}
+	}
+}
+
+// EnsureVersion creates the registry, package and version entries if they do not already exist.
+func (s *DryRunStats) EnsureVersion(registry, pkg, version string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureVersionLocked(registry, pkg, version)
+}
+
+func (s *DryRunStats) ensureVersionLocked(registry, pkg, version string) *DryRunVersionEntry {
+	dirEntry := s.ensureRegistryLocked(registry)
+	pkgEntry := dirEntry.Packages[pkg]
+	if pkgEntry == nil {
+		pkgEntry = &DryRunPackageEntry{
+			Name:     pkg,
+			Versions: make(map[string]*DryRunVersionEntry),
+		}
+		dirEntry.Packages[pkg] = pkgEntry
+	}
+	versionEntry := pkgEntry.Versions[version]
+	if versionEntry == nil {
+		versionEntry = &DryRunVersionEntry{
+			Name:  version,
+			Files: make([]DryRunVersionFileEntry, 0),
+		}
+		pkgEntry.Versions[version] = versionEntry
+	}
+	return versionEntry
+}
+
+// AddVersionFile appends a file entry to the given registry/package/version,
+// creating the intermediate entries if necessary.
+func (s *DryRunStats) AddVersionFile(registry, pkg, version string, file DryRunVersionFileEntry) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	versionEntry := s.ensureVersionLocked(registry, pkg, version)
+	versionEntry.Files = append(versionEntry.Files, file)
 }
