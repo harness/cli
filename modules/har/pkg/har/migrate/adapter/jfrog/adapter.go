@@ -1243,6 +1243,10 @@ func (a *adapter) CreateVersion(
 	return nil
 }
 
+func (a *adapter) BuildExistingIndex(_ context.Context, _ string, _ int) (*types.ExistingIndex, error) {
+	return nil, nil
+}
+
 // getPythonVersionsFromTree extracts Python package versions by scanning the
 // file tree. This is used as a fallback when the .pypi index HTML files are
 // not available (e.g. packages deployed directly, not via the PyPI API).

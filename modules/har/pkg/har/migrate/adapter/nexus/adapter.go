@@ -440,3 +440,7 @@ func (a *adapter) CreateVersion(
 ) error {
 	return nil
 }
+
+func (a *adapter) BuildExistingIndex(_ context.Context, _ string, _ int) (*types.ExistingIndex, error) {
+	return nil, nil
+}

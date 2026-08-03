@@ -172,3 +172,7 @@ func (a *harAdapter) CreateVersion(registry string, artifactName string, version
 		return fmt.Errorf("not implemented")
 	}
 }
+
+func (a *harAdapter) BuildExistingIndex(ctx context.Context, registryRef string, concurrency int) (*types.ExistingIndex, error) {
+	return a.client.buildExistingIndex(ctx, registryRef, concurrency)
+}
