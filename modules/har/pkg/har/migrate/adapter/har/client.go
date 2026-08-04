@@ -11,6 +11,7 @@ import (
 	http2 "net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arapi"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
+	"github.com/rs/zerolog/log"
 )
 
 type xAPIKeyTransport struct {
@@ -1087,4 +1089,96 @@ func (c *client) uploadConanFile(
 		return fmt.Errorf("failed to upload conan file '%s', status %d: %s", filename, resp.StatusCode, string(body))
 	}
 	return nil
+}
+
+func (c *client) buildExistingIndex(ctx context.Context, registryRef string, concurrency int) (*types.ExistingIndex, error) {
+	// Step 1: collect all artifact (package) names for this registry.
+	page := int64(0)
+	size := int64(100)
+	var artifactNames []string
+	for {
+		resp, err := c.apiClient.GetAllArtifactsByRegistryWithResponse(ctx, registryRef,
+			&arapi.GetAllArtifactsByRegistryParams{Page: &page, Size: &size})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list artifacts for index: %w", err)
+		}
+		if resp.StatusCode() != http2.StatusOK || resp.JSON200 == nil {
+			return nil, fmt.Errorf("failed to list artifacts for index: %s", resp.Status())
+		}
+		for _, a := range resp.JSON200.Data.Artifacts {
+			artifactNames = append(artifactNames, a.Name)
+		}
+		data := resp.JSON200.Data
+		if len(data.Artifacts) < int(size) ||
+			(data.PageCount != nil && data.PageIndex != nil && *data.PageIndex+1 >= *data.PageCount) {
+			break
+		}
+		page++
+	}
+
+	// Step 2: for each artifact, collect all (pkg, version) pairs.
+	type pkgVersion struct{ pkg, version string }
+	var pvPairs []pkgVersion
+	for _, name := range artifactNames {
+		p := int64(0)
+		for {
+			resp, err := c.apiClient.GetAllArtifactVersionsWithResponse(ctx, registryRef, name,
+				&arapi.GetAllArtifactVersionsParams{Page: &p, Size: &size})
+			if err != nil {
+				log.Warn().Err(err).Str("artifact", name).Msg("buildExistingIndex: failed to list versions, skipping artifact")
+				break
+			}
+			if resp.StatusCode() != http2.StatusOK || resp.JSON200 == nil {
+				log.Warn().Str("artifact", name).Str("status", resp.Status()).Msg("buildExistingIndex: unexpected status listing versions, skipping artifact")
+				break
+			}
+			if resp.JSON200.Data.ArtifactVersions != nil {
+				for _, v := range *resp.JSON200.Data.ArtifactVersions {
+					if v.FileCount != nil && *v.FileCount == 0 {
+						continue
+					}
+					pvPairs = append(pvPairs, pkgVersion{name, v.Name})
+				}
+			}
+			data := resp.JSON200.Data
+			if data.ArtifactVersions == nil || len(*data.ArtifactVersions) < int(size) ||
+				(data.PageCount != nil && data.PageIndex != nil && *data.PageIndex+1 >= *data.PageCount) {
+				break
+			}
+			p++
+		}
+	}
+
+	// Step 3: fetch files per (pkg, version) concurrently, bounded by concurrency.
+	idx := types.NewExistingIndex()
+	if len(pvPairs) == 0 {
+		return idx, nil
+	}
+
+	limit := concurrency
+	if limit <= 0 {
+		limit = 4
+	}
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for _, pv := range pvPairs {
+		pv := pv
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			names, err := c.artifactGetFilesForVersion(ctx, registryRef, pv.pkg, pv.version)
+			if err != nil {
+				log.Warn().Err(err).Str("pkg", pv.pkg).Str("version", pv.version).Msg("buildExistingIndex: failed to list files for version, skipping")
+				return
+			}
+			for _, name := range names {
+				idx.AddFile(pv.pkg, pv.version, name)
+			}
+		}()
+	}
+	wg.Wait()
+
+	return idx, nil
 }

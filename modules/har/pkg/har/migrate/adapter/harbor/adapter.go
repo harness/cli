@@ -162,3 +162,7 @@ func (a *adapter) GetAllFilesForVersion(_ context.Context, _, _, _ string) ([]st
 func (a *adapter) CreateVersion(_ string, _ string, _ string, _ types.ArtifactType, _ []*types.PackageFiles, _ map[string]interface{}) error {
 	return fmt.Errorf("CreateVersion not implemented for HARBOR")
 }
+
+func (a *adapter) BuildExistingIndex(_ context.Context, _ string, _ int) (*types.ExistingIndex, error) {
+	return nil, nil
+}

@@ -66,6 +66,7 @@ type Adapter interface {
 		files []*types.PackageFiles,
 		metadata map[string]interface{},
 	) error
+	BuildExistingIndex(ctx context.Context, registryRef string, concurrency int) (*types.ExistingIndex, error)
 }
 
 var registry = map[types.RegistryType]Factory{}
