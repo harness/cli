@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/pterm/pterm"
 )
 
 // npmMinimalPackageJSON holds the fields we need from package.json.
@@ -263,8 +265,25 @@ func pushNpmArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("encoding upload payload: %w", err)
 	}
 
-	// --- 5. POST to the npm upload endpoint --------------------------------
-	subpath := fmt.Sprintf("%s/npm/%s", registry, name)
+	// --- 5. PUT to the npm upload endpoint ---------------------------------
+	// Scoped packages (@scope/name) route to a separate path segment on the
+	// server. Both scoped and unscoped use PUT per the HAR API spec.
+	var subpath string
+	if strings.HasPrefix(name, "@") {
+		if !strings.Contains(name, "/") {
+			pterm.Error.Println("Invalid scoped package name format")
+			return fmt.Errorf("invalid scoped package name: %s (scoped packages must be in format @scope/package)", name)
+		}
+		parts := strings.SplitN(name[1:], "/", 2)
+		if len(parts) != 2 {
+			pterm.Error.Println("Invalid scoped package name format")
+			return fmt.Errorf("invalid scoped package name: %s", name)
+		}
+		pterm.Info.Printf("Uploading scoped package @%s/%s\n", parts[0], parts[1])
+		subpath = fmt.Sprintf("%s/npm/@%s/%s", registry, parts[0], parts[1])
+	} else {
+		subpath = fmt.Sprintf("%s/npm/%s", registry, name)
+	}
 	uploadURL, err := buildPkgURL(ctx.Auth.RegistryURL, ctx.Auth.AccountID, subpath)
 	if err != nil {
 		return err
@@ -272,7 +291,7 @@ func pushNpmArtifact(ctx *cmdctx.Ctx) error {
 
 	fmt.Fprintf(os.Stderr, "Uploading npm package %s@%s to registry %s ...\n", pkg.Name, pkg.Version, registry)
 
-	req, err := http.NewRequest("POST", uploadURL, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequest(http.MethodPut, uploadURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
