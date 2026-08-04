@@ -1250,6 +1250,8 @@ func (a *adapter) SearchFiles(registry string) ([]types.SearchedFile, error) {
 		return nil, fmt.Errorf("failed to search files from registry: %w", err)
 	}
 	return files, nil
+func (a *adapter) BuildExistingIndex(_ context.Context, _ string, _ int) (*types.ExistingIndex, error) {
+	return nil, nil
 }
 
 // getPythonVersionsFromTree extracts Python package versions by scanning the

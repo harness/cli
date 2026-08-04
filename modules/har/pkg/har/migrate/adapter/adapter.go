@@ -67,6 +67,7 @@ type Adapter interface {
 		metadata map[string]interface{},
 	) error
 	SearchFiles(registry string) ([]types.SearchedFile, error)
+	BuildExistingIndex(ctx context.Context, registryRef string, concurrency int) (*types.ExistingIndex, error)
 }
 
 var registry = map[types.RegistryType]Factory{}

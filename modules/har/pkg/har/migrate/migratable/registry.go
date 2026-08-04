@@ -264,6 +264,28 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		}
 	}
 
+	// Build a registry-wide snapshot of existing files so re-runs can skip
+	// already-migrated files without per-version API calls in version.go.
+	// Only applicable for types whose Migrate path consults the index.
+	indexApplicable := func(t types.ArtifactType) bool {
+		switch t {
+		case types.GENERIC, types.RAW, types.MAVEN, types.PYTHON,
+			types.NUGET, types.NPM, types.DART, types.PUPPET:
+			return true
+		}
+		return false
+	}
+	var existingIndex *types.ExistingIndex
+	if !r.config.DryRun && !r.config.Overwrite && indexApplicable(r.artifactType) {
+		idx, idxErr := r.destAdapter.BuildExistingIndex(ctx, r.registry.Path, r.config.Concurrency)
+		if idxErr != nil {
+			logger.Warn().Err(idxErr).Msg("Failed to build existing index, falling back to per-version checks")
+		} else {
+			existingIndex = idx
+			logger.Info().Msg("Built existing index for destination registry")
+		}
+	}
+
 	var jobs []engine.Job
 	for _, pkg := range pkgs {
 		treeNode, err2 := tree.GetNodeForPath(root, pkg.Path)
@@ -272,7 +294,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 			return fmt.Errorf("get node for path %s failed: %w", pkg.Path, err2)
 		}
 		job := NewPackageJob(r.srcAdapter, r.destAdapter, r.srcRegistry, r.sourcePackageHostname, r.destRegistry, r.artifactType, pkg, treeNode,
-			r.stats, r.mapping, r.config, r.registry, r.dryRunStats, unfilteredRoot)
+			r.stats, r.mapping, r.config, r.registry, r.dryRunStats, unfilteredRoot,existingIndex)
 		jobs = append(jobs, job)
 	}
 
