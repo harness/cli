@@ -5,6 +5,7 @@ package format
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -61,22 +62,42 @@ func TestExpandColumnsRows_DuplicateNames(t *testing.T) {
 	data := map[string]any{
 		"columns": []any{
 			map[string]any{"name": "x"},
+			map[string]any{"name": "x_2"},
 			map[string]any{"name": "x"},
 		},
 		"rows": []any{
-			map[string]any{"values": []any{"a", "b"}},
+			map[string]any{"values": []any{"a", "b", "c"}},
 		},
 	}
 	rows, fields, ok := ExpandColumnsRows(data)
 	if !ok {
 		t.Fatal("expected ok")
 	}
-	if fields[0].ID != "x" || fields[1].ID != "x_2" {
+	if fields[0].ID != "x" || fields[1].ID != "x_2" || fields[2].ID != "x_3" {
 		t.Fatalf("fields = %+v", fields)
 	}
 	r0 := rows[0].(map[string]any)
-	if r0["x"] != "a" || r0["x_2"] != "b" {
+	if r0["x"] != "a" || r0["x_2"] != "b" || r0["x_3"] != "c" {
 		t.Fatalf("row = %+v", r0)
+	}
+}
+
+func TestExpandColumnsRows_EmptyResult(t *testing.T) {
+	data := map[string]any{
+		"columns": []any{},
+		"rows":    []any{},
+	}
+	rows, fields, ok := ExpandColumnsRows(data)
+	if !ok {
+		t.Fatal("expected empty columns/rows result to be recognized")
+	}
+	if len(rows) != 0 || len(fields) != 0 {
+		t.Fatalf("rows=%v fields=%v", rows, fields)
+	}
+	out := t.TempDir() + "/out.txt"
+	handled, err := FormatColumnsRowsArray(cmdctx.FormatFlags{Format: "table", OutFile: out}, false, data, map[string]any{})
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
 	}
 }
 
@@ -112,10 +133,59 @@ func TestFormatSingleOutput_ColumnsRowsTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FormatSingleOutput table: %v", err)
 	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "alpha") {
+		t.Fatalf("table output did not use extracted item_expr payload: %q", got)
+	}
 
 	err = FormatSingleOutput(cmdctx.FormatFlags{Format: "table"}, false, map[string]any{"x": 1}, "it", "", nil, nil, map[string]any{})
 	if err == nil || !strings.Contains(err.Error(), "not supported here") {
 		t.Fatalf("err = %v, want not supported", err)
+	}
+}
+
+func TestFormatSingleOutput_RawTableRejected(t *testing.T) {
+	data := map[string]any{"result": sampleColumnsRows()}
+	err := FormatSingleOutput(cmdctx.FormatFlags{Format: "table", Raw: true}, false, data, "it.result", "", nil, nil, map[string]any{})
+	if err == nil || err.Error() != "--raw is only supported with --format json" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFormatSingleOutput_RawJSONKeepsEnvelope(t *testing.T) {
+	out := t.TempDir() + "/out.json"
+	data := map[string]any{"result": sampleColumnsRows(), "metadata": "kept"}
+	err := FormatSingleOutput(cmdctx.FormatFlags{Format: "json", Raw: true, OutFile: out}, false, data, "it.result", "", nil, nil, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `"metadata": "kept"`) || !strings.Contains(string(got), `"result"`) {
+		t.Fatalf("raw JSON did not preserve envelope: %q", got)
+	}
+}
+
+func TestFormatSingleOutput_TruncatedTableNotice(t *testing.T) {
+	out := t.TempDir() + "/out.txt"
+	result := sampleColumnsRows()
+	result["truncated"] = true
+	data := map[string]any{"result": result}
+	err := FormatSingleOutput(cmdctx.FormatFlags{Format: "table", OutFile: out}, false, data, "it.result", "", nil, nil, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "(truncated)") {
+		t.Fatalf("table output = %q", got)
 	}
 }
 

@@ -32,7 +32,7 @@ var validArrayFormats = map[string]bool{
 	"json": true, "jsonl": true, "table": true, "csv": true, "tsv": true, "markdown": true,
 }
 
-// PageMeta carries optional paging summary information for display after a table.
+// PageMeta carries optional paging summary information and a notice for display after a table.
 // Offset is the item-level offset of the first item returned. Count is the number
 // of items actually returned. HasTotal indicates whether Total is valid.
 type PageMeta struct {
@@ -40,13 +40,14 @@ type PageMeta struct {
 	Count    int
 	HasTotal bool
 	Total    int64
+	Notice   string
 }
 
 // FormatArrayOutput renders a list response (table, json, jsonl, csv, tsv).
 // itemsExpr is an expr-lang expression that resolves the row slice; "it" is bound to the full response.
 // defaultTspec is the command's declared table layout; may be nil.
 // exprEnv is the base expr-lang environment (ctx, flags, auth, helpers); "it" is injected per row for columns.
-// meta, when non-nil, causes a "showing X-Y of Z" footer to be printed after the table.
+// meta, when non-nil, causes paging information and/or a notice to be printed after the table.
 func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr string, defaultTspec *spec.TableSpec, fields []spec.FieldDef, exprEnv map[string]any, meta *PageMeta) error {
 	// 1. Resolve --columns into a tspec (overrides default).
 	tspec := defaultTspec
@@ -130,6 +131,12 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 				} else if meta.HasTotal {
 					fmt.Fprintf(w, "No results (%d items total)\n", meta.Total)
 				}
+				if meta.Notice != "" {
+					if meta.Count == 0 && !meta.HasTotal {
+						fmt.Fprintln(w, "─────")
+					}
+					fmt.Fprintln(w, meta.Notice)
+				}
 			}
 		}
 		return nil
@@ -209,6 +216,9 @@ func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr
 	}
 	if flags.Format == "yaml" && yamlPickExpr == "" {
 		return fmt.Errorf("--format yaml is not supported for this command")
+	}
+	if flags.Raw && tabularSingleFormats[flags.Format] {
+		return fmt.Errorf("--raw is only supported with --format json")
 	}
 
 	payload := data

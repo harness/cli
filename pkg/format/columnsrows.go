@@ -45,14 +45,26 @@ func ExpandColumnsRows(data any) (rows []any, fields []spec.FieldDef, ok bool) {
 
 	names := make([]string, 0, len(colsSlice))
 	fields = make([]spec.FieldDef, 0, len(colsSlice))
-	seen := make(map[string]int, len(colsSlice))
+	used := make(map[string]bool, len(colsSlice))
+	nextSuffix := make(map[string]int, len(colsSlice))
 	for i, c := range colsSlice {
 		base := columnName(c, i)
 		name := base
-		if n := seen[base]; n > 0 {
-			name = fmt.Sprintf("%s_%d", base, n+1)
+		if used[name] {
+			suffix := nextSuffix[base]
+			if suffix < 2 {
+				suffix = 2
+			}
+			for {
+				name = fmt.Sprintf("%s_%d", base, suffix)
+				suffix++
+				if !used[name] {
+					break
+				}
+			}
+			nextSuffix[base] = suffix
 		}
-		seen[base]++
+		used[name] = true
 		names = append(names, name)
 		fields = append(fields, spec.FieldDef{
 			ID:    name,
@@ -83,7 +95,13 @@ func FormatColumnsRowsArray(flags cmdctx.FormatFlags, isPty bool, data any, expr
 	if !ok {
 		return false, nil
 	}
-	return true, FormatArrayOutput(flags, isPty, rows, "it", fieldsToTableSpec(fields), fields, exprEnv, nil)
+	var meta *PageMeta
+	if m, ok := data.(map[string]any); ok {
+		if truncated, _ := m["truncated"].(bool); truncated {
+			meta = &PageMeta{Notice: "(truncated)"}
+		}
+	}
+	return true, FormatArrayOutput(flags, isPty, rows, "it", fieldsToTableSpec(fields), fields, exprEnv, meta)
 }
 
 // WriteColumnsRows renders a columns/rows payload as a borderless table.
