@@ -443,6 +443,7 @@ func (a *adapter) CreateVersion(
 
 func (a *adapter) SearchFiles(_ string) ([]types.SearchedFile, error) {
 	return nil, fmt.Errorf("date filter (SearchFiles) is not supported for this source adapter")
+}
 func (a *adapter) BuildExistingIndex(_ context.Context, _ string, _ int) (*types.ExistingIndex, error) {
 	return nil, nil
 }
