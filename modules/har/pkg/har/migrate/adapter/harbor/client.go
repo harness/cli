@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 )
 
 const (
@@ -43,6 +44,7 @@ func (t *basicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.username != "" {
 		req.SetBasicAuth(t.username, t.password)
 	}
+	req.Header.Set("User-Agent", util.UserAgentString())
 	return t.base.RoundTrip(req)
 }
 
