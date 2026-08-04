@@ -17,6 +17,7 @@ import (
 	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arapi"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arpkg"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
 	"github.com/google/uuid"
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
@@ -31,6 +32,7 @@ type xAPIKeyTransport struct {
 func (t *xAPIKeyTransport) RoundTrip(req *http2.Request) (*http2.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("x-api-key", t.token)
+	req.Header.Set("User-Agent", util.UserAgentString())
 	return t.base.RoundTrip(req)
 }
 
@@ -55,6 +57,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	withXApiKey := func(c *arapi.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
+			req.Header.Set("User-Agent", util.UserAgentString())
 			return nil
 		})
 		return nil
@@ -62,6 +65,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	withXApiKeyPkg := func(c *arpkg.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
+			req.Header.Set("User-Agent", util.UserAgentString())
 			return nil
 		})
 		return nil

@@ -171,6 +171,7 @@ func (r *Package) Pre(ctx context.Context) error {
 			crane.WithJobs(r.config.Concurrency),
 			crane.WithNoClobber(!r.config.Overwrite),
 			crane.WithAuthFromKeychain(keyChain),
+			crane.WithUserAgent(util.UserAgentString()),
 		}
 		if r.srcAdapter.GetConfig().Insecure {
 			craneOpts = append(craneOpts, crane.Insecure)
@@ -262,7 +263,7 @@ func (r *Package) Migrate(ctx context.Context) error {
 		}
 
 		craneOpts := []crane.Option{
-			crane.WithUserAgent("harness-cli"),
+			crane.WithUserAgent(util.UserAgentString()),
 			crane.WithContext(ctx),
 			crane.WithJobs(r.config.Concurrency),
 			crane.WithNoClobber(!r.config.Overwrite),
@@ -656,7 +657,7 @@ func (r *Package) pushChart(ctx context.Context, chartPath string, dstRef string
 
 	craneOpts := []remote.Option{
 		remote.WithContext(ctx),
-		remote.WithUserAgent("harness-cli"),
+		remote.WithUserAgent(util.UserAgentString()),
 		remote.WithAuthFromKeychain(keyChain),
 	}
 
