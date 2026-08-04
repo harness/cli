@@ -230,33 +230,83 @@ func (a *adapter) GetPackages(registry string, artifactType types.ArtifactType, 
 
 		return packages, nil
 	} else if artifactType == types.RPM {
-		node, err := tree.GetNodeForPath(root, "/repodata/repomd.xml")
+		// Find all repodata/repomd.xml files in the tree. A single JFrog repo
+		// can contain multiple RPM repos at different paths (nested repos).
+		files, err := tree.GetAllFiles(root)
 		if err != nil {
-			return nil, fmt.Errorf("get node for path: %w", err)
-		}
-		file, _, err := a.DownloadFile(registry, node.File.Uri)
-		if err != nil {
-			return nil, fmt.Errorf("download repomd.xml: %w", err)
-		}
-		defer file.Close()
-
-		primaryLocation, err := extractPrimaryLocation(file)
-		if err != nil {
-			return nil, fmt.Errorf("extract primary location: %w", err)
+			return nil, fmt.Errorf("get all files: %w", err)
 		}
 
-		primaryFile, _, err := a.DownloadFile(registry, primaryLocation)
-		if err != nil {
-			return nil, fmt.Errorf("download primary file: %w", err)
-		}
-		defer primaryFile.Close()
+		var allPackages []types.Package
+		seenRepomdPaths := make(map[string]bool)
+		successfulRepos := 0
 
-		// Extract package URLs from primary.xml.gz
-		packages, err := extractRPMPackages(primaryFile, registry)
-		if err != nil {
-			return nil, fmt.Errorf("extract RPM package URLs: %w", err)
+		for _, file := range files {
+			if file.Folder {
+				continue
+			}
+			// Look for all repodata/repomd.xml files at any depth
+			if !strings.HasSuffix(file.Uri, "/repodata/repomd.xml") {
+				continue
+			}
+			if seenRepomdPaths[file.Uri] {
+				continue
+			}
+			seenRepomdPaths[file.Uri] = true
+
+			log.Info().Msgf("Found RPM repository metadata at: %s", file.Uri)
+
+			repomdFile, _, err := a.DownloadFile(registry, file.Uri)
+			if err != nil {
+				log.Warn().Msgf("Failed to download repomd.xml at %s: %v", file.Uri, err)
+				continue
+			}
+
+			primaryLocation, err := extractPrimaryLocation(repomdFile)
+			repomdFile.Close()
+			if err != nil {
+				log.Warn().Msgf("Failed to extract primary location from %s: %v", file.Uri, err)
+				continue
+			}
+
+			// Resolve relative primary location path against repomd.xml location.
+			// The primary location in repomd.xml is relative to the RPM repo root
+			// (parent of repodata/), not to the repodata/ directory itself.
+			primaryPath := primaryLocation
+			if !strings.HasPrefix(primaryLocation, "/") {
+				repomdDir := path.Dir(file.Uri)    // e.g., "/repodata" or "/centos7/repodata"
+				rpmRepoRoot := path.Dir(repomdDir) // e.g., "/" or "/centos7"
+				primaryPath = path.Join(rpmRepoRoot, primaryLocation)
+			}
+
+			primaryFile, _, err := a.DownloadFile(registry, primaryPath)
+			if err != nil {
+				log.Warn().Msgf("Failed to download primary file at %s: %v", primaryPath, err)
+				continue
+			}
+
+			// Extract package URLs from primary.xml.gz
+			rpmPackages, err := extractRPMPackages(primaryFile, registry)
+			primaryFile.Close()
+			if err != nil {
+				log.Warn().Msgf("Failed to extract RPM packages from %s: %v", primaryPath, err)
+				continue
+			}
+
+			log.Info().Msgf("Extracted %d packages from RPM repo at %s", len(rpmPackages), file.Uri)
+			allPackages = append(allPackages, rpmPackages...)
+			successfulRepos++
 		}
-		return packages, nil
+
+		if len(seenRepomdPaths) == 0 {
+			return nil, fmt.Errorf("no repodata/repomd.xml found in repository")
+		}
+		if successfulRepos == 0 {
+			return nil, fmt.Errorf("all %d RPM repositories failed to process", len(seenRepomdPaths))
+		}
+
+		log.Info().Msgf("Found total of %d RPM packages across %d repositories", len(allPackages), len(seenRepomdPaths))
+		return allPackages, nil
 	} else if artifactType == types.GO {
 		leaves, _ := tree.GetAllFiles(root)
 		packageMap := make(map[string]bool)
@@ -1241,6 +1291,18 @@ func (a *adapter) CreateVersion(
 	metadata map[string]interface{},
 ) error {
 	return nil
+}
+
+func (a *adapter) SearchFiles(registry string) ([]types.SearchedFile, error) {
+	files, err := a.client.SearchFiles(registry)
+	if err != nil {
+		log.Error().Msgf("Failed to search files from registry: %v", err)
+		return nil, fmt.Errorf("failed to search files from registry: %w", err)
+	}
+	return files, nil
+}
+func (a *adapter) BuildExistingIndex(_ context.Context, _ string, _ int) (*types.ExistingIndex, error) {
+	return nil, nil
 }
 
 // getPythonVersionsFromTree extracts Python package versions by scanning the

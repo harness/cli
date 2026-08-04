@@ -34,6 +34,8 @@ type Version struct {
 	registry        types.RegistryInfo
 	existingFileMap map[string]bool
 	dryRunStats     *types.DryRunStats
+	unfilteredRoot  *types.TreeNode
+	existingIndex   *types.ExistingIndex
 }
 
 func NewVersionJob(
@@ -50,6 +52,8 @@ func NewVersionJob(
 	config *types.Config,
 	registry types.RegistryInfo,
 	dryRunStats *types.DryRunStats,
+	unfilteredRoot *types.TreeNode,
+	existingIndex *types.ExistingIndex,
 ) engine.Job {
 	jobID := uuid.New().String()
 
@@ -78,6 +82,8 @@ func NewVersionJob(
 		registry:        registry,
 		existingFileMap: make(map[string]bool),
 		dryRunStats:     dryRunStats,
+		unfilteredRoot:  unfilteredRoot,
+		existingIndex:   existingIndex,
 	}
 }
 
@@ -104,20 +110,20 @@ func (r *Version) Pre(ctx context.Context) error {
 		return nil
 	}
 
-	// reading all existing files for this version from destination
-
+	// If an upfront index was built by registry.go, skip the per-version API
+	// call entirely — the index already has everything. Fall back to the
+	// per-version lookup only when no index is available.
 	if !r.config.Overwrite && (r.artifactType != types.MAVEN && r.artifactType != types.NPM && r.pkg.Name != "" && r.version.Name != "") {
-
-		existingFiles, err := r.getAllExistingFilesForThisVersion(ctx)
-
-		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to get existing files, will proceed with migration")
-		} else {
-			// Populate existingFileMap with file name
-			for _, fileName := range existingFiles {
-				r.existingFileMap[fileName] = true
+		if r.existingIndex == nil {
+			existingFiles, err := r.getAllExistingFilesForThisVersion(ctx)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to get existing files, will proceed with migration")
+			} else {
+				for _, fileName := range existingFiles {
+					r.existingFileMap[strings.ToLower(fileName)] = true
+				}
+				logger.Info().Msgf("Found %d existing files for version %s", len(r.existingFileMap), r.version.Name)
 			}
-			logger.Info().Msgf("Found %d existing files for version %s", len(r.existingFileMap), r.version.Name)
 		}
 	}
 	logger.Info().
@@ -145,7 +151,18 @@ func (r *Version) Migrate(ctx context.Context) error {
 
 	if r.artifactType == types.GENERIC || r.artifactType == types.RAW || r.artifactType == types.MAVEN || r.artifactType == types.PYTHON ||
 		r.artifactType == types.NUGET || r.artifactType == types.NPM || r.artifactType == types.DART || r.artifactType == types.PUPPET {
-		files, err := tree.GetAllFiles(r.node)
+		// For PYTHON, use unfilteredRoot so distribution files pruned by the date filter
+		// are still enumerated — prevents partial versions from being published.
+		fileNode := r.node
+		if r.artifactType == types.PYTHON && r.unfilteredRoot != nil {
+			if unfilteredPkgNode, e := tree.GetNodeForPath(r.unfilteredRoot, r.pkg.Path); e == nil {
+				if unfilteredVersionNode, e2 := tree.GetNodeForPath(unfilteredPkgNode, r.version.Path); e2 == nil {
+					fileNode = unfilteredVersionNode
+					logger.Debug().Str("version", r.version.Name).Msg("recovered distribution files from unfiltered tree")
+				}
+			}
+		}
+		files, err := tree.GetAllFiles(fileNode)
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to get files from tree")
 			return fmt.Errorf("get files from tree failed: %w", err)
@@ -174,16 +191,25 @@ func (r *Version) Migrate(ctx context.Context) error {
 					continue
 				}
 			}
-			// Check if file already exists in destination
-
-			lowerCaseNormalizeFileName := strings.ToLower(file.Name)
-			if r.existingFileMap[lowerCaseNormalizeFileName] {
+			// Check if file already exists in destination (index takes priority).
+			// GENERIC/RAW: v1 HAR stores full path in Name; use Uri to match.
+			// All other types: Name is a basename; use it directly.
+			fileKey := file.Name
+			if r.artifactType == types.GENERIC || r.artifactType == types.RAW {
+				fileKey = strings.TrimPrefix(file.Uri, "/")
+			}
+			alreadyExists := false
+			if r.existingIndex != nil {
+				alreadyExists = r.existingIndex.HasFile(r.pkg.Name, r.version.Name, fileKey, r.artifactType)
+			} else {
+				alreadyExists = r.existingFileMap[strings.ToLower(fileKey)]
+			}
+			if alreadyExists {
 				util.GetSkipPrinter().Println(fmt.Sprintf("Registry [%s], Package [%s/%s], File [%s] already exists",
 					r.destRegistry,
 					r.pkg.Name, r.version.Name, file.Name))
 				logger.Info().Msgf("Skipping file %s as it already exists in destination", file.Uri)
 
-				// Add to statistics
 				stat := types.FileStat{
 					Name:     file.Name,
 					Registry: r.srcRegistry,
@@ -264,36 +290,12 @@ func (r *Version) Migrate(ctx context.Context) error {
 	return nil
 }
 
-// addVersionToDryRunDirectory adds version to the directory structure
+// addVersionToDryRunDirectory adds version to the directory structure (thread-safe).
 func (r *Version) addVersionToDryRunDirectory() {
 	if r.dryRunStats == nil {
 		return
 	}
-
-	// Ensure registry and package entries exist
-	if r.dryRunStats.Directories[r.srcRegistry] == nil {
-		r.dryRunStats.Directories[r.srcRegistry] = &types.DryRunDirectoryEntry{
-			Registry: r.srcRegistry,
-			Packages: make(map[string]*types.DryRunPackageEntry),
-		}
-	}
-	dirEntry := r.dryRunStats.Directories[r.srcRegistry]
-
-	if dirEntry.Packages[r.pkg.Name] == nil {
-		dirEntry.Packages[r.pkg.Name] = &types.DryRunPackageEntry{
-			Name:     r.pkg.Name,
-			Versions: make(map[string]*types.DryRunVersionEntry),
-		}
-	}
-	pkgEntry := dirEntry.Packages[r.pkg.Name]
-
-	// Add version entry if not exists
-	if pkgEntry.Versions[r.version.Name] == nil {
-		pkgEntry.Versions[r.version.Name] = &types.DryRunVersionEntry{
-			Name:  r.version.Name,
-			Files: make([]types.DryRunVersionFileEntry, 0),
-		}
-	}
+	r.dryRunStats.EnsureVersion(r.srcRegistry, r.pkg.Name, r.version.Name)
 }
 
 // Post Any post processing work

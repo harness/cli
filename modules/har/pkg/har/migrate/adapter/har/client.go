@@ -11,14 +11,17 @@ import (
 	http2 "net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arapi"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arpkg"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
 	"github.com/google/uuid"
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
+	"github.com/rs/zerolog/log"
 )
 
 type xAPIKeyTransport struct {
@@ -29,6 +32,7 @@ type xAPIKeyTransport struct {
 func (t *xAPIKeyTransport) RoundTrip(req *http2.Request) (*http2.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("x-api-key", t.token)
+	req.Header.Set("User-Agent", util.UserAgentString())
 	return t.base.RoundTrip(req)
 }
 
@@ -53,6 +57,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	withXApiKey := func(c *arapi.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
+			req.Header.Set("User-Agent", util.UserAgentString())
 			return nil
 		})
 		return nil
@@ -60,6 +65,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	withXApiKeyPkg := func(c *arpkg.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
+			req.Header.Set("User-Agent", util.UserAgentString())
 			return nil
 		})
 		return nil
@@ -99,22 +105,34 @@ type client struct {
 	accountID string
 }
 
+// uploadGenericFile, headRawFile, and uploadRawFile build the request URL manually
+// and issue it directly (instead of going through the generated pkgClient) because
+// the generated client percent-encodes "/" in path params (%2F), which the server
+// answers with a 307 redirect for nested file paths.
 func (c *client) uploadGenericFile(registry, artifactName, version string, f *types.File, file io.ReadCloser) error {
 	// For generic, include package/version as path segments: {package}/{version}/{filepath}
 	fileUri := strings.TrimPrefix(f.Uri, "/")
 	fullPath := fmt.Sprintf("%s/%s/%s", artifactName, version, fileUri)
 	defer file.Close()
 
-	_, err2 := c.pkgClient.UploadGenericFileToPathWithBodyWithResponse(
-		context.Background(),
-		c.accountID,
-		registry,
-		fullPath,
-		"application/octet-stream",
-		file)
+	base := strings.TrimRight(c.url, "/")
+	url := fmt.Sprintf("%s/pkg/%s/%s/files/%s", base, c.accountID, registry, fullPath)
+	req, err := http2.NewRequest(http2.MethodPut, url, file)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
 
-	if err2 != nil {
-		return fmt.Errorf("failed to upload file '%s/%s': %w", artifactName, version, err2)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to upload file '%s/%s': %w", artifactName, version, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to upload file '%s/%s', status code: %d, response: %s",
+			artifactName, version, resp.StatusCode, string(body))
 	}
 
 	return nil
@@ -124,48 +142,58 @@ func (c *client) headRawFile(registryRef string, fileUri string) (bool, error) {
 	fileUri = strings.TrimPrefix(fileUri, "/")
 	parts := strings.Split(registryRef, "/")
 	registry := parts[len(parts)-1]
-	resp, err := c.pkgClient.HeadGenericFileAtPathWithResponse(
-		context.Background(),
-		c.accountID,
-		registry,
-		fileUri,
-	)
+
+	base := strings.TrimRight(c.url, "/")
+	url := fmt.Sprintf("%s/pkg/%s/%s/files/%s", base, c.accountID, registry, fileUri)
+	req, err := http2.NewRequest(http2.MethodHead, url, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("failed to HEAD raw file '%s': %w", fileUri, err)
 	}
+	defer resp.Body.Close()
 
-	if resp.StatusCode() == http2.StatusOK {
+	switch resp.StatusCode {
+	case http2.StatusOK:
 		return true, nil
-	}
-	if resp.StatusCode() == http2.StatusNotFound {
+	case http2.StatusNotFound:
 		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected status code %d for HEAD on raw file '%s'", resp.StatusCode, fileUri)
 	}
-	return false, fmt.Errorf("unexpected status code %d for HEAD on raw file '%s'", resp.StatusCode(), fileUri)
 }
 
 func (c *client) uploadRawFile(registry string, f *types.File, file io.ReadCloser) error {
 	fileUri := strings.TrimPrefix(f.Uri, "/")
 	defer file.Close()
 
-	resp, err := c.pkgClient.UploadGenericFileToPathWithBodyWithResponse(
-		context.Background(),
-		c.accountID,
-		registry,
-		fileUri,
-		"application/octet-stream",
-		file,
-	)
+	base := strings.TrimRight(c.url, "/")
+	url := fmt.Sprintf("%s/pkg/%s/%s/files/%s", base, c.accountID, registry, fileUri)
+	req, err := http2.NewRequest(http2.MethodPut, url, file)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to upload raw file '%s': %w", fileUri, err)
 	}
-	if resp.StatusCode() == http2.StatusConflict {
-		return types.ErrArtifactAlreadyExists
-	}
-	if resp.StatusCode() < 200 || resp.StatusCode() > 299 {
-		return fmt.Errorf("failed to upload raw file '%s', status %d", fileUri, resp.StatusCode())
-	}
+	defer resp.Body.Close()
 
-	return nil
+	switch {
+	case resp.StatusCode == http2.StatusConflict:
+		return types.ErrArtifactAlreadyExists
+	case resp.StatusCode >= 200 && resp.StatusCode <= 299:
+		return nil
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to upload raw file '%s', status code: %d, response: %s",
+			fileUri, resp.StatusCode, string(body))
+	}
 }
 
 func (c *client) uploadMavenFile(
@@ -176,7 +204,7 @@ func (c *client) uploadMavenFile(
 	file io.ReadCloser,
 ) error {
 	fileUri := strings.TrimPrefix(f.Uri, "/")
-	url := fmt.Sprintf("%s/maven/%s/%s/%s", c.url, c.accountID, registry, fileUri)
+	url := fmt.Sprintf("%s/pkg/%s/%s/maven/%s", c.url, c.accountID, registry, fileUri)
 	// Create request
 	req, err := http2.NewRequest(http2.MethodPut, url, file)
 	if err != nil {
@@ -266,24 +294,21 @@ func (c *client) uploadNugetFile(
 	return nil
 }
 
-// nugetSubDir extracts the subdirectory prefix from a NuGet file URI.
-// JFrog stores NuGet packages as: /{subdir}/{packageId}/{version}/{filename}
-// The last 3 segments are always packageId/version/filename.
-// Returns the subdirectory with a trailing slash, or empty string if none.
+// nugetSubDir extracts the directory prefix from a NuGet file URI.
+// Returns everything except the filename (last segment), with a trailing slash,
+// or empty string if the file is at the root.
 //
 // Examples:
 //
-//	"foo/company.grpc.pkg/1.0.0/company.grpc.pkg.1.0.0.nupkg" → "foo/"
-//	"a/b/pkg/1.0.0/pkg.1.0.0.nupkg"                           → "a/b/"
-//	"company.grpc.pkg/1.0.0/company.grpc.pkg.1.0.0.nupkg"     → ""
+//	"a/b/c/d/proto-bindings.0.8.662.nupkg" → "a/b/c/d/"
+//	"foo/company.grpc.pkg.1.0.0.nupkg"     → "foo/"
+//	"company.grpc.pkg.1.0.0.nupkg"         → ""
 func nugetSubDir(fileUri string) string {
 	parts := strings.Split(strings.TrimPrefix(fileUri, "/"), "/")
-	// Need at least 4 segments for there to be a subdirectory
-	// (subdir + packageId + version + filename)
-	if len(parts) <= 3 {
+	if len(parts) <= 1 {
 		return ""
 	}
-	return strings.Join(parts[:len(parts)-3], "/") + "/"
+	return strings.Join(parts[:len(parts)-1], "/") + "/"
 }
 
 func (c *client) uploadNPMFile(
@@ -1087,4 +1112,96 @@ func (c *client) uploadConanFile(
 		return fmt.Errorf("failed to upload conan file '%s', status %d: %s", filename, resp.StatusCode, string(body))
 	}
 	return nil
+}
+
+func (c *client) buildExistingIndex(ctx context.Context, registryRef string, concurrency int) (*types.ExistingIndex, error) {
+	// Step 1: collect all artifact (package) names for this registry.
+	page := int64(0)
+	size := int64(100)
+	var artifactNames []string
+	for {
+		resp, err := c.apiClient.GetAllArtifactsByRegistryWithResponse(ctx, registryRef,
+			&arapi.GetAllArtifactsByRegistryParams{Page: &page, Size: &size})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list artifacts for index: %w", err)
+		}
+		if resp.StatusCode() != http2.StatusOK || resp.JSON200 == nil {
+			return nil, fmt.Errorf("failed to list artifacts for index: %s", resp.Status())
+		}
+		for _, a := range resp.JSON200.Data.Artifacts {
+			artifactNames = append(artifactNames, a.Name)
+		}
+		data := resp.JSON200.Data
+		if len(data.Artifacts) < int(size) ||
+			(data.PageCount != nil && data.PageIndex != nil && *data.PageIndex+1 >= *data.PageCount) {
+			break
+		}
+		page++
+	}
+
+	// Step 2: for each artifact, collect all (pkg, version) pairs.
+	type pkgVersion struct{ pkg, version string }
+	var pvPairs []pkgVersion
+	for _, name := range artifactNames {
+		p := int64(0)
+		for {
+			resp, err := c.apiClient.GetAllArtifactVersionsWithResponse(ctx, registryRef, name,
+				&arapi.GetAllArtifactVersionsParams{Page: &p, Size: &size})
+			if err != nil {
+				log.Warn().Err(err).Str("artifact", name).Msg("buildExistingIndex: failed to list versions, skipping artifact")
+				break
+			}
+			if resp.StatusCode() != http2.StatusOK || resp.JSON200 == nil {
+				log.Warn().Str("artifact", name).Str("status", resp.Status()).Msg("buildExistingIndex: unexpected status listing versions, skipping artifact")
+				break
+			}
+			if resp.JSON200.Data.ArtifactVersions != nil {
+				for _, v := range *resp.JSON200.Data.ArtifactVersions {
+					if v.FileCount != nil && *v.FileCount == 0 {
+						continue
+					}
+					pvPairs = append(pvPairs, pkgVersion{name, v.Name})
+				}
+			}
+			data := resp.JSON200.Data
+			if data.ArtifactVersions == nil || len(*data.ArtifactVersions) < int(size) ||
+				(data.PageCount != nil && data.PageIndex != nil && *data.PageIndex+1 >= *data.PageCount) {
+				break
+			}
+			p++
+		}
+	}
+
+	// Step 3: fetch files per (pkg, version) concurrently, bounded by concurrency.
+	idx := types.NewExistingIndex()
+	if len(pvPairs) == 0 {
+		return idx, nil
+	}
+
+	limit := concurrency
+	if limit <= 0 {
+		limit = 4
+	}
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for _, pv := range pvPairs {
+		pv := pv
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			names, err := c.artifactGetFilesForVersion(ctx, registryRef, pv.pkg, pv.version)
+			if err != nil {
+				log.Warn().Err(err).Str("pkg", pv.pkg).Str("version", pv.version).Msg("buildExistingIndex: failed to list files for version, skipping")
+				return
+			}
+			for _, name := range names {
+				idx.AddFile(pv.pkg, pv.version, name)
+			}
+		}()
+	}
+	wg.Wait()
+
+	return idx, nil
 }

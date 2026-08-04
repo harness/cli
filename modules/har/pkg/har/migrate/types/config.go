@@ -3,7 +3,10 @@ package types
 import (
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/pterm/pterm"
+	"github.com/rs/zerolog/log"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -63,6 +66,22 @@ type RegistryConfig struct {
 	APIBaseURL string `yaml:"-"`
 }
 
+type DateFilterMatch string
+
+const (
+	DateFilterMatchAny DateFilterMatch = "ANY"
+	DateFilterMatchAll DateFilterMatch = "ALL"
+)
+
+// DateFilter defines time-based filtering criteria for a registry mapping.
+// Files are included when their creation or download timestamp satisfies the
+// configured thresholds, combined via Match ANY/ALL logic.
+type DateFilter struct {
+	Match           DateFilterMatch `yaml:"match"`
+	CreatedAfter    *time.Time      `yaml:"createdAfter"`
+	DownloadedAfter *time.Time      `yaml:"downloadedAfter"`
+}
+
 // RegistryMapping defines the mapping between source and destination registries
 // Slashes are used to defined the scope. The format would be
 // - "registry": Create registry at Account level
@@ -76,7 +95,8 @@ type RegistryMapping struct {
 	IncludePatterns []string `yaml:"includePatterns"`
 	ExcludePatterns []string `yaml:"excludePatterns"`
 	//Optional
-	SourcePackageHostname string `yaml:"sourcePackageHostname"`
+	SourcePackageHostname string      `yaml:"sourcePackageHostname"`
+	DateFilter            *DateFilter `yaml:"dateFilter"`
 }
 
 // CredentialsConfig defines the credential configuration
@@ -145,6 +165,11 @@ func validateConfig(config *Config) error {
 		}
 		if mapping.DestinationRegistry == "" {
 			return fmt.Errorf("mapping %d: destination registry cannot be empty", i)
+		}
+		if mapping.ArtifactType == MAVEN && mapping.DateFilter != nil {
+			msg := fmt.Sprintf("mapping %d: date filter is enabled for %s — maven-metadata.xml may not be in sync with the migrated artifacts", i, MAVEN)
+			log.Warn().Msg(msg)
+			pterm.Warning.Println(msg)
 		}
 	}
 
