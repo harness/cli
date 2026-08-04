@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/harness/cli/pkg/auth"
+
+	retryablehttp "github.com/hashicorp/go-retryablehttp"
 )
 
 // atomicWrite writes content to path via a temp file + rename, ensuring an
@@ -61,9 +63,19 @@ func parseRegistryAndName(id string) (registry, name string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// newHTTPClient returns an HTTP client with a 10-minute timeout suitable for large artifact uploads/downloads.
+// newHTTPClient returns a retry-enabled HTTP client with a 10-minute timeout,
+// suitable for large artifact uploads/downloads that may hit transient network errors.
 func newHTTPClient() *http.Client {
-	return &http.Client{Timeout: 10 * time.Minute}
+	rc := retryablehttp.NewClient()
+	rc.RetryMax = 5
+	rc.RetryWaitMin = 200 * time.Millisecond
+	rc.RetryWaitMax = 1 * time.Minute
+	rc.Backoff = retryablehttp.RateLimitLinearJitterBackoff
+	rc.Logger = nil
+
+	client := rc.StandardClient() // returns *http.Client using a retrying RoundTripper
+	client.Timeout = 10 * time.Minute
+	return client
 }
 
 // setAuthHeader sets the appropriate auth header on req (Bearer for SSO, x-api-key for PAT).
