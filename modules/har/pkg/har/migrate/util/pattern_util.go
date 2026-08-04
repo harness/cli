@@ -147,3 +147,28 @@ func IsMetadataDrivenArtifact(artifactType types.ArtifactType) bool {
 		return false
 	}
 }
+
+// IsWildCardExpression returns (true, nil) if pattern contains * or ?,
+// (false, nil) for a plain string, and an error if [ ] { } are present.
+func IsWildCardExpression(pattern string) (bool, error) {
+	for _, ch := range []rune{'[', ']', '{', '}'} {
+		if strings.ContainsRune(pattern, ch) {
+			return false, fmt.Errorf("unsupported wildcard character %q found in pattern %q; only '*' and '?' are supported", ch, pattern)
+		}
+	}
+	if strings.ContainsAny(pattern, "*?") {
+		return true, nil
+	}
+	return false, nil
+}
+
+// MatchesWildCardPattern reports whether packageName matches the given glob
+// pattern. Supports * and ? only (no path-separator semantics). Returns false
+// on pattern compilation errors.
+func MatchesWildCardPattern(packageName, pattern string) bool {
+	g, err := glob.Compile(pattern)
+	if err != nil {
+		return false
+	}
+	return g.Match(packageName)
+}
