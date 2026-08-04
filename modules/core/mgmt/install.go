@@ -75,16 +75,18 @@ var modulePlugins = map[string]string{
 	"har": "harness-har",
 }
 
-func defaultInstallDir() string {
+func defaultInstallDir() (string, error) {
 	if runtime.GOOS == "windows" {
 		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-			return filepath.Join(localAppData, "Programs", "harness")
+			return filepath.Join(localAppData, "Programs", "harness"), nil
 		}
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, "AppData", "Local", "Programs", "harness")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("determining default install directory: LOCALAPPDATA is not set and home directory could not be determined: %w", err)
 		}
+		return filepath.Join(home, "AppData", "Local", "Programs", "harness"), nil
 	}
-	return "~/.local/bin"
+	return "~/.local/bin", nil
 }
 
 func installedBinaryName(base string) string {
@@ -146,9 +148,13 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
 	coreOnly := cmdctx.GetBool(ctx.FlagValues, "core-only")
 
+	var err error
 	installDir := cmdctx.GetString(ctx.FlagValues, "install-dir")
 	if installDir == "" {
-		installDir = defaultInstallDir()
+		installDir, err = defaultInstallDir()
+		if err != nil {
+			return err
+		}
 	}
 	installDir = hbase.ExpandHomeDir(installDir)
 
@@ -156,7 +162,6 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	var err error
 	version, err = resolveVersion(version)
 	if err != nil {
 		return err
@@ -255,13 +260,16 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
 
+	var err error
 	installDir := cmdctx.GetString(ctx.FlagValues, "install-dir")
 	if installDir == "" {
-		installDir = defaultInstallDir()
+		installDir, err = defaultInstallDir()
+		if err != nil {
+			return err
+		}
 	}
 	installDir = hbase.ExpandHomeDir(installDir)
 
-	var err error
 	version, err = resolveVersion(version)
 	if err != nil {
 		return err
