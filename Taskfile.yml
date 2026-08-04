@@ -29,6 +29,29 @@ tasks:
     cmds:
       - go build -ldflags "{{.LDFLAGS}}" -o ../../bin/harness-har ./cmd/harness-har/main-harness-har.go
 
+  build:windows:
+    desc: Cross-compile Windows binaries (harness.exe + harness-har.exe)
+    deps: [build:windows:main, build:windows:har]
+
+  build:windows:main:
+    desc: Cross-compile harness.exe for Windows amd64
+    env:
+      GOOS: windows
+      GOARCH: amd64
+      CGO_ENABLED: 0
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o bin/harness.exe {{.MAIN}}
+
+  build:windows:har:
+    desc: Cross-compile harness-har.exe for Windows amd64
+    dir: modules/har
+    env:
+      GOOS: windows
+      GOARCH: amd64
+      CGO_ENABLED: 0
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o ../../bin/harness-har.exe ./cmd/harness-har/main-harness-har.go
+
   build:opt:
     desc: Build all optimized binaries (stripped symbols, no DWARF)
     deps: [build:opt:main, build:opt:har]
@@ -55,6 +78,14 @@ tasks:
       - mkdir -p ~/.local/bin
       - cp bin/{{.BINARY}} ~/.local/bin/{{.BINARY}}
       - echo "Installed ~/.local/bin/{{.BINARY}}"
+  
+  install:har:
+    desc: Build and install harness-har binary to ~/.local/bin
+    deps: [build:har, install]
+    cmds:
+      - mkdir -p ~/.local/bin
+      - cp ./bin/harness-har ~/.local/bin/harness-har
+      - echo "Installed ~/.local/bin/harness-har"
 
   dev:
     desc: Run without ldflags (version shows 0.1.0-dev / dev)

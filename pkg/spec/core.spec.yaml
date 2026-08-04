@@ -296,7 +296,7 @@ commands:
       - name: version
         description: "Version to install (default: latest)"
       - name: install-dir
-        description: "Directory to install into (default: ~/.local/bin)"
+        description: "Directory to install into (default: ~/.local/bin on Unix, %LOCALAPPDATA%\\Programs\\harness on Windows)"
       - name: force
         is_bool: true
         description: Install even if the current version is already up to date
@@ -331,7 +331,7 @@ commands:
       - name: version
         description: "Version to install (default: latest)"
       - name: install-dir
-        description: "Directory to install into (default: ~/.local/bin)"
+        description: "Directory to install into (default: ~/.local/bin on Unix, %LOCALAPPDATA%\\Programs\\harness on Windows)"
       - name: force
         is_bool: true
         description: Install even if the current version is already up to date
