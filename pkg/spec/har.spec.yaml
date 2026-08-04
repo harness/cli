@@ -529,6 +529,29 @@ commands:
       path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+/version/{{ctx.idParts[2]}}
       item_expr: it
 
+  - command: delete artifact:bulk
+    verb: delete
+    noun: artifact
+    noun_variant: bulk
+    short: Bulk delete artifacts by pattern with optional dry-run
+    has_args: true
+    args_label: "<pattern>"
+    completion_seq:
+      - completion_noun: registry
+    handler_type: workflow
+    workflow_id: bulk_delete_artifact
+    flags:
+      - name: registry
+        description: "Registry to delete from (required)"
+        required: true
+      - name: version
+        description: "Version pattern (* and ? supported); omit to match all versions"
+      - name: dry-run
+        description: "Preview impact without deleting; pass --dry-run=false to execute (default: true)"
+      - name: force
+        description: "Hard delete without soft-delete recovery; prompts for confirmation"
+        is_bool: true
+
   - command: get artifact
     verb: get
     noun: artifact
