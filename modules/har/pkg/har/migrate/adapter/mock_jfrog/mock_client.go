@@ -26,6 +26,7 @@ type mockClient struct {
 	catalogs      map[string][]string
 	fileContent   map[string][]byte // keyed by "registry/path"
 	binaryContent map[string][]byte
+	searchedFiles map[string][]types.SearchedFile
 }
 
 // NewMockClient creates a mock implementation of jfrog.Client backed by
@@ -37,6 +38,7 @@ func NewMockClient() jfrog.Client {
 		catalogs:      make(map[string][]string),
 		fileContent:   make(map[string][]byte),
 		binaryContent: make(map[string][]byte),
+		searchedFiles: make(map[string][]types.SearchedFile),
 	}
 	c.loadRegistries()
 	c.loadFiles()
@@ -44,6 +46,11 @@ func NewMockClient() jfrog.Client {
 	c.loadContent()
 	c.loadBinaryContent()
 	return c
+}
+
+// SetSearchedFiles registers per-registry AQL result data for date-filter tests.
+func (c *mockClient) SetSearchedFiles(registry string, files []types.SearchedFile) {
+	c.searchedFiles[registry] = files
 }
 
 func (c *mockClient) loadRegistries() {
@@ -300,6 +307,13 @@ func (c *mockClient) GetFiles(registry string) ([]types.File, error) {
 			SHA1:         "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 		},
 	}, nil
+}
+
+func (c *mockClient) SearchFiles(registry string) ([]types.SearchedFile, error) {
+	if files, exists := c.searchedFiles[registry]; exists {
+		return files, nil
+	}
+	return nil, fmt.Errorf("no search data found for registry '%s'", registry)
 }
 
 func (c *mockClient) GetCatalog(registry string) ([]string, error) {

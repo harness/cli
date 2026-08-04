@@ -53,6 +53,7 @@ type Package struct {
 	config                *types.Config
 	registry              types.RegistryInfo
 	dryRunStats           *types.DryRunStats
+	unfilteredRoot        *types.TreeNode
 	existingIndex         *types.ExistingIndex
 }
 
@@ -70,6 +71,7 @@ func NewPackageJob(
 	config *types.Config,
 	registry types.RegistryInfo,
 	dryRunStats *types.DryRunStats,
+	unfilteredRoot *types.TreeNode,
 	existingIndex *types.ExistingIndex,
 ) engine.Job {
 	jobID := uuid.New().String()
@@ -97,6 +99,7 @@ func NewPackageJob(
 		config:                config,
 		registry:              registry,
 		dryRunStats:           dryRunStats,
+		unfilteredRoot:        unfilteredRoot,
 		existingIndex:         existingIndex,
 	}
 }
@@ -314,11 +317,13 @@ func (r *Package) Migrate(ctx context.Context) error {
 		for _, version := range versions {
 			versionNode, err := tree.GetNodeForPath(r.node, version.Path)
 			if err != nil {
-				logger.Error().Msg("Failed to get node for version")
-				return fmt.Errorf("get version failed: %w", err)
+				// Version path not in the filtered tree — it was entirely pruned by date
+				// or pattern filters. Skip gracefully rather than aborting the package.
+				logger.Debug().Str("version", version.Name).Msg("version not in filtered tree, skipping (out of date-filter window)")
+				continue
 			}
 			job := NewVersionJob(r.srcAdapter, r.destAdapter, r.srcRegistry, r.destRegistry, r.artifactType, r.pkg,
-				version, versionNode, r.stats, r.mapping, r.config, r.registry, r.dryRunStats, r.existingIndex)
+				version, versionNode, r.stats, r.mapping, r.config, r.registry, r.dryRunStats, r.unfilteredRoot, r.existingIndex)
 			jobs = append(jobs, job)
 		}
 
@@ -667,28 +672,12 @@ func check(err error, context string) {
 	}
 }
 
-// addPackageToDryRunDirectory adds package to the directory structure
+// addPackageToDryRunDirectory adds package to the directory structure (thread-safe).
 func (r *Package) addPackageToDryRunDirectory() {
 	if r.dryRunStats == nil {
 		return
 	}
-
-	// Ensure registry entry exists (should already be created by Registry)
-	if r.dryRunStats.Directories[r.srcRegistry] == nil {
-		r.dryRunStats.Directories[r.srcRegistry] = &types.DryRunDirectoryEntry{
-			Registry: r.srcRegistry,
-			Packages: make(map[string]*types.DryRunPackageEntry),
-		}
-	}
-	dirEntry := r.dryRunStats.Directories[r.srcRegistry]
-
-	// Add package entry if not exists
-	if dirEntry.Packages[r.pkg.Name] == nil {
-		dirEntry.Packages[r.pkg.Name] = &types.DryRunPackageEntry{
-			Name:     r.pkg.Name,
-			Versions: make(map[string]*types.DryRunVersionEntry),
-		}
-	}
+	r.dryRunStats.EnsurePackage(r.srcRegistry, r.pkg.Name)
 }
 
 // Post Any post processing work

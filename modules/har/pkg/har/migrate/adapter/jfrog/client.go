@@ -49,6 +49,7 @@ type Client interface {
 	GetFile(registry string, path string) (io.ReadCloser, http.Header, error)
 	GetFiles(registry string) ([]types.File, error)
 	GetCatalog(registry string) ([]string, error)
+	SearchFiles(registry string) ([]types.SearchedFile, error)
 }
 
 // newClient constructs a jfrog client
@@ -290,4 +291,40 @@ func (c *client) catalog(url string) ([]string, string, error) {
 		return nil, "", err
 	}
 	return repositories.Repositories, parseNextLink(resp.Header.Get("Link")), nil
+}
+
+func (c *client) SearchFiles(registry string) ([]types.SearchedFile, error) {
+	aqlURL := fmt.Sprintf("%s/artifactory/api/search/aql", c.url)
+	query := fmt.Sprintf(`items.find({"repo": "%s", "type": "file"}).include("repo", "path", "name", "created", "modified", "stat.downloaded")`, registry)
+
+	req, err := http.NewRequest(http.MethodPost, aqlURL, strings.NewReader(query))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AQL request: %w", err)
+	}
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute AQL search for registry %q: %w", registry, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("AQL search failed for registry %q, status: %d", registry, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read AQL response: %w", err)
+	}
+
+	type aqlResponse struct {
+		Results []types.SearchedFile `json:"results"`
+	}
+	var result aqlResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse AQL response: %w", err)
+	}
+
+	return result.Results, nil
 }
