@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 )
 
 type bearerTransport struct {
@@ -19,6 +20,7 @@ type bearerTransport struct {
 func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+t.token)
+	req.Header.Set("User-Agent", util.UserAgentString())
 	return t.base.RoundTrip(req)
 }
 
@@ -144,6 +146,13 @@ func (c *client) GetFile(registry string, path string) (io.ReadCloser, http.Head
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create request for file '%s': %w", path, err)
 	}
+
+	// Prevent JFrog from updating the artifact's download stats during migration;
+	// without this, every migration pass resets last-download timestamps and breaks
+	// downloadedAfter date filtering on subsequent runs.
+	q := req.URL.Query()
+	q.Set("skipUpdateStats", "true")
+	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.client.Do(req)
 	if err != nil {
