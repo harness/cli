@@ -271,7 +271,7 @@ commands:
         options.timeout_ms: 'flags.timeout != "" ? flags.timeout : nil'
       no_fields: true
       item_expr: it.result
-      text_header: "{{it}}"
+      text_formatter: core:columns-rows
 
   - command: execute hql:explain
     verb: execute
