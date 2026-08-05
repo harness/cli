@@ -26,6 +26,11 @@ Pick a version (or use `latest`) and find the asset for your platform:
 If you only need the core CLI, use `harness-core_<version>_<os>_<arch>.tar.gz` (Unix)
 or `.zip` (Windows) instead — it contains just `harness`.
 
+`harness-har` is a **plugin**: unlike `harness`, it is not used from wherever you happen
+to place it. Step 3 registers it with `harness install plugin`, which copies it into
+`~/.harness/bin` and records its grammar in `~/.harness/spec` — until that happens, the
+`harness har ...` commands do not exist.
+
 Also grab `harness_<version>_checksums.txt` from the same release, for step 2.
 
 If `curl`/`wget` don't work in your environment, download both files with a regular browser
@@ -62,8 +67,10 @@ The hash printed should match the one from the checksums file.
 tar -xzf harness-bundle_<version>_<os>_<arch>.tar.gz -C /tmp/harness-install
 mkdir -p ~/.local/bin
 mv /tmp/harness-install/harness ~/.local/bin/harness
-mv /tmp/harness-install/harness-har ~/.local/bin/harness-har   # skip if using harness-core
-chmod +x ~/.local/bin/harness ~/.local/bin/harness-har
+chmod +x ~/.local/bin/harness
+
+# register the bundled har plugin (skip if using harness-core)
+~/.local/bin/harness install plugin /tmp/harness-install/harness-har
 ```
 
 **Windows (Command Prompt or PowerShell):**
@@ -72,11 +79,15 @@ chmod +x ~/.local/bin/harness ~/.local/bin/harness-har
 Expand-Archive harness-bundle_<version>_windows_amd64.zip -DestinationPath $env:TEMP\harness-install
 New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\Programs\harness"
 Copy-Item "$env:TEMP\harness-install\harness.exe" "$env:LOCALAPPDATA\Programs\harness\"
-Copy-Item "$env:TEMP\harness-install\harness-har.exe" "$env:LOCALAPPDATA\Programs\harness\"
+
+# register the bundled har plugin (skip if using harness-core)
+& "$env:LOCALAPPDATA\Programs\harness\harness.exe" install plugin "$env:TEMP\harness-install\harness-har.exe"
 ```
 
 `~/.local/bin` (Unix) and `%LOCALAPPDATA%\Programs\harness` (Windows) match the default
-installer locations, but any directory on your `PATH` works.
+installer locations for the **core** binary, and any directory on your `PATH` works. The
+`har` plugin is different: `install plugin` always puts it in `~/.harness/bin`, which does
+not need to be on `PATH` — the CLI dispatches to it by absolute path.
 
 ## 4. Add to PATH and enable completions
 
