@@ -5,6 +5,7 @@ package mgmt
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -224,7 +225,7 @@ func installPluginFromPath(ref string) (*installedPlugin, error) {
 	}
 	// No expected name: the user named an artifact directly, so whatever it
 	// identifies as is what they asked for.
-	if isTarball(path) {
+	if isArchive(path) {
 		tmp, err := os.MkdirTemp("", "harness-plugin-*")
 		if err != nil {
 			return nil, fmt.Errorf("creating temp dir: %w", err)
@@ -235,9 +236,12 @@ func installPluginFromPath(ref string) (*installedPlugin, error) {
 	return installPluginBinary(path, path, "")
 }
 
-func isTarball(path string) bool {
+// isArchive reports whether path names a plugin archive rather than a bare
+// plugin binary. Windows release archives are zip, so a ref that is not
+// recognized here would be misread as a binary and fail at the identity gate.
+func isArchive(path string) bool {
 	lower := strings.ToLower(path)
-	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
+	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") || strings.HasSuffix(lower, ".zip")
 }
 
 // installPluginFromTarball extracts the plugin binary from archivePath into
@@ -385,26 +389,53 @@ func copyFile(src, dest string, mode os.FileMode) error {
 	return nil
 }
 
-// extractPluginBinary unpacks the plugin binary out of a tarball into destDir and
-// returns its path. The plugin binary is identified by name: exactly one regular
-// file entry must be named harness-<name>[.exe]. Entry names are flattened to
-// their base name, so a hostile archive cannot write outside destDir, and only
-// the matching entry is written at all.
+// extractPluginBinary unpacks the plugin binary out of an archive into destDir
+// and returns its path. The plugin binary is identified by name: exactly one
+// regular file entry must be named harness-<name>[.exe]. Entry names are
+// flattened to their base name, so a hostile archive cannot write outside
+// destDir, and only the matching entry is written at all.
 //
-// Matching on the name rather than on the tar exec bit means an archive built by
-// a tool that does not preserve file modes still installs — the extracted file is
-// chmod'd executable here regardless. Licenses, docs, and any co-bundled
-// non-plugin binary (the core `harness` binary, notably) simply do not match.
+// Matching on the name rather than on the archive's exec bit means an archive
+// built by a tool that does not preserve file modes still installs — the
+// extracted file is chmod'd executable here regardless. Licenses, docs, and any
+// co-bundled non-plugin binary (the core `harness` binary, notably) simply do
+// not match.
 func extractPluginBinary(archivePath, destDir string) (string, error) {
-	f, err := os.Open(archivePath)
+	var matched []string
+	var err error
+	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
+		matched, err = extractPluginEntriesFromZip(archivePath, destDir)
+	} else {
+		matched, err = extractPluginEntriesFromTar(archivePath, destDir)
+	}
 	if err != nil {
 		return "", err
+	}
+
+	switch len(matched) {
+	case 1:
+		return filepath.Join(destDir, matched[0]), nil
+	case 0:
+		return "", fmt.Errorf("%s holds no file named %s<name> — not a harness plugin archive",
+			filepath.Base(archivePath), plugin.BinaryPrefix)
+	}
+	sort.Strings(matched)
+	return "", fmt.Errorf("%s holds %d plugin binaries (%s) — install one plugin at a time",
+		filepath.Base(archivePath), len(matched), strings.Join(matched, ", "))
+}
+
+// extractPluginEntriesFromTar writes every tar entry whose base name conforms to
+// the harness-<name> convention into destDir, returning the names written.
+func extractPluginEntriesFromTar(archivePath, destDir string) ([]string, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
 
 	gzr, err := gzip.NewReader(f)
 	if err != nil {
-		return "", fmt.Errorf("reading %s: %w", filepath.Base(archivePath), err)
+		return nil, fmt.Errorf("reading %s: %w", filepath.Base(archivePath), err)
 	}
 	defer gzr.Close()
 
@@ -416,7 +447,7 @@ func extractPluginBinary(archivePath, destDir string) (string, error) {
 			break
 		}
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if hdr.Typeflag != tar.TypeReg {
 			continue
@@ -425,33 +456,66 @@ func extractPluginBinary(archivePath, destDir string) (string, error) {
 		if _, ok := plugin.NameFromBinary(name); !ok {
 			continue
 		}
-		out := filepath.Join(destDir, name)
-		dst, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-		if err != nil {
-			return "", err
-		}
-		_, err = io.Copy(dst, tr)
-		dst.Close()
-		if err != nil {
-			return "", err
-		}
-		// O_CREATE respects umask, so set the mode explicitly.
-		if err := os.Chmod(out, 0755); err != nil {
-			return "", err
+		if err := writeExtractedBinary(filepath.Join(destDir, name), tr); err != nil {
+			return nil, err
 		}
 		matched = append(matched, name)
 	}
+	return matched, nil
+}
 
-	switch len(matched) {
-	case 1:
-		return filepath.Join(destDir, matched[0]), nil
-	case 0:
-		return "", fmt.Errorf("%s holds no file named %s<name> — not a harness plugin tarball",
-			filepath.Base(archivePath), plugin.BinaryPrefix)
+// extractPluginEntriesFromZip is the zip counterpart of
+// extractPluginEntriesFromTar, for Windows release archives.
+func extractPluginEntriesFromZip(archivePath, destDir string) ([]string, error) {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", filepath.Base(archivePath), err)
 	}
-	sort.Strings(matched)
-	return "", fmt.Errorf("%s holds %d plugin binaries (%s) — install one plugin at a time",
-		filepath.Base(archivePath), len(matched), strings.Join(matched, ", "))
+	defer r.Close()
+
+	var matched []string
+	for _, entry := range r.File {
+		if entry.FileInfo().IsDir() {
+			continue
+		}
+		name := filepath.Base(entry.Name)
+		if _, ok := plugin.NameFromBinary(name); !ok {
+			continue
+		}
+		rc, err := entry.Open()
+		if err != nil {
+			return nil, err
+		}
+		err = writeExtractedBinary(filepath.Join(destDir, name), rc)
+		rc.Close()
+		if err != nil {
+			return nil, err
+		}
+		matched = append(matched, name)
+	}
+	return matched, nil
+}
+
+// writeExtractedBinary copies an archive entry to dest as an executable. The
+// mode is set explicitly after the write since O_CREATE respects umask, and
+// because an archive built by a tool that drops file modes must still yield a
+// runnable binary.
+func writeExtractedBinary(dest string, src io.Reader) error {
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, src); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(dest, 0755); err != nil {
+		return err
+	}
+	return nil
 }
 
 // writePluginSpec writes ~/.harness/spec/<name>.spec.yaml: the plugin's own

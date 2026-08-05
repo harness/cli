@@ -5,6 +5,7 @@ package mgmt
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
@@ -67,8 +68,44 @@ func resolveVersion(version string) (string, error) {
 const (
 	installBinaryName = "harness"
 	installBundleName = "harness-core"
-	installDefaultDir = "~/.local/bin"
 )
+
+// defaultInstallDir is where the core binary lands when --install-dir is not
+// given. On Windows there is no ~/.local/bin convention, so we use the per-user
+// Programs dir, which needs no admin rights. Note this directory is not on PATH
+// by default there — install.ps1 adds it.
+func defaultInstallDir() (string, error) {
+	if runtime.GOOS != "windows" {
+		return "~/.local/bin", nil
+	}
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		return filepath.Join(localAppData, "Programs", "harness"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determining default install directory: LOCALAPPDATA is not set and the home directory could not be determined: %w", err)
+	}
+	return filepath.Join(home, "AppData", "Local", "Programs", "harness"), nil
+}
+
+// installedBinaryName returns the file name a binary is stored under on this
+// platform: Windows needs the .exe suffix for the OS to consider it executable.
+func installedBinaryName(base string) string {
+	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(base), ".exe") {
+		return base + ".exe"
+	}
+	return base
+}
+
+// archiveExtensionForPlatform returns the release archive extension for a
+// platform string ("windows_amd64", "linux_arm64", …). Windows archives are zip
+// per .goreleaser.yaml's format_overrides; everything else is tar.gz.
+func archiveExtensionForPlatform(platform string) string {
+	if strings.HasPrefix(platform, "windows_") {
+		return ".zip"
+	}
+	return ".tar.gz"
+}
 
 func checkRunningFromInstallDir(installDir string) error {
 	exe, err := os.Executable()
@@ -96,9 +133,13 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
 	coreOnly := cmdctx.GetBool(ctx.FlagValues, "core-only")
 
+	var err error
 	installDir := cmdctx.GetString(ctx.FlagValues, "install-dir")
 	if installDir == "" {
-		installDir = installDefaultDir
+		installDir, err = defaultInstallDir()
+		if err != nil {
+			return err
+		}
 	}
 	installDir = hbase.ExpandHomeDir(installDir)
 
@@ -106,7 +147,6 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	var err error
 	version, err = resolveVersion(version)
 	if err != nil {
 		return err
@@ -160,7 +200,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		if err := downloadAndInstallBinary(version, platform, installDir, installBundleName, installBinaryName); err != nil {
 			return err
 		}
-		fmt.Printf("Installed harness %s to %s/%s\n", version, installDir, installBinaryName)
+		fmt.Printf("Installed harness %s to %s\n", version, filepath.Join(installDir, installedBinaryName(installBinaryName)))
 	}
 
 	if coreOnly {
@@ -204,6 +244,8 @@ func detectPlatform() (string, error) {
 		os_ = "darwin"
 	case "linux":
 		os_ = "linux"
+	case "windows":
+		os_ = "windows"
 	default:
 		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
@@ -218,21 +260,24 @@ func detectPlatform() (string, error) {
 	return os_ + "_" + arch, nil
 }
 
-// releaseURLs returns the tarball and checksum-file URLs for a package in the
+// releaseURLs returns the archive and checksum-file URLs for a package in the
 // Harness release matching version. Shared by the core install and the plugin
-// install so both derive artifact URLs the same way.
-func releaseURLs(version, platform, pkgName string) (tarURL, checksumURL string) {
+// install so both derive artifact URLs the same way. The archive extension is
+// platform-dependent (zip on Windows); the checksum file covers every asset in
+// the release, so its name is not.
+func releaseURLs(version, platform, pkgName string) (archiveURL, checksumURL string) {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	tarURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	archiveURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s%s", release.Repo, version, base, archiveExtensionForPlatform(platform))
 	checksumURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
-	return tarURL, checksumURL
+	return archiveURL, checksumURL
 }
 
 func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName string) error {
 	ver := strings.TrimPrefix(version, "v")
-	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	tarURL, checksumURL := releaseURLs(version, platform, pkgName)
+	ext := archiveExtensionForPlatform(platform)
+	archiveName := fmt.Sprintf("%s_%s_%s%s", pkgName, ver, platform, ext)
+	archiveURL, checksumURL := releaseURLs(version, platform, pkgName)
 
 	tmp, err := os.MkdirTemp("", "harness-install-*")
 	if err != nil {
@@ -240,25 +285,26 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 	}
 	defer os.RemoveAll(tmp)
 
-	archivePath := filepath.Join(tmp, base+".tar.gz")
-	if err := downloadFile(archivePath, tarURL); err != nil {
+	archivePath := filepath.Join(tmp, archiveName)
+	if err := downloadFile(archivePath, archiveURL); err != nil {
 		if strings.Contains(err.Error(), "HTTP 404") {
-			return fmt.Errorf("%s %s not found", pkgName, version)
+			return fmt.Errorf("%s %s not found for platform %s", pkgName, version, platform)
 		}
 		return fmt.Errorf("downloading release: %w", err)
 	}
 
 	hlog.Debug("verifying checksum")
-	if err := verifyChecksum(archivePath, base+".tar.gz", checksumURL); err != nil {
+	if err := verifyChecksum(archivePath, archiveName, checksumURL); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
-	binaryPath := filepath.Join(tmp, binaryName)
-	if err := extractBinaryFromTar(archivePath, binaryName, binaryPath); err != nil {
+	memberName := installedBinaryName(binaryName)
+	binaryPath := filepath.Join(tmp, memberName)
+	if err := extractBinaryFromArchive(archivePath, memberName, binaryPath, ext); err != nil {
 		return fmt.Errorf("extracting binary: %w", err)
 	}
 
-	dest := filepath.Join(destDir, binaryName)
+	dest := filepath.Join(destDir, memberName)
 	staging := dest + ".new"
 	if err := os.Rename(binaryPath, staging); err != nil {
 		return fmt.Errorf("staging binary: %w", err)
@@ -278,7 +324,7 @@ func releaseAssetExists(version, platform, pkgName string) (bool, error) {
 	ver := strings.TrimPrefix(version, "v")
 	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
 	client := &http.Client{Timeout: 15 * time.Second}
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.tar.gz", release.Repo, version, base)
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s%s", release.Repo, version, base, archiveExtensionForPlatform(platform))
 	hlog.Debug("HEAD", "url", url)
 	resp, err := client.Head(url)
 	if err != nil {
@@ -349,6 +395,48 @@ func verifyChecksum(archivePath, archiveName, checksumURL string) error {
 		return fmt.Errorf("checksum mismatch (expected %s, got %s)", expected, actual)
 	}
 	return nil
+}
+
+// extractBinaryFromArchive pulls binaryName out of archivePath, dispatching on
+// the archive format ext (".zip" for Windows releases, tar.gz otherwise).
+func extractBinaryFromArchive(archivePath, binaryName, dest, ext string) error {
+	if ext == ".zip" {
+		return extractBinaryFromZip(archivePath, binaryName, dest)
+	}
+	return extractBinaryFromTar(archivePath, binaryName, dest)
+}
+
+func extractBinaryFromZip(archivePath, binaryName, dest string) error {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() || filepath.Base(f.Name) != binaryName {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		rc.Close()
+		if closeErr := out.Close(); closeErr != nil && copyErr == nil {
+			copyErr = closeErr
+		}
+		if copyErr != nil {
+			return copyErr
+		}
+		return nil
+	}
+	return fmt.Errorf("binary %q not found in archive", binaryName)
 }
 
 func extractBinaryFromTar(archivePath, binaryName, dest string) error {

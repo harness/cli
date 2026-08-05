@@ -89,10 +89,8 @@ function Install-HarnessBinaries {
     $ver = $Version.TrimStart("v")
     if ($CoreOnly) {
         $pkgName = "harness-core_${ver}_${Platform}"
-        $binaries = @("harness.exe")
     } else {
         $pkgName = "harness-bundle_${ver}_${Platform}"
-        $binaries = @("harness.exe", "harness-har.exe")
     }
 
     $archiveName = "$pkgName.zip"
@@ -128,12 +126,28 @@ function Install-HarnessBinaries {
         $extractDir = Join-Path $tmp "extract"
         Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
         New-Item -ItemType Directory -Path $Dest -Force | Out-Null
-        foreach ($bin in $binaries) {
-            $src = Join-Path $extractDir $bin
-            if (-not (Test-Path $src)) { Fail "Binary $bin not found in archive" }
-            $target = Join-Path $Dest $bin
-            Copy-Item -Path $src -Destination $target -Force
-            Write-Ok "Installed $bin $Version to $target"
+
+        $coreSrc = Join-Path $extractDir "harness.exe"
+        if (-not (Test-Path $coreSrc)) { Fail "Binary harness.exe not found in archive" }
+        $coreTarget = Join-Path $Dest "harness.exe"
+        Copy-Item -Path $coreSrc -Destination $coreTarget -Force
+        Write-Ok "Installed harness.exe $Version to $coreTarget"
+
+        # har ships in the bundle but is a plugin: it only becomes a usable
+        # command once core writes its spec to ~/.harness/spec. Install it from
+        # the archive we already extracted rather than re-downloading it by name.
+        # A failure here leaves a working core, so note it instead of aborting.
+        # Note: this records the (temporary) extract path as the spec's `source`.
+        if (-not $CoreOnly) {
+            $pluginSrc = Join-Path $extractDir "harness-har.exe"
+            if (-not (Test-Path $pluginSrc)) { Fail "Binary harness-har.exe not found in archive" }
+            Write-Info "Installing har plugin..."
+            & $coreTarget install plugin $pluginSrc 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Ok "Installed har plugin $Version to ~\.harness\bin"
+            } else {
+                Write-Note "Could not install the har plugin - run 'harness install plugin har' to retry"
+            }
         }
     } finally {
         Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

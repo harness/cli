@@ -101,14 +101,11 @@ download_and_install() {
     local dest="$3"
     local ver="${version#v}"
     local pkg_name
-    local binaries
 
     if [ -n "$CORE_ONLY" ]; then
         pkg_name="harness-core_${ver}_${platform}"
-        binaries="harness"
     else
         pkg_name="harness-bundle_${ver}_${platform}"
-        binaries="harness harness-har"
     fi
 
     local url="https://github.com/${REPO}/releases/download/${version}/${pkg_name}.tar.gz"
@@ -133,11 +130,25 @@ download_and_install() {
     fi
 
     tar -xzf "$tmp/harness.tar.gz" -C "$tmp"
-    for bin in $binaries; do
-        mv "$tmp/$bin" "$dest/$bin"
-        chmod +x "$dest/$bin"
-        success "Installed $bin $version to $dest/$bin"
-    done
+
+    mv "$tmp/harness" "$dest/harness"
+    chmod +x "$dest/harness"
+    success "Installed harness $version to $dest/harness"
+
+    # har ships in the bundle but is a plugin: it only becomes a usable command
+    # once core writes its spec to ~/.harness/spec. Install it from the archive
+    # we already extracted rather than re-downloading it by name. A failure here
+    # leaves a working core, so warn instead of aborting.
+    # Note: this records the (temporary) extract path as the spec's `source`.
+    if [ -z "$CORE_ONLY" ]; then
+        info "Installing har plugin..."
+        if "$dest/harness" install plugin "$tmp/harness-har" >/dev/null 2>&1; then
+            success "Installed har plugin $version to ~/.harness/bin"
+        else
+            warn "Could not install the har plugin — run 'harness install plugin har' to retry"
+        fi
+    fi
+
     rm -rf "$tmp"
 }
 

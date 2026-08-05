@@ -80,7 +80,8 @@ irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
 The installer will:
 
 - Download the latest `harness-bundle` for your platform (macOS, Linux, and Windows — `amd64` / `arm64`).
-- Install `harness` and `harness-har` to `~/.local/bin` on Unix or `%LOCALAPPDATA%\Programs\harness` on Windows (override with `--install-dir` / `-InstallDir`).
+- Install `harness` to `~/.local/bin` on Unix or `%LOCALAPPDATA%\Programs\harness` on Windows (override with `--install-dir` / `-InstallDir`).
+- Install the `har` plugin from the same bundle into `~/.harness/bin`.
 - Optionally add the install directory to your `PATH` and enable shell completions.
 
 ### Installer flags
@@ -88,7 +89,7 @@ The installer will:
 | Flag                   | Description                                                    |
 | ---------------------- | -------------------------------------------------------------- |
 | `--install-dir <path>` | Override the install directory (default: `~/.local/bin` on Unix, `%LOCALAPPDATA%\Programs\harness` on Windows) |
-| `--core`               | Install only the `harness` binary (skip `harness-har`)         |
+| `--core`               | Install only the `harness` binary (skip the `har` plugin)      |
 | `--non-interactive`    | Skip all prompts (useful for CI, Docker, provisioning scripts) |
 | `--no-verify`          | Skip checksum verification                                     |
 
@@ -104,7 +105,7 @@ Windows PowerShell flags: `-InstallDir`, `-Version`, `-Core`, `-NonInteractive`,
 # install core + har bundle (default)
 curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh
 
-# install harness core only (skip harness-har)
+# install harness core only (skip the har plugin)
 curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh -s -- --core
 
 # non-interactive install to a custom directory
@@ -121,7 +122,7 @@ $env:HARNESS_NONINTERACTIVE=1; $env:HARNESS_CORE_ONLY=1; irm https://raw.githubu
 
 ### Manual install
 
-Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases) and place the binaries on your `PATH`. Unix bundles are `tar.gz`; Windows bundles are `zip`. Published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64`, `windows_amd64`, and `windows_arm64`.
+Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases), place `harness` on your `PATH`, and register the bundled `har` plugin with `harness install plugin`. Unix bundles are `tar.gz`; Windows bundles are `zip`. Published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64`, `windows_amd64`, and `windows_arm64`.
 
 This is also the path to take if `curl | sh` doesn't work in your environment — e.g. WSL behind a corporate SSL-inspecting proxy, air-gapped/vetted-binary environments, or scripted installs — see [`docs/manual-install.md`](docs/manual-install.md) for step-by-step instructions.
 
