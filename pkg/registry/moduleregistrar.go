@@ -27,6 +27,7 @@ type ModuleRegistrar interface {
 	RegisterQueryParamsFn(shortID string, fn cmdctx.QueryParamsFn)
 	RegisterFollowFn(shortID string, fn cmdctx.FollowFn)
 	RegisterFetchFn(shortID string, fn cmdctx.FetchFn)
+	RegisterListTransformFn(shortID string, fn cmdctx.ListTransformFn)
 	RegisterFlagCompletionFn(shortID string, fn FlagCompletionFn)
 	RegisterFlagResolveFn(shortID string, fn cmdctx.FlagResolveFn)
 	RegisterEndpointValidatorFn(shortID string, fn cmdctx.EndpointValidatorFn)
@@ -87,6 +88,9 @@ func (m *moduleRegistrar) Register(cs *spec.CommandSpec) error {
 	if cs.Endpoint != nil && cs.Endpoint.FetchFn != "" {
 		cs.Endpoint.FetchFn = m.qualify(cs.Endpoint.FetchFn, cmd+" fetch_fn", true)
 	}
+	if cs.Endpoint != nil && cs.Endpoint.ListTransformFn != "" {
+		cs.Endpoint.ListTransformFn = m.qualify(cs.Endpoint.ListTransformFn, cmd+" list_transform_fn", true)
+	}
 	if cs.Endpoint != nil {
 		for i, id := range cs.Endpoint.ValidatorsEndpoint {
 			cs.Endpoint.ValidatorsEndpoint[i] = m.qualify(id, fmt.Sprintf("%s validators_endpoint[%d]", cmd, i), true)
@@ -136,6 +140,12 @@ func (m *moduleRegistrar) RegisterFollowFn(shortID string, fn cmdctx.FollowFn) {
 func (m *moduleRegistrar) RegisterFetchFn(shortID string, fn cmdctx.FetchFn) {
 	if q := m.qualify(shortID, fmt.Sprintf("fetch_fn %q", shortID), false); q != "" {
 		m.reg.RegisterFetchFn(q, fn)
+	}
+}
+
+func (m *moduleRegistrar) RegisterListTransformFn(shortID string, fn cmdctx.ListTransformFn) {
+	if q := m.qualify(shortID, fmt.Sprintf("list_transform_fn %q", shortID), false); q != "" {
+		m.reg.RegisterListTransformFn(q, fn)
 	}
 }
 

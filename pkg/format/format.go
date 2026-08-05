@@ -32,22 +32,12 @@ var validArrayFormats = map[string]bool{
 	"json": true, "jsonl": true, "table": true, "csv": true, "tsv": true, "markdown": true,
 }
 
-// PageMeta carries optional paging summary information for display after a table.
-// Offset is the item-level offset of the first item returned. Count is the number
-// of items actually returned. HasTotal indicates whether Total is valid.
-type PageMeta struct {
-	Offset   int
-	Count    int
-	HasTotal bool
-	Total    int64
-}
-
 // FormatArrayOutput renders a list response (table, json, jsonl, csv, tsv).
 // itemsExpr is an expr-lang expression that resolves the row slice; "it" is bound to the full response.
 // defaultTspec is the command's declared table layout; may be nil.
 // exprEnv is the base expr-lang environment (ctx, flags, auth, helpers); "it" is injected per row for columns.
-// meta, when non-nil, causes a "showing X-Y of Z" footer to be printed after the table.
-func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr string, defaultTspec *spec.TableSpec, fields []spec.FieldDef, exprEnv map[string]any, meta *PageMeta) error {
+// meta, when non-nil, causes paging information and/or a notice to be printed after the table.
+func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr string, defaultTspec *spec.TableSpec, fields []spec.FieldDef, exprEnv map[string]any, meta *cmdctx.PageMeta) error {
 	// 1. Resolve --columns into a tspec (overrides default).
 	tspec := defaultTspec
 	if flags.Columns != "" {
@@ -63,6 +53,10 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 	}
 
 	// 2. Default format: table only when attached to a terminal and we have a spec.
+	// requestedFormat preserves whether the user explicitly asked for json/jsonl, since
+	// an unset format silently becomes "json" below when there's no schema to build a
+	// table from — that fallback needs different handling than an explicit request.
+	requestedFormat := flags.Format
 	if flags.Format == "" {
 		if tspec != nil {
 			flags.Format = "table"
@@ -75,13 +69,32 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		return fmt.Errorf("unknown format %q: must be one of json, jsonl, table, csv, tsv, markdown", flags.Format)
 	}
 
-	// 3. Table format requires a resolved spec.
-	if flags.Format == "table" && tspec == nil {
-		return fmt.Errorf("--format table requires a table spec or --columns")
-	}
-
 	if flags.Raw && flags.Format != "json" {
 		return fmt.Errorf("--raw is only supported with --format json")
+	}
+
+	itemsEnv := withIt(exprEnv, data)
+
+	// tspec nil means no columns are known at all, not just zero rows (a known schema
+	// with zero rows renders as a normal empty table below). table/csv/tsv/markdown all
+	// need column info; bail quietly if there's no data either. Explicit json/jsonl
+	// bypass this and dump raw data regardless of schema.
+	if tspec == nil && requestedFormat != "json" && requestedFormat != "jsonl" {
+		items, err := evalItemsExpr(itemsEnv, itemsExpr)
+		if err != nil {
+			return fmt.Errorf("items_expr %q: %w", itemsExpr, err)
+		}
+		if len(items) == 0 {
+			if !flags.NoHeaders {
+				fmt.Fprintln(os.Stderr, "No results or columns")
+			}
+			return nil
+		}
+		if requestedFormat != "" {
+			return fmt.Errorf("--format %s requires a table spec or --columns", flags.Format)
+		}
+		// requestedFormat was unset and there IS data despite no schema: fall back to
+		// dumping it as raw json, same as the default-format resolution above chose.
 	}
 
 	w, close, err := OpenWriter(flags.OutFile)
@@ -89,8 +102,6 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		return err
 	}
 	defer close()
-
-	itemsEnv := withIt(exprEnv, data)
 
 	if flags.Format == "jsonl" {
 		items, err := evalItemsExpr(itemsEnv, itemsExpr)
@@ -129,6 +140,12 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 					}
 				} else if meta.HasTotal {
 					fmt.Fprintf(w, "No results (%d items total)\n", meta.Total)
+				}
+				if meta.Notice != "" {
+					if meta.Count == 0 && !meta.HasTotal {
+						fmt.Fprintln(w, "─────")
+					}
+					fmt.Fprintln(w, meta.Notice)
 				}
 			}
 		}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/format"
 	"github.com/harness/cli/pkg/hlog"
 	"github.com/harness/cli/pkg/spec"
 )
@@ -17,7 +16,7 @@ const defaultPageSize = 20
 
 // FetchItems normalizes PagingFlags into the appropriate FetchRange/FetchAll call.
 // --all maps to FetchAll; otherwise FetchRange is called with the offset/limit from flags.
-func FetchItems(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, pf cmdctx.PagingFlags) ([]any, *format.PageMeta, error) {
+func FetchItems(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, pf cmdctx.PagingFlags) ([]any, *cmdctx.PageMeta, error) {
 	if ep.Paging == nil {
 		return nil, nil, fmt.Errorf("FetchItems called on endpoint with no paging spec")
 	}
@@ -33,13 +32,13 @@ func FetchItems(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, pf cmdctx.PagingFlags) (
 // FetchRange fetches items [wantStart, wantStart+wantCount) using the FetchFn
 // resolved from ep. It is strategy-blind: all paging knowledge lives in the FetchFn.
 // If wantCount is 0 it defaults to defaultPageSize.
-func FetchRange(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int) ([]any, *format.PageMeta, error) {
+func FetchRange(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int) ([]any, *cmdctx.PageMeta, error) {
 	return fetchRange(ctx, ep, wantStart, wantCount, nil)
 }
 
 // fetchRange is the implementation behind FetchRange/FetchAll, with an optional
 // per-page progress callback.
-func fetchRange(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int, onPage func(int, int64, bool)) ([]any, *format.PageMeta, error) {
+func fetchRange(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int, onPage func(int, int64, bool)) ([]any, *cmdctx.PageMeta, error) {
 	fn, err := ResolveFetchFn(ctx, ep)
 	if err != nil {
 		return nil, nil, err
@@ -51,7 +50,7 @@ func fetchRange(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int
 	wantEnd := wantStart + wantCount
 
 	var out []any
-	meta := &format.PageMeta{Offset: wantStart}
+	meta := &cmdctx.PageMeta{Offset: wantStart}
 
 	var cursor any
 	pos := wantStart
@@ -101,7 +100,7 @@ func fetchRange(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount int
 }
 
 // FetchAll fetches every available item from offset 0.
-func FetchAll(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) ([]any, *format.PageMeta, error) {
+func FetchAll(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) ([]any, *cmdctx.PageMeta, error) {
 	return FetchRange(ctx, ep, 0, maxItemsAll)
 }
 

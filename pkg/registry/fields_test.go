@@ -95,10 +95,11 @@ func (tr *testResolver) GetSpecsForModule(module string) []*spec.CommandSpec { r
 func (tr *testResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn {
 	return nil
 }
-func (tr *testResolver) ResolveBodyFn(id string) cmdctx.CreateBodyFn         { return nil }
-func (tr *testResolver) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn { return nil }
-func (tr *testResolver) ResolveFetchFn(id string) (cmdctx.FetchFn, error)    { return nil, nil }
-func (tr *testResolver) ResolveFlagResolveFn(id string) cmdctx.FlagResolveFn { return nil }
+func (tr *testResolver) ResolveBodyFn(id string) cmdctx.CreateBodyFn             { return nil }
+func (tr *testResolver) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn     { return nil }
+func (tr *testResolver) ResolveFetchFn(id string) (cmdctx.FetchFn, error)        { return nil, nil }
+func (tr *testResolver) ResolveListTransformFn(id string) cmdctx.ListTransformFn { return nil }
+func (tr *testResolver) ResolveFlagResolveFn(id string) cmdctx.FlagResolveFn     { return nil }
 func (tr *testResolver) ResolveEndpointValidator(id string) cmdctx.EndpointValidatorFn {
 	return nil
 }
