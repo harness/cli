@@ -19,9 +19,9 @@ func (r *Registry) registerCoreTransforms() {
 // columnsRowsListTransform converts a {columns, rows} query result (HQL and similar)
 // into list-rendering inputs. Use with list_transform_fn: core:columns-rows.
 func columnsRowsListTransform(ctx *cmdctx.Ctx, data any) ([]any, []spec.FieldDef, cmdctx.PageMeta, error) {
-	rows, fields, ok := expandColumnsRows(data)
-	if !ok {
-		return nil, nil, cmdctx.PageMeta{}, fmt.Errorf("response is not a columns/rows result")
+	rows, fields, err := expandColumnsRows(data)
+	if err != nil {
+		return nil, nil, cmdctx.PageMeta{}, err
 	}
 	var meta cmdctx.PageMeta
 	if m, ok := data.(map[string]any); ok {
@@ -33,7 +33,7 @@ func columnsRowsListTransform(ctx *cmdctx.Ctx, data any) ([]any, []spec.FieldDef
 }
 
 // expandColumnsRows converts a {columns, rows} query result into inputs for
-// FormatArrayOutput / FormatList. Returns ok=false when data is not that shape.
+// FormatArrayOutput / FormatList. Returns an error when data is not that shape.
 //
 // Expected shape (HQL executeQuery and similar):
 //
@@ -42,24 +42,27 @@ func columnsRowsListTransform(ctx *cmdctx.Ctx, data any) ([]any, []spec.FieldDef
 //	  "rows":    [{"values": [v0, v1, ...]}, ...],
 //	  "truncated": false
 //	}
-func expandColumnsRows(data any) (rows []any, fields []spec.FieldDef, ok bool) {
+func expandColumnsRows(data any) ([]any, []spec.FieldDef, error) {
 	m, ok := data.(map[string]any)
 	if !ok {
-		return nil, nil, false
+		return nil, nil, fmt.Errorf("response is not an object, got %T", data)
 	}
 	colsRaw, hasCols := m["columns"]
 	rowsRaw, hasRows := m["rows"]
 	if !hasCols || !hasRows {
-		return nil, nil, false
+		return nil, nil, fmt.Errorf("response is missing \"columns\" and/or \"rows\" fields")
 	}
 	colsSlice, ok1 := colsRaw.([]any)
 	rowsSlice, ok2 := rowsRaw.([]any)
-	if !ok1 || !ok2 {
-		return nil, nil, false
+	if !ok1 {
+		return nil, nil, fmt.Errorf("response \"columns\" field is not an array, got %T", colsRaw)
+	}
+	if !ok2 {
+		return nil, nil, fmt.Errorf("response \"rows\" field is not an array, got %T", rowsRaw)
 	}
 
 	names := make([]string, 0, len(colsSlice))
-	fields = make([]spec.FieldDef, 0, len(colsSlice))
+	fields := make([]spec.FieldDef, 0, len(colsSlice))
 	used := make(map[string]bool, len(colsSlice))
 	nextSuffix := make(map[string]int, len(colsSlice))
 	for i, c := range colsSlice {
@@ -88,7 +91,7 @@ func expandColumnsRows(data any) (rows []any, fields []spec.FieldDef, ok bool) {
 		})
 	}
 
-	rows = make([]any, 0, len(rowsSlice))
+	rows := make([]any, 0, len(rowsSlice))
 	for _, r := range rowsSlice {
 		rm, _ := r.(map[string]any)
 		vals, _ := rm["values"].([]any)
@@ -100,7 +103,7 @@ func expandColumnsRows(data any) (rows []any, fields []spec.FieldDef, ok bool) {
 		}
 		rows = append(rows, row)
 	}
-	return rows, fields, true
+	return rows, fields, nil
 }
 
 func columnName(col any, i int) string {

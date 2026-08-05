@@ -53,6 +53,10 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 	}
 
 	// 2. Default format: table only when attached to a terminal and we have a spec.
+	// requestedFormat preserves whether the user explicitly asked for json/jsonl, since
+	// an unset format silently becomes "json" below when there's no schema to build a
+	// table from — that fallback needs different handling than an explicit request.
+	requestedFormat := flags.Format
 	if flags.Format == "" {
 		if tspec != nil {
 			flags.Format = "table"
@@ -65,13 +69,32 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		return fmt.Errorf("unknown format %q: must be one of json, jsonl, table, csv, tsv, markdown", flags.Format)
 	}
 
-	// 3. Table format requires a resolved spec.
-	if flags.Format == "table" && tspec == nil {
-		return fmt.Errorf("--format table requires a table spec or --columns")
-	}
-
 	if flags.Raw && flags.Format != "json" {
 		return fmt.Errorf("--raw is only supported with --format json")
+	}
+
+	itemsEnv := withIt(exprEnv, data)
+
+	// tspec nil means no columns are known at all, not just zero rows (a known schema
+	// with zero rows renders as a normal empty table below). table/csv/tsv/markdown all
+	// need column info; bail quietly if there's no data either. Explicit json/jsonl
+	// bypass this and dump raw data regardless of schema.
+	if tspec == nil && requestedFormat != "json" && requestedFormat != "jsonl" {
+		items, err := evalItemsExpr(itemsEnv, itemsExpr)
+		if err != nil {
+			return fmt.Errorf("items_expr %q: %w", itemsExpr, err)
+		}
+		if len(items) == 0 {
+			if !flags.NoHeaders {
+				fmt.Fprintln(os.Stderr, "No results or columns")
+			}
+			return nil
+		}
+		if requestedFormat != "" {
+			return fmt.Errorf("--format %s requires a table spec or --columns", flags.Format)
+		}
+		// requestedFormat was unset and there IS data despite no schema: fall back to
+		// dumping it as raw json, same as the default-format resolution above chose.
 	}
 
 	w, close, err := OpenWriter(flags.OutFile)
@@ -79,8 +102,6 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		return err
 	}
 	defer close()
-
-	itemsEnv := withIt(exprEnv, data)
 
 	if flags.Format == "jsonl" {
 		items, err := evalItemsExpr(itemsEnv, itemsExpr)

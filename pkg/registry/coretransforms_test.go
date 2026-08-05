@@ -22,9 +22,9 @@ func sampleColumnsRows() map[string]any {
 }
 
 func TestExpandColumnsRows(t *testing.T) {
-	rows, fields, ok := expandColumnsRows(sampleColumnsRows())
-	if !ok {
-		t.Fatal("expected ok")
+	rows, fields, err := expandColumnsRows(sampleColumnsRows())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(fields) != 2 || fields[0].ID != "name" || fields[1].ID != "is_deleted" {
 		t.Fatalf("fields = %+v", fields)
@@ -42,14 +42,14 @@ func TestExpandColumnsRows(t *testing.T) {
 }
 
 func TestExpandColumnsRows_NotShape(t *testing.T) {
-	if _, _, ok := expandColumnsRows(map[string]any{"foo": 1}); ok {
-		t.Fatal("expected !ok")
+	if _, _, err := expandColumnsRows(map[string]any{"foo": 1}); err == nil {
+		t.Fatal("expected error")
 	}
-	if _, _, ok := expandColumnsRows([]any{}); ok {
-		t.Fatal("expected !ok for slice")
+	if _, _, err := expandColumnsRows([]any{}); err == nil {
+		t.Fatal("expected error for slice")
 	}
-	if _, _, ok := expandColumnsRows(nil); ok {
-		t.Fatal("expected !ok for nil")
+	if _, _, err := expandColumnsRows(nil); err == nil {
+		t.Fatal("expected error for nil")
 	}
 }
 
@@ -64,9 +64,9 @@ func TestExpandColumnsRows_DuplicateNames(t *testing.T) {
 			map[string]any{"values": []any{"a", "b", "c"}},
 		},
 	}
-	rows, fields, ok := expandColumnsRows(data)
-	if !ok {
-		t.Fatal("expected ok")
+	rows, fields, err := expandColumnsRows(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if fields[0].ID != "x" || fields[1].ID != "x_2" || fields[2].ID != "x_3" {
 		t.Fatalf("fields = %+v", fields)
@@ -82,9 +82,9 @@ func TestExpandColumnsRows_EmptyResult(t *testing.T) {
 		"columns": []any{},
 		"rows":    []any{},
 	}
-	rows, fields, ok := expandColumnsRows(data)
-	if !ok {
-		t.Fatal("expected empty columns/rows result to be recognized")
+	rows, fields, err := expandColumnsRows(data)
+	if err != nil {
+		t.Fatalf("expected empty columns/rows result to be recognized, got error: %v", err)
 	}
 	if len(rows) != 0 || len(fields) != 0 {
 		t.Fatalf("rows=%v fields=%v", rows, fields)
