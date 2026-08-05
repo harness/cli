@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package format
+package registry
 
 import (
 	"testing"
@@ -22,7 +22,7 @@ func sampleColumnsRows() map[string]any {
 }
 
 func TestExpandColumnsRows(t *testing.T) {
-	rows, fields, ok := ExpandColumnsRows(sampleColumnsRows())
+	rows, fields, ok := expandColumnsRows(sampleColumnsRows())
 	if !ok {
 		t.Fatal("expected ok")
 	}
@@ -42,13 +42,13 @@ func TestExpandColumnsRows(t *testing.T) {
 }
 
 func TestExpandColumnsRows_NotShape(t *testing.T) {
-	if _, _, ok := ExpandColumnsRows(map[string]any{"foo": 1}); ok {
+	if _, _, ok := expandColumnsRows(map[string]any{"foo": 1}); ok {
 		t.Fatal("expected !ok")
 	}
-	if _, _, ok := ExpandColumnsRows([]any{}); ok {
+	if _, _, ok := expandColumnsRows([]any{}); ok {
 		t.Fatal("expected !ok for slice")
 	}
-	if _, _, ok := ExpandColumnsRows(nil); ok {
+	if _, _, ok := expandColumnsRows(nil); ok {
 		t.Fatal("expected !ok for nil")
 	}
 }
@@ -64,7 +64,7 @@ func TestExpandColumnsRows_DuplicateNames(t *testing.T) {
 			map[string]any{"values": []any{"a", "b", "c"}},
 		},
 	}
-	rows, fields, ok := ExpandColumnsRows(data)
+	rows, fields, ok := expandColumnsRows(data)
 	if !ok {
 		t.Fatal("expected ok")
 	}
@@ -82,7 +82,7 @@ func TestExpandColumnsRows_EmptyResult(t *testing.T) {
 		"columns": []any{},
 		"rows":    []any{},
 	}
-	rows, fields, ok := ExpandColumnsRows(data)
+	rows, fields, ok := expandColumnsRows(data)
 	if !ok {
 		t.Fatal("expected empty columns/rows result to be recognized")
 	}

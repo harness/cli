@@ -85,6 +85,7 @@ func New() *Registry {
 		endpointValidatorFns: map[string]cmdctx.EndpointValidatorFn{},
 	}
 	r.registerCoreFormatters()
+	r.registerCoreTransforms()
 	return r
 }
 

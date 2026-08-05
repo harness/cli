@@ -1,15 +1,38 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package format
+package registry
 
 import (
 	"fmt"
 
+	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/spec"
 )
 
-// ExpandColumnsRows converts a {columns, rows} query result into inputs for
+// registerCoreTransforms registers all built-in "core:*" list transform fns.
+// These are available to any module via list_transform_fn: core:<name>.
+func (r *Registry) registerCoreTransforms() {
+	r.RegisterListTransformFn("core:columns-rows", columnsRowsListTransform)
+}
+
+// columnsRowsListTransform converts a {columns, rows} query result (HQL and similar)
+// into list-rendering inputs. Use with list_transform_fn: core:columns-rows.
+func columnsRowsListTransform(ctx *cmdctx.Ctx, data any) ([]any, []spec.FieldDef, cmdctx.PageMeta, error) {
+	rows, fields, ok := expandColumnsRows(data)
+	if !ok {
+		return nil, nil, cmdctx.PageMeta{}, fmt.Errorf("response is not a columns/rows result")
+	}
+	var meta cmdctx.PageMeta
+	if m, ok := data.(map[string]any); ok {
+		if truncated, _ := m["truncated"].(bool); truncated {
+			meta.Notice = "(truncated)"
+		}
+	}
+	return rows, fields, meta, nil
+}
+
+// expandColumnsRows converts a {columns, rows} query result into inputs for
 // FormatArrayOutput / FormatList. Returns ok=false when data is not that shape.
 //
 // Expected shape (HQL executeQuery and similar):
@@ -19,7 +42,7 @@ import (
 //	  "rows":    [{"values": [v0, v1, ...]}, ...],
 //	  "truncated": false
 //	}
-func ExpandColumnsRows(data any) (rows []any, fields []spec.FieldDef, ok bool) {
+func expandColumnsRows(data any) (rows []any, fields []spec.FieldDef, ok bool) {
 	m, ok := data.(map[string]any)
 	if !ok {
 		return nil, nil, false
