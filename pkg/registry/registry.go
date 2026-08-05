@@ -60,6 +60,7 @@ type Registry struct {
 	queryParamsFns       map[string]cmdctx.QueryParamsFn
 	followFns            map[string]cmdctx.FollowFn
 	fetchFns             map[string]cmdctx.FetchFn
+	listTransformFns     map[string]cmdctx.ListTransformFn
 	flagCompletionFns    map[string]FlagCompletionFn
 	flagResolveFns       map[string]cmdctx.FlagResolveFn
 	endpointValidatorFns map[string]cmdctx.EndpointValidatorFn
@@ -78,6 +79,7 @@ func New() *Registry {
 		queryParamsFns:       map[string]cmdctx.QueryParamsFn{},
 		followFns:            map[string]cmdctx.FollowFn{},
 		fetchFns:             map[string]cmdctx.FetchFn{},
+		listTransformFns:     map[string]cmdctx.ListTransformFn{},
 		flagCompletionFns:    map[string]FlagCompletionFn{},
 		flagResolveFns:       map[string]cmdctx.FlagResolveFn{},
 		endpointValidatorFns: map[string]cmdctx.EndpointValidatorFn{},
@@ -242,6 +244,19 @@ func (r *Registry) RegisterFetchFn(id string, fn cmdctx.FetchFn) {
 		panic(fmt.Sprintf("registry: duplicate fetch fn %q", id))
 	}
 	r.fetchFns[id] = fn
+}
+
+// ResolveListTransformFn implements cmdctx.Resolver.
+func (r *Registry) ResolveListTransformFn(id string) cmdctx.ListTransformFn {
+	return r.listTransformFns[id]
+}
+
+// RegisterListTransformFn registers a fully-qualified list transform function ID.
+func (r *Registry) RegisterListTransformFn(id string, fn cmdctx.ListTransformFn) {
+	if _, ok := r.listTransformFns[id]; ok {
+		panic(fmt.Sprintf("registry: duplicate list transform fn %q", id))
+	}
+	r.listTransformFns[id] = fn
 }
 
 // RegisterFlagCompletionFn registers a fully-qualified flag completion function.

@@ -89,6 +89,10 @@ type PageResult struct {
 // at once — the driver's slice math handles the window.
 type FetchFn func(ctx *Ctx, ep *spec.EndpointSpec, wantStart, wantCount int, cursor any) (*PageResult, error)
 
+// ListTransformFn converts a get/execute response into list-rendering inputs:
+// the row slice, the columns available on those rows, and optional paging summary info.
+type ListTransformFn func(ctx *Ctx, data any) (items []any, fields []spec.FieldDef, meta PageMeta, err error)
+
 // RawBody signals that the body should be sent as-is with the given ContentType,
 // bypassing JSON encoding. Return this from a CreateBodyFn when the API expects
 // a raw non-JSON body (e.g. application/yaml).
@@ -110,6 +114,7 @@ type Resolver interface {
 	ResolveQueryParamsFn(id string) QueryParamsFn
 	ResolveFlagResolveFn(id string) FlagResolveFn
 	ResolveFetchFn(id string) (FetchFn, error)
+	ResolveListTransformFn(id string) ListTransformFn
 	ResolveEndpointValidator(id string) EndpointValidatorFn
 	GetSpec(verb, noun string) *spec.CommandSpec
 	GetNoun(noun string) *spec.NounDef

@@ -52,6 +52,11 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 				errs = append(errs, fmt.Sprintf("command %q: query_params_fn %q not registered", cs.Command, cs.Endpoint.QueryParamsFn))
 			}
 		}
+		if cs.Endpoint.ListTransformFn != "" {
+			if _, ok := r.listTransformFns[cs.Endpoint.ListTransformFn]; !ok {
+				errs = append(errs, fmt.Sprintf("command %q: list_transform_fn %q not registered", cs.Command, cs.Endpoint.ListTransformFn))
+			}
+		}
 	}
 	if cs.FollowFn != "" {
 		if _, ok := r.followFns[cs.FollowFn]; !ok {
@@ -176,6 +181,12 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 	}
 	if cs.VerbHandler == VerbGet && ep.ItemExpr == "" {
 		return fmt.Errorf("get endpoint %q requires item_expr (use \"it\" for bare item responses)", cs.FullNoun())
+	}
+	if ep.ListTransformFn != "" && cs.VerbHandler == VerbList {
+		return fmt.Errorf("command %q: list_transform_fn is not allowed on list verbs (use items_expr instead)", cs.Command)
+	}
+	if ep.ListTransformFn != "" && ep.FieldExtract != "" {
+		return fmt.Errorf("command %q: list_transform_fn and field_extract are mutually exclusive", cs.Command)
 	}
 	if ep.Paging != nil {
 		if err := validatePaging(cs.Command, ep.Paging); err != nil {
