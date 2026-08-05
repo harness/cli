@@ -305,13 +305,20 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 	// list_transform_fn is checked before the nil-result guard: a command that declares it
 	// is unconditionally list-shaped, so even a nil/empty response must
 	// go through the transform fn (to render as an empty list) rather than fall into the
-	// single-item nil-result path below.
-	if ep.ListTransformFn != "" && ctx.Resolver != nil {
+	// single-item nil-result path below. --json bypasses the transform entirely since it
+	// wants the raw response, not the list-rendered shape.
+	if ep.ListTransformFn != "" && ctx.Resolver != nil && ctx.FormatFlags.Format != "json" {
 		fn := ctx.Resolver.ResolveListTransformFn(ep.ListTransformFn)
 		if fn == nil {
 			return nil, fmt.Errorf("list_transform_fn %q not registered", ep.ListTransformFn)
 		}
-		items, fields, meta, err := fn(ctx, result)
+		transformInput := result
+		if ep.ItemExpr != "" && ep.ItemExpr != "it" {
+			if v, ok := exprenv.EvalExprAny(exprenv.WithIt(exprEnv, result), ep.ItemExpr); ok {
+				transformInput = v
+			}
+		}
+		items, fields, meta, err := fn(ctx, transformInput)
 		if err != nil {
 			return nil, err
 		}
