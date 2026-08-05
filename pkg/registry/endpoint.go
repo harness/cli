@@ -466,7 +466,7 @@ func renderCount(ctx *cmdctx.Ctx, n int64) error {
 
 // renderList applies item_item_expr unwrapping and calls FormatArrayOutput.
 // items must already be extracted (post-ItemsExpr).
-func renderList(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, items []any, meta *format.PageMeta) error {
+func renderList(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, items []any, meta *cmdctx.PageMeta) error {
 	exprEnv := exprenv.Make(ctx)
 	fields := resolveFieldsForCommand(ctx, ep)
 	tspec := buildTspec(ep.Columns, fields)

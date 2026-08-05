@@ -164,6 +164,17 @@ type PagingFlags struct {
 // GlobalFlags is reserved for future non-formatting global flags.
 type GlobalFlags struct{}
 
+// PageMeta carries optional paging summary information and a notice for display after a table.
+// Offset is the item-level offset of the first item returned. Count is the number
+// of items actually returned. HasTotal indicates whether Total is valid.
+type PageMeta struct {
+	Offset   int
+	Count    int
+	HasTotal bool
+	Total    int64
+	Notice   string
+}
+
 // Ctx is passed to every workflow handler, providing resolved auth and the parsed command identity.
 // Auth is nil for management commands (version, etc.) that do not require credentials.
 // When Auth is non-nil, OrgID and ProjectID already reflect any --org/--project overrides.

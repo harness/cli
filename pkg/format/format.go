@@ -32,23 +32,12 @@ var validArrayFormats = map[string]bool{
 	"json": true, "jsonl": true, "table": true, "csv": true, "tsv": true, "markdown": true,
 }
 
-// PageMeta carries optional paging summary information and a notice for display after a table.
-// Offset is the item-level offset of the first item returned. Count is the number
-// of items actually returned. HasTotal indicates whether Total is valid.
-type PageMeta struct {
-	Offset   int
-	Count    int
-	HasTotal bool
-	Total    int64
-	Notice   string
-}
-
 // FormatArrayOutput renders a list response (table, json, jsonl, csv, tsv).
 // itemsExpr is an expr-lang expression that resolves the row slice; "it" is bound to the full response.
 // defaultTspec is the command's declared table layout; may be nil.
 // exprEnv is the base expr-lang environment (ctx, flags, auth, helpers); "it" is injected per row for columns.
 // meta, when non-nil, causes paging information and/or a notice to be printed after the table.
-func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr string, defaultTspec *spec.TableSpec, fields []spec.FieldDef, exprEnv map[string]any, meta *PageMeta) error {
+func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr string, defaultTspec *spec.TableSpec, fields []spec.FieldDef, exprEnv map[string]any, meta *cmdctx.PageMeta) error {
 	// 1. Resolve --columns into a tspec (overrides default).
 	tspec := defaultTspec
 	if flags.Columns != "" {

@@ -95,10 +95,10 @@ func FormatColumnsRowsArray(flags cmdctx.FormatFlags, isPty bool, data any, expr
 	if !ok {
 		return false, nil
 	}
-	var meta *PageMeta
+	var meta *cmdctx.PageMeta
 	if m, ok := data.(map[string]any); ok {
 		if truncated, _ := m["truncated"].(bool); truncated {
-			meta = &PageMeta{Notice: "(truncated)"}
+			meta = &cmdctx.PageMeta{Notice: "(truncated)"}
 		}
 	}
 	return true, FormatArrayOutput(flags, isPty, rows, "it", fieldsToTableSpec(fields), fields, exprEnv, meta)
