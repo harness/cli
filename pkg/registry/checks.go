@@ -188,6 +188,9 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 	if ep.ListTransformFn != "" && ep.FieldExtract != "" {
 		return fmt.Errorf("command %q: list_transform_fn and field_extract are mutually exclusive", cs.Command)
 	}
+	if ep.ListTransformFn != "" && ep.TextFormatter != "" {
+		return fmt.Errorf("command %q: list_transform_fn and text_formatter are mutually exclusive", cs.Command)
+	}
 	if ep.Paging != nil {
 		if err := validatePaging(cs.Command, ep.Paging); err != nil {
 			return err
