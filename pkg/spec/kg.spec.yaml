@@ -216,7 +216,11 @@ commands:
     noun: hql
     noun_variant: grammar
     no_id: true
-    short: "Fetch the HQL ANTLR4 grammar: harness execute hql:grammar"
+    short: "Fetch the HQL ANTLR4 grammar"
+    long: |
+      Fetch the HQL ANTLR4 grammar.
+
+        harness execute hql:grammar
     handler_type: endpoint
     endpoint:
       method: POST
@@ -231,7 +235,11 @@ commands:
     noun: hql
     noun_variant: validate
     no_id: true
-    short: "Validate an HQL query: harness execute hql:validate --query 'find entity \"platform:project\" | select { * }'"
+    short: "Validate an HQL query --query <HQL>"
+    long: |
+      Validate an HQL query without executing it.
+
+        harness execute hql:validate --query 'find entity "platform:project" | select { * }'
     handler_type: endpoint
     flags:
       - name: query
@@ -252,7 +260,13 @@ commands:
     noun: hql
     noun_variant: run
     no_id: true
-    short: "Execute an HQL query: harness execute hql:run --query 'find entity \"platform:project\" | select { * } | limit 10'"
+    short: "Execute an HQL query --query <HQL>"
+    long: |
+      Execute an HQL query and render the results as rows in a table.
+
+      Supports all standard table outputs: table (default), csv, tsv, json, yaml, jsonl.
+
+        harness execute hql:run --query 'find entity "platform:project" | select { * } | limit 10'
     handler_type: endpoint
     flags:
       - name: query
@@ -278,7 +292,11 @@ commands:
     noun: hql
     noun_variant: explain
     no_id: true
-    short: "Explain an HQL query execution plan: harness execute hql:explain --query 'find entity \"platform:project\" | select { * }'"
+    short: "Explain an HQL query execution plan --query <HQL>"
+    long: |
+      Explain an HQL query execution plan.
+
+        harness execute hql:explain --query 'find entity "platform:project" | select { * }'
     handler_type: endpoint
     flags:
       - name: query
