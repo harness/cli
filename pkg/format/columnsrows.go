@@ -5,17 +5,9 @@ package format
 
 import (
 	"fmt"
-	"io"
 
-	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/spec"
 )
-
-// tabularSingleFormats are output formats that FormatSingleOutput can honor when the
-// payload matches the columns/rows shape (via ExpandColumnsRows → FormatArrayOutput).
-var tabularSingleFormats = map[string]bool{
-	"table": true, "csv": true, "tsv": true, "markdown": true, "jsonl": true,
-}
 
 // ExpandColumnsRows converts a {columns, rows} query result into inputs for
 // FormatArrayOutput / FormatList. Returns ok=false when data is not that shape.
@@ -88,45 +80,6 @@ func ExpandColumnsRows(data any) (rows []any, fields []spec.FieldDef, ok bool) {
 	return rows, fields, true
 }
 
-// FormatColumnsRowsArray expands a columns/rows payload and renders it via FormatArrayOutput.
-// Returns (false, nil) when data is not a columns/rows payload.
-func FormatColumnsRowsArray(flags cmdctx.FormatFlags, isPty bool, data any, exprEnv map[string]any) (bool, error) {
-	rows, fields, ok := ExpandColumnsRows(data)
-	if !ok {
-		return false, nil
-	}
-	var meta *cmdctx.PageMeta
-	if m, ok := data.(map[string]any); ok {
-		if truncated, _ := m["truncated"].(bool); truncated {
-			meta = &cmdctx.PageMeta{Notice: "(truncated)"}
-		}
-	}
-	return true, FormatArrayOutput(flags, isPty, rows, "it", fieldsToTableSpec(fields), fields, exprEnv, meta)
-}
-
-// WriteColumnsRows renders a columns/rows payload as a borderless table.
-// Returns false when data is not that shape (caller should fall back).
-func WriteColumnsRows(w io.Writer, data any, noHeaders bool) (bool, error) {
-	rows, fields, ok := ExpandColumnsRows(data)
-	if !ok {
-		return false, nil
-	}
-	tspec := fieldsToTableSpec(fields)
-	t, err := BuildTable(tspec, "it", rows, noHeaders, map[string]any{})
-	if err != nil {
-		return true, err
-	}
-	t.SetOutputMirror(w)
-	t.Render()
-
-	if m, ok := data.(map[string]any); ok {
-		if truncated, _ := m["truncated"].(bool); truncated {
-			fmt.Fprintln(w, "(truncated)")
-		}
-	}
-	return true, nil
-}
-
 func columnName(col any, i int) string {
 	m, ok := col.(map[string]any)
 	if !ok {
@@ -137,19 +90,4 @@ func columnName(col any, i int) string {
 		return fmt.Sprintf("col_%d", i)
 	}
 	return name
-}
-
-func fieldsToTableSpec(fields []spec.FieldDef) *spec.TableSpec {
-	if len(fields) == 0 {
-		return &spec.TableSpec{}
-	}
-	cols := make([]spec.TableColumn, len(fields))
-	for i, f := range fields {
-		header := f.Label
-		if header == "" {
-			header = f.ID
-		}
-		cols[i] = spec.TableColumn{Header: header, Expr: f.Expr, Align: f.Align, FieldType: f.FieldType, WidthMax: f.WidthMax}
-	}
-	return &spec.TableSpec{Columns: cols}
 }

@@ -191,10 +191,6 @@ func FormatFieldsOutput(flags cmdctx.FormatFlags, data any, itemExpr string, fie
 // yamlPickExpr, when non-empty, enables --format yaml and defines which subtree to emit; evaluated
 // from the raw response root. textFmt, when non-nil, is used when format is "text".
 // "it" is bound to the full response; ctx, auth, flags, and helpers are also available via exprEnv.
-//
-// When format is table/csv/tsv/markdown/jsonl and the extracted payload has the columns/rows
-// shape (see ExpandColumnsRows), output is routed through FormatArrayOutput so those formats
-// work on execute/get commands that return tabular query results.
 func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr string, yamlPickExpr string, yamlExclude []string, textFmt TextFormatterFn, exprEnv map[string]any) error {
 	if flags.Format == "" {
 		if textFmt != nil {
@@ -206,28 +202,8 @@ func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr
 	if flags.Format == "yaml" && yamlPickExpr == "" {
 		return fmt.Errorf("--format yaml is not supported for this command")
 	}
-	if flags.Raw && tabularSingleFormats[flags.Format] {
-		return fmt.Errorf("--raw is only supported with --format json")
-	}
-
-	payload := data
-	if !flags.Raw && itemExpr != "" && !(flags.Format == "yaml" && yamlPickExpr != "") {
-		extracted := evalColumnExpr(withIt(exprEnv, data), itemExpr)
-		if extracted == nil {
-			return nil
-		}
-		payload = extracted
-	}
-
-	if tabularSingleFormats[flags.Format] {
-		if handled, err := FormatColumnsRowsArray(flags, isPty, payload, exprEnv); handled {
-			return err
-		}
-		return fmt.Errorf("format %q is not supported here; use json, text, or yaml", flags.Format)
-	}
-
 	if flags.Format != "json" && flags.Format != "text" && flags.Format != "yaml" {
-		return fmt.Errorf("format %q is not supported here; use json, text, or yaml", flags.Format)
+		return fmt.Errorf("format %q is not supported here; use json or text", flags.Format)
 	}
 
 	w, closeW, err := OpenWriter(flags.OutFile)
@@ -249,6 +225,15 @@ func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr
 			}
 		}
 		return writeYAML(w, picked)
+	}
+
+	payload := data
+	if !flags.Raw && itemExpr != "" {
+		extracted := evalColumnExpr(withIt(exprEnv, data), itemExpr)
+		if extracted == nil {
+			return nil
+		}
+		payload = extracted
 	}
 
 	if flags.Format == "text" {
