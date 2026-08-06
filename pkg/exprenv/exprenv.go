@@ -107,6 +107,19 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		// third-party API key) into request_headers/body_params instead of hardcoding
 		// them in spec YAML — see AGENTS.md's credential-handling rule.
 		"env": os.Getenv,
+		// authToken returns the active profile's bearer credential (the SSO access
+		// token, or the PAT/API key). Use it in request_headers so a spec calling an
+		// external API can reuse the same key the user logged in with, instead of
+		// requiring a second env var — see AGENTS.md's credential-handling rule.
+		"authToken": func() string {
+			if a == nil {
+				return ""
+			}
+			if a.SSOToken != "" {
+				return a.SSOToken
+			}
+			return a.PATToken
+		},
 	}
 	if ctx.Resolver != nil {
 		noun := ctx.Noun

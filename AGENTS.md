@@ -195,12 +195,17 @@ path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.parentId}}/
 
 When `path` is absolute, `buildRequest` skips the `accountIdentifier` query param and the
 default Harness auth header (`x-api-key`/`Bearer`) — the spec must supply its own auth via
-`request_headers`. Never hardcode the credential; pull it from an environment variable with
-the `env()` expr-lang function:
+`request_headers`. Never hardcode the credential. Two expr-lang helpers provide it:
+
+- `authToken()` — the active profile's bearer credential (the same key from `harness login`).
+  Use this when the external API accepts the user's Harness key, so no second key is needed.
+- `env("NAME")` — reads an OS environment variable, for a dedicated third-party key.
+
+Prefer reusing the profile token, and let an env var override it when present:
 
 ```yaml
 request_headers:
-  Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+  Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
 ```
 
 See `pkg/spec/splitio.spec.yaml` for a full example (FME feature flags via the Split.io

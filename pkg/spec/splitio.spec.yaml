@@ -11,13 +11,17 @@ help_text: |
 
   ### Auth
 
-  These commands do not use your Harness profile's credentials. Set a Split
-  Admin API Key (generate one in FME → Admin Settings → API Keys) in the
-  `SPLIT_API_KEY` environment variable before running any command here:
+  By default these commands reuse your active Harness profile's credential
+  (the same key from `harness login`) as the Split.io Bearer token — no extra
+  setup, no second key. Requests still go directly to `api.split.io`, not
+  through the Harness gateway; the CLI just attaches your profile token itself.
+
+  To target a different Split account, or if your profile key is not a valid
+  Split Admin key, override it with a Split Admin API Key (generate one in
+  FME → Admin Settings → API Keys) via the `SPLIT_API_KEY` environment
+  variable — when set, it takes precedence over the profile token:
 
     export SPLIT_API_KEY=<your-split-admin-api-key>
-
-  Requests go directly to `api.split.io`, not through the Harness gateway.
 
   ### Domain Model
 
@@ -122,7 +126,7 @@ commands:
     endpoint:
       path: https://api.split.io/internal/api/v2/workspaces
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       query_params:
         name: flags.name
       items_expr: it.objects
@@ -149,7 +153,7 @@ commands:
     endpoint:
       path: https://api.split.io/internal/api/v2/environments/ws/{{ctx.parentId}}
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       items_expr: it
       get_id_expr: it.id
       paging:
@@ -168,7 +172,7 @@ commands:
     endpoint:
       path: https://api.split.io/internal/api/v2/trafficTypes/ws/{{ctx.parentId}}
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       items_expr: it
       get_id_expr: it.id
       paging:
@@ -187,7 +191,7 @@ commands:
     endpoint:
       path: https://api.split.io/internal/api/v2/rolloutStatuses
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       query_params:
         wsId: ctx.parentId
       items_expr: it
@@ -211,7 +215,7 @@ commands:
     endpoint:
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.parentId}}/
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       query_params:
         tag: flags.tag
       items_expr: it.objects
@@ -235,7 +239,7 @@ commands:
     endpoint:
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       item_expr: it
       fields_subset: [name, description, traffic_type, tags, rollout_status, created]
 
@@ -254,7 +258,7 @@ commands:
       method: POST
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.id}}/trafficTypes/{{flags.traffic-type}}
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       create_strategy: set-fields
       create_body_wrap: ""
       item_expr: it
@@ -278,7 +282,7 @@ commands:
       method: PATCH
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       body_fn: splitio_update_flag_body
       item_expr: it
       text_header: "\nUpdated feature flag {{ctx.idParts[1]}}\n"
@@ -294,7 +298,7 @@ commands:
       method: DELETE
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
 
   - command: execute fme_flag:archive
     verb: execute
@@ -312,7 +316,7 @@ commands:
       method: PUT
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}/archive
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       body_params:
         title: flags.title
         comment: flags.comment
@@ -335,7 +339,7 @@ commands:
       method: PUT
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}/unarchive
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       body_params:
         title: flags.title
         comment: flags.comment
@@ -359,7 +363,7 @@ commands:
       method: PUT
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}/environments/{{flags.env}}/kill
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       body_params:
         comment: flags.comment
       item_expr: it
@@ -382,7 +386,7 @@ commands:
       method: PUT
       path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}/environments/{{flags.env}}/restore
       request_headers:
-        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+        Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
       body_params:
         comment: flags.comment
       item_expr: it
