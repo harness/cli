@@ -15,6 +15,7 @@ import (
 // logState holds all settings that influence how the logger is built.
 // reinit() reads this and rebuilds the active logger from scratch.
 type logState struct {
+	enabled    bool     // false means all logging is discarded, regardless of level
 	file       *os.File // nil means stderr
 	level      slog.Level
 	pluginName string
@@ -28,6 +29,11 @@ func init() {
 }
 
 func reinit() {
+	if !state.enabled {
+		active.Store(slog.New(slog.DiscardHandler))
+		return
+	}
+
 	w := state.file
 	if w == nil {
 		w = os.Stderr
@@ -60,6 +66,7 @@ func reinit() {
 
 // SetDebug switches the logger to DEBUG level. If no log file is configured, output goes to stderr.
 func SetDebug() {
+	state.enabled = true
 	state.level = slog.LevelDebug
 	reinit()
 }
@@ -71,6 +78,7 @@ func SetDebugFile(path string) {
 	if err != nil {
 		return
 	}
+	state.enabled = true
 	state.level = slog.LevelDebug
 	state.file = f
 	reinit()
@@ -83,6 +91,7 @@ func SetLogFile(path string) {
 	if err != nil {
 		return
 	}
+	state.enabled = true
 	state.file = f
 	reinit()
 }

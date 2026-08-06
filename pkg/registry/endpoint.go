@@ -302,6 +302,29 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 
 	exprEnv := exprenv.Make(ctx)
 
+	// list_transform_fn is checked before the nil-result guard: a command that declares it
+	// is unconditionally list-shaped, so even a nil/empty response must
+	// go through the transform fn (to render as an empty list) rather than fall into the
+	// single-item nil-result path below. --json bypasses the transform entirely since it
+	// wants the raw response, not the list-rendered shape.
+	if ep.ListTransformFn != "" && ctx.Resolver != nil && ctx.FormatFlags.Format != "json" {
+		fn := ctx.Resolver.ResolveListTransformFn(ep.ListTransformFn)
+		if fn == nil {
+			return nil, fmt.Errorf("list_transform_fn %q not registered", ep.ListTransformFn)
+		}
+		transformInput := result
+		if ep.ItemExpr != "" && ep.ItemExpr != "it" {
+			if v, ok := exprenv.EvalExprAny(exprenv.WithIt(exprEnv, result), ep.ItemExpr); ok {
+				transformInput = v
+			}
+		}
+		items, fields, meta, err := fn(ctx, transformInput)
+		if err != nil {
+			return nil, err
+		}
+		return result, renderListWithFields(ctx, ep, items, fields, &meta)
+	}
+
 	if result == nil {
 		var textFmt cmdctx.TextFormatterFn
 		if ep.TextFormatter != "" && ctx.Resolver != nil {
@@ -466,9 +489,15 @@ func renderCount(ctx *cmdctx.Ctx, n int64) error {
 
 // renderList applies item_item_expr unwrapping and calls FormatArrayOutput.
 // items must already be extracted (post-ItemsExpr).
-func renderList(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, items []any, meta *format.PageMeta) error {
+func renderList(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, items []any, meta *cmdctx.PageMeta) error {
+	return renderListWithFields(ctx, ep, items, resolveFieldsForCommand(ctx, ep), meta)
+}
+
+// renderListWithFields is renderList but takes fields explicitly instead of resolving
+// them from the noun/fields_extra — for list_transform_fn callers whose columns are
+// derived from the response itself rather than static spec metadata.
+func renderListWithFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, items []any, fields []spec.FieldDef, meta *cmdctx.PageMeta) error {
 	exprEnv := exprenv.Make(ctx)
-	fields := resolveFieldsForCommand(ctx, ep)
 	tspec := buildTspec(ep.Columns, fields)
 
 	listResult := any(items)

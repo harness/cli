@@ -420,6 +420,12 @@ type EndpointSpec struct {
 	// machinery. Used for in-memory or config-file backed list commands (e.g. "list noun").
 	// When empty, HTTPFetchFn is used.
 	FetchFn string `yaml:"fetch_fn,omitempty"`
+	// ListTransformFn names a registered ListTransformFn that converts this command's
+	// get/execute response into a list for rendering via the standard list pipeline
+	// (columns/table/csv/tsv/jsonl), instead of FormatSingleOutput's json/text/yaml.
+	// Qualified by module at registration time. Not allowed on VerbList commands
+	// (they already have items_expr for this).
+	ListTransformFn string `yaml:"list_transform_fn,omitempty"`
 }
 
 // CommandSpec fully describes one CLI command.
