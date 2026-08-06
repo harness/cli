@@ -104,12 +104,12 @@ nouns:
         label: Traffic Type
         expr: it.trafficType.name ?? ""
       - id: tags
-        expr: it.tags ?? []
+        expr: 'join(map(it.tags ?? [], .name), ", ")'
       - id: rollout_status
         label: Rollout Status
         expr: it.rolloutStatus.name ?? ""
       - id: created
-        expr: it.creationTime
+        expr: epochMs(it.creationTime)
         field_type: ts
 
 commands:
