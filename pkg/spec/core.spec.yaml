@@ -83,6 +83,11 @@ nouns:
       - id: binary_path
         label: Binary Path
         expr: it["binary_path"]
+      - id: source
+        expr: it["source"]
+      - id: installed_at
+        label: Installed At
+        expr: it["installed_at"]
 
   - noun: noun
     short_desc: A CLI noun (resource type) with its supported verbs and module.
@@ -406,6 +411,24 @@ commands:
         id_expr: it["module"]
         name_expr: it["desc"]
       columns: [module, type, installed, version, desc]
+
+  - command: list plugin
+    verb: list
+    noun: plugin
+    short: List all installed plugins
+    no_auth: true
+    handler_type: endpoint
+    flags: []
+    endpoint:
+      fetch_fn: list_plugins_fetch
+      items_expr: it
+      get_id_expr: it["plugin"]
+      paging:
+        paging_strategy: flat_list
+      completion:
+        id_expr: it["plugin"]
+        name_expr: it["binary_path"]
+      columns: [plugin, version, binary_path, source, installed_at]
 
   - command: get module
     verb: get

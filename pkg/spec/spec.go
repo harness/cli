@@ -118,7 +118,7 @@ type ModuleMeta struct {
 	Version     string // plugin --version captured at install/update time (no "v" prefix)
 	BinaryPath  string // path to the plugin binary to dispatch to (may contain ~)
 	Source      string // url-or-origin the tarball was installed from
-	GeneratedAt string // when this grammar was captured from the binary (RFC3339)
+	InstalledAt string // when this plugin was installed (RFC3339)
 }
 
 // IsPlugin reports whether commands in this module dispatch to a separately

@@ -545,7 +545,7 @@ func writePluginSpec(id *plugin.Identity, binPath, source string, grammar []byte
 	setMapField(root, "version", id.Version)
 	setMapField(root, "binary_path", binPath)
 	setMapField(root, "source", source)
-	setMapField(root, "generated_at", time.Now().UTC().Format(time.RFC3339))
+	setMapField(root, "installed_at", time.Now().UTC().Format(time.RFC3339))
 
 	out, err := yaml.Marshal(&doc)
 	if err != nil {

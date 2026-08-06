@@ -31,6 +31,7 @@ const (
 	installModuleHandlerID    = "install_module"
 	installPluginHandlerID    = "install_plugin"
 	listModulesFetchFnID      = "list_modules_fetch"
+	listPluginsFetchFnID      = "list_plugins_fetch"
 	getModuleHandlerID        = "get_module"
 	listNounsFetchFnID        = "list_nouns_fetch"
 	getNounHandlerID          = "get_noun"
@@ -55,6 +56,7 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(installModuleHandlerID, mgmt.InstallModuleHandler)
 	reg.RegisterWorkflow(installPluginHandlerID, mgmt.InstallPluginHandler)
 	reg.RegisterFetchFn(listModulesFetchFnID, mgmt.ListModulesFetchFn)
+	reg.RegisterFetchFn(listPluginsFetchFnID, mgmt.ListPluginsFetchFn)
 	reg.RegisterWorkflow(getModuleHandlerID, mgmt.GetModuleHandler)
 	reg.RegisterFetchFn(listNounsFetchFnID, mgmt.ListNounsFetchFn)
 	reg.RegisterWorkflow(getNounHandlerID, mgmt.GetNounHandler)

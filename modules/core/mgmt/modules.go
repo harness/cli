@@ -249,6 +249,32 @@ func RenderNounBlock(module string, nouns []string, r cmdctx.Resolver) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+// ListPluginsFetchFn lists installed plugins: modules whose spec carries a
+// binary_path (dynamically installed, vs. compiled-in builtins). Trusts the
+// spec's provenance for version/source/installed_at — never execs the binary.
+func ListPluginsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*cmdctx.PageResult, error) {
+	var items []any
+	for _, m := range ctx.Resolver.GetModuleMetas() {
+		if !m.IsPlugin() {
+			continue
+		}
+		items = append(items, map[string]any{
+			"plugin":       m.Name,
+			"version":      m.Version,
+			"binary_path":  m.BinaryPath,
+			"source":       m.Source,
+			"installed_at": m.InstalledAt,
+		})
+	}
+	return &cmdctx.PageResult{
+		Items:       items,
+		StartOffset: 0,
+		Last:        true,
+		HasTotal:    true,
+		Total:       int64(len(items)),
+	}, nil
+}
+
 func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*cmdctx.PageResult, error) {
 	typeFilter := cmdctx.GetString(ctx.FlagValues, "module-type")
 	var items []any

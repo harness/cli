@@ -56,7 +56,7 @@ type specFile struct {
 	Version     string `yaml:"version,omitempty"`
 	BinaryPath  string `yaml:"binary_path,omitempty"`
 	Source      string `yaml:"source,omitempty"`
-	GeneratedAt string `yaml:"generated_at,omitempty"`
+	InstalledAt string `yaml:"installed_at,omitempty"`
 }
 
 // specParseError wraps a YAML parse failure, enriching it with the spec_version
@@ -229,7 +229,7 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, isHarnessUse
 		Version:     f.Version,
 		BinaryPath:  f.BinaryPath,
 		Source:      f.Source,
-		GeneratedAt: f.GeneratedAt,
+		InstalledAt: f.InstalledAt,
 	})
 	mod := reg.Module(module)
 	for i, cmd := range f.Commands {
