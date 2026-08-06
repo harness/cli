@@ -183,6 +183,29 @@ request_headers:
 
 An empty `body_params` still sends `{}` (required by gRPC-gateway for POST/PATCH/PUT).
 
+### External (non-gateway) APIs
+
+Most specs call the Harness gateway (`c.resolved.APIUrl` + a relative `path`). A spec can
+instead call a third-party API directly by giving `endpoint.path` (and `get_path`, if used)
+a full `http://`/`https://` URL:
+
+```yaml
+path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.parentId}}/
+```
+
+When `path` is absolute, `buildRequest` skips the `accountIdentifier` query param and the
+default Harness auth header (`x-api-key`/`Bearer`) — the spec must supply its own auth via
+`request_headers`. Never hardcode the credential; pull it from an environment variable with
+the `env()` expr-lang function:
+
+```yaml
+request_headers:
+  Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+```
+
+See `pkg/spec/splitio.spec.yaml` for a full example (FME feature flags via the Split.io
+Admin API, which lives on a different host with different auth than the Harness gateway).
+
 ## Adding a new spec file
 
 1. Create `pkg/spec/<module>.spec.yaml`.
@@ -222,6 +245,8 @@ The CLI reads auth from the active profile (typically `~/.harness/profiles.yaml`
 | `platform.spec.yaml` | Platform resources (projects, orgs, etc.) |
 | `pipeline.spec.yaml` | CI/CD pipelines |
 | `core.spec.yaml` | Core resources |
+| `fme.spec.yaml` | Harness's own unreleased `/v3/feature-flags` API — `harness_internal: true`, not yet public |
+| `splitio.spec.yaml` | FME feature flags (`fme_workspace`, `fme_environment`, `fme_traffic_type`, `fme_rollout_status`, `fme_flag`) via the real, public Split.io Admin API — see "External (non-gateway) APIs" above |
 
 ## Security — never put real credentials in code or comments
 

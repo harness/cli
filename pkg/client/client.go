@@ -233,17 +233,33 @@ func (c *Client) DoStream(r Request, timeout time.Duration) (*http.Response, err
 }
 
 // buildRequest prepares an authenticated *http.Request from r, including token refresh.
+//
+// When r.Path is an absolute URL (http:// or https://), it is used as-is instead of being
+// resolved against the profile's Harness gateway APIUrl: no accountIdentifier query param
+// is injected and no default Harness auth header (x-api-key/Bearer) is set. This lets specs
+// call external APIs that live outside the Harness gateway (e.g. a third-party vendor API)
+// — the spec must supply its own auth via request_headers.
 func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 	if err := auth.CheckAndUpdateAccessToken(c.resolved, time.Now()); err != nil {
 		return nil, nil, err
 	}
 
-	u, err := url.Parse(c.resolved.APIUrl + r.Path)
+	external := strings.HasPrefix(r.Path, "http://") || strings.HasPrefix(r.Path, "https://")
+
+	var u *url.URL
+	var err error
+	if external {
+		u, err = url.Parse(r.Path)
+	} else {
+		u, err = url.Parse(c.resolved.APIUrl + r.Path)
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("building URL: %w", err)
 	}
 	q := u.Query()
-	q.Set("accountIdentifier", c.resolved.AccountID)
+	if !external {
+		q.Set("accountIdentifier", c.resolved.AccountID)
+	}
 	for k, v := range r.QueryParams {
 		if v != "" {
 			q.Set(k, v)
@@ -281,10 +297,12 @@ func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 	if c.cliCommand != "" {
 		req.Header.Set("X-CLI-Command", c.cliCommand)
 	}
-	if c.resolved.AuthType == auth.AuthTypeSSO {
-		req.Header.Set("Authorization", "Bearer "+c.resolved.SSOToken)
-	} else {
-		req.Header.Set("x-api-key", c.resolved.PATToken)
+	if !external {
+		if c.resolved.AuthType == auth.AuthTypeSSO {
+			req.Header.Set("Authorization", "Bearer "+c.resolved.SSOToken)
+		} else {
+			req.Header.Set("x-api-key", c.resolved.PATToken)
+		}
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)

@@ -7,6 +7,7 @@ package exprenv
 import (
 	"fmt"
 	"maps"
+	"os"
 	"strings"
 
 	"github.com/expr-lang/expr"
@@ -102,6 +103,10 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		"truncate":              exprfuncs.Truncate,
 		"substr":                exprfuncs.Substr,
 		"formatOrder":           exprfuncs.FormatOrder,
+		// env reads an OS environment variable. Use it to pull secrets (e.g. a
+		// third-party API key) into request_headers/body_params instead of hardcoding
+		// them in spec YAML — see AGENTS.md's credential-handling rule.
+		"env": os.Getenv,
 	}
 	if ctx.Resolver != nil {
 		noun := ctx.Noun

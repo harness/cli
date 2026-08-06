@@ -1,0 +1,389 @@
+spec_version: 1
+module_type: builtin
+module_desc: Harness FME feature flags via the public Split.io Admin API
+help_text: |
+  ## Feature Flags via Split.io (splitio)
+
+  Manages Harness FME feature flags through the Split.io Admin API — the
+  real, currently-public API backing Feature Management & Experimentation.
+  This is a *different* backend than the `fme` module's `/v3/feature-flags`
+  endpoints (which are Harness's own unreleased first-party API).
+
+  ### Auth
+
+  These commands do not use your Harness profile's credentials. Set a Split
+  Admin API Key (generate one in FME → Admin Settings → API Keys) in the
+  `SPLIT_API_KEY` environment variable before running any command here:
+
+    export SPLIT_API_KEY=<your-split-admin-api-key>
+
+  Requests go directly to `api.split.io`, not through the Harness gateway.
+
+  ### Domain Model
+
+  A workspace is the top-level scope (roughly equivalent to a Harness
+  project). Traffic types and environments live inside a workspace. A
+  feature flag ("split") belongs to a traffic type and has independent
+  targeting state per environment (rollout status, kill switch).
+
+  Most commands take a workspace id as either a positional parent arg
+  (`list`) or as the first segment of a slash-separated id (`get`/`update`/
+  `delete`/`execute`), e.g. `harness get fme_flag <workspace_id>/<flag_name>`.
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: fme_workspace
+    short_desc: A Split.io / FME workspace — the top-level scope for traffic types, environments, and flags.
+    noun_aliases: [fme_workspaces]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: type
+        expr: it.type ?? ""
+      - id: org
+        label: Org
+        expr: it.organizationIdentifier ?? ""
+      - id: project
+        label: Project
+        expr: it.projectIdentifier ?? ""
+
+  - noun: fme_environment
+    short_desc: A deployment environment within an FME workspace (e.g. staging, production).
+    noun_aliases: [fme_environments]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+
+  - noun: fme_traffic_type
+    short_desc: A traffic type within an FME workspace (e.g. user, account) that feature flags target.
+    noun_aliases: [fme_traffic_types]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: display_attribute_id
+        label: Display Attribute
+        expr: it.displayAttributeId ?? ""
+
+  - noun: fme_rollout_status
+    short_desc: A rollout status a feature flag can be tagged with (e.g. "In Progress", "Live").
+    noun_aliases: [fme_rollout_statuses]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: description
+        expr: it.description ?? ""
+        width_max: 60
+
+  - noun: fme_flag
+    short_desc: A Harness FME feature flag (a Split.io "split").
+    noun_aliases: [fme_flags, split, splits]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: description
+        expr: it.description ?? ""
+        width_max: 60
+      - id: traffic_type
+        label: Traffic Type
+        expr: it.trafficType.name ?? ""
+      - id: tags
+        expr: it.tags ?? []
+      - id: rollout_status
+        label: Rollout Status
+        expr: it.rolloutStatus.name ?? ""
+      - id: created
+        expr: it.creationTime
+        field_type: ts
+
+commands:
+  # ── fme_workspace ────────────────────────────────────────────────────────────
+
+  - command: list fme_workspace
+    verb: list
+    noun: fme_workspace
+    short: "List FME workspaces: harness list fme_workspace [--name <search>]"
+    handler_type: endpoint
+    flags:
+      - name: name
+        description: Filter by name (partial match)
+    endpoint:
+      path: https://api.split.io/internal/api/v2/workspaces
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      query_params:
+        name: flags.name
+      items_expr: it.objects
+      get_id_expr: it.id
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 1000
+        total_expr: it.totalCount
+        countable: true
+      columns: [id, name, type]
+
+  # ── fme_environment ──────────────────────────────────────────────────────────
+
+  - command: list fme_environment
+    verb: list
+    noun: fme_environment
+    short: "List environments in a workspace: harness list fme_environment <workspace_id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<workspace_id>"
+    endpoint:
+      path: https://api.split.io/internal/api/v2/environments/ws/{{ctx.parentId}}
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      items_expr: it
+      get_id_expr: it.id
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name]
+
+  # ── fme_traffic_type ─────────────────────────────────────────────────────────
+
+  - command: list fme_traffic_type
+    verb: list
+    noun: fme_traffic_type
+    short: "List traffic types in a workspace: harness list fme_traffic_type <workspace_id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<workspace_id>"
+    endpoint:
+      path: https://api.split.io/internal/api/v2/trafficTypes/ws/{{ctx.parentId}}
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      items_expr: it
+      get_id_expr: it.id
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name]
+
+  # ── fme_rollout_status ───────────────────────────────────────────────────────
+
+  - command: list fme_rollout_status
+    verb: list
+    noun: fme_rollout_status
+    short: "List rollout statuses available in a workspace: harness list fme_rollout_status <workspace_id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<workspace_id>"
+    endpoint:
+      path: https://api.split.io/internal/api/v2/rolloutStatuses
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      query_params:
+        wsId: ctx.parentId
+      items_expr: it
+      get_id_expr: it.id
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, description]
+
+  # ── fme_flag ──────────────────────────────────────────────────────────────────
+
+  - command: list fme_flag
+    verb: list
+    noun: fme_flag
+    short: "List feature flags in a workspace: harness list fme_flag <workspace_id> [--tag <tag>]"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<workspace_id>"
+    flags:
+      - name: tag
+        description: Filter by tag
+    endpoint:
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.parentId}}/
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      query_params:
+        tag: flags.tag
+      items_expr: it.objects
+      get_id_expr: it.name
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 50
+        total_expr: it.totalCount
+        countable: true
+      columns: [name, traffic_type, rollout_status, created]
+
+  - command: get fme_flag
+    verb: get
+    noun: fme_flag
+    short: "Get feature flag details: harness get fme_flag <workspace_id>/<flag_name>"
+    handler_type: endpoint
+    id_parts: 2
+    endpoint:
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      item_expr: it
+      fields_subset: [name, description, traffic_type, tags, rollout_status, created]
+
+  - command: create fme_flag
+    verb: create
+    noun: fme_flag
+    short: "Create a feature flag: harness create fme_flag <workspace_id> --traffic-type <id_or_name> --set name=<name> [description=<text>]"
+    handler_type: endpoint
+    flags:
+      - name: traffic-type
+        description: Traffic type id or name for the new flag
+        required: true
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.id}}/trafficTypes/{{flags.traffic-type}}
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      create_strategy: set-fields
+      create_body_wrap: ""
+      item_expr: it
+      text_header: "\nCreated feature flag {{it.name}}\n"
+
+  - command: update fme_flag
+    verb: update
+    noun: fme_flag
+    short: "Update a feature flag: harness update fme_flag <workspace_id>/<flag_name> [--description <text>] [--tag <tag>] [--rollout-status <id>]"
+    handler_type: endpoint
+    id_parts: 2
+    flags:
+      - name: description
+        description: New description
+      - name: tag
+        description: Replace tags (repeatable)
+        is_multi: true
+      - name: rollout-status
+        description: "Rollout status id — see: harness list fme_rollout_status <workspace_id>"
+    endpoint:
+      method: PATCH
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      body_fn: splitio_update_flag_body
+      item_expr: it
+      text_header: "\nUpdated feature flag {{ctx.idParts[1]}}\n"
+
+  - command: delete fme_flag
+    verb: delete
+    noun: fme_flag
+    confirm_mode: prompt
+    short: "Delete a feature flag: harness delete fme_flag <workspace_id>/<flag_name>"
+    handler_type: endpoint
+    id_parts: 2
+    endpoint:
+      method: DELETE
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+
+  - command: execute fme_flag:archive
+    verb: execute
+    noun: fme_flag
+    noun_variant: archive
+    short: "Archive a feature flag: harness execute fme_flag:archive <workspace_id>/<flag_name>"
+    handler_type: endpoint
+    id_parts: 2
+    flags:
+      - name: title
+        description: Audit title
+      - name: comment
+        description: Audit comment
+    endpoint:
+      method: PUT
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}/archive
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      body_params:
+        title: flags.title
+        comment: flags.comment
+      item_expr: it
+      text_header: "\nArchived feature flag {{ctx.idParts[1]}}\n"
+
+  - command: execute fme_flag:unarchive
+    verb: execute
+    noun: fme_flag
+    noun_variant: unarchive
+    short: "Unarchive a feature flag: harness execute fme_flag:unarchive <workspace_id>/<flag_name>"
+    handler_type: endpoint
+    id_parts: 2
+    flags:
+      - name: title
+        description: Audit title
+      - name: comment
+        description: Audit comment
+    endpoint:
+      method: PUT
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}/unarchive
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      body_params:
+        title: flags.title
+        comment: flags.comment
+      item_expr: it
+      text_header: "\nUnarchived feature flag {{ctx.idParts[1]}}\n"
+
+  - command: execute fme_flag:kill
+    verb: execute
+    noun: fme_flag
+    noun_variant: kill
+    short: "Kill a flag in an environment (all traffic to defaultTreatment): harness execute fme_flag:kill <workspace_id>/<flag_name> --env <environment_id>"
+    handler_type: endpoint
+    id_parts: 2
+    flags:
+      - name: env
+        description: Environment id (required)
+        required: true
+      - name: comment
+        description: Audit comment
+    endpoint:
+      method: PUT
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}/environments/{{flags.env}}/kill
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      body_params:
+        comment: flags.comment
+      item_expr: it
+      text_header: "\nKilled feature flag {{ctx.idParts[1]}} in {{flags.env}}\n"
+
+  - command: execute fme_flag:restore
+    verb: execute
+    noun: fme_flag
+    noun_variant: restore
+    short: "Restore a killed flag in an environment: harness execute fme_flag:restore <workspace_id>/<flag_name> --env <environment_id>"
+    handler_type: endpoint
+    id_parts: 2
+    flags:
+      - name: env
+        description: Environment id (required)
+        required: true
+      - name: comment
+        description: Audit comment
+    endpoint:
+      method: PUT
+      path: https://api.split.io/internal/api/v2/splits/ws/{{ctx.idParts[0]}}/{{ctx.idParts[1]}}/environments/{{flags.env}}/restore
+      request_headers:
+        Authorization: '"Bearer " + env("SPLIT_API_KEY")'
+      body_params:
+        comment: flags.comment
+      item_expr: it
+      text_header: "\nRestored feature flag {{ctx.idParts[1]}} in {{flags.env}}\n"
