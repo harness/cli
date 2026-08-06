@@ -201,11 +201,11 @@ default Harness auth header (`x-api-key`/`Bearer`) — the spec must supply its 
   Use this when the external API accepts the user's Harness key, so no second key is needed.
 - `env("NAME")` — reads an OS environment variable, for a dedicated third-party key.
 
-Prefer reusing the profile token, and let an env var override it when present:
+Prefer reusing the profile token:
 
 ```yaml
 request_headers:
-  Authorization: '"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))'
+  Authorization: '"Bearer " + authToken()'
 ```
 
 See `pkg/spec/splitio.spec.yaml` for a full example (FME feature flags via the Split.io

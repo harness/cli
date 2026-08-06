@@ -11,29 +11,20 @@ import (
 )
 
 // TestAuthTokenHeader verifies the splitio.spec.yaml auth pattern:
-// the profile's bearer credential is reused via authToken(), and a
-// SPLIT_API_KEY env var (when set) takes precedence via coalesce().
+// the profile's bearer credential is reused via authToken().
 func TestAuthTokenHeader(t *testing.T) {
-	const hdr = `"Bearer " + string(coalesce(env("SPLIT_API_KEY"), authToken()))`
+	const hdr = `"Bearer " + authToken()`
 
-	// PAT profile, no env override -> profile token used.
-	t.Setenv("SPLIT_API_KEY", "")
+	// PAT profile -> PAT token used.
 	env := Make(&cmdctx.Ctx{Auth: &auth.ResolvedAuth{PATToken: "pat123"}})
 	if got := EvalExpr(env, hdr); got != "Bearer pat123" {
-		t.Fatalf("PAT fallback: got %q, want %q", got, "Bearer pat123")
+		t.Fatalf("PAT token: got %q, want %q", got, "Bearer pat123")
 	}
 
-	// SSO profile, no env override -> SSO token preferred.
+	// SSO profile -> SSO token preferred over PAT.
 	env = Make(&cmdctx.Ctx{Auth: &auth.ResolvedAuth{SSOToken: "sso456", PATToken: "pat123"}})
 	if got := EvalExpr(env, hdr); got != "Bearer sso456" {
-		t.Fatalf("SSO fallback: got %q, want %q", got, "Bearer sso456")
-	}
-
-	// Env override present -> env wins over profile token.
-	t.Setenv("SPLIT_API_KEY", "splitkey789")
-	env = Make(&cmdctx.Ctx{Auth: &auth.ResolvedAuth{PATToken: "pat123"}})
-	if got := EvalExpr(env, hdr); got != "Bearer splitkey789" {
-		t.Fatalf("env override: got %q, want %q", got, "Bearer splitkey789")
+		t.Fatalf("SSO token: got %q, want %q", got, "Bearer sso456")
 	}
 }
 
