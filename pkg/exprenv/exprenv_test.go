@@ -5,7 +5,28 @@ package exprenv
 
 import (
 	"testing"
+
+	"github.com/harness/cli/pkg/auth"
+	"github.com/harness/cli/pkg/cmdctx"
 )
+
+// TestAuthTokenHeader verifies the splitio.spec.yaml auth pattern:
+// the profile's bearer credential is reused via authToken().
+func TestAuthTokenHeader(t *testing.T) {
+	const hdr = `"Bearer " + authToken()`
+
+	// PAT profile -> PAT token used.
+	env := Make(&cmdctx.Ctx{Auth: &auth.ResolvedAuth{PATToken: "pat123"}})
+	if got := EvalExpr(env, hdr); got != "Bearer pat123" {
+		t.Fatalf("PAT token: got %q, want %q", got, "Bearer pat123")
+	}
+
+	// SSO profile -> SSO token preferred over PAT.
+	env = Make(&cmdctx.Ctx{Auth: &auth.ResolvedAuth{SSOToken: "sso456", PATToken: "pat123"}})
+	if got := EvalExpr(env, hdr); got != "Bearer sso456" {
+		t.Fatalf("SSO token: got %q, want %q", got, "Bearer sso456")
+	}
+}
 
 func baseEnv() map[string]any {
 	return map[string]any{
