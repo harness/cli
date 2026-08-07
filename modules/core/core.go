@@ -33,6 +33,7 @@ const (
 	listModulesFetchFnID      = "list_modules_fetch"
 	listPluginsFetchFnID      = "list_plugins_fetch"
 	getModuleHandlerID        = "get_module"
+	getPluginHandlerID        = "get_plugin"
 	listNounsFetchFnID        = "list_nouns_fetch"
 	getNounHandlerID          = "get_noun"
 )
@@ -58,6 +59,7 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterFetchFn(listModulesFetchFnID, mgmt.ListModulesFetchFn)
 	reg.RegisterFetchFn(listPluginsFetchFnID, mgmt.ListPluginsFetchFn)
 	reg.RegisterWorkflow(getModuleHandlerID, mgmt.GetModuleHandler)
+	reg.RegisterWorkflow(getPluginHandlerID, mgmt.GetPluginHandler)
 	reg.RegisterFetchFn(listNounsFetchFnID, mgmt.ListNounsFetchFn)
 	reg.RegisterWorkflow(getNounHandlerID, mgmt.GetNounHandler)
 }

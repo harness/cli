@@ -443,6 +443,19 @@ commands:
         is_bool: true
         description: Show noun/verb support matrix
 
+  - command: get plugin
+    verb: get
+    noun: plugin
+    short: Show domain model and nouns for an installed plugin
+    no_auth: true
+    id_label: name
+    handler_type: workflow
+    workflow_id: get_plugin
+    flags:
+      - name: matrix
+        is_bool: true
+        description: Show noun/verb support matrix
+
   - command: get noun
     verb: get
     noun: noun

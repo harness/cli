@@ -20,16 +20,36 @@ import (
 )
 
 func GetModuleHandler(ctx *cmdctx.Ctx) error {
+	return getModuleOrPluginHandler(ctx, "module", func(spec.ModuleMeta) bool { return true })
+}
+
+// GetPluginHandler shows the same domain-model output as GetModuleHandler,
+// but only for modules that are plugins (see ModuleMeta.IsPlugin) — a plugin
+// is a module in every respect that matters for grammar/rendering.
+func GetPluginHandler(ctx *cmdctx.Ctx) error {
+	return getModuleOrPluginHandler(ctx, "plugin", spec.ModuleMeta.IsPlugin)
+}
+
+func getModuleOrPluginHandler(ctx *cmdctx.Ctx, kind string, match func(spec.ModuleMeta) bool) error {
 	var meta *spec.ModuleMeta
+	var nameMatch *spec.ModuleMeta
 	for _, m := range ctx.Resolver.GetModuleMetas() {
-		if strings.EqualFold(m.Name, ctx.Id) {
-			m := m
+		if !strings.EqualFold(m.Name, ctx.Id) {
+			continue
+		}
+		m := m
+		nameMatch = &m
+		if match(m) {
 			meta = &m
 			break
 		}
 	}
 	if meta == nil {
-		return fmt.Errorf("module %q not found", ctx.Id)
+		if nameMatch != nil && !nameMatch.IsPlugin() {
+			// name exists but isn't a plugin — the caller almost certainly meant `get module`.
+			return fmt.Errorf("%s %q not found (it's a builtin module — did you mean %q?)", kind, ctx.Id, "harness get module "+ctx.Id)
+		}
+		return fmt.Errorf("%s %q not found", kind, ctx.Id)
 	}
 
 	// collect nouns with at least one command
