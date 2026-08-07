@@ -22,17 +22,31 @@ import (
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/hlog"
 	"github.com/harness/cli/pkg/plugin"
+	"github.com/harness/cli/pkg/release"
 	"github.com/harness/cli/pkg/specloader"
 )
 
+// registryEntry is a bare-name-installable plugin's fixed identity: its
+// release package name and the tag prefix its releases are published under.
+// Core itself has no entry — it is not a plugin — so prefix "" here always
+// means "a module release, on harness/cli, under {prefix}/vX.Y.Z" rather than
+// core's own bare "vX.Y.Z" convention.
+type registryEntry struct {
+	pkgName string
+	prefix  string
+}
+
 // pluginRegistry is the optional name→artifact resolver behind the bare-name
-// install form (`install plugin har`, `install module har`). It maps a plugin
-// name to its release package name; the tarball URL is derived from that plus
-// the version and platform. It starts as a hardcoded map and can later become a
-// hosted index with no change to the install mechanism — nothing is *gated* by
-// it, since URL and path installs cover secret/internal/third-party plugins.
-var pluginRegistry = map[string]string{
-	"har": "harness-plugin-har",
+// install form (`install plugin har`, `install module har`). It starts as a
+// hardcoded map and can later become a hosted index with no change to the
+// install mechanism — nothing is *gated* by it, since URL and path installs
+// cover secret/internal/third-party plugins.
+//
+// Every entry releases independently of core and of each other, each under its
+// own "{prefix}/vX.Y.Z" tag on release.Repo — a module shipping a fix does not
+// wait on core's release cadence.
+var pluginRegistry = map[string]registryEntry{
+	"har": {pkgName: "harness-plugin-har", prefix: "har"},
 }
 
 func registryNames() string {
@@ -99,22 +113,20 @@ func looksLikePath(ref string) bool {
 }
 
 // installRegistryPlugin installs a plugin named in pluginRegistry from the
-// Harness GitHub release matching version ("" / "latest" resolves to the latest
-// core release). check reports availability and drift without installing.
+// Harness GitHub release tagged {prefix}/vX.Y.Z ("" / "latest" resolves to
+// that module's own latest release — independent of core's version and of
+// every other module's). check reports availability and drift without
+// installing.
 //
 // This is the only ref form that does an up-to-date check: a name means "get me
 // the current one", so reinstalling an identical version is wasted work. An
 // explicit URL or path names a specific artifact and is always installed.
 func installRegistryPlugin(name, version string, force, check bool) error {
-	pkgName, ok := pluginRegistry[name]
+	entry, ok := pluginRegistry[name]
 	if !ok {
 		return fmt.Errorf("unknown plugin %q — supported: %s", name, registryNames())
 	}
 
-	version, err := resolveVersion(version)
-	if err != nil {
-		return err
-	}
 	platform, err := detectPlatform()
 	if err != nil {
 		return err
@@ -124,45 +136,58 @@ func installRegistryPlugin(name, version string, force, check bool) error {
 	installed := installedPluginVersion(name)
 
 	if check {
-		exists, err := releaseAssetExists(version, platform, pkgName)
+		rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version)
 		if err != nil {
-			return err
+			fmt.Printf("Plugin %q version %s not found: %v\n", name, versionLabel(version), err)
+			os.Exit(1)
 		}
-		if !exists {
-			fmt.Printf("Plugin %q version %s not found\n", name, version)
+		if _, err := archiveAssetURL(rel, entry.pkgName, resolvedVersion, platform); err != nil {
+			fmt.Printf("Plugin %q %s not available for platform %s\n", name, resolvedVersion, platform)
 			os.Exit(1)
 		}
 		if installed == "" {
-			fmt.Printf("Plugin %q %s is available to install\n", name, version)
+			fmt.Printf("Plugin %q %s is available to install\n", name, resolvedVersion)
 			return nil
 		}
-		cmp, ok := cmpVersion(version, installed)
+		cmp, ok := cmpVersion(resolvedVersion, installed)
 		switch {
 		case !ok:
-			fmt.Printf("Plugin %q is installed (current: %s, latest: %s)\n", name, installed, version)
+			fmt.Printf("Plugin %q is installed (current: %s, latest: %s)\n", name, installed, resolvedVersion)
 		case cmp > 0:
-			fmt.Printf("Upgrade available for plugin %q: %s (current: %s)\n", name, version, installed)
+			fmt.Printf("Upgrade available for plugin %q: %s (current: %s)\n", name, resolvedVersion, installed)
 		case cmp < 0:
-			fmt.Printf("Current version %s of plugin %q is ahead of latest %s\n", installed, name, version)
+			fmt.Printf("Current version %s of plugin %q is ahead of latest %s\n", installed, name, resolvedVersion)
 		default:
 			fmt.Printf("Plugin %q is up to date (current: %s)\n", name, installed)
 		}
 		return nil
 	}
 
+	rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version)
+	if err != nil {
+		return err
+	}
+
 	if !force && installed != "" {
-		if cmp, ok := cmpVersion(version, installed); ok && cmp <= 0 {
+		if cmp, ok := cmpVersion(resolvedVersion, installed); ok && cmp <= 0 {
 			if cmp < 0 {
-				fmt.Printf("Plugin %q is ahead of latest (installed: %s, latest: %s). Use --force to reinstall.\n", name, installed, version)
+				fmt.Printf("Plugin %q is ahead of latest (installed: %s, latest: %s). Use --force to reinstall.\n", name, installed, resolvedVersion)
 			} else {
-				fmt.Printf("Plugin %q is up to date (installed: %s, latest: %s). Use --force to reinstall.\n", name, installed, version)
+				fmt.Printf("Plugin %q is up to date (installed: %s, latest: %s). Use --force to reinstall.\n", name, installed, resolvedVersion)
 			}
 			return nil
 		}
 	}
 
-	tarURL, checksumURL := releaseURLs(version, platform, pkgName)
-	hlog.Info("downloading plugin", "plugin", name, "version", version, "platform", platform)
+	tarURL, err := archiveAssetURL(rel, entry.pkgName, resolvedVersion, platform)
+	if err != nil {
+		return err
+	}
+	checksumURL, err := checksumAssetURL(rel)
+	if err != nil {
+		return err
+	}
+	hlog.Info("downloading plugin", "plugin", name, "version", resolvedVersion, "platform", platform)
 	// expectName: the registry promised us this plugin, so a tarball that
 	// identifies as something else is a bad registry entry, not a new plugin —
 	// and must be rejected before it lands anywhere on disk.

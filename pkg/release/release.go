@@ -11,11 +11,15 @@ package release
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -24,6 +28,26 @@ import (
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/hlog"
 )
+
+// ErrReleaseNotFound is returned by FetchReleaseByTag when the GitHub API
+// responds 404 — the tag exists in git but has no release, or does not exist.
+var ErrReleaseNotFound = errors.New("release not found")
+
+// Asset is a single downloadable file attached to a GitHub release.
+type Asset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+// Release is the subset of the GitHub release API response the CLI resolves
+// installs against: the tag it was published under and its downloadable
+// assets.
+type Release struct {
+	TagName    string  `json:"tag_name"`
+	Draft      bool    `json:"draft"`
+	Prerelease bool    `json:"prerelease"`
+	Assets     []Asset `json:"assets"`
+}
 
 const (
 	// FlagName is the hidden flag that triggers the background subprocess behavior.
@@ -191,28 +215,8 @@ func writeCache(c cache) error {
 
 // FetchLatestVersion calls the GitHub releases API and returns the latest version tag (e.g. "v1.2.3").
 func FetchLatestVersion() (string, error) {
-	client := &http.Client{Timeout: httpTimeout}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo)
-	hlog.Debug("GET", "url", url)
-	req, err := http.NewRequest("GET", url, nil)
+	rel, err := fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo))
 	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	resp, err := client.Do(req)
-	if err != nil {
-		hlog.Debug("GET failed", "url", url, "error", err)
-		return "", err
-	}
-	defer resp.Body.Close()
-	hlog.Debug("GET response", "url", url, "status", resp.StatusCode)
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
 		return "", err
 	}
 	if rel.TagName == "" {
@@ -222,4 +226,122 @@ func FetchLatestVersion() (string, error) {
 		return "", fmt.Errorf("invalid version %q from API", rel.TagName)
 	}
 	return rel.TagName, nil
+}
+
+// ResolveRelease finds the release in repo matching prefix and version, and
+// returns it with its asset list attached.
+//
+// version, when non-empty, must already be a normalized "vX.Y.Z" string — the
+// caller validates user input before this is reached, since that's a CLI/UX
+// concern, not a GitHub-API-mechanics one. version == "" resolves to the
+// latest release for prefix.
+//
+// prefix == "" means the plain "vX.Y.Z" tag convention core itself releases
+// under: latest resolves via GitHub's own "latest" marker, since only core
+// releases are ever marked latest. prefix != "" means the "{prefix}/vX.Y.Z"
+// convention every module releases under: GitHub's "latest" marker doesn't
+// apply, so latest is resolved by listing releases and picking the
+// highest-semver tag matching the prefix.
+func ResolveRelease(repo, prefix, version string) (*Release, error) {
+	if version != "" {
+		tag := version
+		if prefix != "" {
+			tag = prefix + "/" + version
+		}
+		rel, err := fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, url.PathEscape(tag)))
+		if errors.Is(err, ErrReleaseNotFound) {
+			return nil, fmt.Errorf("no release tagged %s in %s", tag, repo)
+		}
+		return rel, err
+	}
+	if prefix == "" {
+		return fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo))
+	}
+	return latestPrefixedRelease(repo, prefix)
+}
+
+// latestPrefixedRelease lists the most recent releases in repo and returns the
+// highest-semver one whose tag matches "{prefix}/vX.Y.Z", skipping drafts and
+// prereleases. GitHub's "latest" marker only ever points at a bare-tag core
+// release, so a prefixed release is found by listing rather than by that
+// endpoint.
+func latestPrefixedRelease(repo, prefix string) (*Release, error) {
+	releases, err := fetchReleaseList(fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100", repo))
+	if err != nil {
+		return nil, err
+	}
+	tagVersion := regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `/(v\d+\.\d+\.\d+)$`)
+
+	var best *Release
+	var bestVersion string
+	for i := range releases {
+		rel := &releases[i]
+		if rel.Draft || rel.Prerelease {
+			continue
+		}
+		m := tagVersion.FindStringSubmatch(rel.TagName)
+		if m == nil {
+			continue
+		}
+		if best == nil || semver.Compare(m[1], bestVersion) > 0 {
+			best = rel
+			bestVersion = m[1]
+		}
+	}
+	if best == nil {
+		return nil, fmt.Errorf("no release tagged %s/vX.Y.Z found in %s (checked the most recent %d releases)", prefix, repo, len(releases))
+	}
+	return best, nil
+}
+
+// fetchRelease GETs a single-release GitHub API endpoint and decodes it.
+func fetchRelease(apiURL string) (*Release, error) {
+	body, err := getGitHubAPI(apiURL)
+	if err != nil {
+		return nil, err
+	}
+	var rel Release
+	if err := json.Unmarshal(body, &rel); err != nil {
+		return nil, err
+	}
+	return &rel, nil
+}
+
+// fetchReleaseList GETs a release-list GitHub API endpoint and decodes it.
+func fetchReleaseList(apiURL string) ([]Release, error) {
+	body, err := getGitHubAPI(apiURL)
+	if err != nil {
+		return nil, err
+	}
+	var releases []Release
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil, err
+	}
+	return releases, nil
+}
+
+// getGitHubAPI issues an authenticated-format GET against the GitHub API and
+// returns the raw response body, translating a 404 into ErrReleaseNotFound.
+func getGitHubAPI(apiURL string) ([]byte, error) {
+	client := &http.Client{Timeout: httpTimeout}
+	hlog.Debug("GET", "url", apiURL)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	resp, err := client.Do(req)
+	if err != nil {
+		hlog.Debug("GET failed", "url", apiURL, "error", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+	hlog.Debug("GET response", "url", apiURL, "status", resp.StatusCode)
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrReleaseNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }

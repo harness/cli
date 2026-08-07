@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/harness/cli/pkg/release"
 )
 
 func TestArchiveExtensionForPlatform(t *testing.T) {
@@ -31,18 +33,48 @@ func TestArchiveExtensionForPlatform(t *testing.T) {
 	}
 }
 
-func TestReleaseURLsArchiveExtension(t *testing.T) {
-	winURL, _ := releaseURLs("v1.2.3", "windows_amd64", "harness-core")
-	if !strings.HasSuffix(winURL, "harness-core_1.2.3_windows_amd64.zip") {
-		t.Errorf("windows archive URL = %q, want a .zip asset", winURL)
+func TestArchiveAssetURL(t *testing.T) {
+	rel := &release.Release{
+		TagName: "v1.2.3",
+		Assets: []release.Asset{
+			{Name: "harness-core_1.2.3_windows_amd64.zip", BrowserDownloadURL: "https://example.com/win.zip"},
+			{Name: "harness-core_1.2.3_linux_amd64.tar.gz", BrowserDownloadURL: "https://example.com/nix.tar.gz"},
+			{Name: "harness_1.2.3_checksums.txt", BrowserDownloadURL: "https://example.com/checksums.txt"},
+		},
 	}
-	nixURL, checksumURL := releaseURLs("v1.2.3", "linux_amd64", "harness-core")
-	if !strings.HasSuffix(nixURL, "harness-core_1.2.3_linux_amd64.tar.gz") {
-		t.Errorf("linux archive URL = %q, want a .tar.gz asset", nixURL)
+
+	winURL, err := archiveAssetURL(rel, "harness-core", "v1.2.3", "windows_amd64")
+	if err != nil {
+		t.Fatalf("archiveAssetURL: %v", err)
 	}
-	// The checksum file covers the whole release, so it is platform-independent.
-	if !strings.HasSuffix(checksumURL, "harness_1.2.3_checksums.txt") {
+	if winURL != "https://example.com/win.zip" {
+		t.Errorf("windows archive URL = %q", winURL)
+	}
+
+	nixURL, err := archiveAssetURL(rel, "harness-core", "v1.2.3", "linux_amd64")
+	if err != nil {
+		t.Fatalf("archiveAssetURL: %v", err)
+	}
+	if nixURL != "https://example.com/nix.tar.gz" {
+		t.Errorf("linux archive URL = %q", nixURL)
+	}
+
+	checksumURL, err := checksumAssetURL(rel)
+	if err != nil {
+		t.Fatalf("checksumAssetURL: %v", err)
+	}
+	if checksumURL != "https://example.com/checksums.txt" {
 		t.Errorf("checksum URL = %q", checksumURL)
+	}
+}
+
+func TestArchiveAssetURLMissing(t *testing.T) {
+	rel := &release.Release{TagName: "v1.2.3"}
+	if _, err := archiveAssetURL(rel, "harness-core", "v1.2.3", "linux_amd64"); err == nil {
+		t.Fatal("expected an error when no matching asset exists")
+	}
+	if _, err := checksumAssetURL(rel); err == nil {
+		t.Fatal("expected an error when no checksums asset exists")
 	}
 }
 

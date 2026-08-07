@@ -151,7 +151,16 @@ tasks:
     cmds:
       - goreleaser release --clean --release-notes /dev/null
 
+  release:har:
+    desc: 'Build (and optionally publish) the har plugin release (usage: task release:har -- har/v3.1.0 [--publish])'
+    cmds:
+      - ./scripts/release-har.sh {{.CLI_ARGS}}
+
   clean:
     desc: Remove built binaries
     cmds:
       - rm -rf bin/
+      - rm -rf dist/
+      - rm -rf dist-plugins/
+      - rm -rf devhome/
+

@@ -44,25 +44,46 @@ func cmpVersion(a, b string) (int, bool) {
 	return semver.Compare(av, bv), true
 }
 
-// resolveVersion validates and normalizes a user-supplied version string,
-// or fetches the latest release when version is "" or "latest".
-func resolveVersion(version string) (string, error) {
+// resolveReleaseForPrefix validates version, resolves the release in repo
+// tagged "{prefix}/vX.Y.Z" (bare "vX.Y.Z" when prefix == "") matching it, and
+// returns that release together with its version string (the tag with prefix
+// stripped). version == "" / "latest" resolves to that prefix's own latest
+// release — independent of every other prefix's version in repo.
+//
+// This is the one place both the core install and every registry plugin
+// install resolve a version, so there is exactly one algorithm for "latest"
+// and exactly one for validating an explicit version.
+func resolveReleaseForPrefix(repo, prefix, version string) (*release.Release, string, error) {
 	if version != "" && version != "latest" {
 		if !strings.HasPrefix(version, "v") {
 			version = "v" + version
 		}
 		if !reReleaseVersion.MatchString(version) {
-			return "", fmt.Errorf("invalid version %q — expected vMAJOR.MINOR.PATCH (e.g. v1.2.3) or \"latest\"", version)
+			return nil, "", fmt.Errorf("invalid version %q — expected vMAJOR.MINOR.PATCH (e.g. v1.2.3) or \"latest\"", version)
 		}
-		return version, nil
+	} else {
+		version = ""
 	}
-	hlog.Debug("fetching latest release version")
-	v, err := release.FetchLatestVersion()
+	hlog.Debug("resolving release", "repo", repo, "prefix", prefix, "version", version)
+	rel, err := release.ResolveRelease(repo, prefix, version)
 	if err != nil {
-		return "", fmt.Errorf("fetching latest version: %w", err)
+		return nil, "", fmt.Errorf("resolving release: %w", err)
 	}
-	hlog.Debug("latest release", "version", v)
-	return v, nil
+	resolvedVersion := rel.TagName
+	if prefix != "" {
+		resolvedVersion = strings.TrimPrefix(resolvedVersion, prefix+"/")
+	}
+	hlog.Debug("resolved release", "tag", rel.TagName, "version", resolvedVersion)
+	return rel, resolvedVersion, nil
+}
+
+// versionLabel renders a possibly-empty/"latest" version request for a
+// diagnostic message.
+func versionLabel(version string) string {
+	if version == "" {
+		return "latest"
+	}
+	return version
 }
 
 const (
@@ -147,23 +168,19 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	version, err = resolveVersion(version)
-	if err != nil {
-		return err
-	}
-
 	platform, err := detectPlatform()
 	if err != nil {
 		return err
 	}
 	hlog.Debug("platform detected", "platform", platform)
 
+	rel, version, err := resolveReleaseForPrefix(release.Repo, "", version)
+	if err != nil {
+		return err
+	}
+
 	if check {
-		exists, err := releaseAssetExists(version, platform, installBundleName)
-		if err != nil {
-			return err
-		}
-		if !exists {
+		if _, err := archiveAssetURL(rel, installBundleName, version, platform); err != nil {
 			fmt.Printf("Version %s not found\n", version)
 			os.Exit(1)
 		}
@@ -197,7 +214,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 			return fmt.Errorf("creating install directory %s: %w", installDir, err)
 		}
 		hlog.Info("downloading", "version", version, "platform", platform)
-		if err := downloadAndInstallBinary(version, platform, installDir, installBundleName, installBinaryName); err != nil {
+		if err := downloadAndInstallBinary(rel, installBundleName, version, platform, installDir, installBinaryName); err != nil {
 			return err
 		}
 		fmt.Printf("Installed harness %s to %s\n", version, filepath.Join(installDir, installedBinaryName(installBinaryName)))
@@ -207,11 +224,10 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	}
 
-	// Bring any installed plugins up to the version we just installed. Plugins
-	// live in ~/.harness/bin and are tracked by their spec, not by sitting next
-	// to core, so this no longer depends on installDir.
+	// Bring any installed plugins up to their own latest — each module releases
+	// independently of core, so this must not force-pin them to core's version.
 	for _, name := range installedRegistryPlugins() {
-		if err := installRegistryPlugin(name, version, force, false); err != nil {
+		if err := installRegistryPlugin(name, "", force, false); err != nil {
 			fmt.Printf("warning: could not update plugin %q: %v\n", name, err)
 		}
 	}
@@ -260,24 +276,45 @@ func detectPlatform() (string, error) {
 	return os_ + "_" + arch, nil
 }
 
-// releaseURLs returns the archive and checksum-file URLs for a package in the
-// Harness release matching version. Shared by the core install and the plugin
-// install so both derive artifact URLs the same way. The archive extension is
-// platform-dependent (zip on Windows); the checksum file covers every asset in
-// the release, so its name is not.
-func releaseURLs(version, platform, pkgName string) (archiveURL, checksumURL string) {
+// archiveAssetURL finds the asset in rel matching pkgName/version/platform and
+// returns its download URL. Every release we control produces exactly this
+// asset naming convention, so a miss means the release itself is broken, not
+// that verification should be skipped.
+func archiveAssetURL(rel *release.Release, pkgName, version, platform string) (string, error) {
 	ver := strings.TrimPrefix(version, "v")
-	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	archiveURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s%s", release.Repo, version, base, archiveExtensionForPlatform(platform))
-	checksumURL = fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
-	return archiveURL, checksumURL
+	name := fmt.Sprintf("%s_%s_%s%s", pkgName, ver, platform, archiveExtensionForPlatform(platform))
+	for _, a := range rel.Assets {
+		if a.Name == name {
+			return a.BrowserDownloadURL, nil
+		}
+	}
+	return "", fmt.Errorf("%s %s has no asset %s for platform %s", pkgName, rel.TagName, name, platform)
 }
 
-func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName string) error {
+// checksumAssetURL finds the checksums file among rel's assets. Every release
+// we produce ships one; a missing checksum on a release we control is an error,
+// not "nothing to verify against."
+func checksumAssetURL(rel *release.Release) (string, error) {
+	for _, a := range rel.Assets {
+		if strings.HasSuffix(a.Name, "checksums.txt") {
+			return a.BrowserDownloadURL, nil
+		}
+	}
+	return "", fmt.Errorf("release %s has no checksums file", rel.TagName)
+}
+
+func downloadAndInstallBinary(rel *release.Release, pkgName, version, platform, destDir, binaryName string) error {
 	ver := strings.TrimPrefix(version, "v")
 	ext := archiveExtensionForPlatform(platform)
 	archiveName := fmt.Sprintf("%s_%s_%s%s", pkgName, ver, platform, ext)
-	archiveURL, checksumURL := releaseURLs(version, platform, pkgName)
+	archiveURL, err := archiveAssetURL(rel, pkgName, version, platform)
+	if err != nil {
+		return err
+	}
+	checksumURL, err := checksumAssetURL(rel)
+	if err != nil {
+		return err
+	}
 
 	tmp, err := os.MkdirTemp("", "harness-install-*")
 	if err != nil {
@@ -287,9 +324,6 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 
 	archivePath := filepath.Join(tmp, archiveName)
 	if err := downloadFile(archivePath, archiveURL); err != nil {
-		if strings.Contains(err.Error(), "HTTP 404") {
-			return fmt.Errorf("%s %s not found for platform %s", pkgName, version, platform)
-		}
 		return fmt.Errorf("downloading release: %w", err)
 	}
 
@@ -318,22 +352,6 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 		return fmt.Errorf("installing binary: %w", err)
 	}
 	return nil
-}
-
-func releaseAssetExists(version, platform, pkgName string) (bool, error) {
-	ver := strings.TrimPrefix(version, "v")
-	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	client := &http.Client{Timeout: 15 * time.Second}
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s%s", release.Repo, version, base, archiveExtensionForPlatform(platform))
-	hlog.Debug("HEAD", "url", url)
-	resp, err := client.Head(url)
-	if err != nil {
-		hlog.Debug("HEAD failed", "url", url, "error", err)
-		return false, nil
-	}
-	resp.Body.Close()
-	hlog.Debug("HEAD response", "url", url, "status", resp.StatusCode)
-	return resp.StatusCode == http.StatusOK, nil
 }
 
 func downloadFile(dest, url string) error {
