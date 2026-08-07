@@ -24,6 +24,6 @@ jobs:
           version: 3.x
 
       - name: Check goreleaser config
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           args: check
