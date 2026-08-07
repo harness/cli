@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/harness/cli v0.0.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/jedib0t/go-pretty/v6 v6.8.2
+	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/oapi-codegen/runtime v1.4.1
 	github.com/pterm/pterm v0.12.83
 	github.com/rs/zerolog v1.34.0
