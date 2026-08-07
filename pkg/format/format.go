@@ -108,6 +108,11 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		if err != nil {
 			return fmt.Errorf("jsonl items_expr %q: %w", itemsExpr, err)
 		}
+		if !flags.Raw {
+			for i, it := range items {
+				items[i] = injectURL(exprEnv, it)
+			}
+		}
 		return formatJsonl(w, itemsExpr, items)
 	}
 
@@ -158,6 +163,9 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		extracted, err := evalItemsExpr(itemsEnv, itemsExpr)
 		if err != nil {
 			return fmt.Errorf("items_expr %q: %w", itemsExpr, err)
+		}
+		for i, it := range extracted {
+			extracted[i] = injectURL(exprEnv, it)
 		}
 		payload = extracted
 	}
@@ -267,7 +275,36 @@ func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr
 		// --raw with yaml: no pick expr applied, fall through to marshal full payload
 		return writeYAML(w, payload)
 	}
+	if !flags.Raw {
+		payload = injectURL(exprEnv, payload)
+	}
 	return writeJSON(w, payload)
+}
+
+// injectURL returns item with a "url" key added, computed via exprEnv["url"](item) — the
+// same url(it) function noun fields already call for table/text output. No-op if url isn't
+// registered, item isn't a map, item already has a "url" key, or the resolved URL is empty,
+// so it never overwrites data the API actually returned.
+func injectURL(exprEnv map[string]any, item any) any {
+	urlFn, ok := exprEnv["url"].(func(any) string)
+	if !ok {
+		return item
+	}
+	m, ok := item.(map[string]any)
+	if !ok {
+		return item
+	}
+	if _, exists := m["url"]; exists {
+		return item
+	}
+	u := urlFn(item)
+	if u == "" {
+		return item
+	}
+	out := make(map[string]any, len(m)+1)
+	maps.Copy(out, m)
+	out["url"] = u
+	return out
 }
 
 func OpenWriter(outFile string) (io.Writer, func(), error) {
