@@ -53,7 +53,12 @@ func cmpVersion(a, b string) (int, bool) {
 // This is the one place both the core install and every registry plugin
 // install resolve a version, so there is exactly one algorithm for "latest"
 // and exactly one for validating an explicit version.
-func resolveReleaseForPrefix(repo, prefix, version string) (*release.Release, string, error) {
+//
+// token, when non-empty, is forwarded to the GitHub API as a bearer token —
+// it's how --github-token lets a plugin install see draft releases or
+// releases in a private repo, neither visible to an unauthenticated request.
+// allowDrafts additionally includes draft releases when resolving "latest".
+func resolveReleaseForPrefix(repo, prefix, version, token string, allowDrafts bool) (*release.Release, string, error) {
 	if version != "" && version != "latest" {
 		if !strings.HasPrefix(version, "v") {
 			version = "v" + version
@@ -65,7 +70,7 @@ func resolveReleaseForPrefix(repo, prefix, version string) (*release.Release, st
 		version = ""
 	}
 	hlog.Debug("resolving release", "repo", repo, "prefix", prefix, "version", version)
-	rel, err := release.ResolveRelease(repo, prefix, version)
+	rel, err := release.ResolveRelease(repo, prefix, version, token, allowDrafts)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolving release: %w", err)
 	}
@@ -174,7 +179,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	}
 	hlog.Debug("platform detected", "platform", platform)
 
-	rel, version, err := resolveReleaseForPrefix(release.Repo, "", version)
+	rel, version, err := resolveReleaseForPrefix(release.Repo, "", version, "", false)
 	if err != nil {
 		return err
 	}
@@ -214,7 +219,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 			return fmt.Errorf("creating install directory %s: %w", installDir, err)
 		}
 		hlog.Info("downloading", "version", version, "platform", platform)
-		if err := downloadAndInstallBinary(rel, installBundleName, version, platform, installDir, installBinaryName); err != nil {
+		if err := downloadAndInstallBinary(rel, installBundleName, version, platform, installDir, installBinaryName, ""); err != nil {
 			return err
 		}
 		fmt.Printf("Installed harness %s to %s\n", version, filepath.Join(installDir, installedBinaryName(installBinaryName)))
@@ -227,7 +232,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	// Bring any installed plugins up to their own latest — each module releases
 	// independently of core, so this must not force-pin them to core's version.
 	for _, name := range installedRegistryPlugins() {
-		if err := installRegistryPlugin(name, "", force, false); err != nil {
+		if err := installRegistryPlugin(name, "", "", false, force, false); err != nil {
 			fmt.Printf("warning: could not update plugin %q: %v\n", name, err)
 		}
 	}
@@ -250,7 +255,9 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 	version := cmdctx.GetString(ctx.FlagValues, "version")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
-	return installRegistryPlugin(moduleName, version, force, check)
+	githubToken := cmdctx.GetString(ctx.FlagValues, "github-token")
+	allowDrafts := cmdctx.GetBool(ctx.FlagValues, "allow-drafts")
+	return installRegistryPlugin(moduleName, version, githubToken, allowDrafts, force, check)
 }
 
 func detectPlatform() (string, error) {
@@ -276,42 +283,58 @@ func detectPlatform() (string, error) {
 	return os_ + "_" + arch, nil
 }
 
-// archiveAssetURL finds the asset in rel matching pkgName/version/platform and
-// returns its download URL. Every release we control produces exactly this
-// asset naming convention, so a miss means the release itself is broken, not
-// that verification should be skipped.
-func archiveAssetURL(rel *release.Release, pkgName, version, platform string) (string, error) {
+// archiveAsset finds the asset in rel matching pkgName/version/platform. Every
+// release we control produces exactly this asset naming convention, so a miss
+// means the release itself is broken, not that verification should be skipped.
+func archiveAsset(rel *release.Release, pkgName, version, platform string) (*release.Asset, error) {
 	ver := strings.TrimPrefix(version, "v")
 	name := fmt.Sprintf("%s_%s_%s%s", pkgName, ver, platform, archiveExtensionForPlatform(platform))
-	for _, a := range rel.Assets {
-		if a.Name == name {
-			return a.BrowserDownloadURL, nil
+	for i := range rel.Assets {
+		if rel.Assets[i].Name == name {
+			return &rel.Assets[i], nil
 		}
 	}
-	return "", fmt.Errorf("%s %s has no asset %s for platform %s", pkgName, rel.TagName, name, platform)
+	return nil, fmt.Errorf("%s %s has no asset %s for platform %s", pkgName, rel.TagName, name, platform)
 }
 
-// checksumAssetURL finds the checksums file among rel's assets. Every release
-// we produce ships one; a missing checksum on a release we control is an error,
+// archiveAssetURL is a convenience wrapper for callers that only need the
+// unauthenticated download URL (drift/availability checks never download).
+func archiveAssetURL(rel *release.Release, pkgName, version, platform string) (string, error) {
+	a, err := archiveAsset(rel, pkgName, version, platform)
+	if err != nil {
+		return "", err
+	}
+	return a.BrowserDownloadURL, nil
+}
+
+// checksumAsset finds the checksums file among rel's assets. Every release we
+// produce ships one; a missing checksum on a release we control is an error,
 // not "nothing to verify against."
-func checksumAssetURL(rel *release.Release) (string, error) {
-	for _, a := range rel.Assets {
-		if strings.HasSuffix(a.Name, "checksums.txt") {
-			return a.BrowserDownloadURL, nil
+func checksumAsset(rel *release.Release) (*release.Asset, error) {
+	for i := range rel.Assets {
+		if strings.HasSuffix(rel.Assets[i].Name, "checksums.txt") {
+			return &rel.Assets[i], nil
 		}
 	}
-	return "", fmt.Errorf("release %s has no checksums file", rel.TagName)
+	return nil, fmt.Errorf("release %s has no checksums file", rel.TagName)
 }
 
-func downloadAndInstallBinary(rel *release.Release, pkgName, version, platform, destDir, binaryName string) error {
-	ver := strings.TrimPrefix(version, "v")
+// checksumAssetURL is the unauthenticated-URL counterpart of archiveAssetURL.
+func checksumAssetURL(rel *release.Release) (string, error) {
+	a, err := checksumAsset(rel)
+	if err != nil {
+		return "", err
+	}
+	return a.BrowserDownloadURL, nil
+}
+
+func downloadAndInstallBinary(rel *release.Release, pkgName, version, platform, destDir, binaryName, githubToken string) error {
 	ext := archiveExtensionForPlatform(platform)
-	archiveName := fmt.Sprintf("%s_%s_%s%s", pkgName, ver, platform, ext)
-	archiveURL, err := archiveAssetURL(rel, pkgName, version, platform)
+	archiveAsset, err := archiveAsset(rel, pkgName, version, platform)
 	if err != nil {
 		return err
 	}
-	checksumURL, err := checksumAssetURL(rel)
+	checksumAsset, err := checksumAsset(rel)
 	if err != nil {
 		return err
 	}
@@ -322,13 +345,13 @@ func downloadAndInstallBinary(rel *release.Release, pkgName, version, platform, 
 	}
 	defer os.RemoveAll(tmp)
 
-	archivePath := filepath.Join(tmp, archiveName)
-	if err := downloadFile(archivePath, archiveURL); err != nil {
+	archivePath := filepath.Join(tmp, archiveAsset.Name)
+	if err := downloadAsset(archivePath, archiveAsset, githubToken); err != nil {
 		return fmt.Errorf("downloading release: %w", err)
 	}
 
 	hlog.Debug("verifying checksum")
-	if err := verifyChecksum(archivePath, archiveName, checksumURL); err != nil {
+	if err := verifyChecksum(archivePath, archiveAsset.Name, checksumAsset, githubToken); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
@@ -355,15 +378,28 @@ func downloadAndInstallBinary(rel *release.Release, pkgName, version, platform, 
 }
 
 func downloadFile(dest, url string) error {
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Get(url)
+	resp, err := getUnauthenticated(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	return saveResponseBody(dest, resp)
+}
+
+// downloadAsset saves asset to dest. With a token, it goes through GitHub's
+// authenticated asset API (asset.URL) instead of BrowserDownloadURL — that's
+// the only way to fetch a draft release's assets or a private repo's assets;
+// BrowserDownloadURL 404s for both regardless of any Authorization header.
+func downloadAsset(dest string, asset *release.Asset, githubToken string) error {
+	resp, err := getAsset(asset, githubToken)
+	if err != nil {
+		return err
 	}
+	defer resp.Body.Close()
+	return saveResponseBody(dest, resp)
+}
+
+func saveResponseBody(dest string, resp *http.Response) error {
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
@@ -373,16 +409,51 @@ func downloadFile(dest, url string) error {
 	return err
 }
 
-func verifyChecksum(archivePath, archiveName, checksumURL string) error {
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(checksumURL)
+// getAsset issues the GET for asset, authenticated via the asset API when
+// githubToken is set, or the plain browser-download URL otherwise.
+func getAsset(asset *release.Asset, githubToken string) (*http.Response, error) {
+	if githubToken == "" {
+		return getUnauthenticated(asset.BrowserDownloadURL)
+	}
+	req, err := http.NewRequest("GET", asset.URL, nil)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/octet-stream")
+	req.Header.Set("Authorization", "Bearer "+githubToken)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, asset.URL)
+	}
+	return resp, nil
+}
+
+// getUnauthenticated is a plain GET, used for browser-download URLs and for
+// anything with no token in hand.
+func getUnauthenticated(url string) (*http.Response, error) {
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+	return resp, nil
+}
+
+func verifyChecksum(archivePath, archiveName string, checksumAsset *release.Asset, githubToken string) error {
+	resp, err := getAsset(checksumAsset, githubToken)
+	if err != nil {
+		return fmt.Errorf("fetching checksums: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d fetching checksums", resp.StatusCode)
-	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err

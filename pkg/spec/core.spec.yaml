@@ -354,6 +354,12 @@ commands:
       - name: check
         is_bool: true
         description: Check the version without installing (prints resolved version, exits 1 if not found)
+      - name: github-token
+        description: GitHub token for authenticated release access (drafts, private repos)
+      - name: allow-drafts
+        is_bool: true
+        hidden: true
+        description: Include draft releases when resolving "latest" (requires --github-token)
 
   - command: install plugin
     verb: install
@@ -390,6 +396,12 @@ commands:
       - name: check
         is_bool: true
         description: Check the version without installing (prints resolved version, exits 1 if not found)
+      - name: github-token
+        description: GitHub token for authenticated release access (drafts, private repos)
+      - name: allow-drafts
+        is_bool: true
+        hidden: true
+        description: Include draft releases when resolving "latest" (requires --github-token)
 
   - command: list module
     verb: list

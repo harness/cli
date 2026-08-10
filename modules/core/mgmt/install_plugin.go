@@ -71,6 +71,8 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 	version := cmdctx.GetString(ctx.FlagValues, "version")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
+	githubToken := cmdctx.GetString(ctx.FlagValues, "github-token")
+	allowDrafts := cmdctx.GetBool(ctx.FlagValues, "allow-drafts")
 
 	switch {
 	case strings.HasPrefix(ref, "http://"), strings.HasPrefix(ref, "https://"):
@@ -96,7 +98,7 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 		if _, ok := pluginRegistry[ref]; !ok {
 			return fmt.Errorf("unknown plugin %q — supported: %s\n\nTo install an unregistered plugin, pass its tarball URL or path", ref, registryNames())
 		}
-		return installRegistryPlugin(ref, version, force, check)
+		return installRegistryPlugin(ref, version, githubToken, allowDrafts, force, check)
 	}
 }
 
@@ -121,7 +123,12 @@ func looksLikePath(ref string) bool {
 // This is the only ref form that does an up-to-date check: a name means "get me
 // the current one", so reinstalling an identical version is wasted work. An
 // explicit URL or path names a specific artifact and is always installed.
-func installRegistryPlugin(name, version string, force, check bool) error {
+//
+// githubToken, when set, is forwarded to release resolution and asset download
+// so this can also install from a draft release or a private repo; allowDrafts
+// additionally includes drafts when resolving "latest" (meaningless without a
+// token, since an unauthenticated request never sees a draft to begin with).
+func installRegistryPlugin(name, version, githubToken string, allowDrafts, force, check bool) error {
 	entry, ok := pluginRegistry[name]
 	if !ok {
 		return fmt.Errorf("unknown plugin %q — supported: %s", name, registryNames())
@@ -136,7 +143,7 @@ func installRegistryPlugin(name, version string, force, check bool) error {
 	installed := installedPluginVersion(name)
 
 	if check {
-		rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version)
+		rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version, githubToken, allowDrafts)
 		if err != nil {
 			fmt.Printf("Plugin %q version %s not found: %v\n", name, versionLabel(version), err)
 			os.Exit(1)
@@ -163,7 +170,7 @@ func installRegistryPlugin(name, version string, force, check bool) error {
 		return nil
 	}
 
-	rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version)
+	rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version, githubToken, allowDrafts)
 	if err != nil {
 		return err
 	}
@@ -179,11 +186,11 @@ func installRegistryPlugin(name, version string, force, check bool) error {
 		}
 	}
 
-	tarURL, err := archiveAssetURL(rel, entry.pkgName, resolvedVersion, platform)
+	archiveAsset, err := archiveAsset(rel, entry.pkgName, resolvedVersion, platform)
 	if err != nil {
 		return err
 	}
-	checksumURL, err := checksumAssetURL(rel)
+	checksumAsset, err := checksumAsset(rel)
 	if err != nil {
 		return err
 	}
@@ -191,7 +198,7 @@ func installRegistryPlugin(name, version string, force, check bool) error {
 	// expectName: the registry promised us this plugin, so a tarball that
 	// identifies as something else is a bad registry entry, not a new plugin —
 	// and must be rejected before it lands anywhere on disk.
-	res, err := installPluginFromURL(tarURL, checksumURL, tarURL, name)
+	res, err := installPluginFromAsset(archiveAsset, checksumAsset, githubToken, name)
 	if err != nil {
 		return err
 	}
@@ -228,11 +235,32 @@ func installPluginFromURL(tarURL, checksumURL, source, expectName string) (*inst
 	}
 	if checksumURL != "" {
 		hlog.Debug("verifying checksum")
-		if err := verifyChecksum(archivePath, filepath.Base(archivePath), checksumURL); err != nil {
+		if err := verifyChecksum(archivePath, filepath.Base(archivePath), &release.Asset{BrowserDownloadURL: checksumURL}, ""); err != nil {
 			return nil, fmt.Errorf("checksum verification failed: %w", err)
 		}
 	}
 	return installPluginFromTarball(archivePath, tmp, source, expectName)
+}
+
+// installPluginFromAsset is installPluginFromURL's counterpart for a registry
+// install: it downloads through the asset-aware, token-capable path so a
+// draft release or private repo's assets can be fetched, not just resolved.
+func installPluginFromAsset(archiveAsset, checksumAsset *release.Asset, githubToken, expectName string) (*installedPlugin, error) {
+	tmp, err := os.MkdirTemp("", "harness-plugin-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+
+	archivePath := filepath.Join(tmp, archiveAsset.Name)
+	if err := downloadAsset(archivePath, archiveAsset, githubToken); err != nil {
+		return nil, fmt.Errorf("downloading plugin: %w", err)
+	}
+	hlog.Debug("verifying checksum")
+	if err := verifyChecksum(archivePath, archiveAsset.Name, checksumAsset, githubToken); err != nil {
+		return nil, fmt.Errorf("checksum verification failed: %w", err)
+	}
+	return installPluginFromTarball(archivePath, tmp, archiveAsset.BrowserDownloadURL, expectName)
 }
 
 // installPluginFromPath installs from a local tarball or a local plugin binary.

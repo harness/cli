@@ -34,9 +34,16 @@ import (
 var ErrReleaseNotFound = errors.New("release not found")
 
 // Asset is a single downloadable file attached to a GitHub release.
+//
+// BrowserDownloadURL works unauthenticated, but only for a published (non-draft)
+// release on a public repo. URL is the GitHub API asset endpoint, which — with
+// an Authorization header and Accept: application/octet-stream — also serves
+// drafts and private-repo assets; it's what a --github-token download must use
+// instead.
 type Asset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+	URL                string `json:"url"`
 }
 
 // Release is the subset of the GitHub release API response the CLI resolves
@@ -215,7 +222,7 @@ func writeCache(c cache) error {
 
 // FetchLatestVersion calls the GitHub releases API and returns the latest version tag (e.g. "v1.2.3").
 func FetchLatestVersion() (string, error) {
-	rel, err := fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo))
+	rel, err := fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo), "")
 	if err != nil {
 		return "", err
 	}
@@ -242,31 +249,43 @@ func FetchLatestVersion() (string, error) {
 // convention every module releases under: GitHub's "latest" marker doesn't
 // apply, so latest is resolved by listing releases and picking the
 // highest-semver tag matching the prefix.
-func ResolveRelease(repo, prefix, version string) (*Release, error) {
+//
+// token, when non-empty, is sent as a bearer token on every GitHub API call —
+// this is how a caller can see draft releases or releases in a private repo,
+// neither of which an unauthenticated request can see.
+//
+// allowDrafts includes draft releases when resolving "latest" for a prefixed
+// (module/plugin) release — only meaningful with a token, since an
+// unauthenticated request never sees a draft's assets to begin with. An
+// explicit --version tag lookup always returns a draft when it matches,
+// token or not; allowDrafts only affects the "list and pick highest semver"
+// path below, where a draft would otherwise be filtered out alongside
+// prereleases.
+func ResolveRelease(repo, prefix, version, token string, allowDrafts bool) (*Release, error) {
 	if version != "" {
 		tag := version
 		if prefix != "" {
 			tag = prefix + "/" + version
 		}
-		rel, err := fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, url.PathEscape(tag)))
+		rel, err := fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, url.PathEscape(tag)), token)
 		if errors.Is(err, ErrReleaseNotFound) {
 			return nil, fmt.Errorf("no release tagged %s in %s", tag, repo)
 		}
 		return rel, err
 	}
 	if prefix == "" {
-		return fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo))
+		return fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo), token)
 	}
-	return latestPrefixedRelease(repo, prefix)
+	return latestPrefixedRelease(repo, prefix, token, allowDrafts)
 }
 
 // latestPrefixedRelease lists the most recent releases in repo and returns the
-// highest-semver one whose tag matches "{prefix}/vX.Y.Z", skipping drafts and
-// prereleases. GitHub's "latest" marker only ever points at a bare-tag core
-// release, so a prefixed release is found by listing rather than by that
-// endpoint.
-func latestPrefixedRelease(repo, prefix string) (*Release, error) {
-	releases, err := fetchReleaseList(fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100", repo))
+// highest-semver one whose tag matches "{prefix}/vX.Y.Z", skipping drafts
+// (unless allowDrafts) and prereleases. GitHub's "latest" marker only ever
+// points at a bare-tag core release, so a prefixed release is found by
+// listing rather than by that endpoint.
+func latestPrefixedRelease(repo, prefix, token string, allowDrafts bool) (*Release, error) {
+	releases, err := fetchReleaseList(fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100", repo), token)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +295,7 @@ func latestPrefixedRelease(repo, prefix string) (*Release, error) {
 	var bestVersion string
 	for i := range releases {
 		rel := &releases[i]
-		if rel.Draft || rel.Prerelease {
+		if (rel.Draft && !allowDrafts) || rel.Prerelease {
 			continue
 		}
 		m := tagVersion.FindStringSubmatch(rel.TagName)
@@ -294,9 +313,11 @@ func latestPrefixedRelease(repo, prefix string) (*Release, error) {
 	return best, nil
 }
 
-// fetchRelease GETs a single-release GitHub API endpoint and decodes it.
-func fetchRelease(apiURL string) (*Release, error) {
-	body, err := getGitHubAPI(apiURL)
+// fetchRelease GETs a single-release GitHub API endpoint and decodes it. token,
+// when non-empty, is sent as a bearer token so drafts and private-repo
+// releases the caller has access to are visible.
+func fetchRelease(apiURL, token string) (*Release, error) {
+	body, err := getGitHubAPI(apiURL, token)
 	if err != nil {
 		return nil, err
 	}
@@ -308,8 +329,8 @@ func fetchRelease(apiURL string) (*Release, error) {
 }
 
 // fetchReleaseList GETs a release-list GitHub API endpoint and decodes it.
-func fetchReleaseList(apiURL string) ([]Release, error) {
-	body, err := getGitHubAPI(apiURL)
+func fetchReleaseList(apiURL, token string) ([]Release, error) {
+	body, err := getGitHubAPI(apiURL, token)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +343,7 @@ func fetchReleaseList(apiURL string) ([]Release, error) {
 
 // getGitHubAPI issues an authenticated-format GET against the GitHub API and
 // returns the raw response body, translating a 404 into ErrReleaseNotFound.
-func getGitHubAPI(apiURL string) ([]byte, error) {
+func getGitHubAPI(apiURL, token string) ([]byte, error) {
 	client := &http.Client{Timeout: httpTimeout}
 	hlog.Debug("GET", "url", apiURL)
 	req, err := http.NewRequest("GET", apiURL, nil)
@@ -330,6 +351,9 @@ func getGitHubAPI(apiURL string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		hlog.Debug("GET failed", "url", apiURL, "error", err)
