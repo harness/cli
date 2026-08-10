@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/mail"
@@ -170,6 +171,44 @@ func (r *File) Migrate(ctx context.Context) error {
 	if r.artifactType == types.DOCKER || r.artifactType == types.HELM {
 		log.Error().Ctx(ctx).Msgf("OCI migrate file is not supported")
 		return fmt.Errorf("OCI migrate file is not supported")
+	}
+
+	if r.artifactType == types.TERRAFORM {
+		downloadFile, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, r.file.Uri)
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to download Terraform file")
+			return fmt.Errorf("download terraform file failed: %w", err)
+		}
+		defer downloadFile.Close()
+
+		title := fmt.Sprintf("%s (%s)", r.file.Name, sizeutil.GetSize(int64(r.file.Size)))
+		pterm.Info.Println(fmt.Sprintf("Copying Terraform file %s from %s to %s", r.file.Name, r.srcRegistry, r.destRegistry))
+
+		err = r.destAdapter.UploadFile(r.destRegistry, downloadFile, r.file, header, r.pkg.Name, r.version.Name,
+			r.artifactType, nil)
+
+		stat := types.FileStat{
+			Name:     r.file.Name,
+			Registry: r.srcRegistry,
+			Uri:      r.file.Uri,
+			Size:     int64(r.file.Size),
+			Status:   types.StatusSuccess,
+		}
+		if err != nil {
+			if errors.Is(err, types.ErrArtifactAlreadyExists) {
+				stat.Status = types.StatusSkip
+				pterm.Info.Println(fmt.Sprintf("%s already exists, skipping", title))
+			} else {
+				logger.Error().Err(err).Msg("Failed to upload Terraform file")
+				stat.Status = types.StatusFail
+				stat.Error = err.Error()
+				pterm.Error.Println(fmt.Sprintf("%s — %v", title, err))
+			}
+		} else {
+			pterm.Success.Println(title)
+		}
+		r.stats.FileStats = append(r.stats.FileStats, stat)
+		return nil
 	}
 
 	if r.artifactType == types.GENERIC || r.artifactType == types.RAW || r.artifactType == types.MAVEN || r.artifactType == types.NUGET || r.artifactType == types.PUPPET {
