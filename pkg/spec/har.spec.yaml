@@ -401,31 +401,6 @@ commands:
       - name: metadata-path
         description: "Path to metadata JSON file (optional)"
 
-  - command: push artifact:terraform
-    verb: push
-    noun: artifact
-    noun_variant: terraform
-    short: Push a Terraform module or provider to a Harness registry
-    has_args: true
-    id_allow_slash: true
-    id_label: "<registry/name>"
-    args_label: "<local-file-or-module-dir>"
-    completion_seq:
-      - completion_noun: registry
-      - completion_noun: artifact
-    handler_type: workflow
-    workflow_id: push_artifact_terraform
-    flags:
-      - name: namespace
-        description: "Terraform namespace (required)"
-        required: true
-      - name: name
-        description: "Module name (required for module uploads)"
-      - name: provider
-        description: "Module provider, e.g. aws (required for module uploads)"
-      - name: version
-        description: "Module version, SemVer 2.0.0 (required for module uploads)"
-
   - command: push artifact:puppet
     verb: push
     noun: artifact
