@@ -477,11 +477,13 @@ func (r *Package) migrateComposer(ctx context.Context) error {
 	versions, err := r.srcAdapter.GetVersions(r.pkg, r.node, r.srcRegistry, r.pkg.Name, types.COMPOSER)
 	if err != nil {
 		log.Error().Ctx(ctx).Err(err).Msgf("Failed to get Composer versions for %s", r.pkg.Name)
+		util.AddPackageErrorToStat(r.stats, r.pkg, r.srcRegistry, err)
 		return err
 	}
 	if len(versions) == 0 {
 		err := fmt.Errorf("no Composer versions found for package %s", r.pkg.Name)
 		log.Error().Ctx(ctx).Err(err).Msgf("No Composer versions for %s", r.pkg.Name)
+		util.AddPackageErrorToStat(r.stats, r.pkg, r.srcRegistry, err)
 		return nil
 	}
 
