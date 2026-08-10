@@ -23,6 +23,11 @@ import (
 const (
 	MinSpecVersion = 1
 	MaxSpecVersion = 1
+
+	// maxHomeSpecSize bounds how large a single ~/.harness/spec file may be.
+	// Real specs (even core's) are tens of KB; this just keeps a corrupted or
+	// hostile file from reaching the YAML parser.
+	maxHomeSpecSize = 1 << 20 // 1 MiB
 )
 
 type specVersionOnly struct {
@@ -112,7 +117,10 @@ func LoadHomeSpecs(reg *registry.Registry, isHarnessUser bool) error {
 	// Deterministic order regardless of filesystem enumeration.
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".spec.yaml") {
+		// Type() reflects the directory entry itself (not a followed stat), so
+		// this rejects symlinks, pipes, devices, sockets — anything but a plain
+		// file — without an extra syscall.
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".spec.yaml") {
 			continue
 		}
 		names = append(names, e.Name())
@@ -125,6 +133,25 @@ func LoadHomeSpecs(reg *registry.Registry, isHarnessUser bool) error {
 			continue
 		}
 		path := filepath.Join(dir, name)
+		// Lstat, not Stat: don't follow a symlink that got swapped in after the
+		// directory listing above already ruled one out.
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			hlog.Warn("skipping unreadable plugin spec", "file", path, "err", statErr)
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			hlog.Warn("skipping non-regular plugin spec", "file", path)
+			continue
+		}
+		if info.Size() == 0 {
+			hlog.Warn("skipping empty plugin spec", "file", path)
+			continue
+		}
+		if info.Size() > maxHomeSpecSize {
+			hlog.Warn("skipping oversized plugin spec", "file", path, "size", info.Size(), "max", maxHomeSpecSize)
+			continue
+		}
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			hlog.Warn("skipping unreadable plugin spec", "file", path, "err", readErr)
