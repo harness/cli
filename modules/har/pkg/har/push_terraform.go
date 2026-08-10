@@ -71,26 +71,7 @@ func pushTerraformArtifact(ctx *cmdctx.Ctx) error {
 
 	pathInfo, err := os.Stat(inputPath)
 	if err != nil {
-		matches, resolveErr := resolveFilePath(inputPath)
-		if resolveErr != nil {
-			return fmt.Errorf("push terraform: failed to access package path: %w", err)
-		}
-		var resolved string
-		for _, m := range matches {
-			if isTerraformModuleFile(m) || isTerraformProviderFile(m) {
-				resolved = m
-				break
-			}
-		}
-		if resolved == "" {
-			return fmt.Errorf("push terraform: no files with extensions [%s, %s, %s] matched pattern: %s",
-				terraformTarGzExt, terraformTgzExt, terraformZipExt, inputPath)
-		}
-		inputPath = resolved
-		pathInfo, err = os.Stat(inputPath)
-		if err != nil {
-			return fmt.Errorf("push terraform: failed to access package path: %w", err)
-		}
+		return fmt.Errorf("push terraform: failed to access package path: %w", err)
 	}
 
 	if pathInfo.IsDir() {
@@ -290,11 +271,6 @@ func pushTerraformModule(ctx *cmdctx.Ctx, registry, filePath, namespace, name, m
 
 	fmt.Fprintf(os.Stderr, "Uploading module %s/%s/%s@%s → %s ...\n", namespace, name, moduleProvider, version, registry)
 
-	sums, err := computeFileChecksums(filePath)
-	if err != nil {
-		return fmt.Errorf("computing checksums for %s: %w", filePath, err)
-	}
-
 	req, err := http.NewRequest("PUT", uploadURL, f)
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
@@ -302,7 +278,10 @@ func pushTerraformModule(ctx *cmdctx.Ctx, registry, filePath, namespace, name, m
 	setAuthHeader(req, ctx.Auth)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = fi.Size()
-	setChecksumHeaders(req.Header, sums)
+
+	if sums, sumErr := computeFileChecksums(filePath); sumErr == nil {
+		setChecksumHeaders(req.Header, sums)
+	}
 
 	if _, err := doRequest(newHTTPClient(), req); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
@@ -346,11 +325,6 @@ func pushTerraformProvider(ctx *cmdctx.Ctx, registry, filePath, namespace string
 	fmt.Fprintf(os.Stderr, "Uploading provider %s/%s@%s (%s_%s) → %s ...\n",
 		namespace, typeName, version, osName, arch, registry)
 
-	sums, err := computeFileChecksums(filePath)
-	if err != nil {
-		return fmt.Errorf("computing checksums for %s: %w", filePath, err)
-	}
-
 	req, err := http.NewRequest("PUT", uploadURL, f)
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
@@ -358,7 +332,10 @@ func pushTerraformProvider(ctx *cmdctx.Ctx, registry, filePath, namespace string
 	setAuthHeader(req, ctx.Auth)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = fi.Size()
-	setChecksumHeaders(req.Header, sums)
+
+	if sums, sumErr := computeFileChecksums(filePath); sumErr == nil {
+		setChecksumHeaders(req.Header, sums)
+	}
 
 	if _, err := doRequest(newHTTPClient(), req); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
