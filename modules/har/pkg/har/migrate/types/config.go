@@ -42,7 +42,38 @@ var (
 	CONAN       ArtifactType = "CONAN"
 	PUPPET      ArtifactType = "PUPPET"
 	HELM_HTTP   ArtifactType = "HELM_HTTP"
+	TERRAFORM   ArtifactType = "TERRAFORM"
 )
+
+var knownArtifactTypes = map[ArtifactType]struct{}{
+	DOCKER:      {},
+	HELM:        {},
+	HELM_LEGACY: {},
+	HELM_HTTP:   {},
+	GENERIC:     {},
+	PYTHON:      {},
+	MAVEN:       {},
+	NPM:         {},
+	NUGET:       {},
+	RPM:         {},
+	DEBIAN:      {},
+	GO:          {},
+	CONDA:       {},
+	COMPOSER:    {},
+	DART:        {},
+	RAW:         {},
+	SWIFT:       {},
+	PUPPET:      {},
+	CONAN:       {},
+	TERRAFORM:   {},
+}
+
+// IsKnownArtifactType reports whether t is one of the supported artifact
+// types recognized by the migration engine.
+func IsKnownArtifactType(t ArtifactType) bool {
+	_, ok := knownArtifactTypes[t]
+	return ok
+}
 
 // Config represents the top-level configuration structure
 type Config struct {
@@ -165,6 +196,9 @@ func validateConfig(config *Config) error {
 		}
 		if mapping.DestinationRegistry == "" {
 			return fmt.Errorf("mapping %d: destination registry cannot be empty", i)
+		}
+		if !IsKnownArtifactType(mapping.ArtifactType) {
+			return fmt.Errorf("mapping %d: unknown artifactType %q — valid values are: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, GENERIC, PYTHON, MAVEN, NPM, NUGET, RPM, DEBIAN, GO, CONDA, COMPOSER, DART, RAW, SWIFT, PUPPET, CONAN, TERRAFORM", i, mapping.ArtifactType)
 		}
 		if mapping.ArtifactType == MAVEN && mapping.DateFilter != nil {
 			msg := fmt.Sprintf("mapping %d: date filter is enabled for %s — maven-metadata.xml may not be in sync with the migrated artifacts", i, MAVEN)

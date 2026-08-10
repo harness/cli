@@ -1048,6 +1048,63 @@ func (c *client) uploadPuppetFile(
 	return nil
 }
 
+// uploadTerraformFile routes a Terraform file to the correct HAR endpoint.
+// Modules (.tar.gz/.tgz/.zip) go to PUT /terraform/v1/modules/{ns}/{name}/{provider}/{ver}.
+// Providers (.zip) go to PUT /terraform/v1/providers/{ns}/{type}/{ver}/{filename}.
+// The pkg argument is "ns/name/provider" for modules or "ns/type" for providers.
+func (c *client) uploadTerraformFile(
+	registry string,
+	f *types.File,
+	pkg string,
+	version string,
+	file io.ReadCloser,
+) error {
+	lower := strings.ToLower(f.Name)
+
+	// Route by pkg segment count: modules have "ns/name/provider" (3 parts),
+	// providers have "ns/type" (2 parts). This handles both Layout A (.tar.gz/.tgz)
+	// and Layout B (.zip) modules unambiguously.
+	pkgParts := strings.SplitN(pkg, "/", 3)
+	isModule := len(pkgParts) == 3
+
+	var uploadURL string
+	if isModule && (strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") || strings.HasSuffix(lower, ".zip")) {
+		ns, name, provider := pkgParts[0], pkgParts[1], pkgParts[2]
+		uploadURL = fmt.Sprintf("%s/pkg/%s/%s/terraform/v1/modules/%s/%s/%s/%s",
+			c.url, c.accountID, registry, ns, name, provider, version)
+	} else if !isModule && strings.HasSuffix(lower, ".zip") {
+		parts := strings.SplitN(pkg, "/", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("terraform provider package name must be ns/type, got: %s", pkg)
+		}
+		ns, typeName := parts[0], parts[1]
+		uploadURL = fmt.Sprintf("%s/pkg/%s/%s/terraform/v1/providers/%s/%s/%s/%s",
+			c.url, c.accountID, registry, ns, typeName, version, f.Name)
+	} else {
+		return fmt.Errorf("unsupported Terraform file extension for '%s': must be .tar.gz, .tgz, or .zip", f.Name)
+	}
+
+	req, err := http2.NewRequest(http2.MethodPut, uploadURL, file)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to upload Terraform file '%s': %w", f.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http2.StatusConflict {
+		return types.ErrArtifactAlreadyExists
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to upload Terraform file '%s', status %d: %s", f.Name, resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 func (c *client) uploadConanFile(
 	registry string,
 	file io.ReadCloser,
