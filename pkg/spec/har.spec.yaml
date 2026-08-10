@@ -383,6 +383,21 @@ commands:
     handler_type: workflow
     workflow_id: push_artifact_composer
 
+  - command: push artifact:ruby
+    verb: push
+    noun: artifact
+    noun_variant: ruby
+    short: Push a Ruby gem (.gem) to a Harness registry
+    has_args: true
+    id_allow_slash: true
+    id_label: "<registry/name>"
+    args_label: "<local-gem>"
+    completion_seq:
+      - completion_noun: registry
+      - completion_noun: artifact
+    handler_type: workflow
+    workflow_id: push_artifact_ruby
+
   - command: push artifact:swift
     verb: push
     noun: artifact
