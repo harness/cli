@@ -4,20 +4,20 @@
 package rootcmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/harness/cli/modules/core/mgmt"
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/console"
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/pkg/plugin"
 	"github.com/harness/cli/pkg/registry"
 	"github.com/harness/cli/pkg/release"
-	"github.com/harness/cli/pkg/spec"
 	"github.com/harness/cli/pkg/specloader"
 	"github.com/harness/cli/pkg/telemetry"
 )
@@ -82,8 +82,10 @@ func SetupAndExecutePluginRootCmd(root *cobra.Command, reg *registry.Registry, m
 	hlog.SetPlugin(moduleName)
 	root.Flags().Bool("spec", false, "Dump the module spec YAML to stdout")
 	root.Flags().Lookup("spec").Hidden = true
-	root.Flags().Bool("modulehelp", false, "Dump the rendered module help text to stdout")
-	root.Flags().Lookup("modulehelp").Hidden = true
+	// --identity emits the machine-readable identity sentinel the host checks
+	// before trusting a plugin binary at install/doctor time.
+	root.Flags().Bool("identity", false, "Emit the plugin identity JSON (name, version, build time)")
+	root.Flags().Lookup("identity").Hidden = true
 
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
@@ -102,11 +104,11 @@ func SetupAndExecutePluginRootCmd(root *cobra.Command, reg *registry.Registry, m
 
 	origRun := root.RunE
 	root.RunE = func(cmd *cobra.Command, args []string) error {
+		if ok, _ := cmd.Flags().GetBool("identity"); ok {
+			return dumpIdentity(moduleName)
+		}
 		if ok, _ := cmd.Flags().GetBool("spec"); ok {
 			return dumpSpec(moduleName)
-		}
-		if ok, _ := cmd.Flags().GetBool("modulehelp"); ok {
-			return dumpModuleHelp(moduleName, reg)
 		}
 		if origRun != nil {
 			return origRun(cmd, args)
@@ -134,28 +136,15 @@ func dumpSpec(moduleName string) error {
 	return nil
 }
 
-func dumpModuleHelp(moduleName string, reg *registry.Registry) error {
-	var meta *spec.ModuleMeta
-	for _, m := range reg.GetModuleMetas() {
-		if m.Name == moduleName {
-			m := m
-			meta = &m
-			break
-		}
+// dumpIdentity emits the sentinel-gated identity object the host checks before
+// trusting a plugin binary at install/doctor time.
+func dumpIdentity(moduleName string) error {
+	id := plugin.Identity{Name: moduleName, Version: hbase.Version, BuildTime: hbase.BuildTime}
+	data, err := json.Marshal(id)
+	if err != nil {
+		return err
 	}
-	if meta == nil || meta.HelpText == "" {
-		return nil
-	}
-	var nouns []string
-	seen := map[string]bool{}
-	for _, n := range meta.NounOrder {
-		if !seen[n] {
-			seen[n] = true
-			nouns = append(nouns, n)
-		}
-	}
-	nounBlock := mgmt.RenderNounBlock(moduleName, nouns, reg)
-	fmt.Print(strings.ReplaceAll(meta.HelpText, "{{nouns}}", nounBlock))
+	fmt.Println(string(data))
 	return nil
 }
 

@@ -5,7 +5,9 @@
 .DS_Store
 */.DS_Store
 dist/
+dist-plugins/
 bin/
+devhome/
 mcp-server/
 out
 out.json

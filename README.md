@@ -80,7 +80,8 @@ irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
 The installer will:
 
 - Download the latest `harness-bundle` for your platform (macOS, Linux, and Windows — `amd64` / `arm64`).
-- Install `harness` and `harness-har` to `~/.local/bin` on Unix or `%LOCALAPPDATA%\Programs\harness` on Windows (override with `--install-dir` / `-InstallDir`).
+- Install `harness` to `~/.local/bin` on Unix or `%LOCALAPPDATA%\Programs\harness` on Windows (override with `--install-dir` / `-InstallDir`).
+- Install the `har` plugin from the same bundle into `~/.harness/bin`.
 - Optionally add the install directory to your `PATH` and enable shell completions.
 
 ### Installer flags
@@ -88,7 +89,7 @@ The installer will:
 | Flag                   | Description                                                    |
 | ---------------------- | -------------------------------------------------------------- |
 | `--install-dir <path>` | Override the install directory (default: `~/.local/bin` on Unix, `%LOCALAPPDATA%\Programs\harness` on Windows) |
-| `--core`               | Install only the `harness` binary (skip `harness-har`)         |
+| `--core`               | Install only the `harness` binary (skip the `har` plugin)      |
 | `--non-interactive`    | Skip all prompts (useful for CI, Docker, provisioning scripts) |
 | `--no-verify`          | Skip checksum verification                                     |
 
@@ -104,7 +105,7 @@ Windows PowerShell flags: `-InstallDir`, `-Version`, `-Core`, `-NonInteractive`,
 # install core + har bundle (default)
 curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh
 
-# install harness core only (skip harness-har)
+# install harness core only (skip the har plugin)
 curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh -s -- --core
 
 # non-interactive install to a custom directory
@@ -121,7 +122,7 @@ $env:HARNESS_NONINTERACTIVE=1; $env:HARNESS_CORE_ONLY=1; irm https://raw.githubu
 
 ### Manual install
 
-Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases) and place the binaries on your `PATH`. Unix bundles are `tar.gz`; Windows bundles are `zip`. Published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64`, `windows_amd64`, and `windows_arm64`.
+Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases), place `harness` on your `PATH`, and register the bundled `har` plugin with `harness install plugin`. Unix bundles are `tar.gz`; Windows bundles are `zip`. Published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64`, `windows_amd64`, and `windows_arm64`.
 
 This is also the path to take if `curl | sh` doesn't work in your environment — e.g. WSL behind a corporate SSL-inspecting proxy, air-gapped/vetted-binary environments, or scripted installs — see [`docs/manual-install.md`](docs/manual-install.md) for step-by-step instructions.
 
@@ -142,7 +143,7 @@ harness install cli --core-only      # skip module updates
 | Flag                   | Description                                                          |
 | ---------------------- | -------------------------------------------------------------------- |
 | `--version <v>`        | Version to install (default: `latest`)                               |
-| `--install-dir <path>` | Directory to install into (default: `~/.local/bin`)                  |
+| `--install-dir <path>` | Directory to install the core binary into (default: `~/.local/bin`)  |
 | `--force`              | Install even if the current version is already up to date            |
 | `--check`              | Print the resolved version without installing; exits 1 if not found  |
 | `--core-only`          | Only install the core binary, skip module updates                    |
@@ -151,6 +152,17 @@ External modules are managed the same way:
 
 ```sh
 harness install module har           # install the Artifact Registry plugin
+```
+
+Modules that aren't compiled into the CLI ship as plugins — separate binaries the
+CLI installs into `~/.harness/bin` and dispatches to. `install module` is a
+convenience form of `install plugin`, which also takes a tarball URL or a local
+path for plugins that aren't Harness modules:
+
+```sh
+harness install plugin har                             # by name (same as install module har)
+harness install plugin https://example.com/foo.tar.gz  # from a tarball URL
+harness install plugin ./foo.tar.gz                    # from a local tarball
 ```
 
 ---
@@ -351,6 +363,7 @@ Legend used in the tables below:
 | `version`            | Print the CLI version                                       |
 | `install cli`        | Install or upgrade the Harness CLI and installed modules    |
 | `install module`     | Install a Harness CLI module (e.g. `har`)                   |
+| `install plugin`     | Install a plugin by name, tarball URL, or local path        |
 | `list module`        | Show all available modules                                  |
 | `get module <name>`  | Domain model, nouns, and guides for a module                |
 | `list noun`          | Show all registered nouns (supports `--matrix`)             |

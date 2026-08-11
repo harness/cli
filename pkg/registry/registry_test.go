@@ -71,7 +71,7 @@ func TestNew_MapsInitialised(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SetModuleMeta / GetModuleMetas / externalBinaryFor
+// SetModuleMeta / GetModuleMetas / isPluginModule
 // ---------------------------------------------------------------------------
 
 func TestSetModuleMeta_AppendsAndSorts(t *testing.T) {
@@ -97,29 +97,29 @@ func TestGetModuleMetas_ReturnsCopy(t *testing.T) {
 	}
 }
 
-// TestExternalBinaryFor: three branches differ only in IsMainBinary + whether the module
-// is known — pure table.
-func TestExternalBinaryFor(t *testing.T) {
+// TestIsPluginModule: branches differ only in IsMainBinary + whether the module
+// is known and dispatches externally — pure table.
+func TestIsPluginModule(t *testing.T) {
 	tests := []struct {
 		name         string
 		isMainBinary bool
-		moduleName   string // non-empty → SetModuleMeta with ExternalBinary "harness-har"
+		moduleName   string // non-empty → SetModuleMeta with a plugin BinaryPath
 		lookup       string
-		want         string
+		want         bool
 	}{
-		{name: "not_main_binary", isMainBinary: false, moduleName: "har", lookup: "har", want: ""},
-		{name: "main_binary_known_module", isMainBinary: true, moduleName: "har", lookup: "har", want: "harness-har"},
-		{name: "main_binary_unknown_module", isMainBinary: true, moduleName: "", lookup: "unknown", want: ""},
+		{name: "not_main_binary", isMainBinary: false, moduleName: "har", lookup: "har", want: false},
+		{name: "main_binary_known_module", isMainBinary: true, moduleName: "har", lookup: "har", want: true},
+		{name: "main_binary_unknown_module", isMainBinary: true, moduleName: "", lookup: "unknown", want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			r.IsMainBinary = tc.isMainBinary
 			if tc.moduleName != "" {
-				r.SetModuleMeta(spec.ModuleMeta{Name: tc.moduleName, ExternalBinary: "harness-har"})
+				r.SetModuleMeta(spec.ModuleMeta{Name: tc.moduleName, BinaryPath: "/tmp/harness-har"})
 			}
-			if got := r.externalBinaryFor(tc.lookup); got != tc.want {
-				t.Errorf("externalBinaryFor(%q) = %q, want %q", tc.lookup, got, tc.want)
+			if got := r.isPluginModule(tc.lookup); got != tc.want {
+				t.Errorf("isPluginModule(%q) = %v, want %v", tc.lookup, got, tc.want)
 			}
 		})
 	}
@@ -313,13 +313,13 @@ func TestRegister_VerbHandlerDefaultsToVerb(t *testing.T) {
 func TestRegister_IsMainBinarySetsExternal(t *testing.T) {
 	r := registryWithNoop(t)
 	r.IsMainBinary = true
-	r.SetModuleMeta(spec.ModuleMeta{Name: "har", ExternalBinary: "harness-har"})
+	r.SetModuleMeta(spec.ModuleMeta{Name: "har", BinaryPath: "/tmp/harness-har"})
 	cs := wfSpec(VerbList, "artifact", "har")
 	if err := r.Register(cs); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	if !cs.External {
-		t.Fatal("Register must set External=true when IsMainBinary and module has ExternalBinary")
+		t.Fatal("Register must set External=true when IsMainBinary and module has a BinaryPath")
 	}
 }
 

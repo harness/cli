@@ -1,7 +1,6 @@
 spec_version: 1
 module_type: plugin
 module_desc: Harness Artifact Registry (push and pull artifacts)
-external_binary: harness-har
 help_text: |
   ## Artifact Registry (har)
 

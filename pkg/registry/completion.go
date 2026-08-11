@@ -25,11 +25,13 @@ import (
 // Returns true if the exec succeeded (the process is replaced); on error it
 // returns false so the caller can fall through to a no-op directive.
 func execPluginCompletion(r *Registry, module string) ([]string, cobra.ShellCompDirective) {
-	extBin := r.externalBinaryFor(module)
-	if extBin == "" {
+	meta := r.moduleMeta(module)
+	if meta == nil || !meta.IsPlugin() {
 		panic(fmt.Sprintf("execPluginCompletion: no external binary registered for module %q", module))
 	}
-	binPath, err := plugin.FindBinary(extBin)
+	// Same resolution as command dispatch (execPluginRunE), so completions can
+	// never come from a different binary than the one that runs the command.
+	binPath, err := plugin.Resolve(meta.BinaryPath)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveError
 	}

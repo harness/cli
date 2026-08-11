@@ -72,6 +72,23 @@ nouns:
         expr: it["desc"]
         width_max: 60
 
+  - noun: plugin
+    short_desc: A separately-installed binary the host dispatches to via exec.
+    noun_aliases: [plugins]
+    fields:
+      - id: plugin
+        expr: it["plugin"]
+      - id: version
+        expr: it["version"]
+      - id: binary_path
+        label: Binary Path
+        expr: it["binary_path"]
+      - id: source
+        expr: it["source"]
+      - id: installed_at
+        label: Installed At
+        expr: it["installed_at"]
+
   - noun: noun
     short_desc: A CLI noun (resource type) with its supported verbs and module.
     noun_aliases: [nouns]
@@ -279,6 +296,9 @@ commands:
       failures print a warning but do not fail the command. Use --core-only to skip
       module updates.
 
+      --install-dir applies to the core binary only; modules and plugins always
+      install into ~/.harness/bin, a directory the CLI owns.
+
       Version is optional and defaults to "latest". You may also pass "latest" explicitly.
       If the resolved version is already installed, the command exits without installing
       unless --force is passed.
@@ -312,9 +332,7 @@ commands:
     noun: module
     short: Install a Harness CLI module
     long: |
-      Install a Harness CLI module binary from the GitHub release.
-
-      Currently supported modules: har
+      Install a Harness CLI module.
 
       Version defaults to "latest". Use --force to reinstall even if already up to date.
 
@@ -330,14 +348,60 @@ commands:
     flags:
       - name: version
         description: "Version to install (default: latest)"
-      - name: install-dir
-        description: "Directory to install into (default: ~/.local/bin on Unix, %LOCALAPPDATA%\\Programs\\harness on Windows)"
       - name: force
         is_bool: true
         description: Install even if the current version is already up to date
       - name: check
         is_bool: true
         description: Check the version without installing (prints resolved version, exits 1 if not found)
+      - name: github-token
+        description: GitHub token for authenticated release access (drafts, private repos)
+      - name: allow-drafts
+        is_bool: true
+        hidden: true
+        description: Include draft releases when resolving "latest" (requires --github-token)
+
+  - command: install plugin
+    verb: install
+    noun: plugin
+    short: Install a plugin
+    long: |
+      Install a plugin into the harness home directory (~/.harness).
+
+      <ref> may be:
+        - a plugin name, resolved to a Harness release (currently: har)
+        - a tarball URL
+        - a local tarball
+        - a local plugin binary
+
+      --version, --force, and --check apply only to the plugin-name form; a URL or
+      path already names a specific artifact and is always installed. Version
+      defaults to "latest".
+
+      Examples:
+        harness install plugin har                             # install by name
+        harness install plugin https://example.com/foo.tar.gz  # install from a tarball URL
+        harness install plugin ./foo.tar.gz                    # install from a local tarball
+        harness install plugin ./bin/harness-har               # install from a local binary
+    no_auth: true
+    handler_type: workflow
+    workflow_id: install_plugin
+    id_label: ref
+    id_allow_slash: true
+    flags:
+      - name: version
+        description: "Version to install (default: latest)"
+      - name: force
+        description: Install even if the current version is already up to date
+      - name: check
+        is_bool: true
+        description: Check the version without installing (prints resolved version, exits 1 if not found)
+      - name: github-token
+        description: GitHub token for authenticated release access (drafts, private repos)
+      - name: allow-drafts
+        is_bool: true
+        hidden: true
+        description: Include draft releases when resolving "latest" (requires --github-token)
 
   - command: list module
     verb: list
@@ -360,6 +424,24 @@ commands:
         name_expr: it["desc"]
       columns: [module, type, installed, version, desc]
 
+  - command: list plugin
+    verb: list
+    noun: plugin
+    short: List all installed plugins
+    no_auth: true
+    handler_type: endpoint
+    flags: []
+    endpoint:
+      fetch_fn: list_plugins_fetch
+      items_expr: it
+      get_id_expr: it["plugin"]
+      paging:
+        paging_strategy: flat_list
+      completion:
+        id_expr: it["plugin"]
+        name_expr: it["binary_path"]
+      columns: [plugin, version, binary_path, source, installed_at]
+
   - command: get module
     verb: get
     noun: module
@@ -368,6 +450,19 @@ commands:
     id_label: name
     handler_type: workflow
     workflow_id: get_module
+    flags:
+      - name: matrix
+        is_bool: true
+        description: Show noun/verb support matrix
+
+  - command: get plugin
+    verb: get
+    noun: plugin
+    short: Show domain model and nouns for an installed plugin
+    no_auth: true
+    id_label: name
+    handler_type: workflow
+    workflow_id: get_plugin
     flags:
       - name: matrix
         is_bool: true

@@ -16,21 +16,40 @@ import (
 	"github.com/harness/cli/pkg/console"
 	"github.com/harness/cli/pkg/format"
 	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/plugin"
 	"github.com/harness/cli/pkg/spec"
 )
 
 func GetModuleHandler(ctx *cmdctx.Ctx) error {
+	return getModuleOrPluginHandler(ctx, "module", func(spec.ModuleMeta) bool { return true })
+}
+
+// GetPluginHandler shows the same domain-model output as GetModuleHandler,
+// but only for modules that are plugins (see ModuleMeta.IsPlugin) — a plugin
+// is a module in every respect that matters for grammar/rendering.
+func GetPluginHandler(ctx *cmdctx.Ctx) error {
+	return getModuleOrPluginHandler(ctx, "plugin", spec.ModuleMeta.IsPlugin)
+}
+
+func getModuleOrPluginHandler(ctx *cmdctx.Ctx, kind string, match func(spec.ModuleMeta) bool) error {
 	var meta *spec.ModuleMeta
+	var nameMatch *spec.ModuleMeta
 	for _, m := range ctx.Resolver.GetModuleMetas() {
-		if strings.EqualFold(m.Name, ctx.Id) {
-			m := m
+		if !strings.EqualFold(m.Name, ctx.Id) {
+			continue
+		}
+		m := m
+		nameMatch = &m
+		if match(m) {
 			meta = &m
 			break
 		}
 	}
 	if meta == nil {
-		return fmt.Errorf("module %q not found", ctx.Id)
+		if nameMatch != nil && !nameMatch.IsPlugin() {
+			// name exists but isn't a plugin — the caller almost certainly meant `get module`.
+			return fmt.Errorf("%s %q not found (it's a builtin module — did you mean %q?)", kind, ctx.Id, "harness get module "+ctx.Id)
+		}
+		return fmt.Errorf("%s %q not found", kind, ctx.Id)
 	}
 
 	// collect nouns with at least one command
@@ -62,13 +81,8 @@ func GetModuleHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	}
 
-	// render help text: use embedded text, fall back to querying the plugin binary, or plain list
+	// render help text from the spec (plugin specs carry it too), or a plain list
 	helpText := meta.HelpText
-	if helpText == "" && meta.ExternalBinary != "" {
-		if binPath, err := plugin.FindBinary(meta.ExternalBinary); err == nil {
-			helpText = plugin.QueryModuleHelp(binPath)
-		}
-	}
 	if helpText != "" {
 		nounBlock := RenderNounBlock(meta.Name, nouns, ctx.Resolver)
 		fmt.Print(strings.ReplaceAll(helpText, "{{nouns}}", nounBlock))
@@ -255,6 +269,32 @@ func RenderNounBlock(module string, nouns []string, r cmdctx.Resolver) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+// ListPluginsFetchFn lists installed plugins: modules whose spec carries a
+// binary_path (dynamically installed, vs. compiled-in builtins). Trusts the
+// spec's provenance for version/source/installed_at — never execs the binary.
+func ListPluginsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*cmdctx.PageResult, error) {
+	var items []any
+	for _, m := range ctx.Resolver.GetModuleMetas() {
+		if !m.IsPlugin() {
+			continue
+		}
+		items = append(items, map[string]any{
+			"plugin":       m.Name,
+			"version":      m.Version,
+			"binary_path":  m.BinaryPath,
+			"source":       m.Source,
+			"installed_at": m.InstalledAt,
+		})
+	}
+	return &cmdctx.PageResult{
+		Items:       items,
+		StartOffset: 0,
+		Last:        true,
+		HasTotal:    true,
+		Total:       int64(len(items)),
+	}, nil
+}
+
 func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*cmdctx.PageResult, error) {
 	typeFilter := cmdctx.GetString(ctx.FlagValues, "module-type")
 	var items []any
@@ -264,13 +304,12 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 		}
 		installed := "yes"
 		version := hbase.Version
-		if m.ExternalBinary != "" {
-			binPath, err := plugin.FindBinary(m.ExternalBinary)
-			if err != nil {
+		if m.BinaryPath != "" {
+			// Plugin: trust the spec's provenance, which install captured from
+			// --identity. Listing never execs a binary to read a version.
+			version = m.Version
+			if _, err := os.Stat(hbase.ExpandHomeDir(m.BinaryPath)); err != nil {
 				installed = "no"
-				version = ""
-			} else {
-				version = plugin.QueryVersion(binPath)
 			}
 		}
 		items = append(items, map[string]any{

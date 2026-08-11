@@ -100,16 +100,7 @@ download_and_install() {
     local platform="$2"
     local dest="$3"
     local ver="${version#v}"
-    local pkg_name
-    local binaries
-
-    if [ -n "$CORE_ONLY" ]; then
-        pkg_name="harness-core_${ver}_${platform}"
-        binaries="harness"
-    else
-        pkg_name="harness-bundle_${ver}_${platform}"
-        binaries="harness harness-har"
-    fi
+    local pkg_name="harness-core_${ver}_${platform}"
 
     local url="https://github.com/${REPO}/releases/download/${version}/${pkg_name}.tar.gz"
     local checksum_url="https://github.com/${REPO}/releases/download/${version}/harness_${ver}_checksums.txt"
@@ -133,11 +124,21 @@ download_and_install() {
     fi
 
     tar -xzf "$tmp/harness.tar.gz" -C "$tmp"
-    for bin in $binaries; do
-        mv "$tmp/$bin" "$dest/$bin"
-        chmod +x "$dest/$bin"
-        success "Installed $bin $version to $dest/$bin"
-    done
+
+    mv "$tmp/harness" "$dest/harness"
+    chmod +x "$dest/harness"
+    success "Installed harness $version to $dest/harness"
+
+    # A failure here still leaves a working core, so warn instead of aborting.
+    if [ -z "$CORE_ONLY" ]; then
+        info "Installing har module..."
+        if "$dest/harness" install module har >/dev/null 2>&1; then
+            success "Installed har module to ~/.harness/bin"
+        else
+            warn "Could not install the har module — run 'harness install module har' to retry"
+        fi
+    fi
+
     rm -rf "$tmp"
 }
 

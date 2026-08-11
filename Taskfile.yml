@@ -3,6 +3,12 @@ version: "3"
 vars:
   BINARY: harness
   MAIN: ./cmd/harness/main-harness.go
+  # devhome doubles as a dev HARNESS_CLI_HOME: plugin binaries live in
+  # devhome/bin and their specs (grammar + provenance) in devhome/spec, exactly
+  # as ~/.harness would hold them in production. Run the CLI against it with:
+  #   HARNESS_CLI_HOME=devhome ./bin/harness ...
+  # Gitignored and visible (not dot-prefixed) so specs are easy to inspect.
+  DEVHOME: devhome
   VERSION:
     sh: echo "${VERSION:-$(go run ./cmd/getversion/main-getversion.go --next)-dev}"
   BUILD_TIME:
@@ -20,14 +26,35 @@ tasks:
 
   build:main:
     desc: Build the harness binary
+    # once: several tasks depend on this (build:har, check:specs, install). Without
+    # it Task's default run:always rebuilds bin/harness for each dependent, and
+    # parallel deps race on the same output path.
+    run: once
     cmds:
       - go build -ldflags "{{.LDFLAGS}}" -o bin/{{.BINARY}} {{.MAIN}}
 
   build:har:
-    desc: Build the harness-har binary (HAR external module)
-    dir: modules/har
+    desc: Build the harness-har binary into devhome/bin (dev plugin home)
+    run: once
     cmds:
-      - go build -ldflags "{{.LDFLAGS}}" -o ../../bin/harness-har ./cmd/harness-har/main-harness-har.go
+      - mkdir -p {{.DEVHOME}}/bin
+      # Plugins used to build into bin/ (next to bin/harness, where FindBinary
+      # looks first). Remove any leftover so it can't shadow the devhome copy.
+      - rm -f bin/harness-har
+      - cd modules/har && go build -ldflags "{{.LDFLAGS}}" -o ../../{{.DEVHOME}}/bin/harness-har ./cmd/harness-har/main-harness-har.go
+      - task: dev:plugin:har
+
+  dev:plugin:har:
+    desc: Install the built harness-har binary into devhome via `install plugin`
+    internal: true
+    # The installer is bin/harness itself, hence the build:main dep.
+    deps: [build:main]
+    cmds:
+      # Use the real installer path: `install plugin` runs the identity gate,
+      # captures --spec, and stamps provenance into devhome/spec. Exactly what a
+      # user gets from `harness install plugin <binary>`.
+      - HARNESS_CLI_HOME={{.DEVHOME}} ./bin/{{.BINARY}} install plugin {{.DEVHOME}}/bin/harness-har
+      - echo "Run with HARNESS_CLI_HOME={{.DEVHOME}} ./bin/harness ..."
 
   build:windows:
     desc: Cross-compile Windows binaries (harness.exe + harness-har.exe)
@@ -53,23 +80,15 @@ tasks:
       - go build -ldflags "{{.LDFLAGS}}" -o ../../bin/harness-har.exe ./cmd/harness-har/main-harness-har.go
 
   build:opt:
-    desc: Build all optimized binaries (stripped symbols, no DWARF)
-    deps: [build:opt:main, build:opt:har]
-
-  build:opt:main:
-    desc: Build optimized harness binary
+    desc: Report release binary sizes (goreleaser's flags; bin/opt-* are throwaway)
     cmds:
-      - go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o bin/{{.BINARY}} {{.MAIN}}
-      - |
-        echo "harness size: $(du -sh bin/{{.BINARY}} | cut -f1)"
-
-  build:opt:har:
-    desc: Build optimized harness-har binary
-    dir: modules/har
-    cmds:
-      - go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o ../../bin/harness-har ./cmd/harness-har/main-harness-har.go
-      - |
-        echo "harness-har size: $(du -sh ../../bin/harness-har | cut -f1)"
+      # Same flags as .goreleaser.yaml, so these sizes match what ships. Written
+      # to bin/opt-* rather than the normal paths: this is only for reading sizes,
+      # so it must not clobber the debuggable binaries or the devhome plugin.
+      - mkdir -p bin
+      - go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o bin/opt-{{.BINARY}} {{.MAIN}}
+      - cd modules/har && go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o ../../bin/opt-{{.BINARY}}-har ./cmd/harness-har/main-harness-har.go
+      - ls -lh bin/opt-*
 
   install:
     desc: Build and install harness binary to ~/.local/bin
@@ -97,7 +116,7 @@ tasks:
     deps: [build:main, build:har]
     cmds:
       - HARNESS_CHECKSPECS=1 ./bin/harness
-      - HARNESS_CHECKSPECS=1 ./bin/harness-har
+      - HARNESS_CHECKSPECS=1 ./{{.DEVHOME}}/bin/harness-har
 
   check:specs:main:
     desc: Validate core *.spec.yaml files (skips HAR build)
@@ -132,7 +151,16 @@ tasks:
     cmds:
       - goreleaser release --clean --release-notes /dev/null
 
+  release:har:
+    desc: 'Build (and optionally publish) the har plugin release (usage: task release:har -- har/v3.1.0 [--publish])'
+    cmds:
+      - ./scripts/release-har.sh {{.CLI_ARGS}}
+
   clean:
     desc: Remove built binaries
     cmds:
       - rm -rf bin/
+      - rm -rf dist/
+      - rm -rf dist-plugins/
+      - rm -rf devhome/
+

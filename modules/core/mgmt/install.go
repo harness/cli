@@ -23,7 +23,6 @@ import (
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/hlog"
-	"github.com/harness/cli/pkg/plugin"
 	"github.com/harness/cli/pkg/release"
 )
 
@@ -45,25 +44,51 @@ func cmpVersion(a, b string) (int, bool) {
 	return semver.Compare(av, bv), true
 }
 
-// resolveVersion validates and normalizes a user-supplied version string,
-// or fetches the latest release when version is "" or "latest".
-func resolveVersion(version string) (string, error) {
+// resolveReleaseForPrefix validates version, resolves the release in repo
+// tagged "{prefix}/vX.Y.Z" (bare "vX.Y.Z" when prefix == "") matching it, and
+// returns that release together with its version string (the tag with prefix
+// stripped). version == "" / "latest" resolves to that prefix's own latest
+// release — independent of every other prefix's version in repo.
+//
+// This is the one place both the core install and every registry plugin
+// install resolve a version, so there is exactly one algorithm for "latest"
+// and exactly one for validating an explicit version.
+//
+// token, when non-empty, is forwarded to the GitHub API as a bearer token —
+// it's how --github-token lets a plugin install see draft releases or
+// releases in a private repo, neither visible to an unauthenticated request.
+// allowDrafts additionally includes draft releases when resolving "latest".
+func resolveReleaseForPrefix(repo, prefix, version, token string, allowDrafts bool) (*release.Release, string, error) {
 	if version != "" && version != "latest" {
 		if !strings.HasPrefix(version, "v") {
 			version = "v" + version
 		}
 		if !reReleaseVersion.MatchString(version) {
-			return "", fmt.Errorf("invalid version %q — expected vMAJOR.MINOR.PATCH (e.g. v1.2.3) or \"latest\"", version)
+			return nil, "", fmt.Errorf("invalid version %q — expected vMAJOR.MINOR.PATCH (e.g. v1.2.3) or \"latest\"", version)
 		}
-		return version, nil
+	} else {
+		version = ""
 	}
-	hlog.Debug("fetching latest release version")
-	v, err := release.FetchLatestVersion()
+	hlog.Debug("resolving release", "repo", repo, "prefix", prefix, "version", version)
+	rel, err := release.ResolveRelease(repo, prefix, version, token, allowDrafts)
 	if err != nil {
-		return "", fmt.Errorf("fetching latest version: %w", err)
+		return nil, "", fmt.Errorf("resolving release: %w", err)
 	}
-	hlog.Debug("latest release", "version", v)
-	return v, nil
+	resolvedVersion := rel.TagName
+	if prefix != "" {
+		resolvedVersion = strings.TrimPrefix(resolvedVersion, prefix+"/")
+	}
+	hlog.Debug("resolved release", "tag", rel.TagName, "version", resolvedVersion)
+	return rel, resolvedVersion, nil
+}
+
+// versionLabel renders a possibly-empty/"latest" version request for a
+// diagnostic message.
+func versionLabel(version string) string {
+	if version == "" {
+		return "latest"
+	}
+	return version
 }
 
 const (
@@ -71,24 +96,26 @@ const (
 	installBundleName = "harness-core"
 )
 
-var modulePlugins = map[string]string{
-	"har": "harness-har",
-}
-
+// defaultInstallDir is where the core binary lands when --install-dir is not
+// given. On Windows there is no ~/.local/bin convention, so we use the per-user
+// Programs dir, which needs no admin rights. Note this directory is not on PATH
+// by default there — install.ps1 adds it.
 func defaultInstallDir() (string, error) {
-	if runtime.GOOS == "windows" {
-		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-			return filepath.Join(localAppData, "Programs", "harness"), nil
-		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("determining default install directory: LOCALAPPDATA is not set and home directory could not be determined: %w", err)
-		}
-		return filepath.Join(home, "AppData", "Local", "Programs", "harness"), nil
+	if runtime.GOOS != "windows" {
+		return "~/.local/bin", nil
 	}
-	return "~/.local/bin", nil
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		return filepath.Join(localAppData, "Programs", "harness"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determining default install directory: LOCALAPPDATA is not set and the home directory could not be determined: %w", err)
+	}
+	return filepath.Join(home, "AppData", "Local", "Programs", "harness"), nil
 }
 
+// installedBinaryName returns the file name a binary is stored under on this
+// platform: Windows needs the .exe suffix for the OS to consider it executable.
 func installedBinaryName(base string) string {
 	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(base), ".exe") {
 		return base + ".exe"
@@ -96,30 +123,14 @@ func installedBinaryName(base string) string {
 	return base
 }
 
+// archiveExtensionForPlatform returns the release archive extension for a
+// platform string ("windows_amd64", "linux_arm64", …). Windows archives are zip
+// per .goreleaser.yaml's format_overrides; everything else is tar.gz.
 func archiveExtensionForPlatform(platform string) string {
 	if strings.HasPrefix(platform, "windows_") {
 		return ".zip"
 	}
 	return ".tar.gz"
-}
-
-// downloadModuleIfNeeded checks whether the module at existingBinPath needs upgrading and, if so,
-// downloads and installs it. Returns (true, nil) when installed, (false, nil) when already up to
-// date (skipped), or (false, err) on failure. Pass existingBinPath="" to skip the version check
-// and always download.
-func downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir string, force bool, existingBinPath string) (bool, error) {
-	pkgName := fmt.Sprintf("harness-plugin-%s", moduleName)
-	if !force && existingBinPath != "" {
-		installed := plugin.QueryVersion(existingBinPath)
-		if cmp, ok := cmpVersion(version, installed); ok && cmp <= 0 {
-			return false, nil
-		}
-	}
-	hlog.Info("downloading module", "module", moduleName, "version", version, "platform", platform)
-	if err := downloadAndInstallBinary(version, platform, installDir, pkgName, binaryName); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func checkRunningFromInstallDir(installDir string) error {
@@ -162,24 +173,20 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	version, err = resolveVersion(version)
-	if err != nil {
-		return err
-	}
-
 	platform, err := detectPlatform()
 	if err != nil {
 		return err
 	}
 	hlog.Debug("platform detected", "platform", platform)
 
+	rel, version, err := resolveReleaseForPrefix(release.Repo, "", version, "", false)
+	if err != nil {
+		return err
+	}
+
 	if check {
-		exists, err := releaseAssetExists(version, platform, installBundleName)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			fmt.Printf("Version %s not found for platform %s\n", version, platform)
+		if _, err := archiveAssetURL(rel, installBundleName, version, platform); err != nil {
+			fmt.Printf("Version %s not found\n", version)
 			os.Exit(1)
 		}
 		current := hbase.Version
@@ -212,7 +219,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 			return fmt.Errorf("creating install directory %s: %w", installDir, err)
 		}
 		hlog.Info("downloading", "version", version, "platform", platform)
-		if err := downloadAndInstallBinary(version, platform, installDir, installBundleName, installBinaryName); err != nil {
+		if err := downloadAndInstallBinary(rel, installBundleName, version, platform, installDir, installBinaryName, ""); err != nil {
 			return err
 		}
 		fmt.Printf("Installed harness %s to %s\n", version, filepath.Join(installDir, installedBinaryName(installBinaryName)))
@@ -222,118 +229,35 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	}
 
-	// Update any Harness modules already installed in the same directory as core.
-	for moduleName, binaryName := range modulePlugins {
-		binPath := filepath.Join(installDir, installedBinaryName(binaryName))
-		if _, err := os.Stat(binPath); err != nil {
-			continue
-		}
-		installed, err := downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir, force, binPath)
-		if err != nil {
-			fmt.Printf("warning: could not update module %q: %v\n", moduleName, err)
-		} else if !installed {
-			existing := plugin.QueryVersion(binPath)
-			fmt.Printf("Module %q is up to date (current: %s, latest: %s).\n", moduleName, existing, version)
-		} else {
-			fmt.Printf("Installed module %q %s to %s\n", moduleName, version, filepath.Join(installDir, installedBinaryName(binaryName)))
+	// Bring any installed plugins up to their own latest — each module releases
+	// independently of core, so this must not force-pin them to core's version.
+	for _, name := range installedRegistryPlugins() {
+		if err := installRegistryPlugin(name, "", "", false, force, false); err != nil {
+			fmt.Printf("warning: could not update plugin %q: %v\n", name, err)
 		}
 	}
 
 	return nil
 }
 
+// InstallModuleHandler installs a module that ships as a plugin. "module" is the
+// feature-area axis and "plugin" is the deployment-type axis; a module that
+// isn't compiled in is installed exactly like any other plugin, so this hands
+// off to the one install path rather than duplicating it.
 func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 	moduleName := ctx.Id
 	if moduleName == "" {
-		return fmt.Errorf("module name is required (supported: har)")
+		return fmt.Errorf("module name is required (supported: %s)", registryNames())
 	}
-	binaryName, ok := modulePlugins[moduleName]
-	if !ok {
-		supported := make([]string, 0, len(modulePlugins))
-		for k := range modulePlugins {
-			supported = append(supported, k)
-		}
-		return fmt.Errorf("unknown module %q — supported: %s", moduleName, strings.Join(supported, ", "))
+	if _, ok := pluginRegistry[moduleName]; !ok {
+		return fmt.Errorf("unknown module %q — supported: %s", moduleName, registryNames())
 	}
-
 	version := cmdctx.GetString(ctx.FlagValues, "version")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
-
-	var err error
-	installDir := cmdctx.GetString(ctx.FlagValues, "install-dir")
-	if installDir == "" {
-		installDir, err = defaultInstallDir()
-		if err != nil {
-			return err
-		}
-	}
-	installDir = hbase.ExpandHomeDir(installDir)
-
-	version, err = resolveVersion(version)
-	if err != nil {
-		return err
-	}
-
-	platform, err := detectPlatform()
-	if err != nil {
-		return err
-	}
-	hlog.Debug("platform detected", "platform", platform)
-
-	pkgName := fmt.Sprintf("harness-plugin-%s", moduleName)
-
-	if check {
-		exists, err := releaseAssetExists(version, platform, pkgName)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			fmt.Printf("Module %q version %s not found\n", moduleName, version)
-			os.Exit(1)
-		}
-		if binPath, err := plugin.FindBinary(binaryName); err == nil {
-			installed := plugin.QueryVersion(binPath)
-			if cmp, ok := cmpVersion(version, installed); ok {
-				if cmp > 0 {
-					fmt.Printf("Upgrade available for module %q: %s (current: %s)\n", moduleName, version, installed)
-				} else if cmp < 0 {
-					fmt.Printf("Current version %s of module %q is ahead of latest %s\n", installed, moduleName, version)
-				} else {
-					fmt.Printf("Module %q is up to date (current: %s)\n", moduleName, installed)
-				}
-				return nil
-			}
-		}
-		fmt.Printf("Module %q %s is available to install\n", moduleName, version)
-		return nil
-	}
-
-	if !force {
-		if binPath, err := plugin.FindBinary(binaryName); err == nil {
-			existing := plugin.QueryVersion(binPath)
-			if cmp, ok := cmpVersion(version, existing); ok && cmp <= 0 {
-				fmt.Printf("Module %q is installed at %s (installed: %s, latest: %s).\n", moduleName, binPath, existing, version)
-				if cmp < 0 {
-					fmt.Printf("Installed version is ahead of latest. Use --force to reinstall.\n")
-				} else {
-					fmt.Printf("Up to date. Use --force to reinstall.\n")
-				}
-				return nil
-			}
-		}
-	}
-
-	if err := os.MkdirAll(installDir, 0755); err != nil {
-		return fmt.Errorf("creating install directory %s: %w", installDir, err)
-	}
-
-	if _, err := downloadModuleIfNeeded(moduleName, binaryName, version, platform, installDir, force, ""); err != nil {
-		return err
-	}
-
-	fmt.Printf("Installed module %q %s to %s\n", moduleName, version, filepath.Join(installDir, installedBinaryName(binaryName)))
-	return nil
+	githubToken := cmdctx.GetString(ctx.FlagValues, "github-token")
+	allowDrafts := cmdctx.GetBool(ctx.FlagValues, "allow-drafts")
+	return installRegistryPlugin(moduleName, version, githubToken, allowDrafts, force, check)
 }
 
 func detectPlatform() (string, error) {
@@ -359,14 +283,61 @@ func detectPlatform() (string, error) {
 	return os_ + "_" + arch, nil
 }
 
-func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName string) error {
+// archiveAsset finds the asset in rel matching pkgName/version/platform. Every
+// release we control produces exactly this asset naming convention, so a miss
+// means the release itself is broken, not that verification should be skipped.
+func archiveAsset(rel *release.Release, pkgName, version, platform string) (*release.Asset, error) {
 	ver := strings.TrimPrefix(version, "v")
-	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	ext := archiveExtensionForPlatform(platform)
-	archiveName := base + ext
+	name := fmt.Sprintf("%s_%s_%s%s", pkgName, ver, platform, archiveExtensionForPlatform(platform))
+	for i := range rel.Assets {
+		if rel.Assets[i].Name == name {
+			return &rel.Assets[i], nil
+		}
+	}
+	return nil, fmt.Errorf("%s %s has no asset %s for platform %s", pkgName, rel.TagName, name, platform)
+}
 
-	archiveURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", release.Repo, version, archiveName)
-	checksumURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s_%s_checksums.txt", release.Repo, version, installBinaryName, ver)
+// archiveAssetURL is a convenience wrapper for callers that only need the
+// unauthenticated download URL (drift/availability checks never download).
+func archiveAssetURL(rel *release.Release, pkgName, version, platform string) (string, error) {
+	a, err := archiveAsset(rel, pkgName, version, platform)
+	if err != nil {
+		return "", err
+	}
+	return a.BrowserDownloadURL, nil
+}
+
+// checksumAsset finds the checksums file among rel's assets. Every release we
+// produce ships one; a missing checksum on a release we control is an error,
+// not "nothing to verify against."
+func checksumAsset(rel *release.Release) (*release.Asset, error) {
+	for i := range rel.Assets {
+		if strings.HasSuffix(rel.Assets[i].Name, "checksums.txt") {
+			return &rel.Assets[i], nil
+		}
+	}
+	return nil, fmt.Errorf("release %s has no checksums file", rel.TagName)
+}
+
+// checksumAssetURL is the unauthenticated-URL counterpart of archiveAssetURL.
+func checksumAssetURL(rel *release.Release) (string, error) {
+	a, err := checksumAsset(rel)
+	if err != nil {
+		return "", err
+	}
+	return a.BrowserDownloadURL, nil
+}
+
+func downloadAndInstallBinary(rel *release.Release, pkgName, version, platform, destDir, binaryName, githubToken string) error {
+	ext := archiveExtensionForPlatform(platform)
+	archiveAsset, err := archiveAsset(rel, pkgName, version, platform)
+	if err != nil {
+		return err
+	}
+	checksumAsset, err := checksumAsset(rel)
+	if err != nil {
+		return err
+	}
 
 	tmp, err := os.MkdirTemp("", "harness-install-*")
 	if err != nil {
@@ -374,16 +345,13 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 	}
 	defer os.RemoveAll(tmp)
 
-	archivePath := filepath.Join(tmp, archiveName)
-	if err := downloadFile(archivePath, archiveURL); err != nil {
-		if strings.Contains(err.Error(), "HTTP 404") {
-			return fmt.Errorf("%s %s not found for platform %s", pkgName, version, platform)
-		}
+	archivePath := filepath.Join(tmp, archiveAsset.Name)
+	if err := downloadAsset(archivePath, archiveAsset, githubToken); err != nil {
 		return fmt.Errorf("downloading release: %w", err)
 	}
 
 	hlog.Debug("verifying checksum")
-	if err := verifyChecksum(archivePath, archiveName, checksumURL); err != nil {
+	if err := verifyChecksum(archivePath, archiveAsset.Name, checksumAsset, githubToken); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
@@ -409,33 +377,29 @@ func downloadAndInstallBinary(version, platform, destDir, pkgName, binaryName st
 	return nil
 }
 
-func releaseAssetExists(version, platform, pkgName string) (bool, error) {
-	ver := strings.TrimPrefix(version, "v")
-	base := fmt.Sprintf("%s_%s_%s", pkgName, ver, platform)
-	ext := archiveExtensionForPlatform(platform)
-	client := &http.Client{Timeout: 15 * time.Second}
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s%s", release.Repo, version, base, ext)
-	hlog.Debug("HEAD", "url", url)
-	resp, err := client.Head(url)
-	if err != nil {
-		hlog.Debug("HEAD failed", "url", url, "error", err)
-		return false, nil
-	}
-	resp.Body.Close()
-	hlog.Debug("HEAD response", "url", url, "status", resp.StatusCode)
-	return resp.StatusCode == http.StatusOK, nil
-}
-
 func downloadFile(dest, url string) error {
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Get(url)
+	resp, err := getUnauthenticated(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	return saveResponseBody(dest, resp)
+}
+
+// downloadAsset saves asset to dest. With a token, it goes through GitHub's
+// authenticated asset API (asset.URL) instead of BrowserDownloadURL — that's
+// the only way to fetch a draft release's assets or a private repo's assets;
+// BrowserDownloadURL 404s for both regardless of any Authorization header.
+func downloadAsset(dest string, asset *release.Asset, githubToken string) error {
+	resp, err := getAsset(asset, githubToken)
+	if err != nil {
+		return err
 	}
+	defer resp.Body.Close()
+	return saveResponseBody(dest, resp)
+}
+
+func saveResponseBody(dest string, resp *http.Response) error {
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
@@ -445,16 +409,51 @@ func downloadFile(dest, url string) error {
 	return err
 }
 
-func verifyChecksum(archivePath, archiveName, checksumURL string) error {
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(checksumURL)
+// getAsset issues the GET for asset, authenticated via the asset API when
+// githubToken is set, or the plain browser-download URL otherwise.
+func getAsset(asset *release.Asset, githubToken string) (*http.Response, error) {
+	if githubToken == "" {
+		return getUnauthenticated(asset.BrowserDownloadURL)
+	}
+	req, err := http.NewRequest("GET", asset.URL, nil)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/octet-stream")
+	req.Header.Set("Authorization", "Bearer "+githubToken)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, asset.URL)
+	}
+	return resp, nil
+}
+
+// getUnauthenticated is a plain GET, used for browser-download URLs and for
+// anything with no token in hand.
+func getUnauthenticated(url string) (*http.Response, error) {
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+	return resp, nil
+}
+
+func verifyChecksum(archivePath, archiveName string, checksumAsset *release.Asset, githubToken string) error {
+	resp, err := getAsset(checksumAsset, githubToken)
+	if err != nil {
+		return fmt.Errorf("fetching checksums: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d fetching checksums", resp.StatusCode)
-	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -485,6 +484,48 @@ func verifyChecksum(archivePath, archiveName, checksumURL string) error {
 		return fmt.Errorf("checksum mismatch (expected %s, got %s)", expected, actual)
 	}
 	return nil
+}
+
+// extractBinaryFromArchive pulls binaryName out of archivePath, dispatching on
+// the archive format ext (".zip" for Windows releases, tar.gz otherwise).
+func extractBinaryFromArchive(archivePath, binaryName, dest, ext string) error {
+	if ext == ".zip" {
+		return extractBinaryFromZip(archivePath, binaryName, dest)
+	}
+	return extractBinaryFromTar(archivePath, binaryName, dest)
+}
+
+func extractBinaryFromZip(archivePath, binaryName, dest string) error {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() || filepath.Base(f.Name) != binaryName {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		rc.Close()
+		if closeErr := out.Close(); closeErr != nil && copyErr == nil {
+			copyErr = closeErr
+		}
+		if copyErr != nil {
+			return copyErr
+		}
+		return nil
+	}
+	return fmt.Errorf("binary %q not found in archive", binaryName)
 }
 
 func extractBinaryFromTar(archivePath, binaryName, dest string) error {
@@ -518,43 +559,6 @@ func extractBinaryFromTar(archivePath, binaryName, dest string) error {
 			out.Close()
 			return err
 		}
-	}
-	return fmt.Errorf("binary %q not found in archive", binaryName)
-}
-
-func extractBinaryFromArchive(archivePath, binaryName, dest, ext string) error {
-	switch ext {
-	case ".zip":
-		return extractBinaryFromZip(archivePath, binaryName, dest)
-	default:
-		return extractBinaryFromTar(archivePath, binaryName, dest)
-	}
-}
-
-func extractBinaryFromZip(archivePath, binaryName, dest string) error {
-	r, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-
-	for _, f := range r.File {
-		if filepath.Base(f.Name) != binaryName {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-		if err != nil {
-			rc.Close()
-			return err
-		}
-		_, err = io.Copy(out, rc)
-		out.Close()
-		rc.Close()
-		return err
 	}
 	return fmt.Errorf("binary %q not found in archive", binaryName)
 }

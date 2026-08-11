@@ -87,13 +87,7 @@ function Install-HarnessBinaries {
     )
 
     $ver = $Version.TrimStart("v")
-    if ($CoreOnly) {
-        $pkgName = "harness-core_${ver}_${Platform}"
-        $binaries = @("harness.exe")
-    } else {
-        $pkgName = "harness-bundle_${ver}_${Platform}"
-        $binaries = @("harness.exe", "harness-har.exe")
-    }
+    $pkgName = "harness-core_${ver}_${Platform}"
 
     $archiveName = "$pkgName.zip"
     $checksumName = "harness_${ver}_checksums.txt"
@@ -128,12 +122,22 @@ function Install-HarnessBinaries {
         $extractDir = Join-Path $tmp "extract"
         Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
         New-Item -ItemType Directory -Path $Dest -Force | Out-Null
-        foreach ($bin in $binaries) {
-            $src = Join-Path $extractDir $bin
-            if (-not (Test-Path $src)) { Fail "Binary $bin not found in archive" }
-            $target = Join-Path $Dest $bin
-            Copy-Item -Path $src -Destination $target -Force
-            Write-Ok "Installed $bin $Version to $target"
+
+        $coreSrc = Join-Path $extractDir "harness.exe"
+        if (-not (Test-Path $coreSrc)) { Fail "Binary harness.exe not found in archive" }
+        $coreTarget = Join-Path $Dest "harness.exe"
+        Copy-Item -Path $coreSrc -Destination $coreTarget -Force
+        Write-Ok "Installed harness.exe $Version to $coreTarget"
+
+        # A failure here still leaves a working core, so note it instead of aborting.
+        if (-not $CoreOnly) {
+            Write-Info "Installing har module..."
+            & $coreTarget install module har 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Ok "Installed har module to ~\.harness\bin"
+            } else {
+                Write-Note "Could not install the har module - run 'harness install module har' to retry"
+            }
         }
     } finally {
         Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
