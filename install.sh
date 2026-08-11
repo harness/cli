@@ -135,17 +135,13 @@ download_and_install() {
     chmod +x "$dest/harness"
     success "Installed harness $version to $dest/harness"
 
-    # har ships in the bundle but is a plugin: it only becomes a usable command
-    # once core writes its spec to ~/.harness/spec. Install it from the archive
-    # we already extracted rather than re-downloading it by name. A failure here
-    # leaves a working core, so warn instead of aborting.
-    # Note: this records the (temporary) extract path as the spec's `source`.
+    # A failure here still leaves a working core, so warn instead of aborting.
     if [ -z "$CORE_ONLY" ]; then
-        info "Installing har plugin..."
-        if "$dest/harness" install plugin "$tmp/harness-har" >/dev/null 2>&1; then
-            success "Installed har plugin $version to ~/.harness/bin"
+        info "Installing har module..."
+        if "$dest/harness" install module har >/dev/null 2>&1; then
+            success "Installed har module to ~/.harness/bin"
         else
-            warn "Could not install the har plugin — run 'harness install plugin har' to retry"
+            warn "Could not install the har module — run 'harness install module har' to retry"
         fi
     fi
 

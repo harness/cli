@@ -133,20 +133,14 @@ function Install-HarnessBinaries {
         Copy-Item -Path $coreSrc -Destination $coreTarget -Force
         Write-Ok "Installed harness.exe $Version to $coreTarget"
 
-        # har ships in the bundle but is a plugin: it only becomes a usable
-        # command once core writes its spec to ~/.harness/spec. Install it from
-        # the archive we already extracted rather than re-downloading it by name.
-        # A failure here leaves a working core, so note it instead of aborting.
-        # Note: this records the (temporary) extract path as the spec's `source`.
+        # A failure here still leaves a working core, so note it instead of aborting.
         if (-not $CoreOnly) {
-            $pluginSrc = Join-Path $extractDir "harness-har.exe"
-            if (-not (Test-Path $pluginSrc)) { Fail "Binary harness-har.exe not found in archive" }
-            Write-Info "Installing har plugin..."
-            & $coreTarget install plugin $pluginSrc 2>$null | Out-Null
+            Write-Info "Installing har module..."
+            & $coreTarget install module har 2>$null | Out-Null
             if ($LASTEXITCODE -eq 0) {
-                Write-Ok "Installed har plugin $Version to ~\.harness\bin"
+                Write-Ok "Installed har module to ~\.harness\bin"
             } else {
-                Write-Note "Could not install the har plugin - run 'harness install plugin har' to retry"
+                Write-Note "Could not install the har module - run 'harness install module har' to retry"
             }
         }
     } finally {
