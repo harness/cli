@@ -941,6 +941,11 @@ func (r *Registry) bindExternalCmd(cmd *cobra.Command, cs *spec.CommandSpec) {
 			r.bindEndpointCmd(cmd, cs)
 		}
 	}
+	desc := cmd.Long
+	if desc == "" {
+		desc = cmd.Short
+	}
+	cmd.Long = desc + fmt.Sprintf("\n\n(Implemented by plugin %q v%s)", cs.Module, meta.Version)
 	cmd.RunE = execPluginRunE(meta.BinaryPath, cs.Module, meta.Version)
 }
 
