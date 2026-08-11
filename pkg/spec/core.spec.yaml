@@ -392,6 +392,7 @@ commands:
       - name: version
         description: "Version to install (default: latest)"
       - name: force
+        is_bool: true
         description: Install even if the current version is already up to date
       - name: check
         is_bool: true
