@@ -87,11 +87,7 @@ function Install-HarnessBinaries {
     )
 
     $ver = $Version.TrimStart("v")
-    if ($CoreOnly) {
-        $pkgName = "harness-core_${ver}_${Platform}"
-    } else {
-        $pkgName = "harness-bundle_${ver}_${Platform}"
-    }
+    $pkgName = "harness-core_${ver}_${Platform}"
 
     $archiveName = "$pkgName.zip"
     $checksumName = "harness_${ver}_checksums.txt"

@@ -100,13 +100,7 @@ download_and_install() {
     local platform="$2"
     local dest="$3"
     local ver="${version#v}"
-    local pkg_name
-
-    if [ -n "$CORE_ONLY" ]; then
-        pkg_name="harness-core_${ver}_${platform}"
-    else
-        pkg_name="harness-bundle_${ver}_${platform}"
-    fi
+    local pkg_name="harness-core_${ver}_${platform}"
 
     local url="https://github.com/${REPO}/releases/download/${version}/${pkg_name}.tar.gz"
     local checksum_url="https://github.com/${REPO}/releases/download/${version}/harness_${ver}_checksums.txt"
