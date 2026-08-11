@@ -880,7 +880,7 @@ func execPluginRunE(binaryPath, moduleName, version string) func(*cobra.Command,
 			var nfe *plugin.NotFoundError
 			if errors.As(err, &nfe) {
 				noun := strings.Fields(cmd.Use)[0]
-				return fmt.Errorf("%q is provided by the %q module, whose binary is missing\n\nTo reinstall it, run:\n  harness install plugin %s", noun, moduleName, moduleName)
+				return fmt.Errorf("%q is provided by the %q plugin, whose binary is missing\n\nTo reinstall it, run:\n  harness install plugin %s", noun, moduleName, moduleName)
 			}
 			return err
 		}

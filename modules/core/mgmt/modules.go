@@ -302,14 +302,18 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 		if typeFilter != "" && !strings.EqualFold(m.Type, typeFilter) {
 			continue
 		}
-		installed := "yes"
-		version := hbase.Version
+		// Builtins ship with the CLI, so they have no independent version or
+		// install state.
+		installed := "-"
+		version := "-"
 		if m.BinaryPath != "" {
 			// Plugin: trust the spec's provenance, which install captured from
 			// --identity. Listing never execs a binary to read a version.
+			installed = "yes"
 			version = m.Version
 			if _, err := os.Stat(hbase.ExpandHomeDir(m.BinaryPath)); err != nil {
 				installed = "no"
+				version = "-"
 			}
 		}
 		items = append(items, map[string]any{
