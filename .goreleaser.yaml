@@ -85,19 +85,6 @@ nfpms:
     license: Apache-2.0
     bindir: /usr/bin
 
-  - id: harness-plugin-har
-    package_name: harness-cli-har-plugin
-    ids: [harness-plugin-har]
-    formats:
-      - deb
-      - rpm
-    vendor: Harness
-    homepage: https://harness.io
-    maintainer: Harness <support@harness.io>
-    description: Harness HAR plugin for the Harness Unified CLI
-    license: Apache-2.0
-    bindir: /usr/bin
-
 homebrew_casks:
   # skip_upload: cask files are still built into dist/ so this stays testable, but
   # nothing is pushed until harness/homebrew-tap exists and HOMEBREW_TAP_GITHUB_TOKEN
