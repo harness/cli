@@ -15,7 +15,16 @@ import (
 var versionCore = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)`)
 
 func main() {
-	next := len(os.Args) > 1 && os.Args[1] == "--next"
+	var next bool
+	var prefix string
+	for _, arg := range os.Args[1:] {
+		switch {
+		case arg == "--next":
+			next = true
+		case strings.HasPrefix(arg, "--prefix="):
+			prefix = strings.TrimPrefix(arg, "--prefix=")
+		}
+	}
 
 	out, err := exec.Command("git", "tag").Output()
 	if err != nil {
@@ -26,6 +35,15 @@ func main() {
 	var versions []string
 	for _, tag := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		tag = strings.TrimSpace(tag)
+		if prefix != "" {
+			if !strings.HasPrefix(tag, prefix) {
+				continue
+			}
+			tag = strings.TrimPrefix(tag, prefix)
+		} else if strings.Contains(tag, "/") {
+			// skip prefixed tags (e.g. har/v0.9.0) when scanning for unprefixed ones
+			continue
+		}
 		if semver.IsValid(tag) {
 			versions = append(versions, tag)
 		}
