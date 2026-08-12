@@ -1,7 +1,6 @@
 spec_version: 1
 module_type: builtin
 module_desc: Harness FME — Feature flags and targeting definitions
-harness_internal: true
 help_text: |
   ## Feature Management & Experimentation (fme)
 
@@ -18,6 +17,7 @@ nouns:
         expr: it.name
       - id: description
         expr: it.description ?? ""
+        mutable_path: description
         width_max: 60
       - id: traffic_type
         label: Traffic Type
@@ -28,7 +28,7 @@ nouns:
         label: Rollout Status
         expr: it.rolloutStatus.name ?? ""
       - id: created
-        expr: it.createdAt
+        expr: epochMs(it.createdAt * 1000)
         field_type: ts
 
 commands:
@@ -101,9 +101,9 @@ commands:
       create_strategy: set-fields
       create_body_init:
         name: ctx.id
-        trafficType: flags.traffic-type
+        trafficType: flags["traffic-type"]
       create_body_wrap: ""
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nCreated feature flag {{it.name}}\n"
 
   - command: update feature_flag
@@ -125,7 +125,7 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nUpdated feature flag {{ctx.id}}\n"
 
   - command: delete feature_flag
@@ -160,7 +160,7 @@ commands:
         project_identifier: auth.project
       body_params:
         comment: flags.comment
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nArchived feature flag {{ctx.id}}\n"
 
   - command: execute feature_flag:unarchive
@@ -181,7 +181,7 @@ commands:
         project_identifier: auth.project
       body_params:
         comment: flags.comment
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nUnarchived feature flag {{ctx.id}}\n"
 
   # ── feature_flag:definition ───────────────────────────────────────────────────
@@ -225,7 +225,7 @@ commands:
           label: Killed
           expr: string(it.isKilled)
         - id: created
-          expr: it.createdAt
+          expr: epochMs(it.createdAt * 1000)
           field_type: ts
       columns: [environment, default_treatment, traffic_allocation, is_killed, created]
 
@@ -268,7 +268,7 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nCreated definition for {{ctx.id}} in {{flags.env}}\n"
 
   - command: update feature_flag:definition
@@ -296,7 +296,7 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nUpdated definition for {{ctx.id}} in {{flags.env}}\n"
 
   - command: delete feature_flag:definition
@@ -341,7 +341,7 @@ commands:
         environment_id: flags.env
       body_params:
         comment: flags.comment
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nKilled feature flag {{ctx.id}} in {{flags.env}}\n"
 
   - command: execute feature_flag:restore
@@ -366,7 +366,7 @@ commands:
         environment_id: flags.env
       body_params:
         comment: flags.comment
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nRestored feature flag {{ctx.id}} in {{flags.env}}\n"
 
   - command: execute feature_flag:reallocate
@@ -391,5 +391,5 @@ commands:
         environment_id: flags.env
       body_params:
         comment: flags.comment
-      item_expr: it
+      item_expr: it.entity
       text_header: "\nReallocated traffic for {{ctx.id}} in {{flags.env}}\n"
