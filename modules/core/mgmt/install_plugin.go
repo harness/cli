@@ -141,6 +141,17 @@ func installRegistryPlugin(name, version, githubToken string, allowDrafts, force
 	hlog.Debug("platform detected", "platform", platform)
 
 	installed := installedPluginVersion(name)
+	// A spec whose binary is gone is not an install, whatever version it
+	// records — treat it as absent so the up-to-date gate below doesn't refuse
+	// to replace a binary that isn't there.
+	if installed != "" && !pluginBinaryPresent(name) {
+		suffix := ""
+		if !check {
+			suffix = " — reinstalling"
+		}
+		fmt.Printf("Plugin %q spec records version %s but its binary is missing%s\n", name, installed, suffix)
+		installed = ""
+	}
 
 	if check {
 		rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version, githubToken, allowDrafts)
@@ -612,22 +623,41 @@ func writePluginSpec(id *plugin.Identity, binPath, source string, grammar []byte
 	return nil
 }
 
-// installedPluginVersion returns the provenance version recorded in the
-// installed spec for name, or "" when the plugin is not installed. The spec is
+// installedPluginProvenance returns the version and binary path recorded in the
+// installed spec for name, both "" when the plugin is not installed. The spec is
 // the source of truth for what is installed, so this never execs the binary.
-func installedPluginVersion(name string) string {
+func installedPluginProvenance(name string) (version, binPath string) {
 	path := filepath.Join(specloader.HomeSpecDir(), name+".spec.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	var f struct {
-		Version string `yaml:"version"`
+		Version    string `yaml:"version"`
+		BinaryPath string `yaml:"binary_path"`
 	}
 	if err := yaml.Unmarshal(data, &f); err != nil {
-		return ""
+		return "", ""
 	}
-	return f.Version
+	return f.Version, f.BinaryPath
+}
+
+func installedPluginVersion(name string) string {
+	version, _ := installedPluginProvenance(name)
+	return version
+}
+
+// pluginBinaryPresent reports whether the binary name's installed spec points at
+// still exists. Kept separate from installedPluginVersion so that
+// installedRegistryPlugins keeps listing a plugin whose binary has gone missing
+// — `install cli` is how that plugin gets repaired.
+func pluginBinaryPresent(name string) bool {
+	_, binPath := installedPluginProvenance(name)
+	if binPath == "" {
+		return false
+	}
+	_, err := os.Stat(hbase.ExpandHomeDir(binPath))
+	return err == nil
 }
 
 // installedRegistryPlugins returns the registry-known plugins that are currently
