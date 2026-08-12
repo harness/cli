@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
+
 	"github.com/pterm/pterm"
 )
 
@@ -35,4 +37,19 @@ func GetSkipPrinter() *pterm.PrefixPrinter {
 		},
 		Writer: os.Stdout,
 	}
+}
+
+// AddPackageErrorToStat records a package-level failure (e.g. enumeration
+// errors that never reach the per-file job loop) in the transfer stats so it
+// shows up in the migration summary instead of being silently dropped.
+func AddPackageErrorToStat(stats *types.TransferStats, pkg types.Package, srcRegistry string, err error) {
+	stat := types.FileStat{
+		Name:     pkg.Name,
+		Registry: srcRegistry,
+		Uri:      pkg.URL,
+		Size:     int64(pkg.Size),
+		Status:   types.StatusFail,
+		Error:    err.Error(),
+	}
+	stats.FileStats = append(stats.FileStats, stat)
 }
