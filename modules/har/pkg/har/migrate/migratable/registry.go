@@ -10,6 +10,7 @@ import (
 	"github.com/harness/cli/modules/har/pkg/har/migrate/tree"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
+	"github.com/harness/cli/pkg/console"
 
 	"github.com/google/uuid"
 	"github.com/pterm/pterm"
@@ -131,15 +132,15 @@ func (r *Registry) Migrate(ctx context.Context) error {
 
 	startTime := time.Now()
 
-	fetchProgress := startStage(fmt.Sprintf("Fetching file metadata from source registry %s", r.srcRegistry))
+	fetchProgress := console.StartStage(fmt.Sprintf("Fetching file metadata from source registry %s", r.srcRegistry))
 	files, err2 := r.srcAdapter.GetFiles(r.srcRegistry)
 	if err2 != nil {
-		fetchProgress.fail(fmt.Sprintf("Failed to fetch file metadata from source registry %s", r.srcRegistry))
+		fetchProgress.Fail(fmt.Sprintf("Failed to fetch file metadata from source registry %s", r.srcRegistry))
 		logger.Error().Msgf("Failed to get files from registry %s", r.srcRegistry)
 		return fmt.Errorf("get files from registry %s failed: %w", r.srcRegistry, err2)
 	}
 
-	fetchProgress.success(fmt.Sprintf("Pulled %d file(s) from registry %s", len(files), r.srcRegistry))
+	fetchProgress.Success(fmt.Sprintf("Pulled %d file(s) from registry %s", len(files), r.srcRegistry))
 
 	// Keep a copy of the original file list before any filtering. This is used
 	// to build an unfilteredRoot for PYTHON so version enumeration is not broken
@@ -279,10 +280,10 @@ func (r *Registry) Migrate(ctx context.Context) error {
 	}
 	var existingIndex *types.ExistingIndex
 	if !r.config.DryRun && !r.config.Overwrite && indexApplicable(r.artifactType) {
-		indexProgress := startStage(fmt.Sprintf("Indexing artifacts already in destination registry %s", r.registry.Path))
+		indexProgress := console.StartStage(fmt.Sprintf("Indexing artifacts already in destination registry %s", r.registry.Path))
 		idx, idxErr := r.destAdapter.BuildExistingIndex(ctx, r.registry.Path, r.config.Concurrency)
 		if idxErr != nil {
-			indexProgress.warn(fmt.Sprintf(
+			indexProgress.Warn(fmt.Sprintf(
 				"Could not index destination registry %s; falling back to per-version lookups", r.registry.Path))
 			logger.Warn().Err(idxErr).Msg("Failed to build existing index, falling back to per-version checks")
 		} else {
@@ -291,7 +292,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 			indexedMsg := fmt.Sprintf(
 				"Indexed destination registry %s: %d package(s), %d version(s), %d existing file(s)",
 				r.registry.Path, indexedPkgs, indexedVersions, indexedFiles)
-			indexProgress.success(indexedMsg)
+			indexProgress.Success(indexedMsg)
 			logger.Info().Msg(indexedMsg)
 		}
 	}
@@ -304,7 +305,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 			return fmt.Errorf("get node for path %s failed: %w", pkg.Path, err2)
 		}
 		job := NewPackageJob(r.srcAdapter, r.destAdapter, r.srcRegistry, r.sourcePackageHostname, r.destRegistry, r.artifactType, pkg, treeNode,
-			r.stats, r.mapping, r.config, r.registry, r.dryRunStats, unfilteredRoot,existingIndex)
+			r.stats, r.mapping, r.config, r.registry, r.dryRunStats, unfilteredRoot, existingIndex)
 		jobs = append(jobs, job)
 	}
 
