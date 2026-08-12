@@ -192,17 +192,16 @@ func (r *Version) Migrate(ctx context.Context) error {
 				}
 			}
 			// Check if file already exists in destination (index takes priority).
-			// GENERIC/RAW: v1 HAR stores full path in Name; use Uri to match.
-			// All other types: Name is a basename; use it directly.
-			fileKey := file.Name
-			if r.artifactType == types.GENERIC || r.artifactType == types.RAW {
-				fileKey = strings.TrimPrefix(file.Uri, "/")
-			}
+			// The index is keyed on source-relative paths (types.File.Uri); HasFile
+			// owns the HAR-path-to-source-path conversion, so query it with the
+			// full Uri rather than the basename — a basename-only query collides
+			// or misses whenever the same filename appears under different
+			// nested JFrog folders (e.g. NuGet's ambiguous package layouts).
 			alreadyExists := false
 			if r.existingIndex != nil {
-				alreadyExists = r.existingIndex.HasFile(r.pkg.Name, r.version.Name, fileKey, r.artifactType)
+				alreadyExists = r.existingIndex.HasFile(r.pkg.Name, r.version.Name, file.Uri, r.artifactType)
 			} else {
-				alreadyExists = r.existingFileMap[strings.ToLower(fileKey)]
+				alreadyExists = r.existingFileMap[strings.ToLower(file.Name)]
 			}
 			if alreadyExists {
 				util.GetSkipPrinter().Println(fmt.Sprintf("Registry [%s], Package [%s/%s], File [%s] already exists",
