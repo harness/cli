@@ -4,21 +4,24 @@
 package console
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
-
-	"github.com/pterm/pterm"
 )
 
 const stageHeartbeatInterval = 15 * time.Second
 
 var spinnerBusy atomic.Bool
 
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+const spinnerFrameInterval = 100 * time.Millisecond
+
 // StageProgress reports liveness for a long-running operation.
 type StageProgress struct {
 	text      string
 	startedAt time.Time
-	spinner   *pterm.SpinnerPrinter
+	animating bool
 	stop      chan struct{}
 	done      chan struct{}
 }
@@ -26,23 +29,20 @@ type StageProgress struct {
 // StartStage starts an animated spinner on interactive terminals and heartbeat
 // messages when stdout is redirected.
 func StartStage(text string) *StageProgress {
-	s := &StageProgress{text: text, startedAt: time.Now()}
-
-	if IsStdoutTTY() && spinnerBusy.CompareAndSwap(false, true) {
-		spinner, err := pterm.DefaultSpinner.
-			WithRemoveWhenDone(true).
-			WithShowTimer(true).
-			Start(text)
-		if err == nil {
-			s.spinner = spinner
-			return s
-		}
-		spinnerBusy.Store(false)
+	s := &StageProgress{
+		text:      text,
+		startedAt: time.Now(),
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 
-	pterm.Info.Println(text)
-	s.stop = make(chan struct{})
-	s.done = make(chan struct{})
+	if IsStdoutTTY() && spinnerBusy.CompareAndSwap(false, true) {
+		s.animating = true
+		go s.animate()
+		return s
+	}
+
+	fmt.Println(WithColor(ColorCyan, "→") + " " + text)
 	go s.heartbeat()
 	return s
 }
@@ -50,19 +50,41 @@ func StartStage(text string) *StageProgress {
 // Success ends the stage with a success line carrying the elapsed time.
 func (s *StageProgress) Success(msg string) {
 	s.halt()
-	pterm.Success.Println(s.withElapsed(msg))
+	fmt.Println(GreenCheck() + " " + s.withElapsed(msg))
 }
 
 // Warn ends the stage with a warning line.
 func (s *StageProgress) Warn(msg string) {
 	s.halt()
-	pterm.Warning.Println(s.withElapsed(msg))
+	fmt.Println(YellowWarning() + " " + s.withElapsed(msg))
 }
 
 // Fail ends the stage with an error line.
 func (s *StageProgress) Fail(msg string) {
 	s.halt()
-	pterm.Error.Println(s.withElapsed(msg))
+	fmt.Println(RedX() + " " + s.withElapsed(msg))
+}
+
+func (s *StageProgress) animate() {
+	defer close(s.done)
+
+	fmt.Print("\x1b[?25l")
+	ticker := time.NewTicker(spinnerFrameInterval)
+	defer ticker.Stop()
+
+	i := 0
+	for {
+		select {
+		case <-s.stop:
+			fmt.Print("\r\x1b[K\x1b[?25h")
+			return
+		case <-ticker.C:
+			frame := spinnerFrames[i%len(spinnerFrames)]
+			i++
+			elapsed := time.Since(s.startedAt).Round(time.Second)
+			fmt.Printf("\r\x1b[K%s %s %s", WithColor(ColorCyan, frame), s.text, WithColor(ColorBrightBlack, "("+elapsed.String()+")"))
+		}
+	}
 }
 
 func (s *StageProgress) heartbeat() {
@@ -76,23 +98,21 @@ func (s *StageProgress) heartbeat() {
 		case <-s.stop:
 			return
 		case <-ticker.C:
-			pterm.Info.Println(s.withElapsed(s.text + " — still working"))
+			fmt.Println(WithColor(ColorCyan, "→") + " " + s.withElapsed(s.text+" — still working"))
 		}
 	}
 }
 
 // halt stops the animation or heartbeat. Safe to call more than once.
 func (s *StageProgress) halt() {
-	if s.spinner != nil {
-		_ = s.spinner.Stop()
-		s.spinner = nil
-		spinnerBusy.Store(false)
+	if s.stop == nil {
 		return
 	}
-	if s.stop != nil {
-		close(s.stop)
-		<-s.done
-		s.stop = nil
+	close(s.stop)
+	<-s.done
+	s.stop = nil
+	if s.animating {
+		spinnerBusy.Store(false)
 	}
 }
 
