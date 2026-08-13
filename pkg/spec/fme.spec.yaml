@@ -338,7 +338,7 @@ commands:
     verb: update
     noun: feature_flag
     noun_variant: definition
-    short: "Update a flag definition: harness update ff:definition <name> --env <env-id> --set trafficAllocation=80"
+    short: "Update a flag definition: harness update ff:definition <name> --env <env-id> --set traffic_allocation=80"
     handler_type: endpoint
     fields_noun: feature_flag_definition
     flags:
@@ -555,7 +555,7 @@ commands:
     verb: delete
     noun: fme_environment
     confirm_mode: prompt
-    short: Delete (archive) an FME environment
+    short: "Delete (archive) an FME environment. Fails with hasDependents until env API tokens and other dependents are removed."
     handler_type: endpoint
     endpoint:
       method: DELETE

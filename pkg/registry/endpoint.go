@@ -290,7 +290,7 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 		}
 		defer closeW()
 		if ctx.VerbHandler == VerbUpdate || ep.CreateStrategy == spec.CreateStrategySetFields {
-			return nil, PrintMutableFieldTable(w, MutableFields(resolveNounDef(ctx)))
+			return nil, PrintMutableFieldTable(w, MutableFields(resolveNounDef(ctx), ep.FieldsExtra))
 		}
 		return nil, PrintFieldTable(w, fields)
 	}
@@ -769,9 +769,9 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, fmt.Errorf("get-then-%s: unmarshaling picked item: %w", strings.ToLower(method), err)
 	}
 
-	// Build a fieldID→FieldDef map from the noun's mutable fields for --set/--del resolution.
+	// Build a fieldID→FieldDef map from noun + fields_extra mutable paths for --set/--del.
 	fieldPaths := map[string]spec.FieldDef{}
-	for _, f := range MutableFields(resolveNounDef(ctx)) {
+	for _, f := range MutableFields(resolveNounDef(ctx), ep.FieldsExtra) {
 		fieldPaths[f.ID] = f
 	}
 
@@ -882,9 +882,9 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		}
 	}
 
-	// Build fieldID→FieldDef map from the noun's mutable fields.
+	// Build fieldID→FieldDef map from noun + fields_extra mutable paths.
 	fieldPaths := map[string]spec.FieldDef{}
-	for _, f := range MutableFields(resolveNounDef(ctx)) {
+	for _, f := range MutableFields(resolveNounDef(ctx), ep.FieldsExtra) {
 		fieldPaths[f.ID] = f
 	}
 

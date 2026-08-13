@@ -51,12 +51,22 @@ func APIErrorMessage(status int, body []byte) string {
 			return "Harness returned an HTML page (possible redirect, proxy, or WAF). Check your API URL and credentials."
 		}
 	}
-	// Try to extract a message from JSON
+	// Prefer RFC 7807 / FME v4 problem+JSON `detail` over legacy `message`.
 	var parsed struct {
 		Message string `json:"message"`
+		Detail  string `json:"detail"`
+		Title   string `json:"title"`
 	}
-	if json.Unmarshal(body, &parsed) == nil && parsed.Message != "" {
-		return parsed.Message
+	if json.Unmarshal(body, &parsed) == nil {
+		if parsed.Detail != "" {
+			return parsed.Detail
+		}
+		if parsed.Message != "" {
+			return parsed.Message
+		}
+		if parsed.Title != "" {
+			return parsed.Title
+		}
 	}
 	if len(body) > 200 {
 		return string(body[:200]) + "..."

@@ -337,3 +337,34 @@ func TestFMESpec_ListSegmentDefinitionKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestFMESpec_UpdateFeatureFlagDefinition_MutableTrafficAllocation asserts
+// fields_noun feature_flag_definition exposes traffic_allocation as mutable
+// (Deepak's #111 follow-up) and the path is the public /fme/api/v4 prefix.
+func TestFMESpec_UpdateFeatureFlagDefinition_MutableTrafficAllocation(t *testing.T) {
+	reg := registry.New()
+	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "feature_flag:definition")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update feature_flag:definition: command not found")
+	}
+	if cs.FieldsNoun != "feature_flag_definition" {
+		t.Fatalf("fields_noun = %q, want feature_flag_definition", cs.FieldsNoun)
+	}
+	got := registry.MutableFields(reg.GetNoun(cs.FieldsNoun), cs.Endpoint.FieldsExtra)
+	found := false
+	for _, f := range got {
+		if f.ID == "traffic_allocation" && f.MutablePath == "trafficAllocation" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("MutableFields = %v, want traffic_allocation → trafficAllocation", got)
+	}
+	if !strings.HasPrefix(cs.Endpoint.Path, "/fme/api/v4/") {
+		t.Fatalf("update path = %q, want public /fme/api/v4/ prefix", cs.Endpoint.Path)
+	}
+}
