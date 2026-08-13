@@ -74,7 +74,7 @@ func fmeReadOut(t *testing.T, ctx *cmdctx.Ctx) string {
 
 // TestFMESpec_ListFeatureFlag drives the real embedded fme.spec.yaml "list feature_flag"
 // command against a mock server returning the flat (no "entity" wrapper) shape that the
-// live FME v4 API returns, and asserts the request hits /fme/internal/api/v4/feature-flags
+// live FME v4 API returns, and asserts the request hits /fme/api/v4/feature-flags
 // and that fields resolve directly off the item (it.name, it.trafficType.name, ...).
 func TestFMESpec_ListFeatureFlag(t *testing.T) {
 	reg := registry.New()
@@ -98,8 +98,8 @@ func TestFMESpec_ListFeatureFlag(t *testing.T) {
 		t.Fatalf("RunListEndpoint: %v", err)
 	}
 
-	if !strings.HasPrefix(*path, "/fme/internal/api/v4/feature-flags") {
-		t.Fatalf("request path = %q, want prefix /fme/internal/api/v4/feature-flags", *path)
+	if !strings.HasPrefix(*path, "/fme/api/v4/feature-flags") {
+		t.Fatalf("request path = %q, want prefix /fme/api/v4/feature-flags", *path)
 	}
 
 	body := fmeReadOut(t, ctx)
@@ -136,8 +136,8 @@ func TestFMESpec_GetFeatureFlag(t *testing.T) {
 		t.Fatalf("RunEndpoint: %v", err)
 	}
 
-	if *path != "/fme/internal/api/v4/feature-flags/my-flag" {
-		t.Fatalf("request path = %q, want /fme/internal/api/v4/feature-flags/my-flag", *path)
+	if *path != "/fme/api/v4/feature-flags/my-flag" {
+		t.Fatalf("request path = %q, want /fme/api/v4/feature-flags/my-flag", *path)
 	}
 
 	body := fmeReadOut(t, ctx)
@@ -152,7 +152,7 @@ func TestFMESpec_GetFeatureFlag(t *testing.T) {
 }
 
 // TestFMESpec_ListFMEEnvironment drives "list fme_environment" and asserts it
-// hits /fme/internal/api/v4/environments and that get_id_expr resolves off
+// hits /fme/api/v4/environments and that get_id_expr resolves off
 // it.id (environments are addressed by UUID, not name, unlike segment/feature_flag).
 func TestFMESpec_ListFMEEnvironment(t *testing.T) {
 	reg := registry.New()
@@ -176,8 +176,8 @@ func TestFMESpec_ListFMEEnvironment(t *testing.T) {
 		t.Fatalf("RunListEndpoint: %v", err)
 	}
 
-	if !strings.HasPrefix(*path, "/fme/internal/api/v4/environments") {
-		t.Fatalf("request path = %q, want prefix /fme/internal/api/v4/environments", *path)
+	if !strings.HasPrefix(*path, "/fme/api/v4/environments") {
+		t.Fatalf("request path = %q, want prefix /fme/api/v4/environments", *path)
 	}
 
 	body := fmeReadOut(t, ctx)
@@ -213,8 +213,8 @@ func TestFMESpec_GetFMEEnvironment(t *testing.T) {
 		t.Fatalf("RunEndpoint: %v", err)
 	}
 
-	if *path != "/fme/internal/api/v4/environments/env-uuid-1" {
-		t.Fatalf("request path = %q, want /fme/internal/api/v4/environments/env-uuid-1", *path)
+	if *path != "/fme/api/v4/environments/env-uuid-1" {
+		t.Fatalf("request path = %q, want /fme/api/v4/environments/env-uuid-1", *path)
 	}
 }
 
@@ -242,8 +242,8 @@ func TestFMESpec_ListSegment(t *testing.T) {
 		t.Fatalf("RunListEndpoint: %v", err)
 	}
 
-	if !strings.HasPrefix(*path, "/fme/internal/api/v4/segments") {
-		t.Fatalf("request path = %q, want prefix /fme/internal/api/v4/segments", *path)
+	if !strings.HasPrefix(*path, "/fme/api/v4/segments") {
+		t.Fatalf("request path = %q, want prefix /fme/api/v4/segments", *path)
 	}
 
 	body := fmeReadOut(t, ctx)
@@ -280,8 +280,8 @@ func TestFMESpec_ListSegmentDefinition(t *testing.T) {
 		t.Fatalf("RunListEndpoint: %v", err)
 	}
 
-	if !strings.HasPrefix(*path, "/fme/internal/api/v4/segment-definitions") {
-		t.Fatalf("request path = %q, want prefix /fme/internal/api/v4/segment-definitions", *path)
+	if !strings.HasPrefix(*path, "/fme/api/v4/segment-definitions") {
+		t.Fatalf("request path = %q, want prefix /fme/api/v4/segment-definitions", *path)
 	}
 	if !strings.Contains(*query, "environment_id=env-uuid-1") {
 		t.Fatalf("query = %q, want environment_id=env-uuid-1 (from --env flag)", *query)
@@ -323,8 +323,8 @@ func TestFMESpec_ListSegmentDefinitionKeys(t *testing.T) {
 		t.Fatalf("RunListEndpoint: %v", err)
 	}
 
-	if *path != "/fme/internal/api/v4/segment-definitions/my-segment/keys" {
-		t.Fatalf("request path = %q, want /fme/internal/api/v4/segment-definitions/my-segment/keys", *path)
+	if *path != "/fme/api/v4/segment-definitions/my-segment/keys" {
+		t.Fatalf("request path = %q, want /fme/api/v4/segment-definitions/my-segment/keys", *path)
 	}
 	if !strings.Contains(*query, "environment_id=env-uuid-1") {
 		t.Fatalf("query = %q, want environment_id=env-uuid-1 (from --env flag)", *query)

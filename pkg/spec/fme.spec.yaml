@@ -70,6 +70,42 @@ nouns:
       - id: key
         expr: it
 
+  - noun: feature_flag_definition
+    short_desc: A feature flag's environment-specific targeting definition (used for field lookup only).
+    fields:
+      - id: environment
+        expr: it.environment.name
+      - id: default_treatment
+        label: Default Treatment
+        expr: it.defaultTreatment
+      - id: traffic_allocation
+        label: Traffic Allocation
+        expr: string(it.trafficAllocation)
+        mutable_path: trafficAllocation
+      - id: is_killed
+        label: Killed
+        expr: string(it.isKilled)
+      - id: created
+        expr: epochMs(it.createdAt * 1000)
+        field_type: ts
+
+  - noun: segment_definition
+    short_desc: A segment's environment-specific targeting definition (used for field lookup only).
+    fields:
+      - id: segment
+        expr: it.segment.name
+      - id: environment
+        expr: it.environment.name
+      - id: description
+        expr: it.description ?? ""
+        mutable_path: description
+        width_max: 60
+      - id: status
+        expr: it.status
+      - id: created
+        expr: epochMs(it.createdAt * 1000)
+        field_type: ts
+
 commands:
   # ── feature_flag ─────────────────────────────────────────────────────────────
 
@@ -85,7 +121,7 @@ commands:
         description: "Filter by status: ACTIVE, ARCHIVED"
         completion_values: [ACTIVE, ARCHIVED]
     endpoint:
-      path: /fme/internal/api/v4/feature-flags
+      path: /fme/api/v4/feature-flags
       items_expr: it.data
       item_item_expr: it
       get_id_expr: it.name
@@ -111,7 +147,7 @@ commands:
     short: Get feature flag details
     handler_type: endpoint
     endpoint:
-      path: /fme/internal/api/v4/feature-flags/{{ctx.id}}
+      path: /fme/api/v4/feature-flags/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -132,7 +168,7 @@ commands:
       set: true
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/feature-flags
+      path: /fme/api/v4/feature-flags
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -155,8 +191,8 @@ commands:
       del: true
     endpoint:
       method: PATCH
-      path: /fme/internal/api/v4/feature-flags/{{ctx.id}}
-      get_path: /fme/internal/api/v4/feature-flags/{{ctx.id}}
+      path: /fme/api/v4/feature-flags/{{ctx.id}}
+      get_path: /fme/api/v4/feature-flags/{{ctx.id}}
       update_strategy: get-then-patch
       update_body_pick: it
       update_body_wrap: ""
@@ -175,7 +211,7 @@ commands:
     handler_type: endpoint
     endpoint:
       method: DELETE
-      path: /fme/internal/api/v4/feature-flags/{{ctx.id}}
+      path: /fme/api/v4/feature-flags/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -192,7 +228,7 @@ commands:
         description: Audit comment
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/feature-flags/{{ctx.id}}/archive
+      path: /fme/api/v4/feature-flags/{{ctx.id}}/archive
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -213,7 +249,7 @@ commands:
         description: Audit comment
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/feature-flags/{{ctx.id}}/unarchive
+      path: /fme/api/v4/feature-flags/{{ctx.id}}/unarchive
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -233,8 +269,9 @@ commands:
     handler_type: endpoint
     requires_parentid: true
     parentid_label: "<flag-name>"
+    fields_noun: feature_flag_definition
     endpoint:
-      path: /fme/internal/api/v4/feature-flag-definitions
+      path: /fme/api/v4/feature-flag-definitions
       items_expr: it.data
       item_item_expr: it
       get_id_expr: it.environment.id
@@ -251,21 +288,6 @@ commands:
         page_size_max: 100
         total_expr: it.totalCount
         countable: true
-      fields_extra:
-        - id: environment
-          expr: it.environment.name
-        - id: default_treatment
-          label: Default Treatment
-          expr: it.defaultTreatment
-        - id: traffic_allocation
-          label: Traffic Allocation
-          expr: string(it.trafficAllocation)
-        - id: is_killed
-          label: Killed
-          expr: string(it.isKilled)
-        - id: created
-          expr: epochMs(it.createdAt * 1000)
-          field_type: ts
       columns: [environment, default_treatment, traffic_allocation, is_killed, created]
 
   - command: get feature_flag:definition
@@ -274,12 +296,13 @@ commands:
     noun_variant: definition
     short: "Get a flag definition for a specific environment: harness get ff:definition <flag-name> --env <env-id>"
     handler_type: endpoint
+    fields_noun: feature_flag_definition
     flags:
       - name: env
         description: Environment identifier (required)
         required: true
     endpoint:
-      path: /fme/internal/api/v4/feature-flag-definitions/{{ctx.id}}
+      path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -294,6 +317,7 @@ commands:
     noun_variant: definition
     short: "Create a flag definition in an environment: harness create ff:definition <flag-name> --env <env-id> -f def.json"
     handler_type: endpoint
+    fields_noun: feature_flag_definition
     flags:
       - name: env
         description: Environment identifier (required)
@@ -301,7 +325,7 @@ commands:
     endpoint:
       method: POST
       file_body: required
-      path: /fme/internal/api/v4/feature-flag-definitions/{{ctx.id}}
+      path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -316,6 +340,7 @@ commands:
     noun_variant: definition
     short: "Update a flag definition: harness update ff:definition <name> --env <env-id> --set trafficAllocation=80"
     handler_type: endpoint
+    fields_noun: feature_flag_definition
     flags:
       - name: env
         description: Environment identifier (required)
@@ -325,8 +350,8 @@ commands:
       del: true
     endpoint:
       method: PATCH
-      path: /fme/internal/api/v4/feature-flag-definitions/{{ctx.id}}
-      get_path: /fme/internal/api/v4/feature-flag-definitions/{{ctx.id}}
+      path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
+      get_path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
       update_strategy: get-then-patch
       update_body_pick: it
       update_body_wrap: ""
@@ -351,7 +376,7 @@ commands:
         required: true
     endpoint:
       method: DELETE
-      path: /fme/internal/api/v4/feature-flag-definitions/{{ctx.id}}
+      path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -364,6 +389,7 @@ commands:
     noun_variant: kill
     short: "Kill a flag in an environment (all traffic → defaultTreatment): harness execute ff:kill <flag-name> --env <env-id>"
     handler_type: endpoint
+    fields_noun: feature_flag_definition
     flags:
       - name: env
         description: Environment identifier (required)
@@ -372,7 +398,7 @@ commands:
         description: Audit comment
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/feature-flag-definitions/{{ctx.id}}/kill
+      path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}/kill
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -389,6 +415,7 @@ commands:
     noun_variant: restore
     short: Restore a killed flag definition
     handler_type: endpoint
+    fields_noun: feature_flag_definition
     flags:
       - name: env
         description: Environment identifier (required)
@@ -397,7 +424,7 @@ commands:
         description: Audit comment
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/feature-flag-definitions/{{ctx.id}}/restore
+      path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}/restore
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -414,6 +441,7 @@ commands:
     noun_variant: reallocate
     short: Re-hash traffic distribution for a flag definition
     handler_type: endpoint
+    fields_noun: feature_flag_definition
     flags:
       - name: env
         description: Environment identifier (required)
@@ -422,7 +450,7 @@ commands:
         description: Audit comment
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/feature-flag-definitions/{{ctx.id}}/reallocate
+      path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}/reallocate
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -443,7 +471,7 @@ commands:
     short: List FME environments
     handler_type: endpoint
     endpoint:
-      path: /fme/internal/api/v4/environments
+      path: /fme/api/v4/environments
       items_expr: it.data
       item_item_expr: it
       get_id_expr: it.id
@@ -467,7 +495,7 @@ commands:
     short: "Get FME environment details: harness get fme_environment <environment-id>"
     handler_type: endpoint
     endpoint:
-      path: /fme/internal/api/v4/environments/{{ctx.id}}
+      path: /fme/api/v4/environments/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -488,7 +516,7 @@ commands:
       set: true
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/environments
+      path: /fme/api/v4/environments
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -511,8 +539,8 @@ commands:
       del: true
     endpoint:
       method: PATCH
-      path: /fme/internal/api/v4/environments/{{ctx.id}}
-      get_path: /fme/internal/api/v4/environments/{{ctx.id}}
+      path: /fme/api/v4/environments/{{ctx.id}}
+      get_path: /fme/api/v4/environments/{{ctx.id}}
       update_strategy: get-then-patch
       update_body_pick: it
       update_body_wrap: ""
@@ -531,7 +559,7 @@ commands:
     handler_type: endpoint
     endpoint:
       method: DELETE
-      path: /fme/internal/api/v4/environments/{{ctx.id}}
+      path: /fme/api/v4/environments/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -545,7 +573,7 @@ commands:
     short: List segments
     handler_type: endpoint
     endpoint:
-      path: /fme/internal/api/v4/segments
+      path: /fme/api/v4/segments
       items_expr: it.data
       item_item_expr: it
       get_id_expr: it.name
@@ -569,7 +597,7 @@ commands:
     short: "Get segment details: harness get segment <name>"
     handler_type: endpoint
     endpoint:
-      path: /fme/internal/api/v4/segments/{{ctx.id}}
+      path: /fme/api/v4/segments/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -592,7 +620,7 @@ commands:
       set: true
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/segments
+      path: /fme/api/v4/segments
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -616,8 +644,8 @@ commands:
       del: true
     endpoint:
       method: PATCH
-      path: /fme/internal/api/v4/segments/{{ctx.id}}
-      get_path: /fme/internal/api/v4/segments/{{ctx.id}}
+      path: /fme/api/v4/segments/{{ctx.id}}
+      get_path: /fme/api/v4/segments/{{ctx.id}}
       update_strategy: get-then-patch
       update_body_pick: it
       update_body_wrap: ""
@@ -636,7 +664,7 @@ commands:
     handler_type: endpoint
     endpoint:
       method: DELETE
-      path: /fme/internal/api/v4/segments/{{ctx.id}}
+      path: /fme/api/v4/segments/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -650,12 +678,13 @@ commands:
     noun_variant: definition
     short: "List segment definitions in an environment: harness list segment:definition --env <env-id>"
     handler_type: endpoint
+    fields_noun: segment_definition
     flags:
       - name: env
         description: Environment identifier (required)
         required: true
     endpoint:
-      path: /fme/internal/api/v4/segment-definitions
+      path: /fme/api/v4/segment-definitions
       items_expr: it.data
       item_item_expr: it
       get_id_expr: it.segment.name
@@ -672,18 +701,6 @@ commands:
         page_size_max: 100
         total_expr: it.totalCount
         countable: true
-      fields_extra:
-        - id: segment
-          expr: it.segment.name
-        - id: environment
-          expr: it.environment.name
-        - id: description
-          expr: it.description ?? ""
-        - id: status
-          expr: it.status
-        - id: created
-          expr: epochMs(it.createdAt * 1000)
-          field_type: ts
       columns: [segment, environment, description, status, created]
 
   - command: get segment:definition
@@ -692,12 +709,13 @@ commands:
     noun_variant: definition
     short: "Get a segment definition: harness get segment:definition <segment-name> --env <env-id>"
     handler_type: endpoint
+    fields_noun: segment_definition
     flags:
       - name: env
         description: Environment identifier (required)
         required: true
     endpoint:
-      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -712,6 +730,7 @@ commands:
     noun_variant: definition
     short: "Create a segment definition in an environment: harness create segment:definition <segment-name> --env <env-id> [--description desc]"
     handler_type: endpoint
+    fields_noun: segment_definition
     flags:
       - name: env
         description: Environment identifier (required)
@@ -720,7 +739,7 @@ commands:
         description: Definition description
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -737,6 +756,7 @@ commands:
     noun_variant: definition
     short: "Update a segment definition: harness update segment:definition <segment-name> --env <env-id> --set description=foo"
     handler_type: endpoint
+    fields_noun: segment_definition
     flags:
       - name: env
         description: Environment identifier (required)
@@ -746,10 +766,10 @@ commands:
       del: true
     endpoint:
       method: PATCH
-      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
-      get_path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}
+      get_path: /fme/api/v4/segment-definitions/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      update_body_pick: "{description: it.description}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
@@ -772,7 +792,7 @@ commands:
         required: true
     endpoint:
       method: DELETE
-      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -795,7 +815,7 @@ commands:
         description: Environment identifier (required)
         required: true
     endpoint:
-      path: /fme/internal/api/v4/segment-definitions/{{ctx.parentId}}/keys
+      path: /fme/api/v4/segment-definitions/{{ctx.parentId}}/keys
       items_expr: it.data
       item_item_expr: it
       get_id_expr: "-"
@@ -820,6 +840,7 @@ commands:
     noun_variant: definition_keys_add
     short: "Add (or replace) targeting keys in a segment definition: harness execute segment:definition_keys_add <segment-name> --env <env-id> --keys k1,k2 [--replace]"
     handler_type: endpoint
+    fields_noun: segment_definition_keys
     flags:
       - name: env
         description: Environment identifier (required)
@@ -836,7 +857,7 @@ commands:
         description: Audit change title
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}/keys
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}/keys
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -856,6 +877,7 @@ commands:
     noun_variant: definition_keys_remove
     short: "Remove targeting keys from a segment definition: harness execute segment:definition_keys_remove <segment-name> --env <env-id> --keys k1,k2"
     handler_type: endpoint
+    fields_noun: segment_definition_keys
     flags:
       - name: env
         description: Environment identifier (required)
@@ -870,7 +892,7 @@ commands:
         description: Audit change title
     endpoint:
       method: POST
-      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}/keys/remove
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}/keys/remove
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
