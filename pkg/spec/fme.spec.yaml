@@ -31,6 +31,45 @@ nouns:
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
 
+  - noun: fme_environment
+    short_desc: A Harness FME environment (distinct from the CD "environment" noun).
+    noun_aliases: [fme_environments, fme_env]
+    fields:
+      - id: name
+        expr: it.name
+        mutable_path: name
+      - id: production
+        label: Production
+        expr: string(it.isProduction)
+        mutable_path: isProduction
+      - id: status
+        expr: it.status
+
+  - noun: segment
+    short_desc: A Harness FME segment (a named list of targeting keys).
+    noun_aliases: [segments, seg]
+    fields:
+      - id: name
+        expr: it.name
+      - id: description
+        expr: it.description ?? ""
+        mutable_path: description
+        width_max: 60
+      - id: traffic_type
+        label: Traffic Type
+        expr: it.trafficType.name
+      - id: status
+        expr: it.status
+      - id: created
+        expr: epochMs(it.createdAt * 1000)
+        field_type: ts
+
+  - noun: segment_definition_keys
+    short_desc: A targeting key within a segment definition (used for field lookup only).
+    fields:
+      - id: key
+        expr: it
+
 commands:
   # ── feature_flag ─────────────────────────────────────────────────────────────
 
@@ -393,3 +432,452 @@ commands:
         comment: flags.comment
       item_expr: it.entity
       text_header: "\nReallocated traffic for {{ctx.id}} in {{flags.env}}\n"
+
+  # ── fme_environment ────────────────────────────────────────────────────────────
+  # Named fme_environment (not "environment") because the "environment" noun is
+  # already owned by the cd module (a different resource).
+
+  - command: list fme_environment
+    verb: list
+    noun: fme_environment
+    short: List FME environments
+    handler_type: endpoint
+    endpoint:
+      path: /fme/internal/api/v4/environments
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: it.id
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [name, production, status]
+
+  - command: get fme_environment
+    verb: get
+    noun: fme_environment
+    short: "Get FME environment details: harness get fme_environment <environment-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /fme/internal/api/v4/environments/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: create fme_environment
+    verb: create
+    noun: fme_environment
+    short: "Create an FME environment: harness create fme_environment <name> [--production]"
+    handler_type: endpoint
+    flags:
+      - name: production
+        is_bool: true
+        description: Mark the environment as a production environment
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /fme/internal/api/v4/environments
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      create_strategy: set-fields
+      create_body_init:
+        name: ctx.id
+        isProduction: flags.production
+      create_body_wrap: ""
+      item_expr: it.entity
+      text_header: "\nCreated environment {{it.name}}\n"
+
+  - command: update fme_environment
+    verb: update
+    noun: fme_environment
+    short: "Update an FME environment: harness update fme_environment <environment-id> --set name=foo"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /fme/internal/api/v4/environments/{{ctx.id}}
+      get_path: /fme/internal/api/v4/environments/{{ctx.id}}
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated environment {{ctx.id}}\n"
+
+  - command: delete fme_environment
+    verb: delete
+    noun: fme_environment
+    confirm_mode: prompt
+    short: Delete (archive) an FME environment
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/internal/api/v4/environments/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+
+  # ── segment ──────────────────────────────────────────────────────────────────
+
+  - command: list segment
+    verb: list
+    noun: segment
+    short: List segments
+    handler_type: endpoint
+    endpoint:
+      path: /fme/internal/api/v4/segments
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: it.name
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [name, traffic_type, status, created]
+
+  - command: get segment
+    verb: get
+    noun: segment
+    short: "Get segment details: harness get segment <name>"
+    handler_type: endpoint
+    endpoint:
+      path: /fme/internal/api/v4/segments/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: create segment
+    verb: create
+    noun: segment
+    short: "Create a segment: harness create segment <name> --traffic-type user"
+    handler_type: endpoint
+    flags:
+      - name: traffic-type
+        description: Traffic type for the segment (e.g. user, account)
+        required: true
+      - name: description
+        description: Segment description
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /fme/internal/api/v4/segments
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      create_strategy: set-fields
+      create_body_init:
+        name: ctx.id
+        trafficType: flags["traffic-type"]
+        description: 'flags.description != "" ? flags.description : nil'
+      create_body_wrap: ""
+      item_expr: it.entity
+      text_header: "\nCreated segment {{it.name}}\n"
+
+  - command: update segment
+    verb: update
+    noun: segment
+    short: "Update a segment: harness update segment <name> --set description=foo"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /fme/internal/api/v4/segments/{{ctx.id}}
+      get_path: /fme/internal/api/v4/segments/{{ctx.id}}
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated segment {{ctx.id}}\n"
+
+  - command: delete segment
+    verb: delete
+    noun: segment
+    confirm_mode: prompt
+    short: Delete (archive) a segment
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/internal/api/v4/segments/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+
+  # ── segment:definition ─────────────────────────────────────────────────────────
+
+  - command: list segment:definition
+    verb: list
+    noun: segment
+    noun_variant: definition
+    short: "List segment definitions in an environment: harness list segment:definition --env <env-id>"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      path: /fme/internal/api/v4/segment-definitions
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: it.segment.name
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      fields_extra:
+        - id: segment
+          expr: it.segment.name
+        - id: environment
+          expr: it.environment.name
+        - id: description
+          expr: it.description ?? ""
+        - id: status
+          expr: it.status
+        - id: created
+          expr: epochMs(it.createdAt * 1000)
+          field_type: ts
+      columns: [segment, environment, description, status, created]
+
+  - command: get segment:definition
+    verb: get
+    noun: segment
+    noun_variant: definition
+    short: "Get a segment definition: harness get segment:definition <segment-name> --env <env-id>"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: create segment:definition
+    verb: create
+    noun: segment
+    noun_variant: definition
+    short: "Create a segment definition in an environment: harness create segment:definition <segment-name> --env <env-id> [--description desc]"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: description
+        description: Definition description
+    endpoint:
+      method: POST
+      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      body_params:
+        description: 'flags.description != "" ? flags.description : nil'
+      item_expr: it.entity
+      text_header: "\nCreated segment definition for {{ctx.id}} in {{flags.env}}\n"
+
+  - command: update segment:definition
+    verb: update
+    noun: segment
+    noun_variant: definition
+    short: "Update a segment definition: harness update segment:definition <segment-name> --env <env-id> --set description=foo"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      get_path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      item_expr: it.entity
+      text_header: "\nUpdated segment definition for {{ctx.id}} in {{flags.env}}\n"
+
+  - command: delete segment:definition
+    verb: delete
+    noun: segment
+    noun_variant: definition
+    confirm_mode: prompt
+    short: Delete (archive) a segment definition from an environment
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      method: DELETE
+      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+
+  # ── segment:definition_keys ────────────────────────────────────────────────────
+
+  - command: list segment:definition_keys
+    verb: list
+    noun: segment
+    noun_variant: definition_keys
+    short: "List targeting keys in a segment definition: harness list segment:definition_keys <segment-name> --env <env-id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<segment-name>"
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      path: /fme/internal/api/v4/segment-definitions/{{ctx.parentId}}/keys
+      items_expr: it.data
+      item_item_expr: it
+      fields_noun: segment_definition_keys
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [key]
+
+  - command: execute segment:definition_keys_add
+    verb: execute
+    noun: segment
+    noun_variant: definition_keys_add
+    short: "Add (or replace) targeting keys in a segment definition: harness execute segment:definition_keys_add <segment-name> --env <env-id> --keys k1,k2 [--replace]"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: keys
+        description: Targeting keys to add (comma-separated list or JSON array)
+        is_array: true
+      - name: replace
+        is_bool: true
+        description: Replace the entire key set instead of merging (empty --keys with --replace clears all keys)
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit change title
+    endpoint:
+      method: POST
+      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}/keys
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+        replace: 'flags.replace ? "true" : nil'
+      body_params:
+        keys: flags.keys
+        comment: flags.comment
+        title: flags.title
+      item_expr: it.keys
+      text_header: "\nUpdated keys for segment definition {{ctx.id}} in {{flags.env}}\n"
+
+  - command: execute segment:definition_keys_remove
+    verb: execute
+    noun: segment
+    noun_variant: definition_keys_remove
+    short: "Remove targeting keys from a segment definition: harness execute segment:definition_keys_remove <segment-name> --env <env-id> --keys k1,k2"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: keys
+        description: Targeting keys to remove (comma-separated list or JSON array)
+        required: true
+        is_array: true
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit change title
+    endpoint:
+      method: POST
+      path: /fme/internal/api/v4/segment-definitions/{{ctx.id}}/keys/remove
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      body_params:
+        keys: flags.keys
+        comment: flags.comment
+        title: flags.title
+      item_expr: it.keys
+      text_header: "\nRemoved keys from segment definition {{ctx.id}} in {{flags.env}}\n"

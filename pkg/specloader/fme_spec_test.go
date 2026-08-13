@@ -32,6 +32,21 @@ func fmeCaptureServer(t *testing.T, resp string) (*httptest.Server, *string) {
 	return srv, &path
 }
 
+// fmeCaptureServerWithQuery is like fmeCaptureServer but also records the raw
+// query string, for asserting flag-to-query-param wiring (e.g. --env → environment_id).
+func fmeCaptureServerWithQuery(t *testing.T, resp string) (*httptest.Server, *string, *string) {
+	t.Helper()
+	path, query := "", ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		query = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &path, &query
+}
+
 func fmeTestCtx(t *testing.T, apiURL string) *cmdctx.Ctx {
 	t.Helper()
 	return &cmdctx.Ctx{
@@ -133,5 +148,192 @@ func TestFMESpec_GetFeatureFlag(t *testing.T) {
 	}
 	if strings.Contains(body, "entity") {
 		t.Fatalf("output still references entity wrapper: %s", body)
+	}
+}
+
+// TestFMESpec_ListFMEEnvironment drives "list fme_environment" and asserts it
+// hits /fme/internal/api/v4/environments and that get_id_expr resolves off
+// it.id (environments are addressed by UUID, not name, unlike segment/feature_flag).
+func TestFMESpec_ListFMEEnvironment(t *testing.T) {
+	reg := registry.New()
+	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "fme_environment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list fme_environment: command not found or missing endpoint spec")
+	}
+
+	fixture := `{"data":[{"id":"env-uuid-1","name":"Prod","isProduction":true,"status":"ACTIVE"}],"limit":100,"offset":0,"totalCount":1}`
+	srv, path := fmeCaptureServer(t, fixture)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "fme_environment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+
+	if !strings.HasPrefix(*path, "/fme/internal/api/v4/environments") {
+		t.Fatalf("request path = %q, want prefix /fme/internal/api/v4/environments", *path)
+	}
+
+	body := fmeReadOut(t, ctx)
+	for _, want := range []string{"Prod", "true", "ACTIVE"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("output missing %q: %s", want, body)
+		}
+	}
+}
+
+// TestFMESpec_GetFMEEnvironment drives "get fme_environment" with a UUID id
+// and asserts the path embeds it (environments are looked up by id, not name).
+func TestFMESpec_GetFMEEnvironment(t *testing.T) {
+	reg := registry.New()
+	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("get", "fme_environment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("get fme_environment: command not found or missing endpoint spec")
+	}
+
+	fixture := `{"id":"env-uuid-1","name":"Prod","isProduction":true,"status":"ACTIVE"}`
+	srv, path := fmeCaptureServer(t, fixture)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "env-uuid-1"
+	ctx.Noun = "fme_environment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "yaml"
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if *path != "/fme/internal/api/v4/environments/env-uuid-1" {
+		t.Fatalf("request path = %q, want /fme/internal/api/v4/environments/env-uuid-1", *path)
+	}
+}
+
+// TestFMESpec_ListSegment drives "list segment" and asserts get_id_expr
+// resolves off it.name (segments, unlike fme_environment, are addressed by name).
+func TestFMESpec_ListSegment(t *testing.T) {
+	reg := registry.New()
+	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "segment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list segment: command not found or missing endpoint spec")
+	}
+
+	fixture := `{"data":[{"name":"my-segment","description":"desc","trafficType":{"name":"user"},"status":"ACTIVE","createdAt":1778049995.725}],"limit":100,"offset":0,"totalCount":1}`
+	srv, path := fmeCaptureServer(t, fixture)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+
+	if !strings.HasPrefix(*path, "/fme/internal/api/v4/segments") {
+		t.Fatalf("request path = %q, want prefix /fme/internal/api/v4/segments", *path)
+	}
+
+	body := fmeReadOut(t, ctx)
+	for _, want := range []string{"my-segment", "user", "ACTIVE"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("output missing %q: %s", want, body)
+		}
+	}
+}
+
+// TestFMESpec_ListSegmentDefinition drives "list segment:definition" and asserts
+// the --env flag maps to the environment_id query param and fields_extra resolves
+// (segment/environment names, description, status) off the flat item.
+func TestFMESpec_ListSegmentDefinition(t *testing.T) {
+	reg := registry.New()
+	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "segment:definition")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list segment:definition: command not found or missing endpoint spec")
+	}
+
+	fixture := `{"data":[{"segment":{"name":"my-segment"},"environment":{"name":"Prod"},"description":"desc","status":"ACTIVE","createdAt":1778049995.725}],"limit":100,"offset":0,"totalCount":1}`
+	srv, path, query := fmeCaptureServerWithQuery(t, fixture)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"env": "env-uuid-1"}
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+
+	if !strings.HasPrefix(*path, "/fme/internal/api/v4/segment-definitions") {
+		t.Fatalf("request path = %q, want prefix /fme/internal/api/v4/segment-definitions", *path)
+	}
+	if !strings.Contains(*query, "environment_id=env-uuid-1") {
+		t.Fatalf("query = %q, want environment_id=env-uuid-1 (from --env flag)", *query)
+	}
+
+	body := fmeReadOut(t, ctx)
+	for _, want := range []string{"my-segment", "Prod", "desc", "ACTIVE"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("output missing %q: %s", want, body)
+		}
+	}
+}
+
+// TestFMESpec_ListSegmentDefinitionKeys drives "list segment:definition_keys" and
+// asserts the fields_noun override (segment_definition_keys) renders raw string
+// items directly (it.key = it), not object fields, and the parent id is embedded
+// in the path.
+func TestFMESpec_ListSegmentDefinitionKeys(t *testing.T) {
+	reg := registry.New()
+	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "segment:definition_keys")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list segment:definition_keys: command not found or missing endpoint spec")
+	}
+
+	fixture := `{"data":["key-one","key-two"],"limit":100,"offset":0,"totalCount":2}`
+	srv, path, query := fmeCaptureServerWithQuery(t, fixture)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "segment"
+	ctx.ParentId = "my-segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"env": "env-uuid-1"}
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+
+	if *path != "/fme/internal/api/v4/segment-definitions/my-segment/keys" {
+		t.Fatalf("request path = %q, want /fme/internal/api/v4/segment-definitions/my-segment/keys", *path)
+	}
+	if !strings.Contains(*query, "environment_id=env-uuid-1") {
+		t.Fatalf("query = %q, want environment_id=env-uuid-1 (from --env flag)", *query)
+	}
+
+	body := fmeReadOut(t, ctx)
+	for _, want := range []string{"key-one", "key-two"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("output missing %q (fields_noun override did not resolve raw string item): %s", want, body)
+		}
 	}
 }
