@@ -17,7 +17,8 @@ import (
 
 func main() {
 	reg := registry.New()
-	if err := specloader.LoadSpec(reg, "har.spec.yaml", true); err != nil {
+	specBytes, err := specloader.LoadSpec(reg, "har.spec.yaml", true)
+	if err != nil {
 		console.PrintError(err.Error())
 		os.Exit(1)
 	}
@@ -27,5 +28,5 @@ func main() {
 		Use:   "harness-har",
 		Short: "Harness Artifact Registry CLI",
 	}
-	rootcmd.SetupAndExecutePluginRootCmd(root, reg, "har")
+	rootcmd.SetupAndExecutePluginRootCmd(root, reg, "har", specBytes)
 }
