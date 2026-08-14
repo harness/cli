@@ -23,10 +23,10 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/harness/cli/modules/pipeline"
 	"github.com/harness/cli/pkg/auth"
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/logstream"
 )
 
 const executeWorkspaceHandlerID = "execute_workspace"
@@ -70,6 +70,9 @@ func executeWorkspaceHandler(ctx *cmdctx.Ctx) error {
 	a := ctx.Auth
 
 	workspaceID := ctx.Id
+	if workspaceID == "" {
+		workspaceID = positionalWorkspaceArg()
+	}
 	orgID := a.OrgID
 	projectID := a.ProjectID
 
@@ -126,6 +129,22 @@ func loadWorkspaceConfig() (*workspaceConfig, error) {
 		return nil, fmt.Errorf("parsing workspace config: %w", err)
 	}
 	return &cfg, nil
+}
+
+// positionalWorkspaceArg extracts the workspace ID from os.Args.
+// Since no_id:true prevents the framework from setting ctx.Id, we parse
+// the positional argument manually: "harness execute workspace <id>".
+func positionalWorkspaceArg() string {
+	var found bool
+	for _, arg := range os.Args[1:] {
+		if found && !strings.HasPrefix(arg, "-") {
+			return arg
+		}
+		if arg == "workspace" {
+			found = true
+		}
+	}
+	return ""
 }
 
 func executePlan(
@@ -202,11 +221,8 @@ func executePlan(
 	}
 	fmt.Printf("Pipeline execution: %s\n", execURL)
 
-	fmt.Println("\n=== Pipeline Execution Logs ===")
-	return logstream.FollowMulti(cmdCtx, exec.PipelineExecutionID, "", "", logstream.MultiStyleMarkers, map[string]bool{
-		"IACMIntegrationStageStepPMS": true,
-		"IACMPrepareExecution":        true,
-	})
+	fmt.Println("\n=== Launching UI Log Viewer ===")
+	return pipeline.RunLogViewer(exec.PipelineExecutionID, cmdCtx)
 }
 
 // ---- API helpers ----
