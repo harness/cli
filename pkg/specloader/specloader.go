@@ -165,14 +165,27 @@ func ReadSpecFile(moduleName string) ([]byte, error) {
 	return spec.Read(moduleName + ".spec.yaml")
 }
 
-// LoadSpec loads a single embedded spec file (e.g. "har.spec.yaml") into reg.
-// isHarnessUser gates modules marked harness_internal: true.
-func LoadSpec(reg *registry.Registry, name string, isHarnessUser bool) error {
+// Returns the raw bytes it read so a plugin main() can also hand them to
+// rootcmd.SetupAndExecutePluginRootCmd for its own --spec dump, without a
+// second read of the same file.
+func LoadSpec(reg *registry.Registry, name string, isHarnessUser bool) ([]byte, error) {
 	data, err := spec.Read(name)
 	if err != nil {
-		return fmt.Errorf("spec: read %s: %w", name, err)
+		return nil, fmt.Errorf("spec: read %s: %w", name, err)
 	}
-	return loadSpecData(reg, name, data, isHarnessUser, false)
+	if err := loadSpecData(reg, name, data, isHarnessUser, false); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// LoadSpecBytes is LoadSpec's counterpart for a plugin whose spec file lives in
+// its own repo rather than core's pkg/spec.
+func LoadSpecBytes(reg *registry.Registry, name string, data []byte, isHarnessUser bool) ([]byte, error) {
+	if err := loadSpecData(reg, name, data, isHarnessUser, false); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // loadSpecData parses spec bytes and registers the module, nouns, and commands.
