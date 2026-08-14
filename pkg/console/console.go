@@ -131,6 +131,46 @@ func PrintError(msg string) {
 	}
 }
 
+// Info prints msg to stdout in cyan, prefixed with an arrow.
+func Info(msg string) {
+	fmt.Println(WithColor(ColorCyan, "→ "+msg))
+}
+
+// Infof formats and prints an informational line. See Info.
+func Infof(format string, args ...any) {
+	Info(fmt.Sprintf(format, args...))
+}
+
+// Success prints msg to stdout in green, prefixed with a checkmark.
+func Success(msg string) {
+	fmt.Println(WithColor(ColorGreen, "✓ "+msg))
+}
+
+// Successf formats and prints a success line. See Success.
+func Successf(format string, args ...any) {
+	Success(fmt.Sprintf(format, args...))
+}
+
+// Warning prints msg to stdout in yellow, prefixed with a warning symbol.
+func Warning(msg string) {
+	fmt.Println(WithColor(ColorYellow, "⚠ "+msg))
+}
+
+// Warningf formats and prints a warning line. See Warning.
+func Warningf(format string, args ...any) {
+	Warning(fmt.Sprintf(format, args...))
+}
+
+// Error prints msg to stderr in red, prefixed with an X.
+func Error(msg string) {
+	fmt.Fprintln(os.Stderr, WithColor(ColorRed, "✗ "+msg))
+}
+
+// Errorf formats and prints an error line. See Error.
+func Errorf(format string, args ...any) {
+	Error(fmt.Sprintf(format, args...))
+}
+
 // ReadPrompt prints "label [defaultVal]: " to stderr and reads a line from the terminal.
 // Returns defaultVal if the user presses enter without typing anything.
 func ReadPrompt(label, defaultVal string) (string, error) {
