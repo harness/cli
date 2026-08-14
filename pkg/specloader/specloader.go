@@ -72,7 +72,8 @@ func specParseError(name string, data []byte, parseErr error) error {
 // instead of being masked by an embedded copy. loadSpecData still records their
 // noun ownership (best-effort, for "plugin not installed" error messages).
 func LoadSpecs(reg *registry.Registry) error {
-	isHarnessUser := config.AnyProfileMatchesDomain("harness.io")
+	isHarnessUser := os.Getenv("HARNESS_ENABLE_BETA_MODULES") == "1" ||
+		config.AnyProfileMatchesDomain("harness.io")
 	for _, name := range spec.Files() {
 		data, err := spec.Read(name)
 		if err != nil {
