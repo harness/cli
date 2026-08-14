@@ -53,6 +53,7 @@ type Registry struct {
 	specs                map[string][]*spec.CommandSpec
 	nouns                map[string]spec.NounDef
 	nounAliases          map[string]string // alias name → canonical noun name
+	pluginOwnedNouns     map[string]string // noun (or alias) → owning plugin module
 	moduleMetas          []spec.ModuleMeta
 	workflows            map[string]WorkflowFn
 	textFormatters       map[string]cmdctx.TextFormatterFn
@@ -73,6 +74,7 @@ func New() *Registry {
 		specs:                map[string][]*spec.CommandSpec{},
 		nouns:                map[string]spec.NounDef{},
 		nounAliases:          map[string]string{},
+		pluginOwnedNouns:     map[string]string{},
 		workflows:            map[string]WorkflowFn{},
 		textFormatters:       map[string]cmdctx.TextFormatterFn{},
 		bodyFns:              map[string]cmdctx.CreateBodyFn{},
@@ -92,6 +94,26 @@ func New() *Registry {
 // SetModuleMeta stores metadata for a module loaded from a spec file.
 func (r *Registry) SetModuleMeta(m spec.ModuleMeta) {
 	r.moduleMetas = append(r.moduleMetas, m)
+}
+
+// RecordPluginOwnedNouns records module as the owner of nouns (and their
+// aliases), for best-effort "plugin not installed" error messages.
+func (r *Registry) RecordPluginOwnedNouns(module string, nouns []spec.NounDef) {
+	for _, nd := range nouns {
+		r.pluginOwnedNouns[nd.Noun] = module
+		for _, alias := range nd.NounAliases {
+			r.pluginOwnedNouns[alias] = module
+		}
+	}
+}
+
+// pluginOwnerOfUnregisteredNoun returns the plugin owning noun, or "" if noun
+// is already registered (plugin installed) or has no recorded owner.
+func (r *Registry) pluginOwnerOfUnregisteredNoun(noun string) string {
+	if _, registered := r.nouns[noun]; registered {
+		return ""
+	}
+	return r.pluginOwnedNouns[noun]
 }
 
 // moduleMeta returns the ModuleMeta for a module, or nil if not registered.
@@ -517,6 +539,9 @@ func (r *Registry) unknownNounError(verb, noun string) error {
 	if canonical, ok := r.nounAliases[noun]; ok {
 		resolvedNoun = canonical
 	}
+	if mod := r.pluginOwnerOfUnregisteredNoun(resolvedNoun); mod != "" {
+		return fmt.Errorf("%q is provided by the %q plugin, which isn't installed\n\nTo install it, run:\n  harness install plugin %s", noun, mod, mod)
+	}
 	nounExistsForVerb := false
 	for _, cs := range r.specs[verb] {
 		if cs.Noun == resolvedNoun || cs.FullNoun() == noun {
@@ -612,6 +637,15 @@ func (r *Registry) SuggestRootCommand(args []string) string {
 	}
 
 	first := positional[0]
+
+	// Case 0: first arg is a noun (or noun:variant) owned by a plugin that
+	// isn't installed, so it was never registered — cobra can't dispatch it
+	// as either a verb or a noun. Covers both "harness <noun> <verb>" and
+	// verb-less plugin verbs (e.g. har's push/pull/configure).
+	nounBase := strings.SplitN(first, ":", 2)[0]
+	if mod := r.pluginOwnerOfUnregisteredNoun(nounBase); mod != "" {
+		return fmt.Sprintf("%q is provided by the %q plugin, which isn't installed\n\nTo install it, run:\n  harness install plugin %s", first, mod, mod)
+	}
 
 	// Case 1: noun-verb transposition — requires at least two positional args.
 	// Handles plain nouns ("pr create"), noun aliases ("prs list"),

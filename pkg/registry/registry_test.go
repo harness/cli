@@ -548,6 +548,15 @@ func TestUnknownNounError(t *testing.T) {
 			verb: VerbCreate, noun: "pipelines",
 			wantContain: "not supported for",
 		},
+		{
+			name: "plugin_owned_noun_not_installed",
+			setup: func(r *Registry) {
+				r.Register(wfSpec(VerbList, "pipeline", "pipeline"))
+				r.RecordPluginOwnedNouns("har", []spec.NounDef{{Noun: "registry"}})
+			},
+			verb: VerbGet, noun: "registry",
+			wantContain: `"registry" is provided by the "har" plugin, which isn't installed`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
