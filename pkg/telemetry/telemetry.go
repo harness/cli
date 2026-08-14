@@ -29,12 +29,10 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"syscall"
-
-	"golang.org/x/term"
 
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/config"
+	"github.com/harness/cli/pkg/console"
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/hlog"
 )
@@ -84,7 +82,7 @@ func NewEnv() Env {
 		Arch:                runtime.GOARCH,
 		Version:             hbase.Version,
 		IsDev:               hbase.IsDev(),
-		IsTTY:               term.IsTerminal(int(syscall.Stdout)),
+		IsTTY:               console.IsStdoutTTY(),
 		IsPipelineExecution: pipelineID != "",
 		PipelineID:          pipelineID,
 		AIAgent:             DetectAgent(),
@@ -241,7 +239,7 @@ func Init() (flush func()) {
 		SetDisabled(true)
 		return func() {}
 	}
-	seg := newSegmentBackend(config.GetOrCreateTelemetryID())
+	seg := newSegmentBackend(config.GetOrCreateTelemetryID(console.IsStdoutTTY()))
 	if seg == nil {
 		return func() {}
 	}
