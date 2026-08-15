@@ -33,44 +33,18 @@ const (
 	ssoCallbackTimeout = 5 * time.Minute
 )
 
-// LoginSSOHandler implements `harness auth loginsso`.
+// runSSOLogin implements the SSO half of `harness auth login --sso`, reached either
+// from the flag or from the "Login with SSO" row of the login wizard's URL picker.
+// The caller has already validated profileName and resolved the overwrite decision.
 // It performs the full OAuth2 PKCE flow via browser:
 //  1. Fetch authorization server metadata from id.harness.io
 //  2. Launch browser with PKCE authorization URL + local callback server on port 57380
 //  3. Exchange code for token, extract account ID from JWT claims
 //  4. Drop into existing org/project picker wizard, then save profile
-func LoginSSOHandler(ctx *cmdctx.Ctx) error {
-	overwrite := cmdctx.GetBool(ctx.FlagValues, "overwrite")
-	noOverwrite := cmdctx.GetBool(ctx.FlagValues, "no-overwrite")
+func runSSOLogin(ctx *cmdctx.Ctx, cfg *config.Config, profileName string) error {
 	forceSave := cmdctx.GetBool(ctx.FlagValues, "force-save")
-	if overwrite && noOverwrite {
-		return fmt.Errorf("--overwrite and --no-overwrite are mutually exclusive")
-	}
-
-	profileName := cmdctx.GetString(ctx.FlagValues, "profile")
-	if profileName == "" {
-		profileName = "default"
-	}
-	if !profileNameRe.MatchString(profileName) {
-		return fmt.Errorf("invalid profile name %q: must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", profileName)
-	}
-
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return err
-	}
-	if _, exists := cfg.Profiles[profileName]; exists {
-		switch {
-		case noOverwrite:
-			return fmt.Errorf("profile %q already exists (use --overwrite to replace it)", profileName)
-		case !overwrite:
-			fmt.Fprintf(os.Stderr, "WARNING: profile %q already exists, continuing will overwrite it\n\n", profileName)
-			if !console.PromptYesNo("Overwrite?") {
-				return fmt.Errorf("canceled by user — config not written")
-			}
-			fmt.Fprintln(os.Stderr)
-		}
-	}
+	orgID := cmdctx.GetString(ctx.FlagValues, "org")
+	projectID := cmdctx.GetString(ctx.FlagValues, "project")
 
 	meta, err := auth.FetchAuthServerMeta(&http.Client{Timeout: 10 * time.Second}, auth.SSOAuthServerURL())
 	if err != nil {
@@ -87,14 +61,16 @@ func LoginSSOHandler(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	// Reuse the existing set-wizard to pick org/project.
-	var orgID, projectID string
-	if console.IsBothTTY() {
+	// Reuse the existing set-wizard to pick org/project. Without a TTY, or when both
+	// were passed as flags, the profile is saved with whatever scope we have.
+	if console.IsBothTTY() && (orgID == "" || projectID == "") {
 		result, werr := RunSetWizard(ctx, &SetWizardInput{
 			APIURL:    apiURL,
 			Token:     token,
 			AccountID: accountID,
 			AuthType:  auth.AuthTypeSSO,
+			OrgID:     orgID,
+			ProjectID: projectID,
 		})
 		if werr != nil {
 			if !forceSave {
@@ -104,8 +80,12 @@ func LoginSSOHandler(ctx *cmdctx.Ctx) error {
 		} else if result == nil {
 			return fmt.Errorf("canceled by user — config not written")
 		} else {
-			orgID = result.OrgID
-			projectID = result.Project
+			if orgID == "" {
+				orgID = result.OrgID
+			}
+			if projectID == "" {
+				projectID = result.Project
+			}
 		}
 	}
 
@@ -123,6 +103,10 @@ func LoginSSOHandler(ctx *cmdctx.Ctx) error {
 	}
 	if err := auth.SetSSOCredentials(profileName, token, refreshToken); err != nil {
 		return fmt.Errorf("saving credentials: %w", err)
+	}
+
+	if orgID == "" || projectID == "" {
+		fmt.Fprintf(os.Stderr, "\nNote: Org and project not set — run 'harness auth setscope%s' to configure\n", profileArgSuffix(profileName))
 	}
 
 	fmt.Printf("Logged in via SSO. Profile %q written.\n\n", profileName)

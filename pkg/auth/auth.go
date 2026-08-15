@@ -114,7 +114,7 @@ func (r *ResolvedAuth) LoginHint(cmd string) string {
 func Validate(r *ResolvedAuth) error {
 	if r.AuthType == AuthTypeSSO {
 		if r.SSOToken == "" {
-			return fmt.Errorf("no token found for profile — run '%s' to re-authenticate", r.LoginHint("loginsso"))
+			return fmt.Errorf("no token found for profile — run '%s' to re-authenticate", r.LoginHint("login --sso"))
 		}
 	} else {
 		if r.PATToken == "" {
