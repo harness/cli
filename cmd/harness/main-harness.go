@@ -17,6 +17,7 @@ import (
 	"github.com/harness/cli/modules/gitops"
 	"github.com/harness/cli/modules/iacm"
 	"github.com/harness/cli/modules/pipeline"
+	"github.com/harness/cli/modules/vibe"
 	"github.com/harness/cli/pkg/console"
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/registry"
@@ -47,6 +48,7 @@ func main() {
 	core.ModuleInit(reg.Module("core"))
 	gitops.ModuleInit(reg.Module("gitops"))
 	pipeline.ModuleInit(reg.Module("pipeline"))
+	vibe.ModuleInit(reg.Module("vibe"))
 	// har is an external module (external_binary: harness-har) — ModuleInit is not loaded here.
 	iacm.ModuleInit(reg.Module("iacm"))
 	rootcmd.MaybeCheckSpecs(reg)

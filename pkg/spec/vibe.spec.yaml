@@ -1,0 +1,219 @@
+spec_version: 1
+module_type: builtin
+module_desc: Harness Vibe Mode — local vibe-api apps, deployments, and IDE handoff
+help_text: |
+  ## Vibe Mode (vibe)
+
+  Talk to a local **vibe-api** instance (default `http://localhost:8090`). Set
+  `VIBE_API_BASE_URL` when the API listens elsewhere. Harness cloud auth is optional
+  for these commands; the CLI forwards profile headers when present.
+
+  ### Typical workflow
+
+    harness list vibe_app
+    harness get vibe_app <appId>
+    harness get vibe_deployment <appId>
+    harness execute vibe_deployment:retry <appId> [--execution <id>]
+    harness execute vibe_demo:state --app <appId> --path fail_app_build
+
+  ### Fix in IDE (Cursor)
+
+  Start the browser loopback bridge:
+
+    harness execute vibe_launch --listen
+
+  Open a specific failure:
+
+    harness execute vibe_launch --app <appId> --execution <executionId> --host cursor
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: vibe_app
+    short_desc: Vibe application registered in local vibe-api.
+    noun_aliases: [vibe, vibe-app, vibe_apps]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: slug
+        expr: it.slug
+      - id: status
+        expr: it.status
+      - id: previewUrl
+        label: Preview URL
+        expr: it.previewUrl
+        width_max: 40
+      - id: productionUrl
+        label: Production URL
+        expr: it.productionUrl
+        width_max: 40
+
+  - noun: vibe_deployment
+    short_desc: Live deployment progress for a Vibe app.
+    noun_aliases: [vibe-deployment, vibe_deployments]
+    fields:
+      - id: applicationId
+        label: App
+        expr: it.applicationId
+      - id: applicationName
+        label: Name
+        expr: it.applicationName
+      - id: executionId
+        label: Execution
+        expr: it.executionId
+      - id: status
+        expr: it.status
+      - id: currentStageKey
+        label: Stage
+        expr: it.currentStageKey
+      - id: previewUrl
+        label: Preview URL
+        expr: it.previewUrl
+        width_max: 40
+
+  - noun: vibe_demo
+    short_desc: Replay named demo lifecycle recipes on an existing app.
+    noun_aliases: [vibe-demo]
+
+  - noun: vibe_launch
+    short_desc: Open a failed Vibe deployment in an isolated Cursor workspace.
+    noun_aliases: [vibe-launch]
+    fields:
+      - id: applicationId
+        expr: it.applicationId
+      - id: executionId
+        expr: it.executionId
+      - id: host
+        expr: it.host
+
+commands:
+  - command: list vibe_app
+    verb: list
+    noun: vibe_app
+    no_auth: true
+    short: "List Vibe apps from local vibe-api: harness list vibe_app"
+    handler_type: workflow
+    workflow_id: vibe_app_list
+
+  - command: get vibe_app
+    verb: get
+    noun: vibe_app
+    no_auth: true
+    short: "Get a Vibe app: harness get vibe_app <appId>"
+    handler_type: workflow
+    workflow_id: vibe_app_get
+
+  - command: get vibe_deployment
+    verb: get
+    noun: vibe_deployment
+    no_auth: true
+    short: "Get deployment progress: harness get vibe_deployment <appId> [--execution <id>]"
+    handler_type: workflow
+    workflow_id: vibe_deployment_get
+    flags:
+      - name: execution
+        description: Execution id (defaults to the app's latest execution)
+
+  - command: execute vibe_deployment:retry
+    verb: execute
+    noun: vibe_deployment
+    noun_variant: retry
+    no_auth: true
+    short: "Retry a failed deployment: harness execute vibe_deployment:retry <appId> [--execution <id>]"
+    handler_type: workflow
+    workflow_id: vibe_deployment_retry
+    flags:
+      - name: execution
+        description: Execution id (defaults to latest from vibe-deployment)
+
+  - command: execute vibe_deployment:cancel
+    verb: execute
+    noun: vibe_deployment
+    noun_variant: cancel
+    no_auth: true
+    short: "Cancel a running deployment: harness execute vibe_deployment:cancel <appId> [--execution <id>]"
+    handler_type: workflow
+    workflow_id: vibe_deployment_cancel
+    flags:
+      - name: execution
+        description: Execution id (defaults to latest from vibe-deployment)
+
+  - command: execute vibe_deployment:publish
+    verb: execute
+    noun: vibe_deployment
+    noun_variant: publish
+    no_auth: true
+    short: "Publish an app to production: harness execute vibe_deployment:publish <appId>"
+    handler_type: workflow
+    workflow_id: vibe_deployment_publish
+
+  - command: execute vibe_demo:state
+    verb: execute
+    noun: vibe_demo
+    noun_variant: state
+    no_id: true
+    no_auth: true
+    short: "Replay a demo lifecycle path: harness execute vibe_demo:state --app <appId> --path <path>"
+    handler_type: workflow
+    workflow_id: vibe_demo_state
+    flags:
+      - name: app
+        description: Vibe application id
+        required: true
+      - name: path
+        description: Demo recipe path
+        required: true
+        completion_values:
+          - success
+          - fail_source_import
+          - fail_app_discovery
+          - fail_app_build
+          - fail_infra
+          - fail_preview
+          - fail_security
+          - held_approval
+          - ready_publish
+          - live
+
+  - command: execute vibe_launch
+    verb: execute
+    noun: vibe_launch
+    no_id: true
+    no_auth: true
+    short: "Open a Vibe failure in Cursor: --app <id> --execution <id> [--listen]"
+    long: |
+      Materialize the app source into ~/harness/workspaces/vibe/<app>/<execution>,
+      write Vibe context files, and open a new Cursor window.
+
+      Start the Fix in IDE loopback bridge (demo path):
+
+        harness execute vibe_launch --listen
+
+      Open a specific failure:
+
+        harness execute vibe_launch --app <appId> --execution <executionId> --host cursor
+
+      Requires VIBE_API_BASE_URL (default http://localhost:8090). Uses the existing
+      Harness CLI profile when present; local vibe-api does not require a PAT.
+    handler_type: workflow
+    workflow_id: vibe_launch
+    flags:
+      - name: app
+        description: Vibe application id
+      - name: execution
+        description: Vibe execution / deployment id
+      - name: host
+        description: IDE host (cursor)
+        default: cursor
+        completion_values: [cursor]
+      - name: listen
+        is_bool: true
+        description: Start the local Fix in IDE loopback bridge on 127.0.0.1:17373
+      - name: from-protocol
+        is_bool: true
+        hidden: true
+        description: Confirm in the terminal before opening (used by harness://)
