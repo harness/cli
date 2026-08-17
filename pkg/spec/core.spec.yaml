@@ -135,7 +135,7 @@ commands:
       - name: api-url
         description: 'Harness API base URL (default "https://app.harness.io")'
       - name: api-token
-        description: API token (reads from stdin if omitted)
+        description: API token (PAT or SAT); reads from stdin if omitted
       - name: account
         description: Account ID (inferred from PAT; must match token if provided)
       - name: org
