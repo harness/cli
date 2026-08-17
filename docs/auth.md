@@ -139,16 +139,15 @@ harness auth login --api-url https://staging.harness.io --api-token pat.xxx.yyy.
 | `--org` | Default org ID to store in profile |
 | `--project` | Default project ID to store in profile |
 | `--overwrite` | Overwrite existing profile without prompting |
-| `--no-overwrite` | Error if profile already exists |
 | `--no-validate` | Skip token validation against the API |
 
 **Interactive flow** (stdin and stdout are TTYs and `--api-url` or `--api-token` is not provided):
 
-Runs a bubbletea TUI wizard. If the profile already exists and neither `--overwrite` nor `--no-overwrite` is passed, prompts to confirm overwrite before launching the wizard. The wizard handles URL entry, PAT entry, validation, and org/project pickers.
+Runs a bubbletea TUI wizard. If the profile already exists and `--overwrite` is not passed, prompts to confirm overwrite before launching the wizard. The wizard handles URL entry, PAT entry, validation, and org/project pickers.
 
 **Non-interactive flow** (all required values provided via flags, or not a TTY):
 
-If the profile already exists, `--overwrite` is required (errors otherwise, unless `--no-overwrite` is set). Validates the PAT format, then calls `GET /ng/api/accounts/{accountID}` to verify the token (skipped with `--no-validate`). Attempts to fetch `registry_url` from `GET /gateway/har/api/v3/system/info` — stored if successful, silently skipped if not.
+If the profile already exists, `--overwrite` is required (errors otherwise). Validates the PAT format, then calls `GET /ng/api/accounts/{accountID}` to verify the token (skipped with `--no-validate`). Attempts to fetch `registry_url` from `GET /gateway/har/api/v3/system/info` — stored if successful, silently skipped if not.
 
 After writing, runs `auth status` to display the result.
 

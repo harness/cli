@@ -44,10 +44,17 @@ func setInteractive(ctx *cmdctx.Ctx, profileName string) error {
 		return err
 	}
 	profileCreds := creds[profileName]
-	if profileCreds == nil || profileCreds.Token == "" {
+	token := ""
+	if profileCreds != nil {
+		if p.AuthType == config.AuthTypeSSO {
+			token = profileCreds.SSOToken
+		} else {
+			token = profileCreds.Token
+		}
+	}
+	if token == "" {
 		return fmt.Errorf("no token found for profile %q — run 'harness auth login' first", profileName)
 	}
-	token := profileCreds.Token
 
 	result, err := RunSetWizard(ctx, &SetWizardInput{
 		APIURL:    p.APIUrl,

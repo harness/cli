@@ -33,6 +33,7 @@ type WizardResult struct {
 	Project      string
 	ScopeNotSet  bool // true when org/project not configured — caller should prompt setscope
 	ScopeSkipped bool // true when user explicitly chose to save without selecting org/project
+	SSOSelected  bool // true when the user chose "Login with SSO" — no other fields are set
 }
 
 // errNoEnumPerms is set as cancelReason when a token can't list orgs/projects.
@@ -42,8 +43,13 @@ var errNoEnumPerms = fmt.Errorf("token lacks permission to list organizations �
 // WizardExisting carries values from an already-saved profile so the wizard
 // can offer "use existing" options instead of requiring re-entry.
 type WizardExisting struct {
-	APIURL string
-	Token  string
+	APIURL    string
+	Token     string
+	OrgID     string
+	ProjectID string
+	// OtherURLs lists API URLs already saved across all profiles, offered
+	// as quick-pick options alongside APIURL.
+	OtherURLs []string
 }
 
 type wizardStep int
@@ -61,10 +67,19 @@ const (
 
 const defaultAPIURL = "https://app.harness.io"
 
+type urlOptKind int
+
+const (
+	urlOptFixed  urlOptKind = iota // use opt.value as the API URL
+	urlOptVanity                   // prompt for a vanity URL
+	urlOptSSO                      // hand off to the browser SSO flow
+)
+
 // urlOpt represents one entry in the URL picker.
 type urlOpt struct {
 	label string
-	value string // "" means "enter custom"
+	value string
+	kind  urlOptKind
 }
 
 // --- styles ---
@@ -188,23 +203,62 @@ type wizardModel struct {
 	canceled     bool
 	cancelReason error // set when canceled due to an internal error, not user action
 	scopeSkipped bool  // user chose to save without selecting org/project
+	ssoSelected  bool  // user picked "Login with SSO" at the URL step
 	width        int
 	height       int
 }
 
-func buildURLOpts(existingAPIURL string) (opts []urlOpt, defaultIdx int) {
-	opts = []urlOpt{
-		{label: "app.harness.io  (default)", value: defaultAPIURL},
+// stripURLScheme drops a leading "https://" or "http://" for display purposes;
+// the underlying opt.value keeps the full URL.
+func stripURLScheme(u string) string {
+	u = strings.TrimPrefix(u, "https://")
+	u = strings.TrimPrefix(u, "http://")
+	return u
+}
+
+// buildURLOpts builds the URL picker options: app.harness.io always first, then
+// other known URLs (from otherURLs and/or existingAPIURL) sorted alphabetically,
+// deduplicating any that match the default or each other. The entry matching
+// existingAPIURL is marked "(existing)" and pre-selected; if existingAPIURL is
+// empty, app.harness.io is pre-selected instead.
+func buildURLOpts(existingAPIURL string, otherURLs []string) (opts []urlOpt, defaultIdx int) {
+	seen := map[string]bool{defaultAPIURL: true}
+	var others []string
+	add := func(u string) {
+		if u == "" || seen[u] {
+			return
+		}
+		seen[u] = true
+		others = append(others, u)
 	}
+	for _, u := range otherURLs {
+		add(u)
+	}
+	add(existingAPIURL)
+	sort.Strings(others)
+
+	defaultLabel := "app.harness.io  (default)"
+	if existingAPIURL == defaultAPIURL {
+		defaultLabel = "app.harness.io  (default, existing)"
+	}
+	opts = []urlOpt{{label: defaultLabel, value: defaultAPIURL, kind: urlOptFixed}}
 	defaultIdx = 0
-	if existingAPIURL != "" && existingAPIURL != defaultAPIURL {
-		opts = append(opts, urlOpt{
-			label: existingAPIURL + "  (existing)",
-			value: existingAPIURL,
-		})
-		defaultIdx = len(opts) - 1 // pre-select the existing URL
+
+	for _, u := range others {
+		label := stripURLScheme(u)
+		if u == existingAPIURL {
+			label += "  (existing)"
+		}
+		opts = append(opts, urlOpt{label: label, value: u, kind: urlOptFixed})
+		if u == existingAPIURL {
+			defaultIdx = len(opts) - 1
+		}
 	}
-	opts = append(opts, urlOpt{label: "Enter custom URL...", value: ""})
+
+	opts = append(opts,
+		urlOpt{label: "Enter vanity URL... (e.g. company.harness.io)", kind: urlOptVanity},
+		urlOpt{label: "Login with SSO", kind: urlOptSSO},
+	)
 	return opts, defaultIdx
 }
 
@@ -239,13 +293,17 @@ func newWizardModel(existing *WizardExisting) wizardModel {
 		return l
 	}
 
-	var existingAPIURL, existingToken string
+	var existingAPIURL, existingToken, currentOrgID, currentProjectID string
+	var otherURLs []string
 	if existing != nil {
 		existingAPIURL = existing.APIURL
 		existingToken = existing.Token
+		currentOrgID = existing.OrgID
+		currentProjectID = existing.ProjectID
+		otherURLs = existing.OtherURLs
 	}
 
-	urlOpts, urlPickIdx := buildURLOpts(existingAPIURL)
+	urlOpts, urlPickIdx := buildURLOpts(existingAPIURL, otherURLs)
 
 	tokenHasExisting := existingToken != ""
 	tokenInCustom := !tokenHasExisting // go straight to text input if no existing token
@@ -269,6 +327,9 @@ func newWizardModel(existing *WizardExisting) wizardModel {
 		existingToken:    existingToken,
 		tokenHasExisting: tokenHasExisting,
 		tokenInCustom:    tokenInCustom,
+
+		currentOrgID:     currentOrgID,
+		currentProjectID: currentProjectID,
 
 		width:  80,
 		height: 24,
@@ -542,12 +603,16 @@ func (m wizardModel) handleEnter() (tea.Model, tea.Cmd) {
 	case stepURL:
 		if !m.urlInCustom {
 			opt := m.urlOpts[m.urlPickIdx]
-			if opt.value == "" {
-				// "Enter custom URL..." selected
+			switch opt.kind {
+			case urlOptVanity:
 				m.urlInCustom = true
 				m.urlInput.Focus()
 				m.err = ""
 				return m, textinput.Blink
+			case urlOptSSO:
+				m.ssoSelected = true
+				m.step = stepDone
+				return m, tea.Quit
 			}
 			m.apiURL = opt.value
 			m.step = stepToken
@@ -651,6 +716,19 @@ func renderPicker(b *strings.Builder, st wizardStyles, opts []string, selectedId
 	}
 }
 
+// renderTokenHelp renders a short walkthrough for locating/creating a PAT in
+// the Harness UI, shown alongside the token prompt.
+func renderTokenHelp(st wizardStyles) string {
+	var b strings.Builder
+	b.WriteString(st.subtle.Render("  How to find your PAT token in the Harness UI:") + "\n")
+	b.WriteString(st.subtle.Render("    1. Log in to Harness, then click your name (bottom-left) to open your profile") + "\n")
+	b.WriteString(st.subtle.Render("    2. Click [API Keys]") + "\n")
+	b.WriteString(st.subtle.Render("    3. Click [+ API Key] and give it a name") + "\n")
+	b.WriteString(st.subtle.Render("    4. Expand that API Key, then click [+ Token]") + "\n")
+	b.WriteString(st.subtle.Render("    5. Give the token a name + expiration, then copy the value shown") + "\n")
+	return b.String()
+}
+
 func (m wizardModel) View() tea.View {
 	var b strings.Builder
 
@@ -667,9 +745,12 @@ func (m wizardModel) View() tea.View {
 			}
 			renderPicker(&b, st, labels, m.urlPickIdx)
 			b.WriteString(st.subtle.Render("  ↑/↓ to move · enter to select · esc to cancel") + "\n")
+			if m.urlOpts[m.urlPickIdx].kind == urlOptSSO {
+				b.WriteString("\n" + st.subtle.Render("  Your account must be enabled for SSO access.") + "\n")
+			}
 		} else {
 			b.WriteString(m.urlInput.View() + "\n")
-			b.WriteString(st.subtle.Render("  press enter to continue, esc to go back") + "\n")
+			b.WriteString(st.subtle.Render("  e.g. company.harness.io · press enter to continue, esc to go back") + "\n")
 		}
 
 	case stepToken:
@@ -686,6 +767,7 @@ func (m wizardModel) View() tea.View {
 			b.WriteString(m.tokenInput.View() + "\n")
 			b.WriteString(st.subtle.Render("  press enter to continue, esc to go back") + "\n")
 		}
+		b.WriteString("\n" + renderTokenHelp(st))
 
 	case stepValidating:
 		b.WriteString(st.selected.Render("✓ ") + st.subtle.Render("API URL: "+m.apiURL) + "\n")
@@ -932,6 +1014,9 @@ func RunLoginWizard(ctx *cmdctx.Ctx, existing *WizardExisting) (*WizardResult, e
 	}
 	if fm.step != stepDone {
 		return nil, nil
+	}
+	if fm.ssoSelected {
+		return &WizardResult{SSOSelected: true}, nil
 	}
 	if fm.scopeSkipped {
 		return &WizardResult{
