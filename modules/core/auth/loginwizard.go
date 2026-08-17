@@ -716,6 +716,19 @@ func renderPicker(b *strings.Builder, st wizardStyles, opts []string, selectedId
 	}
 }
 
+// renderTokenHelp renders a short walkthrough for locating/creating a PAT in
+// the Harness UI, shown alongside the token prompt.
+func renderTokenHelp(st wizardStyles) string {
+	var b strings.Builder
+	b.WriteString(st.subtle.Render("  How to find your PAT token in the Harness UI:") + "\n")
+	b.WriteString(st.subtle.Render("    1. Log in to Harness, then click your name (bottom-left) to open your profile") + "\n")
+	b.WriteString(st.subtle.Render("    2. Click [API Keys]") + "\n")
+	b.WriteString(st.subtle.Render("    3. Click [+ API Key] and give it a name") + "\n")
+	b.WriteString(st.subtle.Render("    4. Expand that API Key, then click [+ Token]") + "\n")
+	b.WriteString(st.subtle.Render("    5. Give the token a name + expiration, then copy the value shown") + "\n")
+	return b.String()
+}
+
 func (m wizardModel) View() tea.View {
 	var b strings.Builder
 
@@ -754,6 +767,7 @@ func (m wizardModel) View() tea.View {
 			b.WriteString(m.tokenInput.View() + "\n")
 			b.WriteString(st.subtle.Render("  press enter to continue, esc to go back") + "\n")
 		}
+		b.WriteString("\n" + renderTokenHelp(st))
 
 	case stepValidating:
 		b.WriteString(st.selected.Render("✓ ") + st.subtle.Render("API URL: "+m.apiURL) + "\n")
