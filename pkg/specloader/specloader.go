@@ -142,7 +142,12 @@ func LoadHomeSpecs(reg *registry.Registry, isHarnessUser bool) error {
 			continue
 		}
 		if err := loadSpecData(reg, name, data, isHarnessUser, true); err != nil {
-			// A single bad plugin spec must not take down the whole CLI.
+			// A single bad plugin spec must not take down the whole CLI, but this
+			// is always user-actionable (e.g. a noun conflict with a builtin
+			// module), so it must not be silently dropped when hlog is discarding
+			// (the common case: --debug isn't set, and spec loading happens
+			// before flags are parsed anyway).
+			fmt.Fprintf(os.Stderr, "warning: skipping invalid plugin spec %s: %s\n", path, err)
 			hlog.Warn("skipping invalid plugin spec", "file", path, "err", err)
 			continue
 		}
