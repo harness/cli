@@ -176,8 +176,20 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading credentials: %w", err)
 	}
+	authType := p.AuthType
+	if authType == "" {
+		authType = AuthTypePAT
+	}
 	profileCreds := creds[name]
-	if profileCreds == nil || profileCreds.Token == "" {
+	activeToken := ""
+	if profileCreds != nil {
+		if authType == AuthTypeSSO {
+			activeToken = profileCreds.SSOToken
+		} else {
+			activeToken = profileCreds.Token
+		}
+	}
+	if activeToken == "" {
 		return nil, fmt.Errorf("no token found for profile %q — run 'harness auth login' to re-authenticate", name)
 	}
 	apiURL := p.APIUrl
@@ -187,10 +199,6 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	registryURL := p.RegistryURL
 	if registryURL == "" {
 		registryURL = hbase.DefaultRegistryURL
-	}
-	authType := p.AuthType
-	if authType == "" {
-		authType = AuthTypePAT
 	}
 	r := &ResolvedAuth{
 		Source:      "profile:" + name,
@@ -202,13 +210,13 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		ProjectID:   p.ProjectID,
 		RegistryURL: registryURL,
 		Email:       p.Email,
-		TokenKind:   TokenType(profileCreds.Token),
+		TokenKind:   TokenType(activeToken),
 	}
 	if authType == AuthTypeSSO {
-		r.SSOToken = profileCreds.Token
+		r.SSOToken = activeToken
 		r.RefreshToken = profileCreds.RefreshToken
 	} else {
-		r.PATToken = profileCreds.Token
+		r.PATToken = activeToken
 	}
 	return r, nil
 }
