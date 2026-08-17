@@ -145,9 +145,6 @@ commands:
       - name: overwrite
         is_bool: true
         description: Overwrite existing profile without prompting
-      - name: no-overwrite
-        is_bool: true
-        description: Error if profile already exists
       - name: no-validate
         is_bool: true
         description: Skip token validation against the API

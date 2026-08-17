@@ -24,10 +24,6 @@ var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
 func LoginHandler(ctx *cmdctx.Ctx) error {
 	overwrite := cmdctx.GetBool(ctx.FlagValues, "overwrite")
-	noOverwrite := cmdctx.GetBool(ctx.FlagValues, "no-overwrite")
-	if overwrite && noOverwrite {
-		return fmt.Errorf("--overwrite and --no-overwrite are mutually exclusive")
-	}
 
 	profileName := cmdctx.GetString(ctx.FlagValues, "profile")
 	if profileName == "" {
@@ -63,7 +59,7 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	if sso {
-		if err := confirmOverwrite(cfg, profileName, overwrite, noOverwrite); err != nil {
+		if err := confirmOverwrite(cfg, profileName, overwrite); err != nil {
 			return err
 		}
 		return runSSOLogin(ctx, cfg, profileName)
@@ -76,7 +72,7 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 		otherURLs := profileAPIURLs(cfg)
 		existing := &WizardExisting{OtherURLs: otherURLs}
 		if existingProfile, exists := cfg.Profiles[profileName]; exists {
-			if err := confirmOverwrite(cfg, profileName, overwrite, noOverwrite); err != nil {
+			if err := confirmOverwrite(cfg, profileName, overwrite); err != nil {
 				return err
 			}
 			// Load existing token so the wizard can offer "use existing".
@@ -130,15 +126,8 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 		}
 	} else {
 		// Non-interactive: all values from flags/env.
-		if _, exists := cfg.Profiles[profileName]; exists {
-			switch {
-			case noOverwrite:
-				return fmt.Errorf("profile %q already exists (use --overwrite to replace it)", profileName)
-			case overwrite:
-				// silent
-			default:
-				return fmt.Errorf("profile %q already exists — pass --overwrite or --no-overwrite", profileName)
-			}
+		if _, exists := cfg.Profiles[profileName]; exists && !overwrite {
+			return fmt.Errorf("profile %q already exists — pass --overwrite to replace it", profileName)
 		}
 
 		fmt.Fprintf(os.Stderr, "Logging in for profile %q\n\n", profileName)
@@ -226,18 +215,16 @@ func profileArgSuffix(profileName string) string {
 }
 
 // confirmOverwrite resolves what to do when profileName already exists: honor
-// --overwrite/--no-overwrite, otherwise prompt on a terminal and error without one.
-func confirmOverwrite(cfg *config.Config, profileName string, overwrite, noOverwrite bool) error {
+// --overwrite, otherwise prompt on a terminal and error without one.
+func confirmOverwrite(cfg *config.Config, profileName string, overwrite bool) error {
 	if _, exists := cfg.Profiles[profileName]; !exists {
 		return nil
 	}
 	switch {
-	case noOverwrite:
-		return fmt.Errorf("profile %q already exists (use --overwrite to replace it)", profileName)
 	case overwrite:
 		return nil
 	case !console.IsBothTTY():
-		return fmt.Errorf("profile %q already exists — pass --overwrite or --no-overwrite", profileName)
+		return fmt.Errorf("profile %q already exists — pass --overwrite to replace it", profileName)
 	}
 	fmt.Fprintf(os.Stderr, "WARNING: profile %q already exists, continuing will overwrite it\n\n", profileName)
 	if !console.PromptYesNo("Overwrite?") {
