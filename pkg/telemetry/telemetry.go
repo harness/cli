@@ -196,8 +196,8 @@ var installTypeWhitelist = map[string]bool{
 }
 
 // ResolveInstallType reads [hbase.EnvInstallType], defaulting to
-// [InstallTypeScript] when unset (install.ps1 relies on that default) and
-// falling back to [InstallTypeUnknown] for any value outside the whitelist.
+// [InstallTypeScript] when unset and falling back to [InstallTypeUnknown] for
+// any value outside the whitelist.
 func ResolveInstallType() string {
 	v := os.Getenv(hbase.EnvInstallType)
 	if v == "" {

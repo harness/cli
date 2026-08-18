@@ -129,8 +129,9 @@ func GetHarnessBinDir() string {
 	return filepath.Join(GetHarnessHomeDir(), "bin")
 }
 
-// BrewCaskName is the cask this CLI is published as in harness/homebrew-tap.
-const BrewCaskName = "harness-cli"
+// BrewCaskRef is the tap-qualified cask this CLI is published as, suitable for
+// `brew install --cask` / `brew upgrade --cask`.
+const BrewCaskRef = "harness/tap/harness-cli"
 
 // brewCaskDirName is the directory Homebrew stages cask payloads under:
 // $HOMEBREW_PREFIX/Caskroom/<token>/<version>/<binary>, with a symlink to it

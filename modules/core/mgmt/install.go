@@ -176,13 +176,17 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 				"harness was installed by Homebrew (%s)\n"+
 					"Upgrade it with: brew upgrade --cask %s\n"+
 					"Pass --force to install a separate copy anyway",
-				path, hbase.BrewCaskName,
+				path, hbase.BrewCaskRef,
 			)
 		}
 	}
 
-	if err := checkRunningFromInstallDir(installDir); err != nil {
-		return err
+	// --force means the caller wants a copy in installDir regardless of where
+	// the running binary lives, which is the only way off a brew install.
+	if !force {
+		if err := checkRunningFromInstallDir(installDir); err != nil {
+			return err
+		}
 	}
 
 	platform, err := detectPlatform()

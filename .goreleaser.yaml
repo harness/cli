@@ -87,7 +87,7 @@ nfpms:
 
 homebrew_casks:
   # Installs the core `harness` binary only — modules/plugins are pulled in
-  # afterwards with `harness install module <name>`. See docs/publishing-to-homebrew.md.
+  # afterwards with `harness install module <name>`.
   - name: harness-cli
     ids: [harness-core]
     binaries: [harness]

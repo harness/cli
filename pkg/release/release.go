@@ -165,7 +165,7 @@ func NagIfDue(currentVersion string) {
 	}
 	upgradeCmd := "harness install cli"
 	if _, ok := hbase.BrewManagedBinary(); ok {
-		upgradeCmd = "brew upgrade --cask " + hbase.BrewCaskName
+		upgradeCmd = "brew upgrade --cask " + hbase.BrewCaskRef
 	}
 	fmt.Fprintf(os.Stderr, "\nA new version of the Harness CLI is available: %s → %s\nRun: %s\n\n", currentVersion, c.LatestVersion, upgradeCmd)
 }

@@ -157,7 +157,7 @@ harness install cli --core-only      # skip module updates
 | `--core-only`          | Only install the core binary, skip module updates                    |
 
 > [!NOTE]
-> If you installed via Homebrew, use `brew upgrade --cask harness-cli` instead. `harness install cli` writes to `~/.local/bin` by default, leaving two copies of `harness` on disk with whichever comes first on your `PATH` winning.
+> If you installed with Homebrew, upgrade with Homebrew: `brew upgrade --cask harness/tap/harness-cli`.
 
 External modules are managed the same way:
 
@@ -762,7 +762,7 @@ Add the built binaries to your `PATH` for the duration of the session:
 source local-setup.zsh
 ```
 
-For details on the release process and Homebrew publishing, see [`BUILD.md`](BUILD.md) and [`docs/publishing-to-homebrew.md`](docs/publishing-to-homebrew.md).
+For details on the release process, see [`BUILD.md`](BUILD.md).
 
 ---
 
