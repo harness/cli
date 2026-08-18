@@ -99,10 +99,10 @@ func insightTestCtx(srvURL, format string) *cmdctx.Ctx {
 		FormatFlags: cmdctx.FormatFlags{Format: format},
 		FlagValues:  map[string]any{},
 		Resolver: spyResolver{getSpec: func(verb, noun string) *spec.CommandSpec {
-			switch {
-			case noun == "pr:insight":
+			switch noun {
+			case "pr:insight":
 				return insightSpec("/insight")
-			case noun == "pr:review_group":
+			case "pr:review_group":
 				return reviewGroupSpec("/review_groups")
 			default:
 				return prSpec("/pr")
