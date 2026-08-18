@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/exprenv"
 	"github.com/harness/cli/pkg/hlog"
 	"github.com/harness/cli/pkg/registry"
 )
@@ -15,6 +16,13 @@ import (
 const (
 	getPRWorkflowID            = "get_pr"
 	reviewGroupTextFormatterID = "pr_review_group_text"
+
+	// suppressSectionLinkFlag is set on ctx.FlagValues by GetPRWorkflow while it
+	// renders the Insight/Review Groups sections, so reviewGroupTextFormatter can
+	// skip its own trailing PR link — the composite "get pr" command prints one
+	// link, once, at the very end instead. Unset (the common case) when a section
+	// command runs standalone, so it prints its own link as usual.
+	suppressSectionLinkFlag = "_suppress_section_link"
 )
 
 // insightSections lists the Harness Code review-insight sub-commands appended to "get pr" output,
@@ -46,7 +54,14 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 	if baseSpec == nil || baseSpec.Endpoint == nil {
 		return fmt.Errorf("get pr command spec not found")
 	}
-	if _, err := registry.RunEndpoint(ctx, baseSpec.Endpoint); err != nil {
+
+	// Render the base PR table without its own text_footer (the PR link) so the
+	// link can be printed once, last, after the insight sections below.
+	footer := baseSpec.Endpoint.TextFooter
+	baseEP := *baseSpec.Endpoint
+	baseEP.TextFooter = ""
+	pr, err := registry.RunEndpoint(ctx, &baseEP)
+	if err != nil {
 		return err
 	}
 
@@ -56,6 +71,15 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 
 	origNoun, origFieldsNoun := ctx.Noun, ctx.FieldsNoun
 	defer func() { ctx.Noun, ctx.FieldsNoun = origNoun, origFieldsNoun }()
+
+	// Each section's own PR link (declarative text_footer, or the link
+	// reviewGroupTextFormatter appends) is suppressed while embedded here — the
+	// composite command prints one link, once, at the very end instead.
+	if ctx.FlagValues == nil {
+		ctx.FlagValues = map[string]any{}
+	}
+	ctx.FlagValues[suppressSectionLinkFlag] = true
+	defer delete(ctx.FlagValues, suppressSectionLinkFlag)
 
 	for _, section := range insightSections {
 		cs := ctx.Resolver.GetSpec(section.verb, section.noun)
@@ -72,8 +96,18 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 			continue
 		}
 		fmt.Printf("\n--- %s ---\n", section.label)
-		if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		ep := *cs.Endpoint
+		ep.TextFooter = ""
+		if _, err := registry.RunEndpoint(ctx, &ep); err != nil {
 			hlog.Warn("insight fetch failed, omitting from get pr", "section", section.label, "err", err)
+		}
+	}
+
+	ctx.Noun, ctx.FieldsNoun = origNoun, origFieldsNoun
+	if footer != "" {
+		env := exprenv.WithIt(exprenv.Make(ctx), pr)
+		if text, err := exprenv.ResolvePath(env, footer); err == nil {
+			fmt.Print(text)
 		}
 	}
 	return nil
@@ -86,7 +120,6 @@ func reviewGroupTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 	groups := d.GetSlice("it.groups")
 	if len(groups) == 0 {
 		fmt.Fprintln(w, "No review groups.")
-		return nil
 	}
 	for i, raw := range groups {
 		g, ok := raw.(map[string]any)
@@ -120,6 +153,11 @@ func reviewGroupTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 			if path, ok := fm["path"].(string); ok {
 				fmt.Fprintf(w, "  - %s\n", path)
 			}
+		}
+	}
+	if !d.GetBool("flags." + suppressSectionLinkFlag) {
+		if url := d.GetString("url(it)"); url != "" {
+			fmt.Fprintf(w, "\n%s\n", url)
 		}
 	}
 	return nil

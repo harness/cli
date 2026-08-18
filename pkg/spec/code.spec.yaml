@@ -358,6 +358,7 @@ nouns:
   - noun: pr_insight
     short_desc: Risk summary for a pull request (Harness Code review insights).
     noun_aliases: [pr_insights]
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
     fields:
       - id: risk
         expr: it.risk
@@ -378,6 +379,7 @@ nouns:
   - noun: pr_review_group
     short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).
     noun_aliases: [pr_review_groups]
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
 
   - noun: pr_suggested_reviewer
     short_desc: A suggested reviewer for a pull request (Harness Code review insights).
@@ -767,6 +769,7 @@ commands:
       item_expr: it
       query_params:
         repo_path: auth.scope + "/" + ctx.idParts[0]
+      text_footer: "\n{{url(it)}}\n"
 
   # ── pr_review_group (Harness Code review insights) ────────────────────────────
 

@@ -64,11 +64,28 @@ func (s spyResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn {
 	return nil
 }
 
+// testNounURLPath is a stand-in url_path template shared by test nouns: it resolves
+// from ctx.idParts (repo/PR are always in position, unlike each noun's own response body).
+const testNounURLPath = "/pulls/{{ctx.idParts[1]}}"
+
+func (s spyResolver) GetNoun(noun string) *spec.NounDef {
+	switch noun {
+	case "pr":
+		return &spec.NounDef{UrlPath: testNounURLPath, Fields: []spec.FieldDef{{ID: "number", Expr: "it.number"}}}
+	case "pr_insight":
+		return &spec.NounDef{UrlPath: testNounURLPath, Fields: []spec.FieldDef{{ID: "risk", Expr: "it.risk"}}}
+	case "pr_review_group":
+		return &spec.NounDef{UrlPath: testNounURLPath}
+	default:
+		return nil
+	}
+}
+
 func prSpec(path string) *spec.CommandSpec {
 	return &spec.CommandSpec{
 		Command: "get pr", Verb: "get", VerbHandler: "get",
 		Noun: "pr", Module: "code", HandlerType: spec.HandlerWorkflow,
-		Endpoint: &spec.EndpointSpec{Method: "GET", Path: path, ItemExpr: "it"},
+		Endpoint: &spec.EndpointSpec{Method: "GET", Path: path, ItemExpr: "it", TextFooter: "\n{{url(it)}}\n"},
 	}
 }
 
@@ -77,7 +94,7 @@ func insightSpec(path string) *spec.CommandSpec {
 		Command: "get pr:insight", Verb: "get", VerbHandler: "get",
 		Noun: "pr", NounVariant: "insight", FieldsNoun: "pr_insight", Module: "code",
 		HandlerType: spec.HandlerEndpoint,
-		Endpoint:    &spec.EndpointSpec{Method: "GET", Path: path, ItemExpr: "it"},
+		Endpoint:    &spec.EndpointSpec{Method: "GET", Path: path, ItemExpr: "it", TextFooter: "\n{{url(it)}}\n"},
 	}
 }
 
@@ -94,6 +111,7 @@ func insightTestCtx(srvURL, format string) *cmdctx.Ctx {
 	return &cmdctx.Ctx{
 		Context:     context.Background(),
 		Noun:        "pr",
+		Id:          "repo1/42",
 		VerbHandler: "get",
 		Auth:        &auth.ResolvedAuth{AuthType: auth.AuthTypePAT, APIUrl: srvURL, AccountID: "acct", OrgID: "org", ProjectID: "proj", PATToken: "test-token"},
 		FormatFlags: cmdctx.FormatFlags{Format: format},
@@ -224,6 +242,41 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 	}
 	if !strings.Contains(out, "Review Groups") || !strings.Contains(out, "a/b/Foo.java") {
 		t.Fatalf("output must contain the Review Groups section with file paths, got:\n%s", out)
+	}
+
+	// The PR link must print exactly once, last — after both sections (not between
+	// the table and "Insight" as before), and sections must not also print their
+	// own link (avoiding the duplicate the user flagged).
+	reviewGroupsIdx := strings.Index(out, "Review Groups")
+	lastLinkIdx := strings.LastIndex(out, "/pulls/42")
+	if lastLinkIdx == -1 || lastLinkIdx < reviewGroupsIdx {
+		t.Fatalf("expected the PR link to appear after the Review Groups section, got:\n%s", out)
+	}
+	if linkCount := strings.Count(out, "/pulls/42"); linkCount != 1 {
+		t.Fatalf("expected exactly one PR link (sections must not duplicate it), got %d in:\n%s", linkCount, out)
+	}
+}
+
+// TestReviewGroupCommand_StandaloneRendersLink verifies "get pr:review_group" run on
+// its own (not embedded in GetPRWorkflow, so suppressSectionLinkFlag is unset) still
+// prints its own trailing PR link.
+func TestReviewGroupCommand_StandaloneRendersLink(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"groups":[]}`))
+	}))
+	defer srv.Close()
+
+	ctx := insightTestCtx(srv.URL, "")
+	ctx.Noun, ctx.FieldsNoun = "pr", "pr_review_group"
+
+	out := captureStdout(t, func() {
+		if _, err := registry.RunEndpoint(ctx, reviewGroupSpec("/review_groups").Endpoint); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "/pulls/42") {
+		t.Fatalf("standalone run must print its own PR link, got:\n%s", out)
 	}
 }
 
