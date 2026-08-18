@@ -397,6 +397,23 @@ nouns:
         label: Suggested At
         expr: epochMs(it.suggested_at)
 
+  - noun: pr_suggested_label
+    short_desc: A suggested label for a pull request (Harness Code review insights).
+    noun_aliases: [pr_suggested_labels]
+    fields:
+      - id: key
+        expr: it.label.key
+      - id: color
+        expr: it.label.color
+      - id: type
+        expr: it.label.type
+      - id: suggested_by
+        label: Suggested By
+        expr: it.suggested_by.display_name
+      - id: suggested
+        label: Suggested At
+        expr: epochMs(it.suggested)
+
   - noun: pr_activity
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
@@ -774,6 +791,27 @@ commands:
       paging:
         paging_strategy: flat_list
       columns: [display_name, email, suggested_by, suggested_at]
+
+  # ── pr_suggested_label (Harness Code review insights) ───────────────────────────
+
+  - command: list pr_suggested_label
+    verb: list
+    noun: pr_suggested_label
+    short: "List suggested labels for a pull request: harness list pr_suggested_label <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/labels
+      items_expr: it
+      paging:
+        paging_strategy: flat_list
+      columns: [key, color, type, suggested_by, suggested]
 
   # ── branch ──────────────────────────────────────────────────────────────────
 
