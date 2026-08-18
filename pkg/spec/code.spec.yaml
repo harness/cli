@@ -355,6 +355,73 @@ nouns:
         label: Stage ID
         expr: it.check.payload.data.stage_identifier
 
+  - noun: pr_insight
+    short_desc: Risk summary for a pull request (Harness Code review insights).
+    noun_aliases: [pr_insights]
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+    fields:
+      - id: risk
+        expr: it.risk
+      - id: content
+        expr: it.content
+        field_type: multiline_text
+
+  - noun: pr_review_group
+    short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).
+    noun_aliases: [pr_review_groups]
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+
+  - noun: pr_suggested_reviewer
+    short_desc: A suggested reviewer for a pull request (Harness Code review insights).
+    noun_aliases: [pr_suggested_reviewers]
+    fields:
+      - id: display_name
+        label: Display Name
+        expr: it.reviewer.display_name
+      - id: email
+        expr: it.reviewer.email
+      - id: uid
+        expr: it.reviewer.uid
+      - id: suggested_by
+        label: Suggested By
+        expr: it.suggested_by.display_name
+      - id: suggested_at
+        label: Suggested At
+        expr: epochMs(it.suggested_at)
+
+  - noun: pr_suggested_label
+    short_desc: A suggested label for a pull request (Harness Code review insights).
+    noun_aliases: [pr_suggested_labels]
+    fields:
+      - id: key
+        expr: it.label.key
+      - id: color
+        expr: it.label.color
+      - id: type
+        expr: it.label.type
+      - id: suggested_by
+        label: Suggested By
+        expr: it.suggested_by.display_name
+      - id: suggested
+        label: Suggested At
+        expr: epochMs(it.suggested)
+
+  - noun: pr_success_criterion
+    short_desc: An AI review success-criterion result for a pull request (Harness Code review insights).
+    noun_aliases: [pr_success_criteria]
+    fields:
+      - id: id
+        label: ID
+        expr: it.id
+      - id: status
+        expr: it.status
+      - id: summary
+        expr: it.summary
+      - id: started
+        expr: epochMs(it.started)
+      - id: ended
+        expr: epochMs(it.ended)
+
   - noun: pr_activity
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
@@ -575,7 +642,8 @@ commands:
     verb: get
     noun: pr
     short: "Get pull request details: harness get pr <repo_id>/<pr_number>"
-    handler_type: endpoint
+    handler_type: workflow
+    workflow_id: get_pr
     id_parts: 2
     completion_seq:
       - completion_noun: repository
@@ -671,6 +739,111 @@ commands:
         state: '"closed"'
       no_fields: true
       text_header: "\nClosed PR #{{ctx.idParts[1]}}\n"
+
+  # ── pr_insight (Harness Code review insights) ─────────────────────────────────
+
+  - command: get pr:insight
+    verb: get
+    noun: pr
+    noun_variant: insight
+    fields_noun: pr_insight
+    short: "Get the risk summary insight for a pull request: harness get pr:insight <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/aicr/api/v1/pullreqs/{{ctx.idParts[1]}}/overview
+      item_expr: it
+      query_params:
+        repo_path: auth.scope + "/" + ctx.idParts[0]
+      text_footer: "\n{{url(it)}}\n"
+
+  # ── pr_review_group (Harness Code review insights) ────────────────────────────
+
+  - command: get pr:review_group
+    verb: get
+    noun: pr
+    noun_variant: review_group
+    fields_noun: pr_review_group
+    short: "Get the risk-bucketed review groups for a pull request: harness get pr:review_group <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.idParts[0]}}/+/pullreq/{{ctx.idParts[1]}}/view
+      item_expr: it
+      text_formatter: pr_review_group_text
+
+  # ── pr_suggested_reviewer (Harness Code review insights) ───────────────────────
+
+  - command: list pr_suggested_reviewer
+    verb: list
+    noun: pr_suggested_reviewer
+    short: "List suggested reviewers for a pull request: harness list pr_suggested_reviewer <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/reviewers
+      items_expr: it.suggestions
+      paging:
+        paging_strategy: flat_list
+      columns: [display_name, email, suggested_by, suggested_at]
+
+  # ── pr_suggested_label (Harness Code review insights) ───────────────────────────
+
+  - command: list pr_suggested_label
+    verb: list
+    noun: pr_suggested_label
+    short: "List suggested labels for a pull request: harness list pr_suggested_label <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/labels
+      items_expr: it
+      paging:
+        paging_strategy: flat_list
+      columns: [key, color, type, suggested_by, suggested]
+
+  # ── pr_success_criterion (Harness Code review insights) ────────────────────────
+
+  - command: list pr_success_criterion
+    verb: list
+    noun: pr_success_criterion
+    short: "List AI review success criteria for a pull request: harness list pr_success_criterion <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/aicr/api/v1/pullreqs/{{ctx.parentIdParts[1]}}/review
+      items_expr: it.criteria
+      query_params:
+        repo_path: auth.scope + "/" + ctx.parentIdParts[0]
+      paging:
+        paging_strategy: flat_list
+      columns: [id, status, summary, started, ended]
 
   # ── branch ──────────────────────────────────────────────────────────────────
 
