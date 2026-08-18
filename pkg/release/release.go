@@ -163,7 +163,11 @@ func NagIfDue(currentVersion string) {
 	if err := writeCache(c); err != nil {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "\nA new version of the Harness CLI is available: %s → %s\nRun: harness install cli\n\n", currentVersion, c.LatestVersion)
+	upgradeCmd := "harness install cli"
+	if _, ok := hbase.BrewManagedBinary(); ok {
+		upgradeCmd = "brew upgrade --cask " + hbase.BrewCaskName
+	}
+	fmt.Fprintf(os.Stderr, "\nA new version of the Harness CLI is available: %s → %s\nRun: %s\n\n", currentVersion, c.LatestVersion, upgradeCmd)
 }
 
 // shouldUpdateCheck returns false for all gating conditions that mean we skip entirely.

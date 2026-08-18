@@ -31,11 +31,12 @@ func MaybeRunBackgroundUpdateCheck() {
 	}
 }
 
-// postInstallFlag is the hidden flag install.sh invokes right after placing a
-// fresh binary on disk, purely to fire a cli_installed telemetry event.
+// postInstallFlag is the hidden flag the installers (install.sh, install.ps1,
+// the Homebrew cask's postflight hook) invoke right after placing a fresh
+// binary on disk, purely to fire a cli_installed telemetry event.
 const postInstallFlag = "--post-install"
 
-// MaybeRunPostInstall exits if this invocation is install.sh's post-install
+// MaybeRunPostInstall exits if this invocation is an installer's post-install
 // telemetry ping. Respects the same opt-out as every other event.
 func MaybeRunPostInstall() {
 	for _, arg := range os.Args[1:] {

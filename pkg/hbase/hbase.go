@@ -129,6 +129,40 @@ func GetHarnessBinDir() string {
 	return filepath.Join(GetHarnessHomeDir(), "bin")
 }
 
+// BrewCaskName is the cask this CLI is published as in harness/homebrew-tap.
+const BrewCaskName = "harness-cli"
+
+// brewCaskDirName is the directory Homebrew stages cask payloads under:
+// $HOMEBREW_PREFIX/Caskroom/<token>/<version>/<binary>, with a symlink to it
+// from $HOMEBREW_PREFIX/bin. Matching a resolved path on this segment is
+// prefix-independent (works for /opt/homebrew, /usr/local, and a custom
+// HOMEBREW_PREFIX) and cannot false-positive on a manual install into
+// /usr/local/bin, which a bare prefix match would.
+const brewCaskDirName = "Caskroom"
+
+// BrewManagedBinary reports whether the running binary was installed by a
+// Homebrew cask, returning the resolved path when it was. Homebrew owns that
+// path, so self-update must defer to `brew upgrade` rather than write over it.
+func BrewManagedBinary() (string, bool) {
+	if runtime.GOOS == "windows" {
+		return "", false
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		resolved = exe
+	}
+	for _, seg := range strings.Split(resolved, string(filepath.Separator)) {
+		if seg == brewCaskDirName {
+			return resolved, true
+		}
+	}
+	return "", false
+}
+
 // EnsureHarnessHome creates ~/.harness with 0700 permissions if it does not exist.
 // Returns an error if the directory cannot be created or if the path exists but is not a directory.
 func EnsureHarnessHome() error {

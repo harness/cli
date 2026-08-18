@@ -169,6 +169,18 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	}
 	installDir = hbase.ExpandHomeDir(installDir)
 
+	// --check only reports versions, so it stays useful on a brew install.
+	if !force && !check {
+		if path, ok := hbase.BrewManagedBinary(); ok {
+			return fmt.Errorf(
+				"harness was installed by Homebrew (%s)\n"+
+					"Upgrade it with: brew upgrade --cask %s\n"+
+					"Pass --force to install a separate copy anyway",
+				path, hbase.BrewCaskName,
+			)
+		}
+	}
+
 	if err := checkRunningFromInstallDir(installDir); err != nil {
 		return err
 	}
