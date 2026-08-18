@@ -365,16 +365,6 @@ nouns:
       - id: content
         expr: it.content
         field_type: multiline_text
-      - id: commit_sha
-        label: Commit SHA
-        expr: it.commit_sha
-      - id: agent_run_id
-        label: Agent Run ID
-        expr: it.metadata.agent_run_id
-      - id: created
-        expr: epochMs(it.created)
-      - id: updated
-        expr: epochMs(it.updated)
 
   - noun: pr_review_group
     short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).

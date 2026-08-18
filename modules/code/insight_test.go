@@ -177,7 +177,7 @@ func TestGetPRWorkflow_BasePRFails(t *testing.T) {
 func TestGetPRWorkflow_MachineFormatSkipsInsight(t *testing.T) {
 	var insightHits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/insight" || r.URL.Path == "/review_groups" {
+		if r.URL.Path == "/insight" {
 			insightHits.Add(1)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -195,7 +195,7 @@ func TestGetPRWorkflow_MachineFormatSkipsInsight(t *testing.T) {
 
 func TestGetPRWorkflow_InsightFailureOmitsSectionButSucceeds(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/insight" || r.URL.Path == "/review_groups" {
+		if r.URL.Path == "/insight" {
 			w.WriteHeader(500)
 			return
 		}
@@ -211,7 +211,7 @@ func TestGetPRWorkflow_InsightFailureOmitsSectionButSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get pr must succeed even when an insight endpoint fails, got: %v", err)
 	}
-	if strings.Contains(out, "Insight") || strings.Contains(out, "Review Groups") {
+	if strings.Contains(out, "Insight") {
 		t.Fatalf("output must omit failed sections, got:\n%s", out)
 	}
 }
@@ -222,8 +222,6 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 		switch r.URL.Path {
 		case "/insight":
 			w.Write([]byte(`{"risk":"low","content":"looks fine"}`))
-		case "/review_groups":
-			w.Write([]byte(`{"groups":[{"title":"Health Source Inputs Resolver","description":"New shared resolver.","tags":{"risk":"low"},"files":[{"path":"a/b/Foo.java"}]}]}`))
 		default:
 			w.Write([]byte(`{"number":1}`))
 		}
@@ -240,17 +238,20 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 	if !strings.Contains(out, "Insight") {
 		t.Fatalf("output must contain the Insight section, got:\n%s", out)
 	}
-	if !strings.Contains(out, "Review Groups") || !strings.Contains(out, "a/b/Foo.java") {
-		t.Fatalf("output must contain the Review Groups section with file paths, got:\n%s", out)
+	if !strings.Contains(out, "PR Details") {
+		t.Fatalf("output must contain the PR Details section, got:\n%s", out)
 	}
 
-	// The PR link must print exactly once, last — after both sections (not between
-	// the table and "Insight" as before), and sections must not also print their
-	// own link (avoiding the duplicate the user flagged).
-	reviewGroupsIdx := strings.Index(out, "Review Groups")
+	// Insight must render first, PR Details last (right before the link), and the
+	// PR link must print exactly once, at the very end.
+	insightIdx := strings.Index(out, "Insight")
+	prDetailsIdx := strings.Index(out, "PR Details")
+	if insightIdx == -1 || prDetailsIdx == -1 || prDetailsIdx < insightIdx {
+		t.Fatalf("expected Insight to render before PR Details, got:\n%s", out)
+	}
 	lastLinkIdx := strings.LastIndex(out, "/pulls/42")
-	if lastLinkIdx == -1 || lastLinkIdx < reviewGroupsIdx {
-		t.Fatalf("expected the PR link to appear after the Review Groups section, got:\n%s", out)
+	if lastLinkIdx == -1 || lastLinkIdx < prDetailsIdx {
+		t.Fatalf("expected the PR link to appear after the PR Details section, got:\n%s", out)
 	}
 	if linkCount := strings.Count(out, "/pulls/42"); linkCount != 1 {
 		t.Fatalf("expected exactly one PR link (sections must not duplicate it), got %d in:\n%s", linkCount, out)
@@ -258,8 +259,8 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 }
 
 // TestReviewGroupCommand_StandaloneRendersLink verifies "get pr:review_group" run on
-// its own (not embedded in GetPRWorkflow, so suppressSectionLinkFlag is unset) still
-// prints its own trailing PR link.
+// its own (it's no longer embedded in GetPRWorkflow) still prints its own trailing
+// PR link.
 func TestReviewGroupCommand_StandaloneRendersLink(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -16,13 +16,6 @@ import (
 const (
 	getPRWorkflowID            = "get_pr"
 	reviewGroupTextFormatterID = "pr_review_group_text"
-
-	// suppressSectionLinkFlag is set on ctx.FlagValues by GetPRWorkflow while it
-	// renders the Insight/Review Groups sections, so reviewGroupTextFormatter can
-	// skip its own trailing PR link — the composite "get pr" command prints one
-	// link, once, at the very end instead. Unset (the common case) when a section
-	// command runs standalone, so it prints its own link as usual.
-	suppressSectionLinkFlag = "_suppress_section_link"
 )
 
 // insightSections lists the Harness Code review-insight sub-commands appended to "get pr" output,
@@ -31,7 +24,6 @@ var insightSections = []struct {
 	verb, noun, label string
 }{
 	{"get", "pr:insight", "Insight"},
-	{"get", "pr:review_group", "Review Groups"},
 }
 
 // isMachineFormat mirrors exprenv.isMachineFormat (unexported): these formats are
@@ -55,31 +47,20 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("get pr command spec not found")
 	}
 
-	// Render the base PR table without its own text_footer (the PR link) so the
-	// link can be printed once, last, after the insight sections below.
-	footer := baseSpec.Endpoint.TextFooter
-	baseEP := *baseSpec.Endpoint
-	baseEP.TextFooter = ""
-	pr, err := registry.RunEndpoint(ctx, &baseEP)
+	if isMachineFormat(ctx.FormatFlags.Format) || cmdctx.GetBool(ctx.FlagValues, "list-fields") {
+		_, err := registry.RunEndpoint(ctx, baseSpec.Endpoint)
+		return err
+	}
+
+	// Fetch (hard-fail on error, same as before) but don't render yet — the base
+	// PR block now prints last, under "PR Details", after the Insight section.
+	pr, err := registry.CallEndpoint(ctx, baseSpec.Endpoint)
 	if err != nil {
 		return err
 	}
 
-	if isMachineFormat(ctx.FormatFlags.Format) || cmdctx.GetBool(ctx.FlagValues, "list-fields") {
-		return nil
-	}
-
 	origNoun, origFieldsNoun := ctx.Noun, ctx.FieldsNoun
 	defer func() { ctx.Noun, ctx.FieldsNoun = origNoun, origFieldsNoun }()
-
-	// Each section's own PR link (declarative text_footer, or the link
-	// reviewGroupTextFormatter appends) is suppressed while embedded here — the
-	// composite command prints one link, once, at the very end instead.
-	if ctx.FlagValues == nil {
-		ctx.FlagValues = map[string]any{}
-	}
-	ctx.FlagValues[suppressSectionLinkFlag] = true
-	defer delete(ctx.FlagValues, suppressSectionLinkFlag)
 
 	for _, section := range insightSections {
 		cs := ctx.Resolver.GetSpec(section.verb, section.noun)
@@ -104,7 +85,15 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 	}
 
 	ctx.Noun, ctx.FieldsNoun = origNoun, origFieldsNoun
-	if footer != "" {
+
+	fmt.Print("\n--- PR Details ---\n")
+	baseEP := *baseSpec.Endpoint
+	baseEP.TextFooter = ""
+	if _, err := registry.RunEndpoint(ctx, &baseEP); err != nil {
+		return err
+	}
+
+	if footer := baseSpec.Endpoint.TextFooter; footer != "" {
 		env := exprenv.WithIt(exprenv.Make(ctx), pr)
 		if text, err := exprenv.ResolvePath(env, footer); err == nil {
 			fmt.Print(text)
@@ -155,10 +144,8 @@ func reviewGroupTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 			}
 		}
 	}
-	if !d.GetBool("flags." + suppressSectionLinkFlag) {
-		if url := d.GetString("url(it)"); url != "" {
-			fmt.Fprintf(w, "\n%s\n", url)
-		}
+	if url := d.GetString("url(it)"); url != "" {
+		fmt.Fprintf(w, "\n%s\n", url)
 	}
 	return nil
 }
