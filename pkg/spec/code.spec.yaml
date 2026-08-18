@@ -379,6 +379,24 @@ nouns:
     short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).
     noun_aliases: [pr_review_groups]
 
+  - noun: pr_suggested_reviewer
+    short_desc: A suggested reviewer for a pull request (Harness Code review insights).
+    noun_aliases: [pr_suggested_reviewers]
+    fields:
+      - id: display_name
+        label: Display Name
+        expr: it.reviewer.display_name
+      - id: email
+        expr: it.reviewer.email
+      - id: uid
+        expr: it.reviewer.uid
+      - id: suggested_by
+        label: Suggested By
+        expr: it.suggested_by.display_name
+      - id: suggested_at
+        label: Suggested At
+        expr: epochMs(it.suggested_at)
+
   - noun: pr_activity
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
@@ -735,6 +753,27 @@ commands:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.idParts[0]}}/+/pullreq/{{ctx.idParts[1]}}/view
       item_expr: it
       text_formatter: pr_review_group_text
+
+  # ── pr_suggested_reviewer (Harness Code review insights) ───────────────────────
+
+  - command: list pr_suggested_reviewer
+    verb: list
+    noun: pr_suggested_reviewer
+    short: "List suggested reviewers for a pull request: harness list pr_suggested_reviewer <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/reviewers
+      items_expr: it.suggestions
+      paging:
+        paging_strategy: flat_list
+      columns: [display_name, email, suggested_by, suggested_at]
 
   # ── branch ──────────────────────────────────────────────────────────────────
 
