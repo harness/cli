@@ -624,6 +624,12 @@ func TestBuildUseString(t *testing.T) {
 			wantContain: "[id]",
 		},
 		{
+			name:        "no_id_with_command_allows_id_optional_bracket",
+			cs:          &spec.CommandSpec{Verb: VerbExecute, Noun: "workspace", NoId: true, AllowsId: true},
+			vs:          verbRegistry[VerbExecute],
+			wantContain: "[id]",
+		},
+		{
 			name:        "allows_parentid_optional",
 			cs:          &spec.CommandSpec{Verb: VerbList, Noun: "stage"},
 			vs:          verbRegistry[VerbList],

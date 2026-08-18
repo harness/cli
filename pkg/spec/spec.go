@@ -460,6 +460,7 @@ type CommandSpec struct {
 	Long             string              `yaml:"long,omitempty"`
 	RequiresId       bool                `yaml:"requires_id,omitempty"`       // positional [id] is mandatory for this command
 	NoId             bool                `yaml:"no_id,omitempty"`             // opt out of the verb's default RequiresId (e.g. singleton get commands)
+	AllowsId         bool                `yaml:"allows_id,omitempty"`         // when set (with no_id), still populate ctx.Id if a positional arg is given
 	IdLabel          string              `yaml:"id_label,omitempty"`          // overrides "<id>" in the Usage line (e.g. "<registry/path>")
 	ArgsLabel        string              `yaml:"args_label,omitempty"`        // appended to Usage after the id label (e.g. "<local-file>"); only used when has_args is true
 	IdParts          int                 `yaml:"id_parts,omitempty"`          // when > 1, id must contain exactly (id_parts-1) "/" separators; parts available as {ctx:id_part:0}, {ctx:id_part:1}, ...

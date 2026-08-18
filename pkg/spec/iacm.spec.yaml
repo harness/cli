@@ -225,6 +225,7 @@ commands:
         harness execute workspace --force                   # skip confirmation prompt
     id_label: "<workspace-id>"
     no_id: true
+    allows_id: true
     completion_noun: workspace
     handler_type: workflow
     workflow_id: execute_workspace
