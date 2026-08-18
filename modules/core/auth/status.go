@@ -342,8 +342,8 @@ func printStatus(r statusResult) {
 	}
 
 	profileSuffix := ""
-	if r.TokenType == "SSO" || r.TokenType == "SAT" {
-		profileSuffix = fmt.Sprintf(" (%s token)", r.TokenType)
+	if r.TokenType != "" {
+		profileSuffix = fmt.Sprintf(" (%s)", r.TokenType)
 	}
 	if r.Source == auth.SourceEnv {
 		add("Mode", sv(r.Status.Profile, "env vars"+profileSuffix))
