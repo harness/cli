@@ -175,7 +175,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		if len(args) > 0 {
 			ctx.Id = args[0]
 		}
-	} else if vspec.AllowsId {
+	} else if vspec.AllowsId || cs.AllowsId {
 		if cs.RequiresId && len(args) == 0 && !skipIdCheck {
 			return nil, fmt.Errorf("%s %s requires a positional %s argument%s", cs.Verb, cs.Noun, idLabel, cs.UsageLine())
 		}

@@ -749,7 +749,7 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 		if cs.HasArgs && cs.ArgsLabel != "" {
 			use += " " + cs.ArgsLabel
 		}
-	} else if vspec.AllowsId {
+	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
 		if cs.IdLabel != "" {
 			idLabel = cs.IdLabel
@@ -811,7 +811,7 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasNoun string) *cobra.
 		if cs.HasArgs && cs.ArgsLabel != "" {
 			use += " " + cs.ArgsLabel
 		}
-	} else if vspec.AllowsId {
+	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
 		if cs.IdLabel != "" {
 			idLabel = cs.IdLabel
