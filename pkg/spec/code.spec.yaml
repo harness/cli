@@ -355,6 +355,26 @@ nouns:
         label: Stage ID
         expr: it.check.payload.data.stage_identifier
 
+  - noun: pr_insight
+    short_desc: Risk summary for a pull request (Harness Code review insights).
+    noun_aliases: [pr_insights]
+    fields:
+      - id: risk
+        expr: it.risk
+      - id: content
+        expr: it.content
+        field_type: multiline_text
+      - id: commit_sha
+        label: Commit SHA
+        expr: it.commit_sha
+      - id: agent_run_id
+        label: Agent Run ID
+        expr: it.metadata.agent_run_id
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
   - noun: pr_activity
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
@@ -575,7 +595,8 @@ commands:
     verb: get
     noun: pr
     short: "Get pull request details: harness get pr <repo_id>/<pr_number>"
-    handler_type: endpoint
+    handler_type: workflow
+    workflow_id: get_pr
     id_parts: 2
     completion_seq:
       - completion_noun: repository
@@ -671,6 +692,26 @@ commands:
         state: '"closed"'
       no_fields: true
       text_header: "\nClosed PR #{{ctx.idParts[1]}}\n"
+
+  # ── pr_insight (Harness Code review insights) ─────────────────────────────────
+
+  - command: get pr:insight
+    verb: get
+    noun: pr
+    noun_variant: insight
+    fields_noun: pr_insight
+    short: "Get the risk summary insight for a pull request: harness get pr:insight <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/aicr/api/v1/pullreqs/{{ctx.idParts[1]}}/overview
+      item_expr: it
+      query_params:
+        repo_path: auth.scope + "/" + ctx.idParts[0]
 
   # ── branch ──────────────────────────────────────────────────────────────────
 
