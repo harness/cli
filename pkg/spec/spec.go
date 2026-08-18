@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 )
 
@@ -17,10 +18,25 @@ var ModuleOrder = []string{"core", "platform", "pipeline", "cd", "fme"}
 //go:embed *.spec.yaml
 var specsFS embed.FS
 
-// Files returns the names of all embedded *.spec.yaml files.
+// pluginSpecFiles lists embedded specs for modules that ship as separate plugin
+// binaries. The host never registers these as builtins — it only records their
+// noun ownership so a noun belonging to an uninstalled plugin produces a useful
+// error. A spec declaring module_type: plugin must appear here; the partition is
+// enforced by TestEmbeddedSpecPartition in pkg/specloader.
+var pluginSpecFiles = []string{"har.spec.yaml"}
+
+// Files returns the names of all embedded builtin *.spec.yaml files (everything
+// except pluginSpecFiles).
 func Files() []string {
 	entries, _ := fs.Glob(specsFS, "*.spec.yaml")
-	return entries
+	return slices.DeleteFunc(entries, func(name string) bool {
+		return slices.Contains(pluginSpecFiles, name)
+	})
+}
+
+// PluginFiles returns the names of embedded specs for plugin modules.
+func PluginFiles() []string {
+	return slices.Clone(pluginSpecFiles)
 }
 
 // Read returns the raw contents of a named spec file.
