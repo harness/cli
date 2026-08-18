@@ -5,13 +5,17 @@ package code
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/hlog"
 	"github.com/harness/cli/pkg/registry"
 )
 
-const getPRWorkflowID = "get_pr"
+const (
+	getPRWorkflowID            = "get_pr"
+	reviewGroupTextFormatterID = "pr_review_group_text"
+)
 
 // insightSections lists the Harness Code review-insight sub-commands appended to "get pr" output,
 // each best-effort: a failure only omits that section, it never fails the command.
@@ -19,6 +23,7 @@ var insightSections = []struct {
 	verb, noun, label string
 }{
 	{"get", "pr:insight", "Insight"},
+	{"get", "pr:review_group", "Review Groups"},
 }
 
 // isMachineFormat mirrors exprenv.isMachineFormat (unexported): these formats are
@@ -55,7 +60,7 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 	for _, section := range insightSections {
 		cs := ctx.Resolver.GetSpec(section.verb, section.noun)
 		if cs == nil || cs.Endpoint == nil {
-			hlog.Warn("aicr section spec not found, omitting from get pr", "verb", section.verb, "noun", section.noun)
+			hlog.Warn("insight section spec not found, omitting from get pr", "verb", section.verb, "noun", section.noun)
 			continue
 		}
 		ctx.Noun, ctx.FieldsNoun = cs.Noun, cs.FieldsNoun
@@ -63,12 +68,58 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 		// header with nothing under it; RunEndpoint's own render then re-fetches
 		// (cheap: these are all idempotent GETs).
 		if _, err := registry.CallEndpoint(ctx, cs.Endpoint); err != nil {
-			hlog.Warn("aicr fetch failed, omitting from get pr", "section", section.label, "err", err)
+			hlog.Warn("insight fetch failed, omitting from get pr", "section", section.label, "err", err)
 			continue
 		}
 		fmt.Printf("\n--- %s ---\n", section.label)
 		if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
-			hlog.Warn("aicr fetch failed, omitting from get pr", "section", section.label, "err", err)
+			hlog.Warn("insight fetch failed, omitting from get pr", "section", section.label, "err", err)
+		}
+	}
+	return nil
+}
+
+// reviewGroupTextFormatter renders the risk-bucketed review groups for a pull
+// request as a readable report: one block per group with its title, risk,
+// description, and the full list of changed file paths.
+func reviewGroupTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
+	groups := d.GetSlice("it.groups")
+	if len(groups) == 0 {
+		fmt.Fprintln(w, "No review groups.")
+		return nil
+	}
+	for i, raw := range groups {
+		g, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		title, _ := g["title"].(string)
+		desc, _ := g["description"].(string)
+		var risk string
+		if tags, ok := g["tags"].(map[string]any); ok {
+			risk, _ = tags["risk"].(string)
+		}
+		fmt.Fprintf(w, "\nGroup %d: %s", i+1, title)
+		if risk != "" {
+			fmt.Fprintf(w, " [risk: %s]", risk)
+		}
+		fmt.Fprintln(w)
+		if desc != "" {
+			fmt.Fprintln(w, desc)
+		}
+		files, _ := g["files"].([]any)
+		if len(files) == 0 {
+			continue
+		}
+		fmt.Fprintln(w, "Files:")
+		for _, fRaw := range files {
+			fm, ok := fRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if path, ok := fm["path"].(string); ok {
+				fmt.Fprintf(w, "  - %s\n", path)
+			}
 		}
 	}
 	return nil

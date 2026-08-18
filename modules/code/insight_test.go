@@ -57,6 +57,13 @@ func (s spyResolver) GetSpec(verb, noun string) *spec.CommandSpec {
 	return nil
 }
 
+func (s spyResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn {
+	if id == reviewGroupTextFormatterID {
+		return reviewGroupTextFormatter
+	}
+	return nil
+}
+
 func prSpec(path string) *spec.CommandSpec {
 	return &spec.CommandSpec{
 		Command: "get pr", Verb: "get", VerbHandler: "get",
@@ -65,12 +72,21 @@ func prSpec(path string) *spec.CommandSpec {
 	}
 }
 
-func aiOverviewSpec(path string) *spec.CommandSpec {
+func insightSpec(path string) *spec.CommandSpec {
 	return &spec.CommandSpec{
 		Command: "get pr:insight", Verb: "get", VerbHandler: "get",
 		Noun: "pr", NounVariant: "insight", FieldsNoun: "pr_insight", Module: "code",
 		HandlerType: spec.HandlerEndpoint,
 		Endpoint:    &spec.EndpointSpec{Method: "GET", Path: path, ItemExpr: "it"},
+	}
+}
+
+func reviewGroupSpec(path string) *spec.CommandSpec {
+	return &spec.CommandSpec{
+		Command: "get pr:review_group", Verb: "get", VerbHandler: "get",
+		Noun: "pr", NounVariant: "review_group", FieldsNoun: "pr_review_group", Module: "code",
+		HandlerType: spec.HandlerEndpoint,
+		Endpoint:    &spec.EndpointSpec{Method: "GET", Path: path, ItemExpr: "it", TextFormatter: reviewGroupTextFormatterID},
 	}
 }
 
@@ -83,10 +99,14 @@ func insightTestCtx(srvURL, format string) *cmdctx.Ctx {
 		FormatFlags: cmdctx.FormatFlags{Format: format},
 		FlagValues:  map[string]any{},
 		Resolver: spyResolver{getSpec: func(verb, noun string) *spec.CommandSpec {
-			if noun == "pr:insight" {
-				return aiOverviewSpec("/overview")
+			switch {
+			case noun == "pr:insight":
+				return insightSpec("/insight")
+			case noun == "pr:review_group":
+				return reviewGroupSpec("/review_groups")
+			default:
+				return prSpec("/pr")
 			}
-			return prSpec("/pr")
 		}},
 	}
 }
@@ -137,10 +157,10 @@ func TestGetPRWorkflow_BasePRFails(t *testing.T) {
 }
 
 func TestGetPRWorkflow_MachineFormatSkipsInsight(t *testing.T) {
-	var overviewHits atomic.Int32
+	var insightHits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/overview" {
-			overviewHits.Add(1)
+		if r.URL.Path == "/insight" || r.URL.Path == "/review_groups" {
+			insightHits.Add(1)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"number":1}`))
@@ -150,14 +170,14 @@ func TestGetPRWorkflow_MachineFormatSkipsInsight(t *testing.T) {
 	if err := GetPRWorkflow(insightTestCtx(srv.URL, "json")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := overviewHits.Load(); got != 0 {
-		t.Fatalf("AI overview endpoint called %d times, want 0 for --format json", got)
+	if got := insightHits.Load(); got != 0 {
+		t.Fatalf("insight endpoint called %d times, want 0 for --format json", got)
 	}
 }
 
 func TestGetPRWorkflow_InsightFailureOmitsSectionButSucceeds(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/overview" {
+		if r.URL.Path == "/insight" || r.URL.Path == "/review_groups" {
 			w.WriteHeader(500)
 			return
 		}
@@ -173,19 +193,22 @@ func TestGetPRWorkflow_InsightFailureOmitsSectionButSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get pr must succeed even when an insight endpoint fails, got: %v", err)
 	}
-	if strings.Contains(out, "Insight") {
-		t.Fatalf("output must omit the Insight section on failure, got:\n%s", out)
+	if strings.Contains(out, "Insight") || strings.Contains(out, "Review Groups") {
+		t.Fatalf("output must omit failed sections, got:\n%s", out)
 	}
 }
 
 func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/overview" {
+		switch r.URL.Path {
+		case "/insight":
 			w.Write([]byte(`{"risk":"low","content":"looks fine"}`))
-			return
+		case "/review_groups":
+			w.Write([]byte(`{"groups":[{"title":"Health Source Inputs Resolver","description":"New shared resolver.","tags":{"risk":"low"},"files":[{"path":"a/b/Foo.java"}]}]}`))
+		default:
+			w.Write([]byte(`{"number":1}`))
 		}
-		w.Write([]byte(`{"number":1}`))
 	}))
 	defer srv.Close()
 
@@ -198,6 +221,9 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 	}
 	if !strings.Contains(out, "Insight") {
 		t.Fatalf("output must contain the Insight section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Review Groups") || !strings.Contains(out, "a/b/Foo.java") {
+		t.Fatalf("output must contain the Review Groups section with file paths, got:\n%s", out)
 	}
 }
 

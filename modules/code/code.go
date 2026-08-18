@@ -20,4 +20,5 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterFetchFn(listMinePRFetchFnID, listMinePRFetchFn)
 	reg.RegisterFlagResolveFn(resolvePrincipalIDFnID, resolvePrincipalID)
 	reg.RegisterWorkflow(getPRWorkflowID, GetPRWorkflow)
+	reg.RegisterTextFormatter(reviewGroupTextFormatterID, reviewGroupTextFormatter)
 }

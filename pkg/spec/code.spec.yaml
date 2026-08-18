@@ -375,6 +375,10 @@ nouns:
       - id: updated
         expr: epochMs(it.updated)
 
+  - noun: pr_review_group
+    short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).
+    noun_aliases: [pr_review_groups]
+
   - noun: pr_activity
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
@@ -712,6 +716,25 @@ commands:
       item_expr: it
       query_params:
         repo_path: auth.scope + "/" + ctx.idParts[0]
+
+  # ── pr_review_group (Harness Code review insights) ────────────────────────────
+
+  - command: get pr:review_group
+    verb: get
+    noun: pr
+    noun_variant: review_group
+    fields_noun: pr_review_group
+    short: "Get the risk-bucketed review groups for a pull request: harness get pr:review_group <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.idParts[0]}}/+/pullreq/{{ctx.idParts[1]}}/view
+      item_expr: it
+      text_formatter: pr_review_group_text
 
   # ── branch ──────────────────────────────────────────────────────────────────
 
