@@ -93,6 +93,26 @@ func WithColor(c Color, text string) string {
 	return fmt.Sprintf("\x1b[%dm%s\x1b[0m", int(c), text)
 }
 
+// WithBoldColor wraps text in a bold ANSI code, additionally tinted with c when
+// c != 0, when stdout is a TTY.
+func WithBoldColor(c Color, text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	if c != 0 {
+		return fmt.Sprintf("\x1b[1;%dm%s\x1b[0m", int(c), text)
+	}
+	return fmt.Sprintf("\x1b[1m%s\x1b[0m", text)
+}
+
+// WithBold wraps text in a bold ANSI code (no color) when stdout is a TTY.
+func WithBold(text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	return fmt.Sprintf("\x1b[1m%s\x1b[0m", text)
+}
+
 // ReadSecret prints prompt to stderr and reads a masked line from the terminal.
 func ReadSecret(prompt string) (string, error) {
 	if !ensureTTY() {
