@@ -249,16 +249,16 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 		t.Fatalf("output must contain the PR Details section, got:\n%s", out)
 	}
 
-	// Insight must render first, PR Details last (right before the link), and the
+	// PR Details must render first, Insight last (right before the link), and the
 	// PR link must print exactly once, at the very end.
-	insightIdx := strings.Index(out, "AI Code Review")
 	prDetailsIdx := strings.Index(out, "PR Details")
-	if insightIdx == -1 || prDetailsIdx == -1 || prDetailsIdx < insightIdx {
-		t.Fatalf("expected Insight to render before PR Details, got:\n%s", out)
+	insightIdx := strings.Index(out, "AI Code Review")
+	if insightIdx == -1 || prDetailsIdx == -1 || insightIdx < prDetailsIdx {
+		t.Fatalf("expected PR Details to render before Insight, got:\n%s", out)
 	}
 	lastLinkIdx := strings.LastIndex(out, "/pulls/42")
-	if lastLinkIdx == -1 || lastLinkIdx < prDetailsIdx {
-		t.Fatalf("expected the PR link to appear after the PR Details section, got:\n%s", out)
+	if lastLinkIdx == -1 || lastLinkIdx < insightIdx {
+		t.Fatalf("expected the PR link to appear after the Insight section, got:\n%s", out)
 	}
 	if linkCount := strings.Count(out, "/pulls/42"); linkCount != 1 {
 		t.Fatalf("expected exactly one PR link (sections must not duplicate it), got %d in:\n%s", linkCount, out)
