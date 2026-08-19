@@ -58,10 +58,14 @@ func (s spyResolver) GetSpec(verb, noun string) *spec.CommandSpec {
 }
 
 func (s spyResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn {
-	if id == reviewGroupTextFormatterID {
+	switch id {
+	case reviewGroupTextFormatterID:
 		return reviewGroupTextFormatter
+	case insightTextFormatterID:
+		return insightTextFormatter
+	default:
+		return nil
 	}
-	return nil
 }
 
 // testNounURLPath is a stand-in url_path template shared by test nouns: it resolves
@@ -94,7 +98,10 @@ func insightSpec(path string) *spec.CommandSpec {
 		Command: "get pr:insight", Verb: "get", VerbHandler: "get",
 		Noun: "pr", NounVariant: "insight", FieldsNoun: "pr_insight", Module: "code",
 		HandlerType: spec.HandlerEndpoint,
-		Endpoint:    &spec.EndpointSpec{Method: "GET", Path: path, ItemExpr: "it", TextFooter: "\n{{url(it)}}\n"},
+		Endpoint: &spec.EndpointSpec{
+			Method: "GET", Path: path, ItemExpr: "it", TextFooter: "\n{{url(it)}}\n",
+			TextFormatter: insightTextFormatterID,
+		},
 	}
 }
 
@@ -211,7 +218,7 @@ func TestGetPRWorkflow_InsightFailureOmitsSectionButSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get pr must succeed even when an insight endpoint fails, got: %v", err)
 	}
-	if strings.Contains(out, "Insight") {
+	if strings.Contains(out, "AI Code Review") {
 		t.Fatalf("output must omit failed sections, got:\n%s", out)
 	}
 }
@@ -235,23 +242,23 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "Insight") {
-		t.Fatalf("output must contain the Insight section, got:\n%s", out)
+	if !strings.Contains(out, "AI Code Review") {
+		t.Fatalf("output must contain the AI Code Review heading, got:\n%s", out)
 	}
-	if !strings.Contains(out, "PR Details") {
-		t.Fatalf("output must contain the PR Details section, got:\n%s", out)
+	if !strings.Contains(out, "Number:") {
+		t.Fatalf("output must contain the PR's labeled fields, got:\n%s", out)
 	}
 
-	// Insight must render first, PR Details last (right before the link), and the
+	// Labeled fields must render first, Insight last (right before the link), and the
 	// PR link must print exactly once, at the very end.
-	insightIdx := strings.Index(out, "Insight")
-	prDetailsIdx := strings.Index(out, "PR Details")
-	if insightIdx == -1 || prDetailsIdx == -1 || prDetailsIdx < insightIdx {
-		t.Fatalf("expected Insight to render before PR Details, got:\n%s", out)
+	numberIdx := strings.Index(out, "Number:")
+	insightIdx := strings.Index(out, "AI Code Review")
+	if insightIdx == -1 || numberIdx == -1 || insightIdx < numberIdx {
+		t.Fatalf("expected labeled fields to render before Insight, got:\n%s", out)
 	}
 	lastLinkIdx := strings.LastIndex(out, "/pulls/42")
-	if lastLinkIdx == -1 || lastLinkIdx < prDetailsIdx {
-		t.Fatalf("expected the PR link to appear after the PR Details section, got:\n%s", out)
+	if lastLinkIdx == -1 || lastLinkIdx < insightIdx {
+		t.Fatalf("expected the PR link to appear after the Insight section, got:\n%s", out)
 	}
 	if linkCount := strings.Count(out, "/pulls/42"); linkCount != 1 {
 		t.Fatalf("expected exactly one PR link (sections must not duplicate it), got %d in:\n%s", linkCount, out)
@@ -278,6 +285,62 @@ func TestReviewGroupCommand_StandaloneRendersLink(t *testing.T) {
 	})
 	if !strings.Contains(out, "/pulls/42") {
 		t.Fatalf("standalone run must print its own PR link, got:\n%s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// insightTextFormatter
+// ---------------------------------------------------------------------------
+
+type fakeDataAccessor struct {
+	values map[string]string
+	slices map[string][]any
+}
+
+func (f fakeDataAccessor) GetString(path string) string { return f.values[path] }
+func (f fakeDataAccessor) GetInt64(string) int64        { return 0 }
+func (f fakeDataAccessor) GetBool(string) bool          { return false }
+func (f fakeDataAccessor) GetTs(string) string          { return "" }
+func (f fakeDataAccessor) GetData() any                 { return nil }
+func (f fakeDataAccessor) GetSlice(path string) []any   { return f.slices[path] }
+
+// ---------------------------------------------------------------------------
+// reviewGroupTextFormatter
+// ---------------------------------------------------------------------------
+
+func TestReviewGroupTextFormatter_ColorizesBulletAndRiskTag(t *testing.T) {
+	groups := []any{
+		map[string]any{
+			"title":       "Auth middleware changes",
+			"description": "Touches token validation.",
+			"tags":        map[string]any{"risk": "high"},
+			"files": []any{
+				map[string]any{"path": "auth/middleware.go"},
+			},
+		},
+	}
+	out := captureStdout(t, func() {
+		err := reviewGroupTextFormatter(os.Stdout, fakeDataAccessor{
+			slices: map[string][]any{"it.groups": groups},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if strings.Contains(out, "Group 1") || strings.Contains(out, "Group ") {
+		t.Fatalf("output must not contain a numbered \"Group\" label, got:\n%s", out)
+	}
+	if !strings.Contains(out, "●") {
+		t.Fatalf("output must contain the risk bullet, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Auth middleware changes") {
+		t.Fatalf("output must contain the group title, got:\n%s", out)
+	}
+	if !strings.Contains(out, "[high]") {
+		t.Fatalf("output must contain the risk tag, got:\n%s", out)
+	}
+	if !strings.Contains(out, "auth/middleware.go") {
+		t.Fatalf("output must still list the file path, got:\n%s", out)
 	}
 }
 

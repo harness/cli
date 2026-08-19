@@ -827,6 +827,7 @@ commands:
       query_params:
         repo_path: auth.scope + "/" + ctx.idParts[0]
       text_footer: "\n{{url(it)}}\n"
+      text_formatter: pr_insight_text
 
   # ── pr_review_group (Harness Code review insights) ────────────────────────────
 

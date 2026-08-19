@@ -3,32 +3,26 @@
 
 package registry
 
-// Core verbs — correspond to harness_<verb> MCP tools.
+// Core verbs.
 const (
-	VerbList     = "list"
-	VerbGet      = "get"
-	VerbCreate   = "create"
-	VerbUpdate   = "update"
-	VerbDelete   = "delete"
-	VerbExecute  = "execute"
-	VerbDescribe = "describe"
-	VerbDiagnose = "diagnose"
-	VerbSearch   = "search"
-	VerbStatus   = "status"
+	VerbList    = "list"
+	VerbGet     = "get"
+	VerbCreate  = "create"
+	VerbUpdate  = "update"
+	VerbDelete  = "delete"
+	VerbExecute = "execute"
 )
 
 // Leaf verbs — standalone commands with no noun and no subcommands.
 // Only one registration per leaf verb is allowed.
 const (
 	VerbVersion = "version"
-	VerbAsk     = "ask"
 )
 
 // Group verbs — top-level commands that own their own subcommands.
 const (
-	VerbAuth   = "auth"
-	VerbPlugin = "plugin"
-	VerbDebug  = "debug"
+	VerbAuth  = "auth"
+	VerbDebug = "debug"
 )
 
 // Module-approved verbs (AR) — require client-side workflows, approved at framework level.
@@ -70,7 +64,6 @@ type VerbSpec struct {
 // VerbOrder is the canonical display order for verbs in tables and help output.
 var VerbOrder = []string{
 	VerbList, VerbGet, VerbCreate, VerbUpdate, VerbDelete, VerbExecute,
-	VerbDescribe, VerbDiagnose, VerbSearch, VerbStatus,
 	VerbInstall, VerbPush, VerbPull, VerbConfigure,
 }
 
@@ -84,23 +77,17 @@ var verbRegistry = map[string]VerbSpec{
 	VerbConfigure: {Kind: VerbKindCore, Gerund: "configuring", ShortDesc: "Configure a local package manager client for a Harness registry", RequiresId: true},
 
 	// Core verbs
-	VerbList:     {Kind: VerbKindCore, Gerund: "listing", ShortDesc: "List Harness resources", AllowsParentId: true},
-	VerbGet:      {Kind: VerbKindCore, Gerund: "getting", ShortDesc: "Get a Harness resource by identifier", RequiresId: true},
-	VerbCreate:   {Kind: VerbKindCore, Gerund: "creating", ShortDesc: "Create a Harness resource", AllowsId: true},
-	VerbUpdate:   {Kind: VerbKindCore, Gerund: "updating", ShortDesc: "Update a Harness resource", RequiresId: true},
-	VerbDelete:   {Kind: VerbKindCore, Gerund: "deleting", ShortDesc: "Delete a Harness resource", RequiresId: true},
-	VerbExecute:  {Kind: VerbKindCore, Gerund: "executing", ShortDesc: "Execute a Harness resource", RequiresId: true},
-	VerbDescribe: {Kind: VerbKindCore, Gerund: "describing", ShortDesc: "Describe a Harness resource type"},
-	VerbDiagnose: {Kind: VerbKindCore, Gerund: "diagnosing", ShortDesc: "Diagnose issues with a Harness resource"},
-	VerbSearch:   {Kind: VerbKindCore, Gerund: "searching", ShortDesc: "Search for Harness resources"},
-	VerbStatus:   {Kind: VerbKindCore, Gerund: "checking status of", ShortDesc: "Show status of a Harness resource"},
+	VerbList:    {Kind: VerbKindCore, Gerund: "listing", ShortDesc: "List Harness resources", AllowsParentId: true},
+	VerbGet:     {Kind: VerbKindCore, Gerund: "getting", ShortDesc: "Get a Harness resource by identifier", RequiresId: true},
+	VerbCreate:  {Kind: VerbKindCore, Gerund: "creating", ShortDesc: "Create a Harness resource", AllowsId: true},
+	VerbUpdate:  {Kind: VerbKindCore, Gerund: "updating", ShortDesc: "Update a Harness resource", RequiresId: true},
+	VerbDelete:  {Kind: VerbKindCore, Gerund: "deleting", ShortDesc: "Delete a Harness resource", RequiresId: true},
+	VerbExecute: {Kind: VerbKindCore, Gerund: "executing", ShortDesc: "Execute a Harness resource", RequiresId: true},
 
 	// Leaf verbs
 	VerbVersion: {Kind: VerbKindLeaf, SkipSetup: true},
-	VerbAsk:     {Kind: VerbKindLeaf, Gerund: "asking"},
 
 	// Group verbs
-	VerbAuth:   {Kind: VerbKindGroup, ShortDesc: "Manage authentication profiles"},
-	VerbPlugin: {Kind: VerbKindGroup, ShortDesc: "Manage CLI plugins"},
-	VerbDebug:  {Kind: VerbKindGroup, HideGroup: true, AllowsId: true},
+	VerbAuth:  {Kind: VerbKindGroup, ShortDesc: "Manage authentication profiles"},
+	VerbDebug: {Kind: VerbKindGroup, HideGroup: true, AllowsId: true},
 }

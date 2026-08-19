@@ -28,12 +28,14 @@ harness <verb> <noun> --help   # flags for a specific command
 
 | Verb | Purpose |
 |------|---------|
-| `list` | List resources (paginated) |
-| `get` | Get a single resource by id |
-| `create` | Create a resource |
-| `update` | Update a resource |
-| `delete` | Delete a resource |
-| `execute` | Run/trigger a resource (pipelines, merges, etc.) |
+| `list` | Return zero or more resources of one type, optionally scoped to a parent. |
+| `get` | Retrieve one resource by its identifier. |
+| `create` | Bring a new Harness resource into existence. |
+| `update` | Write a resource's fields — reversible by writing the old value back. |
+| `delete` | Destroy a server-side Harness resource. |
+| `execute` | Initiate work that yields a run or result. |
+
+Unsure which verb an operation belongs to (e.g. `import` vs `create`, `execute` vs `update`)? See [docs/verbs.md](docs/verbs.md) for the full classification rules.
 
 ### Qualified nouns (`noun:variant`)
 

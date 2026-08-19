@@ -144,7 +144,7 @@ func runStatusChecks(profileFlag string) statusResult {
 	r.Status.Profile = checkResult{OK: true}
 
 	// An explicit HARNESS_SSO_BASE_URL override (present during SSO login) means the
-	// non-standard host was deliberate, so a format mismatch is not even a warning.
+	// value was deliberate, so a format mismatch is not even a warning.
 	overridden := os.Getenv(hbase.EnvSSOBaseURL) != ""
 	apiCheck := checkAPIUrl(resolved.APIUrl, overridden)
 	r.Status.API = apiCheck
@@ -342,8 +342,8 @@ func printStatus(r statusResult) {
 	}
 
 	profileSuffix := ""
-	if r.TokenType == "SSO" || r.TokenType == "SAT" {
-		profileSuffix = fmt.Sprintf(" (%s token)", r.TokenType)
+	if r.TokenType != "" {
+		profileSuffix = fmt.Sprintf(" (%s)", r.TokenType)
 	}
 	if r.Source == auth.SourceEnv {
 		add("Mode", sv(r.Status.Profile, "env vars"+profileSuffix))
@@ -475,10 +475,10 @@ func currentUserFields(u any) (email, uuid string) {
 }
 
 // checkAPIUrl validates the API URL's format and reachability. Reachability is the
-// authoritative gate: an unreachable host is a hard failure that cascades. A non-standard
-// but reachable host is a soft warning ("non-standard host") so downstream checks still run —
-// unless overridden is set (an explicit HARNESS_SSO_BASE_URL override), in which case the
-// deliberate host passes cleanly.
+// authoritative gate: an unreachable host is a hard failure that cascades. A malformed
+// but reachable URL (e.g. missing scheme, from a hand-edited HARNESS_API_URL) is a soft
+// warning so downstream checks still run — unless overridden is set (an explicit
+// HARNESS_SSO_BASE_URL override), in which case the deliberate value passes cleanly.
 func checkAPIUrl(apiURL string, overridden bool) checkResult {
 	formatErr := auth.ValidateAPIURL(apiURL)
 
@@ -491,7 +491,7 @@ func checkAPIUrl(apiURL string, overridden bool) checkResult {
 	}
 
 	if formatErr != nil && !overridden {
-		return checkResult{Warn: true, Error: "non-standard host"}
+		return checkResult{Warn: true, Error: "malformed API URL"}
 	}
 	return checkResult{OK: true}
 }

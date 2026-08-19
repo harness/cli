@@ -23,4 +23,5 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterBodyFn(reviewPRBodyFnID, reviewPRBodyFn)
 	reg.RegisterWorkflow(getPRWorkflowID, GetPRWorkflow)
 	reg.RegisterTextFormatter(reviewGroupTextFormatterID, reviewGroupTextFormatter)
+	reg.RegisterTextFormatter(insightTextFormatterID, insightTextFormatter)
 }

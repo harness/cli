@@ -595,8 +595,8 @@ func TestBuildUseString(t *testing.T) {
 		},
 		{
 			name:      "verb_with_noun_no_id_requirement",
-			cs:        &spec.CommandSpec{Verb: VerbDescribe, Noun: "pipeline"},
-			vs:        verbRegistry[VerbDescribe],
+			cs:        &spec.CommandSpec{Verb: VerbList, Noun: "pipeline"},
+			vs:        VerbSpec{Kind: VerbKindCore},
 			wantEqual: "pipeline",
 		},
 		{
