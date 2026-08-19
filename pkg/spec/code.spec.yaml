@@ -580,6 +580,50 @@ commands:
           expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
       columns: [repo, number, title, state, source_branch, target_branch, updated]
 
+  - command: list pr:review_pending
+    verb: list
+    noun: pr
+    noun_variant: review_pending
+    short: "List pull requests awaiting your review, across all repos: harness list pr:review_pending [--state open|closed|merged|all]"
+    handler_type: endpoint
+    flags:
+      - name: state
+        description: "Filter by state: open, closed, merged, all"
+        default: open
+        completion_values: [open, closed, merged, all]
+      - name: created-after
+        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+      - name: created-before
+        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+    endpoint:
+      path: /code/api/v1/pullreq
+      query_params_fn: review_pending_pr_query_params
+      fetch_fn: list_mine_pr_fetch
+      items_expr: it
+      get_id_expr: string(it.number)
+      query_params:
+        state: 'flags.state == "all" ? "" : flags.state'
+        created_gt: 'parseDateMs(flags["created-after"])'
+        created_lt: 'parseDateMs(flags["created-before"])'
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      fields_extra:
+        - id: repo
+          label: Repo
+          expr: it.repository.identifier
+        - id: url
+          label: URL
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+      columns: [repo, number, title, state, source_branch, target_branch, updated]
+
   - command: list pr
     verb: list
     noun: pr
@@ -739,6 +783,29 @@ commands:
         state: '"closed"'
       no_fields: true
       text_header: "\nClosed PR #{{ctx.idParts[1]}}\n"
+
+  - command: execute pr:review
+    verb: execute
+    noun: pr
+    noun_variant: review
+    short: "Submit a review decision on a pull request: harness execute pr:review <repo_id>/<pr_number> --decision approve|changereq"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: decision
+        description: "Review decision: approve, changereq"
+        completion_values: [approve, changereq]
+        required: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviews
+      body_fn: review_pr_body
+      no_fields: true
+      text_header: "\nReview submitted for PR #{{ctx.idParts[1]}}\n"
 
   # ── pr_insight (Harness Code review insights) ─────────────────────────────────
 

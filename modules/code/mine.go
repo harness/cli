@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	listMinePRQueryParamsFnID = "list_mine_pr_query_params"
-	listMinePRFetchFnID       = "list_mine_pr_fetch"
+	listMinePRQueryParamsFnID      = "list_mine_pr_query_params"
+	listMinePRFetchFnID            = "list_mine_pr_fetch"
+	reviewPendingPRQueryParamsFnID = "review_pending_pr_query_params"
 )
 
 // listMinePRQueryParamsFn resolves the current user's Code numeric principal ID
@@ -25,6 +26,20 @@ func listMinePRQueryParamsFn(ctx *cmdctx.Ctx) (map[string]string, error) {
 		return nil, err
 	}
 	return map[string]string{"author_id": fmt.Sprintf("%d", id)}, nil
+}
+
+// reviewPendingPRQueryParamsFn resolves the current user's Code numeric principal ID
+// and returns it as the reviewer_id query param, filtered to pending review decisions,
+// for the cross-repo PR list endpoint.
+func reviewPendingPRQueryParamsFn(ctx *cmdctx.Ctx) (map[string]string, error) {
+	id, err := CurrentUserPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		"reviewer_id":     fmt.Sprintf("%d", id),
+		"review_decision": "pending",
+	}, nil
 }
 
 // listMinePRFetchFn delegates to HTTPFetchFn (which picks up the author_id via
