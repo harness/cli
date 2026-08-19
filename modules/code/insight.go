@@ -112,7 +112,7 @@ func reviewGroupTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 	if len(groups) == 0 {
 		fmt.Fprintln(w, "No review groups.")
 	}
-	for i, raw := range groups {
+	for _, raw := range groups {
 		g, ok := raw.(map[string]any)
 		if !ok {
 			continue
@@ -123,11 +123,16 @@ func reviewGroupTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 		if tags, ok := g["tags"].(map[string]any); ok {
 			risk, _ = tags["risk"].(string)
 		}
-		fmt.Fprintf(w, "\nGroup %d: %s", i+1, title)
+		bullet := "●"
+		riskTag := ""
 		if risk != "" {
-			fmt.Fprintf(w, " [risk: %s]", risk)
+			riskTag = fmt.Sprintf(" [%s]", risk)
 		}
-		fmt.Fprintln(w)
+		if c := riskColor(risk); c != 0 {
+			bullet = console.WithColor(c, bullet)
+			riskTag = console.WithColor(c, riskTag)
+		}
+		fmt.Fprintf(w, "\n%s %s%s\n", bullet, title, riskTag)
 		if desc != "" {
 			fmt.Fprintln(w, desc)
 		}
