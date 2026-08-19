@@ -106,6 +106,6 @@ func renderInsight(w io.Writer, risk, content string) {
 		Icon:        "✨",
 		Header:      heading,
 		HeaderColor: riskColor(risk),
-		Text:        content,
+		Text:        strings.TrimSpace(content),
 	})
 }

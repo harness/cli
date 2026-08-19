@@ -77,14 +77,13 @@ func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *
 	if ctx.FieldsNoun != "" {
 		nounForFields = ctx.FieldsNoun
 	}
-	var labeledFields, textFields []spec.FieldDef
+	var labeledFields []spec.FieldDef
 	if nd := ctx.Resolver.GetNoun(nounForFields); nd != nil {
 		for _, f := range nd.Fields {
 			if f.FieldType == "multiline_text" || f.FieldType == "yaml" {
-				textFields = append(textFields, f)
-			} else {
-				labeledFields = append(labeledFields, f)
+				continue
 			}
+			labeledFields = append(labeledFields, f)
 		}
 	}
 
@@ -106,7 +105,11 @@ func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *
 		}
 	}
 
-	return format.BuildTextFieldFormatter(textFields, "", baseSpec.Endpoint.TextFooter, interpolate)(w, data)
+	if desc := strings.TrimSpace(data.GetString("it.description")); desc != "" {
+		fmt.Fprintf(w, "\n%s\n", desc)
+	}
+	_, err = fmt.Fprint(w, interpolate(baseSpec.Endpoint.TextFooter, pr))
+	return err
 }
 
 // createPRBodyFn builds the pull request create body.
