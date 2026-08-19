@@ -245,16 +245,16 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 	if !strings.Contains(out, "AI Code Review") {
 		t.Fatalf("output must contain the AI Code Review heading, got:\n%s", out)
 	}
-	if !strings.Contains(out, "PR Details") {
-		t.Fatalf("output must contain the PR Details section, got:\n%s", out)
+	if !strings.Contains(out, "Number:") {
+		t.Fatalf("output must contain the PR's labeled fields, got:\n%s", out)
 	}
 
-	// PR Details must render first, Insight last (right before the link), and the
+	// Labeled fields must render first, Insight last (right before the link), and the
 	// PR link must print exactly once, at the very end.
-	prDetailsIdx := strings.Index(out, "PR Details")
+	numberIdx := strings.Index(out, "Number:")
 	insightIdx := strings.Index(out, "AI Code Review")
-	if insightIdx == -1 || prDetailsIdx == -1 || insightIdx < prDetailsIdx {
-		t.Fatalf("expected PR Details to render before Insight, got:\n%s", out)
+	if insightIdx == -1 || numberIdx == -1 || insightIdx < numberIdx {
+		t.Fatalf("expected labeled fields to render before Insight, got:\n%s", out)
 	}
 	lastLinkIdx := strings.LastIndex(out, "/pulls/42")
 	if lastLinkIdx == -1 || lastLinkIdx < insightIdx {

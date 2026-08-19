@@ -5,7 +5,6 @@ package code
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/harness/cli/pkg/cmdctx"
@@ -48,24 +47,18 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	origNoun, origFieldsNoun := ctx.Noun, ctx.FieldsNoun
-	defer func() { ctx.Noun, ctx.FieldsNoun = origNoun, origFieldsNoun }()
-
 	insightSpec := ctx.Resolver.GetSpec("get", "pr:insight")
 	var insightData any
 	if insightSpec == nil || insightSpec.Endpoint == nil {
 		hlog.Warn("insight section spec not found, omitting from get pr")
 		insightSpec = nil
 	} else {
-		ctx.Noun, ctx.FieldsNoun = insightSpec.Noun, insightSpec.FieldsNoun
 		insightData, err = registry.CallEndpoint(ctx, insightSpec.Endpoint)
 		if err != nil {
 			hlog.Warn("insight fetch failed, omitting from get pr", "err", err)
 			insightSpec = nil
 		}
 	}
-
-	ctx.Noun, ctx.FieldsNoun = origNoun, origFieldsNoun
 
 	return renderPR(ctx, baseSpec, pr, insightSpec, insightData)
 }
@@ -74,6 +67,12 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 // section can sit between them: labeled fields, then the insight section (best-effort
 // — a failure here still only omits it), then the description text block and footer.
 func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *spec.CommandSpec, insightData any) error {
+	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+	if err != nil {
+		return err
+	}
+	defer closeW()
+
 	nounForFields := ctx.Noun
 	if ctx.FieldsNoun != "" {
 		nounForFields = ctx.FieldsNoun
@@ -96,30 +95,18 @@ func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *
 	}
 	data := extractutil.MakeDataAccessor(exprEnv, pr)
 
-	fmt.Print("\n--- PR Details ---\n")
-	if err := format.BuildTextFieldFormatter(labeledFields, "", "", interpolate)(os.Stdout, data); err != nil {
+	if err := format.BuildTextFieldFormatter(labeledFields, "", "", interpolate)(w, data); err != nil {
 		return err
 	}
 
-	origNoun, origFieldsNoun := ctx.Noun, ctx.FieldsNoun
-	defer func() { ctx.Noun, ctx.FieldsNoun = origNoun, origFieldsNoun }()
-
 	if insightSpec != nil {
-		ctx.Noun, ctx.FieldsNoun = insightSpec.Noun, insightSpec.FieldsNoun
-		textFmt := ctx.Resolver.ResolveTextFormatter(insightSpec.Endpoint.TextFormatter)
-		if textFmt == nil {
-			hlog.Warn("insight section has no text formatter, omitting from get pr")
-		} else {
-			sectionData := extractutil.MakeDataAccessor(exprenv.Make(ctx), insightData)
-			if err := textFmt(os.Stdout, sectionData); err != nil {
-				hlog.Warn("insight render failed, omitting from get pr", "err", err)
-			}
+		sectionData := extractutil.MakeDataAccessor(exprEnv, insightData)
+		if err := insightTextFormatter(w, sectionData); err != nil {
+			hlog.Warn("insight render failed, omitting from get pr", "err", err)
 		}
 	}
 
-	ctx.Noun, ctx.FieldsNoun = origNoun, origFieldsNoun
-
-	return format.BuildTextFieldFormatter(textFields, "", baseSpec.Endpoint.TextFooter, interpolate)(os.Stdout, data)
+	return format.BuildTextFieldFormatter(textFields, "", baseSpec.Endpoint.TextFooter, interpolate)(w, data)
 }
 
 // createPRBodyFn builds the pull request create body.
