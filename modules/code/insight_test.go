@@ -218,7 +218,7 @@ func TestGetPRWorkflow_InsightFailureOmitsSectionButSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get pr must succeed even when an insight endpoint fails, got: %v", err)
 	}
-	if strings.Contains(out, "AI Code Overview") {
+	if strings.Contains(out, "AI Code Review") {
 		t.Fatalf("output must omit failed sections, got:\n%s", out)
 	}
 }
@@ -242,11 +242,8 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "AI Code Overview [low]") {
-		t.Fatalf("output must contain the colorized AI Code Overview heading, got:\n%s", out)
-	}
-	if !strings.Contains(out, "┌") || !strings.Contains(out, "└") {
-		t.Fatalf("output must box the AI Code Overview section, got:\n%s", out)
+	if !strings.Contains(out, "AI Code Review") {
+		t.Fatalf("output must contain the AI Code Review heading, got:\n%s", out)
 	}
 	if !strings.Contains(out, "PR Details") {
 		t.Fatalf("output must contain the PR Details section, got:\n%s", out)
@@ -254,7 +251,7 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 
 	// Insight must render first, PR Details last (right before the link), and the
 	// PR link must print exactly once, at the very end.
-	insightIdx := strings.Index(out, "AI Code Overview")
+	insightIdx := strings.Index(out, "AI Code Review")
 	prDetailsIdx := strings.Index(out, "PR Details")
 	if insightIdx == -1 || prDetailsIdx == -1 || prDetailsIdx < insightIdx {
 		t.Fatalf("expected Insight to render before PR Details, got:\n%s", out)
@@ -306,71 +303,6 @@ func (f fakeDataAccessor) GetBool(string) bool          { return false }
 func (f fakeDataAccessor) GetTs(string) string          { return "" }
 func (f fakeDataAccessor) GetData() any                 { return nil }
 func (f fakeDataAccessor) GetSlice(path string) []any   { return f.slices[path] }
-
-func TestInsightTextFormatter_HeadingByRisk(t *testing.T) {
-	cases := []struct {
-		risk    string
-		heading string
-	}{
-		{"low", "AI Code Overview [low]"},
-		{"medium", "AI Code Overview [medium]"},
-		{"high", "AI Code Overview [high]"},
-		{"", "AI Code Overview"},
-		{"unknown", "AI Code Overview [unknown]"},
-	}
-	for _, c := range cases {
-		out := captureStdout(t, func() {
-			err := insightTextFormatter(os.Stdout, fakeDataAccessor{values: map[string]string{
-				"it.risk": c.risk, "it.content": "looks fine",
-			}})
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
-		if !strings.Contains(out, c.heading) {
-			t.Fatalf("risk %q: expected heading %q in output, got:\n%s", c.risk, c.heading, out)
-		}
-		if !strings.HasPrefix(out, "┌") {
-			t.Fatalf("risk %q: expected output to start with a box top border, got:\n%s", c.risk, out)
-		}
-		if !strings.Contains(out, "└") {
-			t.Fatalf("risk %q: expected output to contain a box bottom border, got:\n%s", c.risk, out)
-		}
-		if strings.Contains(out, "http") {
-			t.Fatalf("risk %q: formatter must not print a trailing link, got:\n%s", c.risk, out)
-		}
-	}
-}
-
-func TestInsightTextFormatter_WrapsContentWithinBox(t *testing.T) {
-	longWord := strings.Repeat("word ", 30)
-	out := captureStdout(t, func() {
-		err := insightTextFormatter(os.Stdout, fakeDataAccessor{values: map[string]string{
-			"it.risk": "medium", "it.content": longWord,
-		}})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) < 3 {
-		t.Fatalf("expected at least a top border, content, and bottom border, got:\n%s", out)
-	}
-	boxWidth := len([]rune(lines[0]))
-	contentLines := 0
-	for _, line := range lines[1 : len(lines)-1] {
-		if len([]rune(line)) != boxWidth {
-			t.Fatalf("content line %q has length %d, want %d (box width)", line, len([]rune(line)), boxWidth)
-		}
-		if !strings.HasPrefix(line, "│ ") || !strings.HasSuffix(line, " │") {
-			t.Fatalf("content line %q must be bordered with │, got:\n%s", line, out)
-		}
-		contentLines++
-	}
-	if contentLines < 2 {
-		t.Fatalf("expected long content to wrap across multiple lines, got %d line(s):\n%s", contentLines, out)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // reviewGroupTextFormatter

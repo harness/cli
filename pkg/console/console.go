@@ -85,25 +85,24 @@ func IsBothTTY() bool {
 	return ensureTTY() && ensureStdoutTTY()
 }
 
-// TerminalWidth returns the current stdout width, or fallback when stdout isn't a TTY
-// or the size can't be determined.
-func TerminalWidth(fallback int) int {
-	if !ensureStdoutTTY() {
-		return fallback
-	}
-	w, _, err := term.GetSize(int(syscall.Stdout))
-	if err != nil || w <= 0 {
-		return fallback
-	}
-	return w
-}
-
 // WithColor wraps text in ANSI color codes when stdout is a TTY.
 func WithColor(c Color, text string) string {
 	if !ensureStdoutTTY() {
 		return text
 	}
 	return fmt.Sprintf("\x1b[%dm%s\x1b[0m", int(c), text)
+}
+
+// WithBoldColor wraps text in a bold ANSI code, additionally tinted with c when
+// c != 0, when stdout is a TTY.
+func WithBoldColor(c Color, text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	if c != 0 {
+		return fmt.Sprintf("\x1b[1;%dm%s\x1b[0m", int(c), text)
+	}
+	return fmt.Sprintf("\x1b[1m%s\x1b[0m", text)
 }
 
 // ReadSecret prints prompt to stderr and reads a masked line from the terminal.

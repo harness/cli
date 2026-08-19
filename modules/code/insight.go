@@ -173,65 +173,26 @@ func riskColor(risk string) console.Color {
 }
 
 // insightTextFormatter renders the AI code-review overview for a pull request as a
-// box: the heading (colorized by risk) sits in the top border, and the review
-// content is word-wrapped inside.
+// colorized (by risk) header/footer section marker around the review content.
+// The content is printed verbatim: wrapping is left to the terminal so words and
+// URLs are never split, and the output stays copy-paste clean.
 func insightTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
-	risk := d.GetString("it.risk")
-	content := d.GetString("it.content")
-
-	heading := "AI Code Overview"
-	if risk != "" {
-		heading += fmt.Sprintf(" [%s risk]", risk)
-	}
-	styledHeading := heading
-	if c := riskColor(risk); c != 0 {
-		styledHeading = console.WithColor(c, heading)
-	}
-
-	boxWidth := min(max(console.TerminalWidth(80), 40), 150)
-	contentWidth := boxWidth - 4
-
-	fillLen := boxWidth - len([]rune(heading)) - 6
-	if fillLen < 1 {
-		fillLen = 1
-	}
-	fmt.Fprintf(w, "┌── %s %s┐\n", styledHeading, strings.Repeat("─", fillLen))
-
-	for _, line := range wrapText(content, contentWidth) {
-		fmt.Fprintf(w, "│ %-*s │\n", contentWidth, line)
-	}
-
-	fmt.Fprintf(w, "└%s┘\n", strings.Repeat("─", boxWidth-2))
+	renderInsight(w, d.GetString("it.risk"), d.GetString("it.content"))
 	return nil
 }
 
-// wrapText word-wraps s to width, treating each existing line as its own
-// paragraph so blank lines are preserved as paragraph breaks.
-func wrapText(s string, width int) []string {
-	if width < 1 {
-		width = 1
+// renderInsight is the shared rendering step behind insightTextFormatter and
+// DebugRenderInsightHandler, so the debug command exercises the exact same
+// styling without needing a fake cmdctx.DataAccessor.
+func renderInsight(w io.Writer, risk, content string) {
+	heading := "AI Code Review"
+	if risk != "" {
+		heading += fmt.Sprintf(" [%s risk]", risk)
 	}
-	var lines []string
-	for _, paragraph := range strings.Split(s, "\n") {
-		if strings.TrimSpace(paragraph) == "" {
-			lines = append(lines, "")
-			continue
-		}
-		var cur string
-		for _, word := range strings.Fields(paragraph) {
-			switch {
-			case cur == "":
-				cur = word
-			case len([]rune(cur))+1+len([]rune(word)) <= width:
-				cur += " " + word
-			default:
-				lines = append(lines, cur)
-				cur = word
-			}
-		}
-		if cur != "" {
-			lines = append(lines, cur)
-		}
-	}
-	return lines
+	console.RenderTextBox(w, console.TextBox{
+		Icon:        "✨",
+		Header:      heading,
+		HeaderColor: riskColor(risk),
+		Text:        content,
+	})
 }
