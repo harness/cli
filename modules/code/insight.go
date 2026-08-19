@@ -181,7 +181,7 @@ func insightTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 
 	heading := "AI Code Overview"
 	if risk != "" {
-		heading += fmt.Sprintf(" [%s]", risk)
+		heading += fmt.Sprintf(" [%s risk]", risk)
 	}
 	styledHeading := heading
 	if c := riskColor(risk); c != 0 {
@@ -191,7 +191,7 @@ func insightTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 	boxWidth := min(max(console.TerminalWidth(80), 40), 150)
 	contentWidth := boxWidth - 4
 
-	fillLen := boxWidth - len([]rune(heading))-6
+	fillLen := boxWidth - len([]rune(heading)) - 6
 	if fillLen < 1 {
 		fillLen = 1
 	}
