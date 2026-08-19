@@ -55,6 +55,8 @@ with a single consistent grammar.
 - **Human and machine friendly** — the same command outputs a colored table for you, or JSON / JSONL / YAML / CSV / TSV / Markdown for scripts and agents.
 - **Interactive when you want, headless when you don't** — TUI wizards for onboarding and picking, non-interactive flags for CI, and `HARNESS_API_KEY` for zero-config env-var auth.
 - **Live log streaming** — follow pipeline executions with real-time SSE-based log tailing.
+- **AI Code Review ** — pull risk summaries, review groups, suggested reviewers/labels, and success-criteria checks for any PR straight from `harness get pr:insight`.
+- **SSO login** — `harness auth login --sso` (or the in-wizard "Login with SSO" option) drives a browser-based OAuth2 PKCE flow, no PAT/SAT required.
 - **Tab completion that talks to the API** — completions for IDs return live `id<tab>Name` suggestions.
 - **Multi-account, multi-profile** — named profiles let you jump between accounts, orgs, and projects on the same shell.
 - **Agent-friendly** — detects and reports the coding agent (Claude Code, Cursor, Gemini CLI, Codex, Cline, and more) so operators know how the CLI is being driven.
@@ -272,7 +274,15 @@ Credentials resolve in this order:
 harness auth login
 ```
 
-Launches a TUI wizard that walks through the API URL, PAT/SAT token, and default org/project. Requires a TTY.
+Launches a TUI wizard that walks through the API URL, PAT/SAT token, and default org/project. Requires a TTY. "Login with SSO" is offered right in the URL picker, so SSO is reachable from plain `harness auth login` — no extra flag needed.
+
+### SSO login
+
+```sh
+harness auth login --sso
+```
+
+Routes straight to the browser-based OAuth2 PKCE flow instead of prompting for a PAT/SAT token. `--org` / `--project` passed on the command line are respected and won't be overwritten by the picker.
 
 ### Non-interactive login (CI, scripting)
 
@@ -460,6 +470,16 @@ Legend used in the tables below:
 | `pr_comment`  |  ✓   |     |   S    |  GTP   |   ✓    |         |
 | `commit_check`|  ✓   |     |        |        |        |         |
 
+**AI review insights** — surface Harness Code's AI code-review output for a PR without leaving the terminal:
+
+```sh
+harness get pr:insight <repo_id>/<pr_number>            # risk summary for the PR
+harness get pr:review_group <repo_id>/<pr_number>       # findings bucketed by risk group
+harness list pr_suggested_reviewer <repo_id>/<pr_number> # AI-suggested reviewers
+harness list pr_suggested_label <repo_id>/<pr_number>    # AI-suggested labels
+harness list pr_success_criterion <repo_id>/<pr_number>  # AI review success-criteria checks
+```
+
 </details>
 
 <details open>
@@ -490,7 +510,7 @@ push artifact:maven       push artifact:cargo       push artifact:swift
 push artifact:npm         push artifact:go          push artifact:puppet
 push artifact:python      push artifact:conda       push artifact:helm
 push artifact:nuget       push artifact:dart        push artifact:docker
-push artifact:rpm         push artifact:composer
+push artifact:rpm         push artifact:composer    push artifact:ruby
 ```
 
 </details>
