@@ -188,7 +188,7 @@ func insightTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 		styledHeading = console.WithColor(c, heading)
 	}
 
-	boxWidth := min(max(console.TerminalWidth(80), 40),150)
+	boxWidth := min(max(console.TerminalWidth(80), 40), 150)
 	contentWidth := boxWidth - 4
 
 	fillLen := boxWidth - len([]rune(heading))-6
