@@ -85,6 +85,19 @@ func IsBothTTY() bool {
 	return ensureTTY() && ensureStdoutTTY()
 }
 
+// TerminalWidth returns the current stdout width, or fallback when stdout isn't a TTY
+// or the size can't be determined.
+func TerminalWidth(fallback int) int {
+	if !ensureStdoutTTY() {
+		return fallback
+	}
+	w, _, err := term.GetSize(int(syscall.Stdout))
+	if err != nil || w <= 0 {
+		return fallback
+	}
+	return w
+}
+
 // WithColor wraps text in ANSI color codes when stdout is a TTY.
 func WithColor(c Color, text string) string {
 	if !ensureStdoutTTY() {
