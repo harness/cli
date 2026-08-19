@@ -36,16 +36,15 @@ func reviewGroupTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 		if tags, ok := g["tags"].(map[string]any); ok {
 			risk, _ = tags["risk"].(string)
 		}
-		bullet := "●"
 		riskTag := ""
 		if risk != "" {
 			riskTag = fmt.Sprintf(" [%s]", risk)
 		}
+		line := fmt.Sprintf("● %s%s", title, riskTag)
 		if c := riskColor(risk); c != 0 {
-			bullet = console.WithColor(c, bullet)
-			riskTag = console.WithColor(c, riskTag)
+			line = console.WithColor(c, line)
 		}
-		fmt.Fprintf(w, "\n%s %s%s\n", bullet, title, riskTag)
+		fmt.Fprintf(w, "\n%s\n", line)
 		if desc != "" {
 			fmt.Fprintln(w, desc)
 		}
