@@ -295,14 +295,17 @@ func TestReviewGroupCommand_StandaloneRendersLink(t *testing.T) {
 // insightTextFormatter
 // ---------------------------------------------------------------------------
 
-type fakeDataAccessor struct{ values map[string]string }
+type fakeDataAccessor struct {
+	values map[string]string
+	slices map[string][]any
+}
 
 func (f fakeDataAccessor) GetString(path string) string { return f.values[path] }
 func (f fakeDataAccessor) GetInt64(string) int64        { return 0 }
 func (f fakeDataAccessor) GetBool(string) bool          { return false }
 func (f fakeDataAccessor) GetTs(string) string          { return "" }
 func (f fakeDataAccessor) GetData() any                 { return nil }
-func (f fakeDataAccessor) GetSlice(string) []any        { return nil }
+func (f fakeDataAccessor) GetSlice(path string) []any   { return f.slices[path] }
 
 func TestInsightTextFormatter_HeadingByRisk(t *testing.T) {
 	cases := []struct {
@@ -366,6 +369,46 @@ func TestInsightTextFormatter_WrapsContentWithinBox(t *testing.T) {
 	}
 	if contentLines < 2 {
 		t.Fatalf("expected long content to wrap across multiple lines, got %d line(s):\n%s", contentLines, out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// reviewGroupTextFormatter
+// ---------------------------------------------------------------------------
+
+func TestReviewGroupTextFormatter_ColorizesBulletAndRiskTag(t *testing.T) {
+	groups := []any{
+		map[string]any{
+			"title":       "Auth middleware changes",
+			"description": "Touches token validation.",
+			"tags":        map[string]any{"risk": "high"},
+			"files": []any{
+				map[string]any{"path": "auth/middleware.go"},
+			},
+		},
+	}
+	out := captureStdout(t, func() {
+		err := reviewGroupTextFormatter(os.Stdout, fakeDataAccessor{
+			slices: map[string][]any{"it.groups": groups},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if strings.Contains(out, "Group 1") || strings.Contains(out, "Group ") {
+		t.Fatalf("output must not contain a numbered \"Group\" label, got:\n%s", out)
+	}
+	if !strings.Contains(out, "●") {
+		t.Fatalf("output must contain the risk bullet, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Auth middleware changes") {
+		t.Fatalf("output must contain the group title, got:\n%s", out)
+	}
+	if !strings.Contains(out, "[high]") {
+		t.Fatalf("output must contain the risk tag, got:\n%s", out)
+	}
+	if !strings.Contains(out, "auth/middleware.go") {
+		t.Fatalf("output must still list the file path, got:\n%s", out)
 	}
 }
 
