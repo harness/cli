@@ -415,9 +415,9 @@ nouns:
       - id: decision
         expr: it.review_decision
 
-  - noun: principal
+  - noun: code_principal
     short_desc: A person or service account in the current account/org/project scope (Harness Code).
-    noun_aliases: [principals]
+    noun_aliases: [code_principals]
     fields:
       - id: id
         expr: it.id
@@ -910,10 +910,10 @@ commands:
 
   # ── principal ────────────────────────────────────────────────────────────────
 
-  - command: list principal
+  - command: list code_principal
     verb: list
-    noun: principal
-    short: "List people/service accounts in scope: harness list principal [--search <text>]"
+    noun: code_principal
+    short: "List people/service accounts in scope: harness list code_principal [--search <text>]"
     handler_type: endpoint
     flags:
       - name: search
@@ -921,6 +921,7 @@ commands:
     endpoint:
       path: /code/api/v1/principals
       items_expr: it
+      get_id_expr: "-"
       query_params:
         query: flags.search
         type: '"user"'
@@ -953,6 +954,7 @@ commands:
     endpoint:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/reviewers
       items_expr: it
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [id, display_name, email, decision, type, added_by, updated]
@@ -1015,6 +1017,7 @@ commands:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/codeowners
       items_expr: "[it]"
       fetch_fn: codeowners_pr_fetch
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [pattern, owner_type, display_name, email, group_name, decision]
@@ -1036,6 +1039,7 @@ commands:
     endpoint:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/reviewers
       items_expr: it.suggestions
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [display_name, email, suggested_by, suggested_at]
@@ -1057,6 +1061,7 @@ commands:
     endpoint:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/labels
       items_expr: it
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [key, color, type, suggested_by, suggested]
@@ -1078,6 +1083,7 @@ commands:
     endpoint:
       path: /gateway/aicr/api/v1/pullreqs/{{ctx.parentIdParts[1]}}/review
       items_expr: it.criteria
+      get_id_expr: "-"
       query_params:
         repo_path: auth.scope + "/" + ctx.parentIdParts[0]
       paging:
