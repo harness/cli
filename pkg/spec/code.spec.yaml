@@ -375,6 +375,9 @@ nouns:
     short_desc: A reviewer on a pull request, with their review decision (Harness Code).
     noun_aliases: [pr_reviewers]
     fields:
+      - id: id
+        label: Id
+        expr: it.reviewer.id
       - id: display_name
         label: Display Name
         expr: it.reviewer.display_name
@@ -411,6 +414,22 @@ nouns:
         expr: it.group_name
       - id: decision
         expr: it.review_decision
+
+  - noun: principal
+    short_desc: A person or service account in the current account/org/project scope (Harness Code).
+    noun_aliases: [principals]
+    fields:
+      - id: id
+        expr: it.id
+      - id: display_name
+        label: Display Name
+        expr: it.display_name
+      - id: email
+        expr: it.email
+      - id: uid
+        expr: it.uid
+      - id: type
+        expr: it.type
 
   - noun: pr_suggested_reviewer
     short_desc: A suggested reviewer for a pull request (Harness Code review insights).
@@ -889,6 +908,34 @@ commands:
       item_expr: it
       text_formatter: pr_review_group_text
 
+  # ── principal ────────────────────────────────────────────────────────────────
+
+  - command: list principal
+    verb: list
+    noun: principal
+    short: "List people/service accounts in scope: harness list principal [--search <text>]"
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by substring match on name/email/uid
+    endpoint:
+      path: /code/api/v1/principals
+      items_expr: it
+      query_params:
+        query: flags.search
+        type: '"user"'
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, display_name, email, uid, type]
+
   # ── pr_reviewer / pr_codeowner ──────────────────────────────────────────────────
 
   - command: list pr_reviewer
@@ -908,7 +955,49 @@ commands:
       items_expr: it
       paging:
         paging_strategy: flat_list
-      columns: [display_name, email, decision, type, added_by, updated]
+      columns: [id, display_name, email, decision, type, added_by, updated]
+
+  - command: create pr_reviewer
+    verb: create
+    noun: pr_reviewer
+    short: "Add a reviewer to a pull request: harness create pr_reviewer <repo_id>/<pr_number> --reviewer <email|uid|id>"
+    handler_type: endpoint
+    requires_id: true
+    id_parts: 2
+    id_label: "<repo_id>/<pr_number>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: reviewer
+        description: "Reviewer to add (email, UID, or numeric principal ID)"
+        required: true
+        flag_resolve_fn: resolve_principal_id
+    endpoint:
+      method: PUT
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviewers
+      body_params:
+        reviewer_id: int(flags.reviewer)
+      no_fields: true
+      text_header: "\nAdded reviewer to PR #{{ctx.idParts[1]}}\n"
+
+  - command: delete pr_reviewer
+    verb: delete
+    noun: pr_reviewer
+    confirm_mode: prompt
+    short: "Remove a reviewer from a pull request: harness delete pr_reviewer <repo_id>/<pr_number>/<reviewer_id>"
+    handler_type: endpoint
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<reviewer_id>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviewers/{{ctx.idParts[2]}}
+      item_expr: it
 
   - command: list pr_codeowner
     verb: list
