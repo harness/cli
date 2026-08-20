@@ -371,6 +371,66 @@ nouns:
     noun_aliases: [pr_review_groups]
     url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
 
+  - noun: pr_reviewer
+    short_desc: A reviewer on a pull request, with their review decision (Harness Code).
+    noun_aliases: [pr_reviewers]
+    fields:
+      - id: id
+        label: Id
+        expr: it.reviewer.id
+      - id: display_name
+        label: Display Name
+        expr: it.reviewer.display_name
+      - id: email
+        expr: it.reviewer.email
+      - id: uid
+        expr: it.reviewer.uid
+      - id: decision
+        expr: it.review_decision
+      - id: type
+        expr: it.type
+      - id: added_by
+        label: Added By
+        expr: it.added_by.display_name
+      - id: updated
+        expr: epochMs(it.updated)
+
+  - noun: pr_codeowner
+    short_desc: A codeowner (individual or group member) evaluated against a pull request (Harness Code).
+    noun_aliases: [pr_codeowners]
+    fields:
+      - id: pattern
+        expr: it.pattern
+      - id: owner_type
+        label: Owner Type
+        expr: it.owner_type
+      - id: display_name
+        label: Display Name
+        expr: it.display_name
+      - id: email
+        expr: it.email
+      - id: group_name
+        label: Group
+        expr: it.group_name
+      - id: decision
+        expr: it.review_decision
+
+  - noun: code_principal
+    short_desc: A person or service account in the current account/org/project scope (Harness Code).
+    noun_aliases: [code_principals]
+    fields:
+      - id: id
+        expr: it.id
+      - id: display_name
+        label: Display Name
+        expr: it.display_name
+      - id: email
+        expr: it.email
+      - id: uid
+        expr: it.uid
+      - id: type
+        expr: it.type
+
   - noun: pr_suggested_reviewer
     short_desc: A suggested reviewer for a pull request (Harness Code review insights).
     noun_aliases: [pr_suggested_reviewers]
@@ -580,6 +640,50 @@ commands:
           expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
       columns: [repo, number, title, state, source_branch, target_branch, updated]
 
+  - command: list pr:review_pending
+    verb: list
+    noun: pr
+    noun_variant: review_pending
+    short: "List pull requests awaiting your review, across all repos: harness list pr:review_pending [--state open|closed|merged|all]"
+    handler_type: endpoint
+    flags:
+      - name: state
+        description: "Filter by state: open, closed, merged, all"
+        default: open
+        completion_values: [open, closed, merged, all]
+      - name: created-after
+        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+      - name: created-before
+        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+    endpoint:
+      path: /code/api/v1/pullreq
+      query_params_fn: review_pending_pr_query_params
+      fetch_fn: list_mine_pr_fetch
+      items_expr: it
+      get_id_expr: string(it.number)
+      query_params:
+        state: 'flags.state == "all" ? "" : flags.state'
+        created_gt: 'parseDateMs(flags["created-after"])'
+        created_lt: 'parseDateMs(flags["created-before"])'
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      fields_extra:
+        - id: repo
+          label: Repo
+          expr: it.repository.identifier
+        - id: url
+          label: URL
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+      columns: [repo, number, title, state, source_branch, target_branch, updated]
+
   - command: list pr
     verb: list
     noun: pr
@@ -740,6 +844,29 @@ commands:
       no_fields: true
       text_header: "\nClosed PR #{{ctx.idParts[1]}}\n"
 
+  - command: execute pr:review
+    verb: execute
+    noun: pr
+    noun_variant: review
+    short: "Submit a review decision on a pull request: harness execute pr:review <repo_id>/<pr_number> --decision approve|changereq"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: decision
+        description: "Review decision: approve, changereq"
+        completion_values: [approve, changereq]
+        required: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviews
+      body_fn: review_pr_body
+      no_fields: true
+      text_header: "\nReview submitted for PR #{{ctx.idParts[1]}}\n"
+
   # ── pr_insight (Harness Code review insights) ─────────────────────────────────
 
   - command: get pr:insight
@@ -781,6 +908,120 @@ commands:
       item_expr: it
       text_formatter: pr_review_group_text
 
+  # ── principal ────────────────────────────────────────────────────────────────
+
+  - command: list code_principal
+    verb: list
+    noun: code_principal
+    short: "List people/service accounts in scope: harness list code_principal [--search <text>]"
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by substring match on name/email/uid
+    endpoint:
+      path: /code/api/v1/principals
+      items_expr: it
+      get_id_expr: "-"
+      query_params:
+        query: flags.search
+        type: '"user"'
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, display_name, email, uid, type]
+
+  # ── pr_reviewer / pr_codeowner ──────────────────────────────────────────────────
+
+  - command: list pr_reviewer
+    verb: list
+    noun: pr_reviewer
+    short: "List reviewers on a pull request: harness list pr_reviewer <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/reviewers
+      items_expr: it
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [id, display_name, email, decision, type, added_by, updated]
+
+  - command: create pr_reviewer
+    verb: create
+    noun: pr_reviewer
+    short: "Add a reviewer to a pull request: harness create pr_reviewer <repo_id>/<pr_number> --reviewer <email|uid|id>"
+    handler_type: endpoint
+    requires_id: true
+    id_parts: 2
+    id_label: "<repo_id>/<pr_number>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: reviewer
+        description: "Reviewer to add (email, UID, or numeric principal ID)"
+        required: true
+        flag_resolve_fn: resolve_principal_id
+    endpoint:
+      method: PUT
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviewers
+      body_params:
+        reviewer_id: int(flags.reviewer)
+      no_fields: true
+      text_header: "\nAdded reviewer to PR #{{ctx.idParts[1]}}\n"
+
+  - command: delete pr_reviewer
+    verb: delete
+    noun: pr_reviewer
+    confirm_mode: prompt
+    short: "Remove a reviewer from a pull request: harness delete pr_reviewer <repo_id>/<pr_number>/<reviewer_id>"
+    handler_type: endpoint
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<reviewer_id>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviewers/{{ctx.idParts[2]}}
+      item_expr: it
+
+  - command: list pr_codeowner
+    verb: list
+    noun: pr_codeowner
+    short: "List codeowners evaluated on a pull request: harness list pr_codeowner <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/codeowners
+      items_expr: "[it]"
+      fetch_fn: codeowners_pr_fetch
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [pattern, owner_type, display_name, email, group_name, decision]
+
   # ── pr_suggested_reviewer (Harness Code review insights) ───────────────────────
 
   - command: list pr_suggested_reviewer
@@ -798,6 +1039,7 @@ commands:
     endpoint:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/reviewers
       items_expr: it.suggestions
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [display_name, email, suggested_by, suggested_at]
@@ -819,6 +1061,7 @@ commands:
     endpoint:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/labels
       items_expr: it
+      get_id_expr: "-"
       paging:
         paging_strategy: flat_list
       columns: [key, color, type, suggested_by, suggested]
@@ -840,6 +1083,7 @@ commands:
     endpoint:
       path: /gateway/aicr/api/v1/pullreqs/{{ctx.parentIdParts[1]}}/review
       items_expr: it.criteria
+      get_id_expr: "-"
       query_params:
         repo_path: auth.scope + "/" + ctx.parentIdParts[0]
       paging:
