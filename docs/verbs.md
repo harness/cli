@@ -2,7 +2,7 @@
 
 One section per verb. Each says what the verb *means* as an action-class and, more
 importantly, where its boundary with the neighboring verbs falls. Use this to answer "is this
-`import` or `execute`?" — not to look up flags.
+`migrate` or `execute`?" — not to look up flags.
 
 For the grammar itself see [verb-arch.md](verb-arch.md). For the decision procedure that
 picks between a verb, a noun, and a colon variant see [verb-variants.md](verb-variants.md).
@@ -44,7 +44,7 @@ identical either way, it can live in the noun.
 
 **Status is load-bearing:** only `implemented` verbs can back a new command today. A
 `proposed` verb needs framework approval and a `verb.go` entry before any spec may use it —
-don't add `import` to a spec file on the strength of this doc.
+don't add `migrate` to a spec file on the strength of this doc.
 
 | Verb | One-line meaning | Status |
 | ---- | ---------------- | ------ |
@@ -58,10 +58,9 @@ don't add `import` to a spec file on the strength of this doc.
 | `pull` | Download an artifact from a Harness registry to disk. | implemented (artifact only) |
 | `install` | Place a binary or component into local state. | implemented |
 | `configure` | Write durable local config pointing a third-party client at Harness. | implemented (registry only) |
-| `convert` | Translate a representation into another; output is a local file, never Harness state. | proposed |
-| `import` | Read a foreign system and create the corresponding resources in Harness. | proposed |
+| `convert` | Translate one representation into another. **Takes a noun pair.** Both endpoints documents. | proposed |
+| `migrate` | Move a resource between two endpoints, at least one of them live. **Takes a noun pair.** | proposed |
 | `uninstall` | Remove a locally installed component. Reverse of `install`. | proposed |
-| `export` | Move a large Harness resource out to another system, mediated by the CLI. | reserved — no occupant |
 | `wrap` | Run a local tool with Harness config injected. **Takes a tool name, not a noun.** | proposed |
 
 `auth`, `version`, and `debug` are not resource verbs — they operate on the tool itself and
@@ -78,10 +77,11 @@ The useful boundary is against `get`: `list` is chosen by cardinality, not by wh
 filtering happens. `list pipeline my-project` is still a list even when it returns one row.
 If a command's natural answer is "here is the one thing you named," it is `get`.
 
-`list` is also independent evidence for a separate noun. `list gitlab_repository --group X`
-answers "what would import, before I commit to it" — an operation `import` cannot express
-without a `--dry-run` flag. When two things support different valid verbs, that is evidence
-they are different nouns.
+`list` is also independent evidence for a separate noun. `list github_repository my-org` answers
+"what would migrate, before I commit to it" — an operation `migrate` cannot express without a
+`--dry-run` flag. When two things support different valid verbs, that is evidence they are
+different nouns. This is why live-system endpoint nouns are real nouns and not a `--from` flag
+value.
 
 ## `get`
 
@@ -89,8 +89,8 @@ Retrieve a single resource by identifier. Never mutates.
 
 Alternative *representations* of the same resource are colon variants, not new verbs:
 `get pipeline:summary`. Alternative *formats* are flags or `field_extract` (`get pipeline`
-already exposes `pipeline_yaml`). Both of these are why `export` is not needed for
-single-resource extraction in a portable format — that is already `get`.
+already exposes `pipeline_yaml`). Both of these are why single-resource extraction in a
+portable format needs no pair verb — that is already `get`.
 
 `get` accepting several id forms (name, uuid, email) is a handler concern, not a grammar
 concern. `get user <id-or-email>` is one command.
@@ -103,9 +103,9 @@ Bring a new Harness resource into existence. The id is either supplied or server
 reference — and that variance is expected rather than a smell. Alternative payload or
 invocation modes are colon variants (`create pipeline:remote`).
 
-The boundary against `import`: `create` takes input the user authored or already holds in
-Harness's own vocabulary. `import` reads a *foreign system* and derives resources from it.
-`create pipeline -f harness-pipeline.yaml` after a `convert` is `create`, not `import` — by
+The boundary against `migrate`: `create` takes input the user authored or already holds in
+Harness's own vocabulary, and it is one transition. `migrate` reads a *live system* and derives
+resources from it. `create pipeline -f harness-pipeline.yaml` after a `convert` is `create` — by
 that point the YAML is a Harness artifact.
 
 ## `update`
@@ -173,7 +173,8 @@ client-side workflow — local archive parsing, streaming, progress — not one 
 
 `push` is not the general verb for "send data to Harness." It is specifically the
 local-file-to-registry transfer half of the `push`/`pull` couplet. Sending a config
-*definition* is `create` or `update`; deriving resources from a foreign system is `import`.
+*definition* is `create` or `update`; deriving resources from a live foreign system is
+`migrate`.
 
 ## `pull`
 
@@ -182,8 +183,8 @@ destination resolution. Mirror of `push`.
 
 The boundary against `get` is what lands where: `get` returns a resource's metadata or
 representation on stdout; `pull` writes bytes to a file on disk. The boundary against
-`export`: `pull` retrieves one stored blob to the local filesystem, unchanged and with no
-destination system involved.
+`migrate repository:scm_bundle` and friends: `pull` retrieves one stored blob unchanged, in one
+call — no enumeration, no checkpointing, no representation change.
 
 ## `install`
 
@@ -208,68 +209,105 @@ The boundary against `update`: `configure` never touches server state.
 
 ---
 
+## The two pair verbs
+
+`convert` and `migrate` take a **noun pair** — `<from>:<to>` — instead of a single noun. Both
+endpoints are nouns, so direction is stated rather than encoded in the verb: `scm_bundle:repository`
+is inward, `repository:scm_bundle` is outward. This is why there is no `import` or `export` verb.
+
+**The set is closed at these two**, which is what lets the colon carry two grammars: under any
+other verb `a:b` is `<noun>:<variant>`; under these two it is `<from>:<to>`. Consequence: pair
+verbs have no colon left for variants, so two flavors of one migration need a flag.
+
+**Which of the two is decided by the endpoints.** An endpoint is a *system* if it is enumerated —
+paginated, long-running, checkpointed. It is a *document* if it names one thing fetched in one
+shot. Either endpoint a system → `migrate`. Both documents → `convert`. Harness itself is always a
+system, so anything landing in Harness is `migrate`.
+
+Note this is not "does it touch the network." `convert jenkins_job:pipeline_yaml` accepts a URL,
+and a converter may call an API to resolve a plugin version — still one document, one shot,
+nothing to resume. `no_auth` is therefore a common *property* of convert entries, not the test.
+
+### Endpoint nouns
+
+Both slots draw from one namespace, so no token may mean two things. A live system and its file
+format are different endpoints with different names — `circleci` the API, `circleci_pipeline` the
+config file.
+
+| tier | examples | id | other verbs |
+| ---- | -------- | -- | ----------- |
+| live system | `github_organization`, `gitlab_group`, `jfrog_registry`, plus core nouns (`repository`, `registry`) | yes | `list`/`get` on the foreign ones |
+| artifact | `scm_bundle`, `drone_bundle`, `circle_bundle` | a path | `list`, `get`, `update`, `delete` |
+| format | `pipeline_yaml`, `terraform` | — | none — **destination-only** |
+
+Rules for naming and registering them:
+
+- **Use the source system's own vocabulary** — `jenkins_job`, not `jenkins_pipeline` — so an
+  agent that knows the system knows the noun.
+- **The noun is whatever the id names.** If the id you would pass is `my-org`, the endpoint is
+  `github_organization`, not `github_repository --org my-org`. A required flag holding the entire
+  subject is an id in a flag's clothing.
+- **An endpoint name is a format contract: same name means interchangeable.**
+  `github_organization:scm_bundle` and `gitlab_group:scm_bundle` both emit `scm_bundle`, so one
+  `scm_bundle:repository` consumes either. Where no such normalization exists the name must say
+  so — `drone_bundle` and `circle_bundle` are not interchangeable. Chains compose iff the tokens
+  match.
+- **Foreign and artifact endpoint nouns have no owner.** `repository` stays single-owner to the
+  code module; `github_organization` and `scm_bundle` belong to the migration plugin outright.
+
 ## `convert`
 
-*Proposed.* Translate a representation into another. Reads a file or a Harness resource,
-writes a local file. **Never mutates Harness, requires no auth, contacts no network.**
+*Proposed.* Translate one representation into another. Both endpoints are documents.
+**Never mutates Harness.**
 
 ```sh
-harness convert gitlab_pipeline .gitlab-ci.yml --out harness-pipeline.yaml
-harness convert jenkins_job config.xml          # --out defaults to stdout
+harness convert gitlab_pipeline:pipeline_yaml .gitlab-ci.yml -o harness-pipeline.yaml
+harness convert jenkins_job:pipeline_yaml config.xml           # -o defaults to stdout
+harness convert drone_bundle:terraform export.json -o harness.tf
 ```
 
-The `no_auth` property is not an incidental detail — it is the classification test. If the
-command must reach an account to do its job, it is not `convert`. This also makes `convert` a
-real product surface: a prospect who has not signed up can run it.
+**One subject, one file out.** The source id is the positional; `-o` names the output file and
+defaults to stdout, so the command composes in pipes.
 
-`convert` is not a mode of `import`, because for pipeline configs there is no import at all.
-The output is a file you commit, review, edit, and eventually `create pipeline -f`. Because
-the target is always the filesystem, the operation is symmetric — which is the one place
-direction may live in the *noun* rather than the verb: `convert gitlab_pipeline <file>`
-inward, `convert pipeline:gitlab <id>` outward. Getting the direction backwards produces a
-wrong file and you notice immediately, so the blast radius is identical either way.
+There is no `convert <x>:repository` — a Harness endpoint in the `:to` slot is
+[`migrate`](#migrate). `convert` then `create pipeline -f` is two commands on purpose: once the
+YAML exists it is a Harness artifact and `create` owns it.
 
-## `import`
+## `migrate`
 
-*Proposed.* Read an external system or bundle and create the corresponding resources in
-Harness. **Mutates Harness. Requires auth.**
+*Proposed.* Move a resource between two endpoints, at least one of them a live system.
+**Mutates Harness whenever the `:to` endpoint is a Harness noun.**
 
 ```sh
-harness import gitlab_repository --group my-group --token $T
-harness import registry --config migration.yaml
+harness migrate github_organization:scm_bundle --from my-org --to ./out   # no Harness effect
+harness migrate scm_bundle:repository --from ./out/export.zip             # mutates
+harness migrate github_organization:repository --from my-org              # direct, no bundle
+harness migrate jfrog_registry:registry --config migration.yaml
+harness migrate repository:scm_bundle --from my-repo --to ./out           # outward
 ```
 
-**Direction is in the verb, permanently.** There is no `--direction` and no outward
-`import x:y` variant — the verb already said inward. This is the asymmetry with `convert`,
-and it follows from blast radius: the difference between creating resources in an account and
-writing a local file must sit in the first token.
+**Blast radius is in the `:to` noun**, not the verb — a Harness noun there means your account is
+mutated. Accepted because the pair is part of the command name: it cannot be defaulted or hidden
+in a flag.
 
-**The source goes in the noun, never in a `--from` flag.** The id rule already forces this:
-the thing being named is a GitLab repo, so the noun is `gitlab_repository`. Beyond that, each
-source system has a genuinely
-different scope flag set (`--org` vs. `--group --include-subgroups` vs.
-`--host --project --username`), and a `--from` flag would make flag validity conditional on a
-flag value — the largest single source of malformed agent invocations. Input shapes may still
-vary widely under one verb (`--config` for structurally complex sources), the same way
-`create pipeline -f` and `create connector` differ.
+**Ids are flags: `--from` and `--to`, mirroring the pair order.** `migrate` has two subjects, so
+neither owns the positional slot. Taking no positional is not an exception — `list` does the same.
+`--to` is frequently absent: when the destination is Harness, account/org/project resolve from the
+active profile.
 
-**"Foreign" means foreign to the target, not non-Harness.** Another Harness account, org, or
-project is a foreign source; account-to-account transfer is a legitimate `import`.
-
-The boundary against `create`: foreign vocabulary in, Harness resources out. The boundary
-against `execute` is **who runs the engine.** `import` means the CLI is intermediating — it
-opens the connection to the source, reads it, and writes the result into Harness, so the bytes
-pass through the client. If one API call tells the server to do the whole thing, the CLI is
-just triggering work and it is `execute`:
+**Always a client-side process** — the CLI opens the connection, reads, and writes, so bytes pass
+through the local process — and checkpointed, because org-scale reads take hours. If one API call
+tells the server to do the whole thing, it is `execute`:
 
 ```sh
-harness execute registry:copy    # server-side copy; CLI only kicks it off
-harness import jfrog_registry    # CLI connects to JFrog and writes into Harness
+harness execute registry:copy              # server-side copy; CLI only kicks it off
+harness migrate jfrog_registry:registry    # CLI connects to JFrog and writes into Harness
 ```
 
-That test is what makes Harness-to-Harness unambiguous rather than a special case: the same
-account-to-account move is `import` when the CLI brokers it and `execute <noun>:copy` when the
-server does. Run outward, the same test gives [`export`](#export).
+**The test is "live," not "foreign."** Another Harness account, org, or project is a legitimate
+endpoint on either side, so account-to-account is an ordinary pair.
+
+Background and rejected alternatives: [migrate-verb.md](migrate-verb.md).
 
 ## `uninstall`
 
@@ -286,31 +324,6 @@ The "negative verb explosion" worry does not apply. Most verbs are not acquisiti
 no inverse — you do not un-execute, un-import, or un-convert. `delete` already absorbs the
 negation slot for everything server-side, leaving exactly one uncovered space: local install
 state.
-
-## `export`
-
-*Reserved, no occupant, not in scope.* Read Harness state and write it into another system,
-mediated by the CLI. **The outward mirror of `import`** — same shape, same engine, opposite
-direction: moving a Harness Code repo to GitHub is `export`, not `convert` and not `execute`.
-
-The test is the same one `import` uses, applied outward: **the CLI runs the engine.** `export`
-is for something big enough to need multiple API calls, pagination, and a client-side driver.
-That is what separates it from its neighbors:
-
-- `get pipeline --format terraform` — one call, one representation, stdout. → **`get`**
-- `convert pipeline:gitlab <id>` — translate to a local file, no destination system. → **`convert`**
-- `execute registry:copy` — one call, the server moves it. → **`execute`**
-- `export repository --to github --org myorg` — CLI drives a multi-call transfer. → **`export`**
-
-So it is not distinguished by cardinality or output format; those belong to `get` and
-`convert`. It is distinguished by being a *mediated transfer with a destination system*, which
-none of the others are.
-
-It is **not** the harness-migrate `terraform` command, which reads a source-system export and
-writes a local `.tf` file without ever contacting Harness — that is `convert`.
-
-Reserved rather than built because nothing occupies it yet. Real candidates: account-to-account
-moves, DR/backup, compliance archival, GitOps-style export-to-git.
 
 ---
 
@@ -351,21 +364,14 @@ leaves no durable state behind.
 
 ---
 
-## Rejected: `migrate`
+## Rejected: `import`, `export`
 
-Recorded because it was the leading candidate for most of the design discussion, and because
-[verb-variants.md](verb-variants.md) still cites it as a valid example.
-
-It fails on scale honesty — `migrate gitlab_pipeline --file .gitlab-ci.yml` calls a
-single-file YAML transform a migration — and it conflates two operations with opposite blast
-radius under one token, forcing `--file` and `--org`/`--token` to be mutually exclusive on the
-same command. `convert` and `import` are both scale-neutral and each takes an unconditional
-flag set. Notably, harness-migrate itself named its own commands `convert`, `export`, and
-`import`.
-
-**Migration is the activity these verbs serve, not a verb itself.** Customers say "we're
-migrating off GitLab"; that project consists of importing repos, converting pipeline configs,
-and remapping users.
+Both were proposed and dropped. They encode direction in the verb, which only works while one
+endpoint is always Harness — and it is not: `github_organization:scm_bundle` has no Harness
+endpoint, `jfrog_registry:registry` has no local one. The two-phase flow then has to be smuggled
+into flags (`import ... --export-to ./out` creates nothing in Harness, cancelling its own verb).
+A noun pair states both endpoints and needs no direction rule. See
+[migrate-verb.md](migrate-verb.md).
 
 ---
 
@@ -391,11 +397,12 @@ An unoccupied verb is worse than an absent one, because it appears in help outpu
 | `get` vs `list` | Is the answer "the one you named" or "zero or more"? |
 | `update` vs a new verb | Does it change a field's value? Then `update`. |
 | `execute` vs `update` | Does the same call with the old value put it back, or does recovery add to the history? |
-| `create` vs `import` | Is the input in Harness vocabulary or a foreign system's? |
+| `create` vs `migrate` | Is the input in Harness vocabulary, or read from a live foreign system? |
 | which noun at all | Does the id you'd pass actually identify that noun? |
-| `convert` vs `import` | Does it end in a local file or in mutated Harness state? |
-| `import` / `export` vs `execute :copy` | Does the CLI run the engine, or does one call tell the server to? |
-| `get` vs `pull` vs `export` | stdout representation / one stored blob to disk / mediated transfer to another system |
+| `convert` vs `migrate` | Are both endpoints documents, or is one a live system? |
+| direction (in vs out) | Neither — reverse the pair. `a:b` vs `b:a`. |
+| `migrate` vs `execute :copy` | Does the CLI run the engine, or does one call tell the server to? |
+| `get` vs `pull` vs `migrate` | stdout representation / one stored blob to disk / enumerated transfer |
 | `delete` vs `uninstall` | Server-side resource or local install state? |
 | `configure` vs `wrap` | Durable local config, or one process invocation? |
 | `wrap` vs `execute` | Local process pointed at Harness, or work started in Harness? |
