@@ -946,6 +946,15 @@ func (r *Registry) RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, err
 	return RunEndpoint(ctx, ep)
 }
 
+// RunUIHandler implements cmdctx.Resolver.
+func (r *Registry) RunUIHandler(ctx *cmdctx.Ctx, fnID string) error {
+	fn, ok := r.workflows[fnID]
+	if !ok {
+		return fmt.Errorf("ui_handler_fn %q not registered", fnID)
+	}
+	return fn(ctx)
+}
+
 // FormatList renders rows through the standard list formatting pipeline.
 func (r *Registry) FormatList(ctx *cmdctx.Ctx, rows []any, fields []spec.FieldDef, columnIDs []string) error {
 	tspec := buildTspec(columnIDs, fields)
@@ -1106,7 +1115,7 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 	if cs.VerbHandler == VerbList && ep.Paging != nil {
 		addFlag(cmd.Flags(), specUI)
 	}
-	if cs.VerbHandler == VerbGet && cs.BuiltinFlags.UI {
+	if cs.VerbHandler == VerbGet && (cs.BuiltinFlags.UI || cs.UIHandlerFn != "") {
 		addFlag(cmd.Flags(), specUI)
 	}
 	for _, f := range cs.Flags {
@@ -1151,11 +1160,16 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	r.emitIntent(cmd, cs, ctx)
 	start := time.Now()
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
-		id, err := RunUIPickerForGet(ctx, cs)
+		if cs.UIHandlerFn != "" && ctx.Id != "" {
+			return r.RunUIHandler(ctx, cs.UIHandlerFn)
+		}
+		handled, err := RunUIPickerForGet(ctx, cs)
 		if err != nil {
 			return err
 		}
-		ctx.Id = id
+		if handled {
+			return nil
+		}
 	}
 	if cs.ConfirmMode != spec.ConfirmNone {
 		if err := runConfirmGate(cs.ConfirmMode, cs.Verb, cs.Noun, ctx.Id, ctx.IsPty, cmdctx.GetBool(ctx.FlagValues, "force")); err != nil {

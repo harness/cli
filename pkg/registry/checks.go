@@ -36,6 +36,11 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 			errs = append(errs, fmt.Sprintf("command %q: workflow_id %q not registered", cs.Command, cs.WorkflowID))
 		}
 	}
+	if cs.UIHandlerFn != "" {
+		if _, ok := r.workflows[cs.UIHandlerFn]; !ok {
+			errs = append(errs, fmt.Sprintf("command %q: ui_handler_fn %q not registered", cs.Command, cs.UIHandlerFn))
+		}
+	}
 	if cs.Endpoint != nil {
 		if cs.Endpoint.TextFormatter != "" {
 			if _, ok := r.textFormatters[cs.Endpoint.TextFormatter]; !ok {
@@ -181,6 +186,9 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 	}
 	if cs.VerbHandler == VerbGet && ep.ItemExpr == "" {
 		return fmt.Errorf("get endpoint %q requires item_expr (use \"it\" for bare item responses)", cs.FullNoun())
+	}
+	if cs.UIHandlerFn != "" && cs.VerbHandler != VerbGet {
+		return fmt.Errorf("command %q: ui_handler_fn is only allowed on get commands", cs.Command)
 	}
 	if ep.ListTransformFn != "" && cs.VerbHandler == VerbList {
 		return fmt.Errorf("command %q: list_transform_fn is not allowed on list verbs (use items_expr instead)", cs.Command)

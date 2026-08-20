@@ -477,6 +477,7 @@ type CommandSpec struct {
 	ConfirmMode      string              `yaml:"confirm_mode,omitempty"`    // not allowed on list or get; see ConfirmNone/ConfirmPrompt/ConfirmID
 	WorkflowID       string              `yaml:"workflow_id,omitempty"`     // set when HandlerType == HandlerWorkflow
 	FollowFn         string              `yaml:"follow_fn,omitempty"`       // optional: called after a successful endpoint command when --follow is set
+	UIHandlerFn      string              `yaml:"ui_handler_fn,omitempty"`   // get commands only: registered workflow fn that --ui dispatches to directly once an id is known, bypassing the normal endpoint fetch
 	Flags            []Flag              `yaml:"flags,omitempty"`           // custom flags for workflow commands
 	Endpoint         *EndpointSpec       `yaml:"endpoint,omitempty"`        // set when HandlerType == HandlerEndpoint
 	FieldsNoun       string              `yaml:"fields_noun,omitempty"`     // override noun used for field lookup when the command's shape differs from its noun

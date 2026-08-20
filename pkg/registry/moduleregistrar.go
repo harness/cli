@@ -85,6 +85,9 @@ func (m *moduleRegistrar) Register(cs *spec.CommandSpec) error {
 	if cs.FollowFn != "" {
 		cs.FollowFn = m.qualify(cs.FollowFn, cmd+" follow_fn", true)
 	}
+	if cs.UIHandlerFn != "" {
+		cs.UIHandlerFn = m.qualify(cs.UIHandlerFn, cmd+" ui_handler_fn", true)
+	}
 	if cs.Endpoint != nil && cs.Endpoint.FetchFn != "" {
 		cs.Endpoint.FetchFn = m.qualify(cs.Endpoint.FetchFn, cmd+" fetch_fn", true)
 	}

@@ -699,6 +699,7 @@ commands:
       - completion_noun: execution
         keep_order: true
     handler_type: endpoint
+    ui_handler_fn: get_pipeline_log
     flags:
       - name: no-graph
         description: Omit the stage/step execution graph from the response

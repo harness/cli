@@ -88,6 +88,7 @@ type uiTableModel struct {
 	detailMode  bool
 	detail      uiDetailModel
 	printOnExit []string
+	launchUIId  string
 
 	// picker mode — set via newUIPickerModel; enter selects and quits
 	pickerMode       bool
@@ -492,6 +493,9 @@ func (m uiTableModel) detailView() string {
 	hint := "  ↑↓/jk scroll  esc back  q quit"
 	if !m.detail.loading && m.detail.err == "" {
 		hint += "  p print+exit"
+		if m.getCs != nil && m.getCs.UIHandlerFn != "" {
+			hint += "  v view"
+		}
 	}
 	b.WriteString(subtleStyle.Render(hint) + "\n")
 	return b.String()
@@ -616,6 +620,11 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "p":
 				if !m.detail.loading && m.detail.err == "" {
 					m.printOnExit = m.detail.lines
+					return m, tea.Quit
+				}
+			case "v":
+				if !m.detail.loading && m.detail.err == "" && m.getCs != nil && m.getCs.UIHandlerFn != "" {
+					m.launchUIId = m.detail.id
 					return m, tea.Quit
 				}
 			case "esc", "backspace":
@@ -922,6 +931,24 @@ func RunUIPicker(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, titleLine string, previ
 
 // RunUITable runs the bubbletea paged table TUI for a list endpoint.
 func RunUITable(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) error {
+	// Look up the get spec for drilldown; nil disables the feature.
+	var getCs *spec.CommandSpec
+	if ep.GetIdExpr != "" && ep.GetIdExpr != "-" && ctx.Resolver != nil {
+		getCs = ctx.Resolver.GetSpec(VerbGet, ctx.Noun)
+	}
+	return RunUITableForGet(ctx, ep, getCs)
+}
+
+// RunUITableForGet runs the bubbletea paged table TUI for a list endpoint, with the
+// enter-to-drilldown detail overlay driven by getCs (which may be nil to disable it):
+// its text_formatter renders the row detail, and its ui_handler_fn (if set) backs the
+// "v" view key. Used both by "list <noun> --ui" and, for a get command's --ui with no
+// id given, as the final step once any completion_seq prefix has been resolved — so
+// picking an id and viewing/printing it go through the exact same screen either way.
+func RunUITableForGet(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, getCs *spec.CommandSpec) error {
+	if !console.IsBothTTY() {
+		return fmt.Errorf("--ui requires an interactive terminal (TTY)")
+	}
 	fields := resolveFieldsForCommand(ctx, ep)
 	tspec := buildTspec(ep.Columns, fields)
 
@@ -957,12 +984,6 @@ func RunUITable(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) error {
 		termWidth, termHeight = w, h
 	}
 
-	// Look up the get spec for drilldown; nil disables the feature.
-	var getCs *spec.CommandSpec
-	if ep.GetIdExpr != "" && ep.GetIdExpr != "-" && ctx.Resolver != nil {
-		getCs = ctx.Resolver.GetSpec(VerbGet, ctx.Noun)
-	}
-
 	m := newUITableModel(ctx, ep, tspec, fields, exprEnv, titleLine, termWidth, termHeight, getCs)
 	m.searchTerm = initialSearch
 	p := tea.NewProgram(m)
@@ -970,8 +991,22 @@ func RunUITable(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) error {
 	if err != nil {
 		return err
 	}
-	if fm, ok := finalModel.(uiTableModel); ok && len(fm.printOnExit) > 0 {
+	fm, ok := finalModel.(uiTableModel)
+	if !ok {
+		return nil
+	}
+	if len(fm.printOnExit) > 0 {
 		fmt.Println(strings.Join(fm.printOnExit, "\n"))
+	}
+	if fm.launchUIId != "" && fm.getCs != nil {
+		ctx.Id = fm.launchUIId
+		// The handler (e.g. getPipelineLogHandler) branches on --ui itself; this ctx may be
+		// a picker-scoped ctx built for the "list" side that never had --ui set on it.
+		if ctx.FlagValues == nil {
+			ctx.FlagValues = map[string]any{}
+		}
+		ctx.FlagValues["ui"] = true
+		return ctx.Resolver.RunUIHandler(ctx, fm.getCs.UIHandlerFn)
 	}
 	return nil
 }
