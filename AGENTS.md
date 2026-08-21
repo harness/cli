@@ -242,3 +242,4 @@ Use placeholder text like `<accountId>`, `<token>`, `<email>` in examples.
 - **Code API paths**: Use bare repo identifier in path (e.g. `/code/api/v1/repos/{{ctx.parentId}}/branches`). org/project go as query params automatically — do NOT prefix paths with `{{auth.account}}/{{auth.org}}/{{auth.project}}`.
 - **`columns` on `get`**: Ignored. Use `fields_subset` on the endpoint to filter `get` output.
 - **gRPC oneof fields**: Include all variants in `??` chain (entity_type, event_type, metric_type, view_type, relationship_type, config_type).
+- **Adding a core flag** (a root flag or a built-in flag wired per verb/endpoint, not a per-command spec flag): also add it to `coreFlagTable` in `pkg/registry/flag.go`, marking `Bool: true` if it takes no value argument. That table is the single source of truth for recognizing core flags and their shape when scanning raw args (e.g. `SuggestRootCommand`).

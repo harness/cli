@@ -634,6 +634,24 @@ func TestUnknownNounError(t *testing.T) {
 			wantContain: "not supported for",
 		},
 		{
+			name: "migrate_pair_noun_typo_suggests_full_pair",
+			setup: func(r *Registry) {
+				r.RegisterNoun(spec.NounDef{Noun: "scm_bundle"})
+				r.RegisterNoun(spec.NounDef{Noun: "repository", NounAliases: []string{"repo"}})
+				r.Register(&spec.CommandSpec{
+					Command:     "migrate scm_bundle:repository",
+					Verb:        VerbMigrate,
+					Noun:        "scm_bundle",
+					NounTo:      "repository",
+					Module:      "migrate",
+					HandlerType: spec.HandlerWorkflow,
+					WorkflowID:  "test:noop",
+				})
+			},
+			verb: VerbMigrate, noun: "scm_bundle:repox",
+			wantContain: "Did you mean: scm_bundle:repository",
+		},
+		{
 			name: "plugin_owned_noun_not_installed",
 			setup: func(r *Registry) {
 				r.Register(wfSpec(VerbList, "pipeline", "pipeline"))
