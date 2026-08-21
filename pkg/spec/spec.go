@@ -489,6 +489,7 @@ type CommandSpec struct {
 	Verb             string              `yaml:"verb"`
 	Noun             string              `yaml:"noun,omitempty"`         // base noun; empty for management exceptions
 	NounVariant      string              `yaml:"noun_variant,omitempty"` // optional variant suffix; produces "noun:variant" cobra subcommand
+	NounTo           string              `yaml:"noun_to,omitempty"`      // second noun of a pair verb (migrate/convert); mutually exclusive with NounVariant
 	Short            string              `yaml:"short,omitempty"`
 	Long             string              `yaml:"long,omitempty"`
 	RequiresId       bool                `yaml:"requires_id,omitempty"`       // positional [id] is mandatory for this command
@@ -520,12 +521,15 @@ type CommandSpec struct {
 	External         bool                `yaml:"-"`                         // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
 }
 
-// FullNoun returns "noun:variant" when NounVariant is set, otherwise just Noun.
-// Use this wherever the cobra subcommand name or command identity is needed.
-// Use Noun directly when looking up field definitions or completion sources (base noun only).
+// FullNoun returns "noun:variant" when NounVariant is set, "noun:noun_to" when NounTo is
+// set, otherwise just Noun. Use this wherever the cobra subcommand name or command identity
+// is needed. Use Noun directly when looking up field definitions or completion sources (base noun only).
 func (cs *CommandSpec) FullNoun() string {
 	if cs.NounVariant != "" {
 		return cs.Noun + ":" + cs.NounVariant
+	}
+	if cs.NounTo != "" {
+		return cs.Noun + ":" + cs.NounTo
 	}
 	return cs.Noun
 }

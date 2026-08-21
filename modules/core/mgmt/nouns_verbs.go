@@ -37,16 +37,25 @@ func ListNounsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*
 		if modFilter != "" && !strings.EqualFold(cs.Module, modFilter) {
 			continue
 		}
-		e := entries[cs.Noun]
-		if e == nil {
-			e = &nounEntry{module: cs.Module, verbs: map[string]bool{}, tokens: map[string]bool{}}
-			entries[cs.Noun] = e
+		specNouns := []string{cs.Noun}
+		if cs.NounTo != "" {
+			specNouns = append(specNouns, cs.NounTo)
 		}
-		e.verbs[cs.Verb] = true
-		if cs.NounVariant != "" {
-			e.tokens[cs.Verb+" "+cs.Noun+":"+cs.NounVariant] = true
-		} else {
-			e.tokens[cs.Verb] = true
+		for _, n := range specNouns {
+			e := entries[n]
+			if e == nil {
+				e = &nounEntry{module: cs.Module, verbs: map[string]bool{}, tokens: map[string]bool{}}
+				entries[n] = e
+			}
+			e.verbs[cs.Verb] = true
+			switch {
+			case cs.NounVariant != "":
+				e.tokens[cs.Verb+" "+cs.Noun+":"+cs.NounVariant] = true
+			case cs.NounTo != "":
+				e.tokens[cs.Verb+" "+cs.FullNoun()] = true
+			default:
+				e.tokens[cs.Verb] = true
+			}
 		}
 	}
 	nouns := make([]string, 0, len(entries))
@@ -125,21 +134,27 @@ func GetNounHandler(ctx *cmdctx.Ctx) error {
 	cmdByVerb := map[string]*nounCmd{}
 	var module string
 	for _, cs := range ctx.Resolver.GetAllSpecs() {
-		if !strings.EqualFold(cs.Noun, target) {
+		if !strings.EqualFold(cs.Noun, target) && !strings.EqualFold(cs.NounTo, target) {
 			continue
 		}
 		module = cs.Module
-		// key is "verb" for base commands, "verb:variant" for variants
+		// key is "verb" for base commands, "verb:variant"/"verb:noun1:noun2" for variants/pairs
 		verbKey := cs.Verb
-		if cs.NounVariant != "" {
+		switch {
+		case cs.NounVariant != "":
 			verbKey = cs.Verb + ":" + cs.NounVariant
+		case cs.NounTo != "":
+			verbKey = cs.Verb + ":" + cs.FullNoun()
 		}
 		usage := "harness " + cs.Verb + " " + cs.FullNoun()
-		if cs.RequiresParentId && cs.ParentIdLabel != "" {
+		switch {
+		case cs.NounTo != "":
+			usage += " --from <id> --to <id>"
+		case cs.RequiresParentId && cs.ParentIdLabel != "":
 			usage += " " + cs.ParentIdLabel
-		} else if cs.IdLabel != "" {
+		case cs.IdLabel != "":
 			usage += " " + cs.IdLabel
-		} else if cs.Verb != "list" {
+		case cs.Verb != "list":
 			usage += " <id>"
 		}
 		if cs.HasArgs && cs.ArgsLabel != "" {

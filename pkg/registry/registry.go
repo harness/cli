@@ -501,10 +501,13 @@ func (r *Registry) BuildCommands() []*cobra.Command {
 		}
 		for _, cs := range specs {
 			verbCmds[verb].AddCommand(r.buildCmd(cs))
-			nd := r.GetNoun(cs.Noun)
-			if nd != nil {
-				for _, alias := range nd.NounAliases {
-					verbCmds[verb].AddCommand(r.buildAliasCmd(cs, alias))
+			fromNames, toNames := r.aliasNamePairs(cs)
+			for _, from := range fromNames {
+				for _, to := range toNames {
+					if from == cs.Noun && to == cs.NounTo {
+						continue // canonical command, already built above
+					}
+					verbCmds[verb].AddCommand(r.buildAliasCmd(cs, from, to))
 				}
 			}
 		}
@@ -579,14 +582,23 @@ func (r *Registry) unknownNounError(verb, noun string) error {
 	} else {
 		msg = fmt.Sprintf("%q is not a valid noun for %q", noun, verb)
 	}
-	// Build candidates: every FullNoun and its aliases, scoped to this verb only.
+	// Build candidates: every FullNoun and its from/to alias combinations, scoped to this verb only.
 	type candidate struct{ display, canonical string }
 	var candidates []candidate
 	for _, cs := range r.specs[verb] {
-		candidates = append(candidates, candidate{cs.FullNoun(), cs.FullNoun()})
-		if nd := r.GetNoun(cs.Noun); nd != nil {
-			for _, alias := range nd.NounAliases {
-				candidates = append(candidates, candidate{alias, cs.FullNoun()})
+		fn := cs.FullNoun()
+		candidates = append(candidates, candidate{fn, fn})
+		fromNames, toNames := r.aliasNamePairs(cs)
+		for _, from := range fromNames {
+			for _, to := range toNames {
+				if from == cs.Noun && to == cs.NounTo {
+					continue // canonical, already added above
+				}
+				display := from
+				if to != "" {
+					display += ":" + to
+				}
+				candidates = append(candidates, candidate{display, fn})
 			}
 		}
 	}
@@ -851,13 +863,35 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 	return cmd
 }
 
+// aliasNamePairs returns every (from, to) name combination that should resolve to cs:
+// cs.Noun/cs.NounTo plus their registered aliases (cross-producted for pair verbs).
+// For non-pair commands, to is always "" and only from varies.
+func (r *Registry) aliasNamePairs(cs *spec.CommandSpec) (fromNames, toNames []string) {
+	var fromAliases, toAliases []string
+	if nd := r.GetNoun(cs.Noun); nd != nil {
+		fromAliases = nd.NounAliases
+	}
+	fromNames = append([]string{cs.Noun}, fromAliases...)
+	toNames = []string{cs.NounTo}
+	if cs.NounTo != "" {
+		if nd := r.GetNoun(cs.NounTo); nd != nil {
+			toAliases = nd.NounAliases
+		}
+		toNames = append(toNames, toAliases...)
+	}
+	return fromNames, toNames
+}
+
 // buildAliasCmd constructs a hidden cobra.Command that delegates to the same handler as cs
-// but uses aliasNoun as the subcommand name. Alias commands are hidden from help output.
-func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasNoun string) *cobra.Command {
+// but uses aliasFrom (and, for pair verbs, aliasTo) as the subcommand name. Alias commands
+// are hidden from help output. aliasTo is ignored except for pair-verb commands (cs.NounTo != "").
+func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string) *cobra.Command {
 	vspec := verbRegistry[cs.Verb]
-	use := aliasNoun
+	use := aliasFrom
 	if cs.NounVariant != "" {
 		use += ":" + cs.NounVariant
+	} else if cs.NounTo != "" {
+		use += ":" + aliasTo
 	}
 	if vspec.RequiresId && !cs.NoId {
 		idLabel := "<id>"
@@ -1020,6 +1054,10 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 	addFlags(cmd.Flags(), specFormat, specJson, specYaml, specOut, specRaw)
 	if cs.VerbHandler == VerbList {
 		addFlags(cmd.Flags(), specColumns, specNoHeaders, specListColumns)
+	}
+	if verbRegistry[cs.Verb].NounPair {
+		cmd.Flags().String("from", "", "Source identifier to migrate from")
+		cmd.Flags().String("to", "", "Destination identifier to migrate to")
 	}
 	if cs.BuiltinFlags.Set {
 		cmd.Flags().StringArray("set", nil, "Set a field value as key=value (repeatable)")

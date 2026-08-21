@@ -171,6 +171,74 @@ func TestBuildCtx_ExecuteNoIdAllowsIdPopulated(t *testing.T) {
 	}
 }
 
+func registerWorkflowMigrate(t *testing.T, r *Registry, from, to string) *spec.CommandSpec {
+	t.Helper()
+	wfID := "test:migrate:" + from + ":" + to
+	r.RegisterWorkflow(wfID, func(*cmdctx.Ctx) error { return nil })
+	cs := &spec.CommandSpec{
+		Command:     "migrate " + from + ":" + to,
+		Verb:        VerbMigrate,
+		Noun:        from,
+		NounTo:      to,
+		Module:      "test",
+		HandlerType: spec.HandlerWorkflow,
+		WorkflowID:  wfID,
+		NoAuth:      true,
+	}
+	if err := r.Register(cs); err != nil {
+		t.Fatalf("Register migrate %s:%s: %v", from, to, err)
+	}
+	return cs
+}
+
+func TestBuildCtx_MigratePopulatesFromTo(t *testing.T) {
+	r := New()
+	cs := registerWorkflowMigrate(t, r, "github_organization", "repository")
+	cmd := buildWorkflowTestCmd(t, r, cs)
+	if err := cmd.ParseFlags([]string{"--from", "my-org", "--to", "my-project"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	ctx, err := buildCtx(cmd, cs, nil, r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.MigrateFrom != "my-org" || ctx.MigrateTo != "my-project" {
+		t.Fatalf("ctx.MigrateFrom/MigrateTo = %q/%q, want %q/%q", ctx.MigrateFrom, ctx.MigrateTo, "my-org", "my-project")
+	}
+	if ctx.Id != "" {
+		t.Fatalf("ctx.Id = %q, want empty (migrate has no positional id)", ctx.Id)
+	}
+}
+
+func TestBuildCtx_MigrateToOptional(t *testing.T) {
+	r := New()
+	cs := registerWorkflowMigrate(t, r, "jfrog_registry", "registry")
+	cmd := buildWorkflowTestCmd(t, r, cs)
+	if err := cmd.ParseFlags([]string{"--from", "my-jfrog"}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	ctx, err := buildCtx(cmd, cs, nil, r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.MigrateFrom != "my-jfrog" || ctx.MigrateTo != "" {
+		t.Fatalf("ctx.MigrateFrom/MigrateTo = %q/%q, want %q/%q", ctx.MigrateFrom, ctx.MigrateTo, "my-jfrog", "")
+	}
+}
+
+func TestBuildCtx_MigrateRejectsPositional(t *testing.T) {
+	r := New()
+	cs := registerWorkflowMigrate(t, r, "scm_bundle", "repository")
+	cmd := buildWorkflowTestCmd(t, r, cs)
+	_, err := buildCtx(cmd, cs, []string{"unexpected"}, r)
+	if err == nil {
+		t.Fatal("buildCtx() = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "does not take a positional argument") {
+		t.Fatalf("buildCtx() error %q missing expected substring", err)
+	}
+}
+
 func TestBuildCtx_WorkflowRequiredFlag(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "reqflag", &spec.CommandSpec{

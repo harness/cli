@@ -181,6 +181,32 @@ func validateSpec(cs *spec.CommandSpec, vs VerbSpec) error {
 	if err := validateEndpointConstraints(cs); err != nil {
 		return err
 	}
+	if err := validateNounPairConstraints(cs, vs); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateNounPairConstraints enforces the pair-verb shape (see VerbSpec.NounPair):
+// the command must declare noun_to (not noun_variant — there is no base+variant here,
+// just two distinct nouns), and dispatch must be a workflow — a pair verb has no single
+// endpoint to bind to.
+func validateNounPairConstraints(cs *spec.CommandSpec, vs VerbSpec) error {
+	if !vs.NounPair {
+		return nil
+	}
+	if cs.NounTo == "" {
+		return fmt.Errorf("command %q: %s command must declare noun_to (noun2 in \"noun1:noun2\")", cs.Command, cs.Verb)
+	}
+	if cs.NounVariant != "" {
+		return fmt.Errorf("command %q: %s command must not declare noun_variant (use noun_to)", cs.Command, cs.Verb)
+	}
+	if cs.HandlerType != spec.HandlerWorkflow {
+		return fmt.Errorf("command %q: %s command must use handler_type: workflow (no endpoint)", cs.Command, cs.Verb)
+	}
+	if cs.Endpoint != nil {
+		return fmt.Errorf("command %q: %s command must not declare an endpoint", cs.Command, cs.Verb)
+	}
 	return nil
 }
 

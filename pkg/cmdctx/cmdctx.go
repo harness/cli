@@ -196,6 +196,8 @@ type Ctx struct {
 	FieldsNoun   string // overrides Noun for field lookup when set (from spec fields_noun)
 	Id           string
 	ParentId     string            // optional parent-id arg for list commands (e.g. pipeline ID on "list execution")
+	MigrateFrom  string            // --from flag value (pair verbs, e.g. migrate: identifies the source endpoint)
+	MigrateTo    string            // --to flag value (pair verbs, e.g. migrate: identifies the destination endpoint)
 	SetArgs      map[string]string // --set key=value pairs for update verb (when HasSetArg set on spec)
 	DelArgs      []string          // --del key targets for update verb (when HasSetArg set on spec)
 	Args         []string          // extra positional args beyond [id] (when HasArgs set on spec)
