@@ -64,11 +64,23 @@ nouns:
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
 
-  - noun: segment_definition_keys
-    short_desc: A targeting key within a segment definition (used for field lookup only).
+  - noun: traffic_type
+    short_desc: Harness FME traffic type (read-only lookup).
     fields:
-      - id: key
-        expr: it
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+
+  - noun: rollout_status
+    short_desc: Harness FME rollout status (read-only lookup).
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: description
+        expr: it.description ?? ""
 
   - noun: feature_flag_definition
     short_desc: A feature flag's environment-specific targeting definition (used for field lookup only).
@@ -799,23 +811,15 @@ commands:
         project_identifier: auth.project
         environment_id: flags.env
 
-  # ── segment:definition_keys ────────────────────────────────────────────────────
+  # ── traffic_type ──────────────────────────────────────────────────────────────
 
-  - command: list segment:definition_keys
+  - command: list traffic_type
     verb: list
-    noun: segment
-    noun_variant: definition_keys
-    short: "List targeting keys in a segment definition: harness list segment:definition_keys <segment-name> --env <env-id>"
+    noun: traffic_type
+    short: List FME traffic types
     handler_type: endpoint
-    requires_parentid: true
-    parentid_label: "<segment-name>"
-    fields_noun: segment_definition_keys
-    flags:
-      - name: env
-        description: Environment identifier (required)
-        required: true
     endpoint:
-      path: /fme/api/v4/segment-definitions/{{ctx.parentId}}/keys
+      path: /fme/api/v4/traffic-types
       items_expr: it.data
       item_item_expr: it
       get_id_expr: "-"
@@ -823,7 +827,6 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
-        environment_id: flags.env
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -832,75 +835,30 @@ commands:
         page_size_max: 100
         total_expr: it.totalCount
         countable: true
-      columns: [key]
+      columns: [id, name]
 
-  - command: execute segment:definition_keys_add
-    verb: execute
-    noun: segment
-    noun_variant: definition_keys_add
-    short: "Add (or replace) targeting keys in a segment definition: harness execute segment:definition_keys_add <segment-name> --env <env-id> --keys k1,k2 [--replace]"
+  # ── rollout_status ────────────────────────────────────────────────────────────
+
+  - command: list rollout_status
+    verb: list
+    noun: rollout_status
+    short: List FME rollout statuses
     handler_type: endpoint
-    fields_noun: segment_definition_keys
-    flags:
-      - name: env
-        description: Environment identifier (required)
-        required: true
-      - name: keys
-        description: Targeting keys to add (comma-separated list or JSON array)
-        is_array: true
-      - name: replace
-        is_bool: true
-        description: Replace the entire key set instead of merging (empty --keys with --replace clears all keys)
-      - name: comment
-        description: Audit comment
-      - name: title
-        description: Audit change title
     endpoint:
-      method: POST
-      path: /fme/api/v4/segment-definitions/{{ctx.id}}/keys
+      path: /fme/api/v4/rollout-statuses
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: "-"
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
-        environment_id: flags.env
-        replace: 'flags.replace ? "true" : nil'
-      body_params:
-        keys: flags.keys
-        comment: flags.comment
-        title: flags.title
-      item_expr: it.keys
-      text_header: "\nUpdated keys for segment definition {{ctx.id}} in {{flags.env}}\n"
-
-  - command: execute segment:definition_keys_remove
-    verb: execute
-    noun: segment
-    noun_variant: definition_keys_remove
-    short: "Remove targeting keys from a segment definition: harness execute segment:definition_keys_remove <segment-name> --env <env-id> --keys k1,k2"
-    handler_type: endpoint
-    fields_noun: segment_definition_keys
-    flags:
-      - name: env
-        description: Environment identifier (required)
-        required: true
-      - name: keys
-        description: Targeting keys to remove (comma-separated list or JSON array)
-        required: true
-        is_array: true
-      - name: comment
-        description: Audit comment
-      - name: title
-        description: Audit change title
-    endpoint:
-      method: POST
-      path: /fme/api/v4/segment-definitions/{{ctx.id}}/keys/remove
-      query_params:
-        account_id: auth.account
-        organization_identifier: auth.org
-        project_identifier: auth.project
-        environment_id: flags.env
-      body_params:
-        keys: flags.keys
-        comment: flags.comment
-        title: flags.title
-      item_expr: it.keys
-      text_header: "\nRemoved keys from segment definition {{ctx.id}} in {{flags.env}}\n"
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [id, name, description]
