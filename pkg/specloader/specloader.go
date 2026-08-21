@@ -268,8 +268,10 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, isHarnessUse
 			return err
 		}
 	}
-	for i, nd := range f.Nouns {
-		if err := reg.RegisterNoun(nd); err != nil {
+	mod := reg.Module(module)
+	for i := range f.Nouns {
+		mod.QualifyNoun(&f.Nouns[i])
+		if err := reg.RegisterNoun(f.Nouns[i]); err != nil {
 			return fmt.Errorf("spec: %s noun[%d]: %w", name, i, err)
 		}
 	}
@@ -290,7 +292,6 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, isHarnessUse
 		Source:      f.Source,
 		InstalledAt: f.InstalledAt,
 	})
-	mod := reg.Module(module)
 	for i, cmd := range f.Commands {
 		if cmd == nil {
 			return fmt.Errorf("spec: %s command[%d] is nil", name, i)
