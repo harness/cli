@@ -78,7 +78,7 @@ func fmeReadOut(t *testing.T, ctx *cmdctx.Ctx) string {
 // and that fields resolve directly off the item (it.name, it.trafficType.name, ...).
 func TestFMESpec_ListFeatureFlag(t *testing.T) {
 	reg := registry.New()
-	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
 		t.Fatalf("LoadSpec: %v", err)
 	}
 	cs := reg.GetSpec("list", "feature_flag")
@@ -115,7 +115,7 @@ func TestFMESpec_ListFeatureFlag(t *testing.T) {
 // and that yaml_pick_expr/item_expr resolve the item directly (it, not it.entity).
 func TestFMESpec_GetFeatureFlag(t *testing.T) {
 	reg := registry.New()
-	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
 		t.Fatalf("LoadSpec: %v", err)
 	}
 	cs := reg.GetSpec("get", "feature_flag")
@@ -156,7 +156,7 @@ func TestFMESpec_GetFeatureFlag(t *testing.T) {
 // it.id (environments are addressed by UUID, not name, unlike segment/feature_flag).
 func TestFMESpec_ListFMEEnvironment(t *testing.T) {
 	reg := registry.New()
-	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
 		t.Fatalf("LoadSpec: %v", err)
 	}
 	cs := reg.GetSpec("list", "fme_environment")
@@ -192,7 +192,7 @@ func TestFMESpec_ListFMEEnvironment(t *testing.T) {
 // and asserts the path embeds it (environments are looked up by id, not name).
 func TestFMESpec_GetFMEEnvironment(t *testing.T) {
 	reg := registry.New()
-	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
 		t.Fatalf("LoadSpec: %v", err)
 	}
 	cs := reg.GetSpec("get", "fme_environment")
@@ -222,7 +222,7 @@ func TestFMESpec_GetFMEEnvironment(t *testing.T) {
 // resolves off it.name (segments, unlike fme_environment, are addressed by name).
 func TestFMESpec_ListSegment(t *testing.T) {
 	reg := registry.New()
-	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
 		t.Fatalf("LoadSpec: %v", err)
 	}
 	cs := reg.GetSpec("list", "segment")
@@ -259,7 +259,7 @@ func TestFMESpec_ListSegment(t *testing.T) {
 // (segment/environment names, description, status) off the flat item.
 func TestFMESpec_ListSegmentDefinition(t *testing.T) {
 	reg := registry.New()
-	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
 		t.Fatalf("LoadSpec: %v", err)
 	}
 	cs := reg.GetSpec("list", "segment:definition")
@@ -299,7 +299,7 @@ func TestFMESpec_ListSegmentDefinition(t *testing.T) {
 // and asserts it hits /fme/api/v4/traffic-types and renders id/name fields.
 func TestFMESpec_ListTrafficType(t *testing.T) {
 	reg := registry.New()
-	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
 		t.Fatalf("LoadSpec: %v", err)
 	}
 	cs := reg.GetSpec("list", "traffic_type")
@@ -337,7 +337,7 @@ func TestFMESpec_ListTrafficType(t *testing.T) {
 // (backend trimToNull's blank descriptions server-side).
 func TestFMESpec_ListRolloutStatus(t *testing.T) {
 	reg := registry.New()
-	if err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
 		t.Fatalf("LoadSpec: %v", err)
 	}
 	cs := reg.GetSpec("list", "rollout_status")
