@@ -415,6 +415,21 @@ nouns:
       - id: decision
         expr: it.review_decision
 
+  - noun: pr_label
+    short_desc: A label assignable to a pull request (Harness Code).
+    noun_aliases: [pr_labels]
+    fields:
+      - id: id
+        expr: it.id
+      - id: key
+        expr: it.key
+      - id: color
+        expr: it.color
+      - id: type
+        expr: it.type
+      - id: assigned
+        expr: it.assigned
+
   - noun: code_principal
     short_desc: A person or service account in the current account/org/project scope (Harness Code).
     noun_aliases: [code_principals]
@@ -1021,6 +1036,44 @@ commands:
       paging:
         paging_strategy: flat_list
       columns: [pattern, owner_type, display_name, email, group_name, decision]
+
+  # ── pr_label ─────────────────────────────────────────────────────────────────────
+
+  - command: list pr_label
+    verb: list
+    noun: pr_label
+    short: "List labels assignable to a pull request: harness list pr_label <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: assignable
+        description: "Only show labels assignable to this PR (default true); set --assignable=false to see all repo/space labels"
+        default: "true"
+      - name: search
+        description: Filter by substring match on label key
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/labels
+      items_expr: it.label_data
+      query_params:
+        assignable: flags.assignable
+        query: flags.search
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, key, color, type, assigned]
 
   # ── pr_suggested_reviewer (Harness Code review insights) ───────────────────────
 
