@@ -1056,8 +1056,12 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 		addFlags(cmd.Flags(), specColumns, specNoHeaders, specListColumns)
 	}
 	if verbRegistry[cs.Verb].NounPair {
-		cmd.Flags().String("from", "", "Source identifier to migrate from")
-		cmd.Flags().String("to", "", "Destination identifier to migrate to")
+		if cs.MigrateFrom.EffectivePresence() != spec.MigratePresenceNone {
+			cmd.Flags().String("from", "", cs.MigrateFrom.EffectiveLabel("Source identifier to migrate from"))
+		}
+		if cs.MigrateTo.EffectivePresence() != spec.MigratePresenceNone {
+			cmd.Flags().String("to", "", cs.MigrateTo.EffectiveLabel("Destination identifier to migrate to"))
+		}
 	}
 	if cs.BuiltinFlags.Set {
 		cmd.Flags().StringArray("set", nil, "Set a field value as key=value (repeatable)")

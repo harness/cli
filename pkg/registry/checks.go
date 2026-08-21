@@ -193,7 +193,20 @@ func validateSpec(cs *spec.CommandSpec, vs VerbSpec) error {
 // endpoint to bind to.
 func validateNounPairConstraints(cs *spec.CommandSpec, vs VerbSpec) error {
 	if !vs.NounPair {
+		if cs.MigrateFrom != nil || cs.MigrateTo != nil {
+			return fmt.Errorf("command %q: migrate_from/migrate_to are only valid on pair verbs (%s is not)", cs.Command, cs.Verb)
+		}
 		return nil
+	}
+	for _, mf := range []struct {
+		name string
+		spec *spec.MigrateFlag
+	}{{"migrate_from", cs.MigrateFrom}, {"migrate_to", cs.MigrateTo}} {
+		switch mf.spec.EffectivePresence() {
+		case spec.MigratePresenceRequired, spec.MigratePresenceOptional, spec.MigratePresenceNone:
+		default:
+			return fmt.Errorf("command %q: %s presence %q must be one of required, optional, none", cs.Command, mf.name, mf.spec.Presence)
+		}
 	}
 	if cs.NounTo == "" {
 		return fmt.Errorf("command %q: %s command must declare noun_to (noun2 in \"noun1:noun2\")", cs.Command, cs.Verb)
