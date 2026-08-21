@@ -44,7 +44,7 @@ identical either way, it can live in the noun.
 
 **Status is load-bearing:** only `implemented` verbs can back a new command today. A
 `proposed` verb needs framework approval and a `verb.go` entry before any spec may use it —
-don't add `migrate` to a spec file on the strength of this doc.
+don't add `uninstall` to a spec file on the strength of this doc.
 
 | Verb | One-line meaning | Status |
 | ---- | ---------------- | ------ |
@@ -59,7 +59,7 @@ don't add `migrate` to a spec file on the strength of this doc.
 | `install` | Place a binary or component into local state. | implemented |
 | `configure` | Write durable local config pointing a third-party client at Harness. | implemented (registry only) |
 | `convert` | Translate one representation into another. **Takes a noun pair.** Both endpoints documents. | proposed |
-| `migrate` | Move a resource between two endpoints, at least one of them live. **Takes a noun pair.** | proposed |
+| `migrate` | Move a resource between two endpoints, at least one of them live. **Takes a noun pair.** | implemented |
 | `uninstall` | Remove a locally installed component. Reverse of `install`. | proposed |
 | `wrap` | Run a local tool with Harness config injected. **Takes a tool name, not a noun.** | proposed |
 
@@ -275,7 +275,7 @@ YAML exists it is a Harness artifact and `create` owns it.
 
 ## `migrate`
 
-*Proposed.* Move a resource between two endpoints, at least one of them a live system.
+Move a resource between two endpoints, at least one of them a live system.
 **Mutates Harness whenever the `:to` endpoint is a Harness noun.**
 
 ```sh
@@ -294,6 +294,12 @@ in a flag.
 neither owns the positional slot. Taking no positional is not an exception — `list` does the same.
 `--to` is frequently absent: when the destination is Harness, account/org/project resolve from the
 active profile.
+
+A spec entry controls each flag's registration and label via `migrate_from`/`migrate_to` blocks
+(`presence: required|optional|none`, `label: "..."`). `presence: none` drops the flag entirely —
+use it when one side of the pair is fixed and has no id to take, not a boolean toggle on the verb.
+A command must declare `handler_type: workflow` and `noun_to` (not `noun_variant`); this is
+enforced by `validateNounPairConstraints` in `pkg/registry/checks.go`.
 
 **Always a client-side process** — the CLI opens the connection, reads, and writes, so bytes pass
 through the local process — and checkpointed, because org-scale reads take hours. If one API call
