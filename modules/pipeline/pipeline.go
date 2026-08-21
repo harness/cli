@@ -24,12 +24,18 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterFollowFn(executeFollowFnID, executeFollowFn)
 	reg.RegisterFollowFn(executeV1FollowFnID, executeV1FollowFn)
 	reg.RegisterTextFormatter("execution_detail", formatGetExecution)
+	reg.RegisterTextFormatter("pipeline_yaml", formatGetPipelineYAML)
 	reg.RegisterFetchFn(listExecutionStepsFetchFnID, listExecutionStepsFetchFn)
 	reg.RegisterFetchFn(listApprovalInstancesFetchFnID, listApprovalInstancesFetchFn)
 	reg.RegisterBodyFn(approveBodyFnID, approvalApproveBody)
 	reg.RegisterFlagCompletionFn(pipelineLogStageCompletionID, pipelineLogStageCompletion)
 	reg.RegisterFlagCompletionFn(pipelineLogStepCompletionID, pipelineLogStepCompletion)
 	reg.RegisterEndpointValidatorFn(validatePipelineCreateID, validatePipelineCreate)
+}
+
+func formatGetPipelineYAML(w io.Writer, d cmdctx.DataAccessor) error {
+	fmt.Fprint(w, d.GetString("it.pipeline_yaml"))
+	return nil
 }
 
 func formatGetExecution(w io.Writer, d cmdctx.DataAccessor) error {

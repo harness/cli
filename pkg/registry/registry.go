@@ -243,6 +243,29 @@ func (r *Registry) GetNoun(noun string) *spec.NounDef {
 	return nil
 }
 
+// nounHasUICommands reports whether noun declares a ui_commands list, gating
+// whether --ui is registered/usable on its get command.
+func (r *Registry) nounHasUICommands(noun string) bool {
+	nd, ok := r.nouns[noun]
+	return ok && len(nd.UICommands) > 0
+}
+
+// nounViewHandlerFn returns the ui_handler_fn of noun's view-type ui_commands
+// entry, or "" if it has none. Backs the "get <id> --ui" shortcut that skips
+// the overlay entirely and hands off straight to the custom TUI.
+func (r *Registry) nounViewHandlerFn(noun string) string {
+	nd, ok := r.nouns[noun]
+	if !ok {
+		return ""
+	}
+	for _, uc := range nd.UICommands {
+		if uc.UICommandType == spec.UICommandView {
+			return uc.UIHandlerFn
+		}
+	}
+	return ""
+}
+
 // CheckNoConflicts reports the first way the given nouns/commands would collide
 // with anything already registered, without mutating the registry. It is the
 // read-only precondition for atomically loading an untrusted (plugin) spec:
@@ -1115,7 +1138,7 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 	if cs.VerbHandler == VerbList && ep.Paging != nil {
 		addFlag(cmd.Flags(), specUI)
 	}
-	if cs.VerbHandler == VerbGet && (cs.BuiltinFlags.UI || cs.UIHandlerFn != "") {
+	if cs.VerbHandler == VerbGet && (cs.BuiltinFlags.UI || r.nounHasUICommands(cs.Noun)) {
 		addFlag(cmd.Flags(), specUI)
 	}
 	for _, f := range cs.Flags {
@@ -1160,8 +1183,10 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	r.emitIntent(cmd, cs, ctx)
 	start := time.Now()
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
-		if cs.UIHandlerFn != "" && ctx.Id != "" {
-			return r.RunUIHandler(ctx, cs.UIHandlerFn)
+		if ctx.Id != "" {
+			if fnID := r.nounViewHandlerFn(cs.Noun); fnID != "" {
+				return r.RunUIHandler(ctx, fnID)
+			}
 		}
 		handled, err := RunUIPickerForGet(ctx, cs)
 		if err != nil {
@@ -1169,6 +1194,9 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 		}
 		if handled {
 			return nil
+		}
+		if ctx.Id != "" && r.nounHasUICommands(cs.Noun) {
+			return RunUIDetailForGet(ctx, cs)
 		}
 	}
 	if cs.ConfirmMode != spec.ConfirmNone {

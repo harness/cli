@@ -20,10 +20,66 @@ func (r *Registry) CheckFunctions() error {
 			errs = append(errs, r.checkFunctionsSpec(cs)...)
 		}
 	}
+	for noun, nd := range r.nouns {
+		errs = append(errs, r.checkUICommands(noun, nd)...)
+	}
 	if len(errs) > 0 {
 		return errors.New("registry errors:\n  " + strings.Join(errs, "\n  "))
 	}
 	return nil
+}
+
+// checkUICommands validates a noun's ui_commands list: unique non-reserved keys,
+// exactly one default text entry, and that every text/link/view target resolves.
+func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
+	if len(nd.UICommands) == 0 {
+		return nil
+	}
+	var errs []string
+	seenKeys := map[string]bool{}
+	defaultCount := 0
+	for _, uc := range nd.UICommands {
+		if uc.Key == "" {
+			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry missing key", noun))
+		} else if uc.Key == "p" || uc.Key == "q" {
+			errs = append(errs, fmt.Sprintf("noun %q: ui_commands key %q is reserved", noun, uc.Key))
+		} else if seenKeys[uc.Key] {
+			errs = append(errs, fmt.Sprintf("noun %q: ui_commands key %q is duplicated", noun, uc.Key))
+		}
+		seenKeys[uc.Key] = true
+
+		switch uc.UICommandType {
+		case spec.UICommandText:
+			if uc.Default {
+				defaultCount++
+			}
+			if r.GetSpec(VerbGet, uc.Noun) == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands text entry %q: noun %q does not resolve via get", noun, uc.Key, uc.Noun))
+			}
+		case spec.UICommandLink:
+			if uc.Default {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands link entry %q: default is only allowed on text entries", noun, uc.Key))
+			}
+			if uc.Verb != VerbList && uc.Verb != VerbGet {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands link entry %q: verb must be %q or %q", noun, uc.Key, VerbList, VerbGet))
+			} else if r.GetSpec(uc.Verb, uc.Noun) == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands link entry %q: %s %q does not resolve", noun, uc.Key, uc.Verb, uc.Noun))
+			}
+		case spec.UICommandView:
+			if uc.Default {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands view entry %q: default is only allowed on text entries", noun, uc.Key))
+			}
+			if _, ok := r.workflows[uc.UIHandlerFn]; !ok {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands view entry %q: ui_handler_fn %q not registered", noun, uc.Key, uc.UIHandlerFn))
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry %q: invalid ui_command_type %q", noun, uc.Key, uc.UICommandType))
+		}
+	}
+	if defaultCount != 1 {
+		errs = append(errs, fmt.Sprintf("noun %q: ui_commands requires exactly one default text entry, found %d", noun, defaultCount))
+	}
+	return errs
 }
 
 func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
@@ -34,11 +90,6 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 	if cs.WorkflowID != "" {
 		if _, ok := r.workflows[cs.WorkflowID]; !ok {
 			errs = append(errs, fmt.Sprintf("command %q: workflow_id %q not registered", cs.Command, cs.WorkflowID))
-		}
-	}
-	if cs.UIHandlerFn != "" {
-		if _, ok := r.workflows[cs.UIHandlerFn]; !ok {
-			errs = append(errs, fmt.Sprintf("command %q: ui_handler_fn %q not registered", cs.Command, cs.UIHandlerFn))
 		}
 	}
 	if cs.Endpoint != nil {
@@ -186,9 +237,6 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 	}
 	if cs.VerbHandler == VerbGet && ep.ItemExpr == "" {
 		return fmt.Errorf("get endpoint %q requires item_expr (use \"it\" for bare item responses)", cs.FullNoun())
-	}
-	if cs.UIHandlerFn != "" && cs.VerbHandler != VerbGet {
-		return fmt.Errorf("command %q: ui_handler_fn is only allowed on get commands", cs.Command)
 	}
 	if ep.ListTransformFn != "" && cs.VerbHandler == VerbList {
 		return fmt.Errorf("command %q: list_transform_fn is not allowed on list verbs (use items_expr instead)", cs.Command)

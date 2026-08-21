@@ -361,6 +361,7 @@ func TestModuleInit_RegistersGetPRWorkflow(t *testing.T) {
 type moduleInitSpy struct{ register func(id string) }
 
 func (s *moduleInitSpy) Register(*spec.CommandSpec) error { return nil }
+func (s *moduleInitSpy) QualifyNoun(*spec.NounDef)         {}
 func (s *moduleInitSpy) RegisterWorkflow(id string, _ registry.WorkflowFn) {
 	if s.register != nil {
 		s.register(id)

@@ -33,6 +33,14 @@ type uiDetailModel struct {
 	scroll  int
 }
 
+// uiLinkTarget carries a resolved link-type ui_commands entry to follow once
+// the bubbletea program exits.
+type uiLinkTarget struct {
+	verb string
+	noun string
+	id   string
+}
+
 // uiDetailMsg is sent when a background detail fetch completes.
 type uiDetailMsg struct {
 	content string
@@ -84,11 +92,16 @@ type uiTableModel struct {
 	rawItems []any     // parallel to rawRows — raw API items for get_id_expr evaluation
 
 	// drilldown
-	getCs       *spec.CommandSpec
-	detailMode  bool
-	detail      uiDetailModel
-	printOnExit []string
-	launchUIId  string
+	getCs             *spec.CommandSpec
+	uiCommands        []spec.UICommand // getCs.Noun's ui_commands, if any; drives detail hotkeys
+	detailOnly        bool             // true when there is no browse table underneath (Case 4)
+	detailMode        bool
+	detail            uiDetailModel
+	activeTextKey     string // key of the ui_commands text entry currently rendered in detail
+	printOnExit       []string
+	launchUIId        string
+	launchUIHandlerFn string        // view entry's ui_handler_fn, set on quit
+	linkTarget        *uiLinkTarget // link entry to follow, set on quit
 
 	// picker mode — set via newUIPickerModel; enter selects and quits
 	pickerMode       bool
@@ -144,22 +157,57 @@ func newUITableModel(
 
 	_, hasSearch := ctx.FlagValues["search"]
 
-	return uiTableModel{
-		ctx:       ctx,
-		ep:        ep,
-		tspec:     tspec,
-		fields:    fields,
-		exprEnv:   exprEnv,
-		t:         t,
-		colDefs:   colDefs,
-		titleLine: titleLine,
-		pageSize:  pageSize,
-		loading:   true,
-		width:     termWidth,
-		height:    termHeight,
-		hasSearch: hasSearch,
-		getCs:     getCs,
+	var uiCommands []spec.UICommand
+	if getCs != nil && ctx.Resolver != nil {
+		if nd := ctx.Resolver.GetNoun(getCs.Noun); nd != nil {
+			uiCommands = nd.UICommands
+		}
 	}
+
+	return uiTableModel{
+		ctx:        ctx,
+		ep:         ep,
+		tspec:      tspec,
+		fields:     fields,
+		exprEnv:    exprEnv,
+		t:          t,
+		colDefs:    colDefs,
+		titleLine:  titleLine,
+		pageSize:   pageSize,
+		loading:    true,
+		width:      termWidth,
+		height:     termHeight,
+		hasSearch:  hasSearch,
+		getCs:      getCs,
+		uiCommands: uiCommands,
+	}
+}
+
+// newUIDetailModel builds a detail-only overlay model (Case 4): no browse table
+// underneath, rendered directly at the noun's default text entry.
+func newUIDetailModel(ctx *cmdctx.Ctx, getCs *spec.CommandSpec, id string, uiCommands []spec.UICommand, defaultKey string, termWidth, termHeight int) uiTableModel {
+	return uiTableModel{
+		ctx:           ctx,
+		getCs:         getCs,
+		uiCommands:    uiCommands,
+		activeTextKey: defaultKey,
+		detailOnly:    true,
+		detailMode:    true,
+		detail:        uiDetailModel{id: id, loading: true},
+		width:         termWidth,
+		height:        termHeight,
+	}
+}
+
+// defaultTextKey returns the key of the ui_commands entry marked default: true,
+// or "" if none (which happens when ucs is empty — the legacy, non-data-driven path).
+func defaultTextKey(ucs []spec.UICommand) string {
+	for _, uc := range ucs {
+		if uc.UICommandType == spec.UICommandText && uc.Default {
+			return uc.Key
+		}
+	}
+	return ""
 }
 
 // pickerCursorId returns the completion id of the currently highlighted row,
@@ -289,6 +337,9 @@ func fitColumns(tspec *spec.TableSpec, rows []tui.Row, termWidth int) []tui.Colu
 }
 
 func (m uiTableModel) Init() tea.Cmd {
+	if m.detailOnly {
+		return m.fetchDetail(m.detail.id)
+	}
 	return m.fetchPage(0)
 }
 
@@ -421,10 +472,55 @@ func (m *uiTableModel) applyColPick() tea.Cmd {
 	return m.fetchPage(m.page)
 }
 
+// activeDetailCs resolves the get command backing the currently-shown detail
+// pane: the noun's active ui_commands text entry when one is set, else getCs
+// unchanged (the legacy, non-data-driven path for nouns with no ui_commands).
+func (m uiTableModel) activeDetailCs() *spec.CommandSpec {
+	for _, uc := range m.uiCommands {
+		if uc.UICommandType == spec.UICommandText && uc.Key == m.activeTextKey {
+			if m.ctx.Resolver != nil {
+				if cs := m.ctx.Resolver.GetSpec(VerbGet, uc.Noun); cs != nil {
+					return cs
+				}
+			}
+		}
+	}
+	return m.getCs
+}
+
+// dispatchUICommandKey handles a hotkey press against the active noun's
+// ui_commands list: re-renders in place for a text entry, or queues a view/link
+// hand-off and quits for view/link entries. handled=false means key isn't bound.
+func (m uiTableModel) dispatchUICommandKey(key string) (uiTableModel, tea.Cmd, bool) {
+	for _, uc := range m.uiCommands {
+		if uc.Key != key {
+			continue
+		}
+		switch uc.UICommandType {
+		case spec.UICommandText:
+			if uc.Key == m.activeTextKey {
+				return m, nil, true
+			}
+			m.activeTextKey = uc.Key
+			m.detail.loading = true
+			m.detail.err = ""
+			return m, m.fetchDetail(m.detail.id), true
+		case spec.UICommandView:
+			m.launchUIId = m.detail.id
+			m.launchUIHandlerFn = uc.UIHandlerFn
+			return m, tea.Quit, true
+		case spec.UICommandLink:
+			m.linkTarget = &uiLinkTarget{verb: uc.Verb, noun: uc.Noun, id: m.detail.id}
+			return m, tea.Quit, true
+		}
+	}
+	return m, nil, false
+}
+
 // fetchDetail fetches the get endpoint for id and renders it to a string.
 func (m uiTableModel) fetchDetail(id string) tea.Cmd {
 	ctx := m.ctx
-	cs := m.getCs
+	cs := m.activeDetailCs()
 	ep := cs.Endpoint
 	return func() tea.Msg {
 		detailCtx := buildDetailCtx(ctx, cs, id)
@@ -465,7 +561,7 @@ func (m uiTableModel) detailView() string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(tui.CLIAccent))
 	subtleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLITextMuted))
 
-	noun := strings.ReplaceAll(m.getCs.Noun, "_", " ")
+	noun := strings.ReplaceAll(m.activeDetailCs().Noun, "_", " ")
 	title := fmt.Sprintf("get %s  %s", noun, m.detail.id)
 	b.WriteString(titleStyle.Render(tui.TruncateANSI(title, m.width-1)) + "\n")
 	b.WriteString("\n")
@@ -490,15 +586,37 @@ func (m uiTableModel) detailView() string {
 	}
 
 	b.WriteString("\n")
-	hint := "  ↑↓/jk scroll  esc back  q quit"
+	backOrQuit := "esc back  q quit"
+	if m.detailOnly {
+		backOrQuit = "esc/q quit"
+	}
+	hint := "  ↑↓/jk scroll  " + backOrQuit
 	if !m.detail.loading && m.detail.err == "" {
 		hint += "  p print+exit"
-		if m.getCs != nil && m.getCs.UIHandlerFn != "" {
-			hint += "  v view"
+		for _, uc := range m.uiCommands {
+			hint += fmt.Sprintf("  %s %s", uc.Key, uiCommandHintLabel(uc))
 		}
 	}
 	b.WriteString(subtleStyle.Render(hint) + "\n")
 	return b.String()
+}
+
+// uiCommandHintLabel renders the short hint text shown next to a ui_commands
+// entry's hotkey in the detail overlay's status line.
+func uiCommandHintLabel(uc spec.UICommand) string {
+	if uc.Label != "" {
+		return uc.Label
+	}
+	switch uc.UICommandType {
+	case spec.UICommandText:
+		return strings.ReplaceAll(uc.Noun, "_", " ")
+	case spec.UICommandLink:
+		return uc.Verb + " " + strings.ReplaceAll(uc.Noun, "_", " ")
+	case spec.UICommandView:
+		return "view"
+	default:
+		return ""
+	}
 }
 
 // colPickView renders the interactive column picker overlay.
@@ -622,12 +740,10 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.printOnExit = m.detail.lines
 					return m, tea.Quit
 				}
-			case "v":
-				if !m.detail.loading && m.detail.err == "" && m.getCs != nil && m.getCs.UIHandlerFn != "" {
-					m.launchUIId = m.detail.id
+			case "esc", "backspace":
+				if m.detailOnly {
 					return m, tea.Quit
 				}
-			case "esc", "backspace":
 				m.detailMode = false
 			case "up", "k":
 				if m.detail.scroll > 0 {
@@ -636,6 +752,25 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "j":
 				if m.detail.scroll < len(m.detail.lines)-visRows {
 					m.detail.scroll++
+				}
+			case "pgup":
+				m.detail.scroll -= visRows
+				if m.detail.scroll < 0 {
+					m.detail.scroll = 0
+				}
+			case "pgdown":
+				m.detail.scroll += visRows
+				if maxScroll := len(m.detail.lines) - visRows; m.detail.scroll > maxScroll {
+					m.detail.scroll = maxScroll
+				}
+				if m.detail.scroll < 0 {
+					m.detail.scroll = 0
+				}
+			default:
+				if !m.detail.loading && m.detail.err == "" {
+					if newM, cmd, handled := m.dispatchUICommandKey(msg.String()); handled {
+						return newM, cmd
+					}
 				}
 			}
 			return m, nil
@@ -703,6 +838,7 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					id := exprenv.EvalExpr(env, m.ep.GetIdExpr)
 					if id != "" {
 						m.detailMode = true
+						m.activeTextKey = defaultTextKey(m.uiCommands)
 						m.detail = uiDetailModel{id: id, loading: true}
 						return m, m.fetchDetail(id)
 					}
@@ -941,10 +1077,11 @@ func RunUITable(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) error {
 
 // RunUITableForGet runs the bubbletea paged table TUI for a list endpoint, with the
 // enter-to-drilldown detail overlay driven by getCs (which may be nil to disable it):
-// its text_formatter renders the row detail, and its ui_handler_fn (if set) backs the
-// "v" view key. Used both by "list <noun> --ui" and, for a get command's --ui with no
-// id given, as the final step once any completion_seq prefix has been resolved — so
-// picking an id and viewing/printing it go through the exact same screen either way.
+// its text_formatter renders the row detail, and its noun's ui_commands (if any)
+// drive the detail pane's hotkeys. Used both by "list <noun> --ui" and, for a get
+// command's --ui with no id given, as the final step once any completion_seq prefix
+// has been resolved — so picking an id and viewing/printing it go through the exact
+// same screen either way.
 func RunUITableForGet(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, getCs *spec.CommandSpec) error {
 	if !console.IsBothTTY() {
 		return fmt.Errorf("--ui requires an interactive terminal (TTY)")
@@ -995,10 +1132,20 @@ func RunUITableForGet(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, getCs *spec.Comman
 	if !ok {
 		return nil
 	}
+	return finishUIExit(ctx, fm)
+}
+
+// finishUIExit handles common post-Run() actions for the detail overlay: printing
+// content queued via "p", following a link entry to a different noun's screen, or
+// handing off to a view entry's ui_handler_fn.
+func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 	if len(fm.printOnExit) > 0 {
 		fmt.Println(strings.Join(fm.printOnExit, "\n"))
 	}
-	if fm.launchUIId != "" && fm.getCs != nil {
+	if fm.linkTarget != nil {
+		return dispatchUILink(ctx, fm.linkTarget)
+	}
+	if fm.launchUIId != "" && fm.launchUIHandlerFn != "" {
 		ctx.Id = fm.launchUIId
 		// The handler (e.g. getPipelineLogHandler) branches on --ui itself; this ctx may be
 		// a picker-scoped ctx built for the "list" side that never had --ui set on it.
@@ -1006,7 +1153,65 @@ func RunUITableForGet(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, getCs *spec.Comman
 			ctx.FlagValues = map[string]any{}
 		}
 		ctx.FlagValues["ui"] = true
-		return ctx.Resolver.RunUIHandler(ctx, fm.getCs.UIHandlerFn)
+		return ctx.Resolver.RunUIHandler(ctx, fm.launchUIHandlerFn)
 	}
 	return nil
+}
+
+// RunUIDetailForGet opens the detail-only overlay (Case 4): no browse table
+// underneath, rendered at the noun's default text entry, for a get command
+// whose id is already fully specified and whose noun declares ui_commands.
+func RunUIDetailForGet(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
+	if !console.IsBothTTY() {
+		return fmt.Errorf("--ui requires an interactive terminal (TTY)")
+	}
+	nd := ctx.Resolver.GetNoun(cs.Noun)
+	if nd == nil || len(nd.UICommands) == 0 {
+		return fmt.Errorf("noun %q declares no ui_commands", cs.Noun)
+	}
+	defaultKey := defaultTextKey(nd.UICommands)
+	if defaultKey == "" {
+		return fmt.Errorf("noun %q: ui_commands has no default text entry", cs.Noun)
+	}
+
+	termWidth, termHeight := 120, 30
+	if w, h, err := termSize(); err == nil {
+		termWidth, termHeight = w, h
+	}
+
+	m := newUIDetailModel(ctx, cs, ctx.Id, nd.UICommands, defaultKey, termWidth, termHeight)
+	p := tea.NewProgram(m)
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+	fm, ok := finalModel.(uiTableModel)
+	if !ok {
+		return nil
+	}
+	return finishUIExit(ctx, fm)
+}
+
+// dispatchUILink follows a link-type ui_commands entry once the overlay quits:
+// a "list" target opens that noun's browse overlay scoped to the current id as
+// parent; a "get" target opens Case 4's detail-only overlay directly on the id.
+func dispatchUILink(ctx *cmdctx.Ctx, lt *uiLinkTarget) error {
+	targetCs := ctx.Resolver.GetSpec(lt.verb, lt.noun)
+	if targetCs == nil {
+		return fmt.Errorf("ui_commands link target %s %q not found", lt.verb, lt.noun)
+	}
+	switch lt.verb {
+	case VerbList:
+		if targetCs.Endpoint == nil {
+			return fmt.Errorf("ui_commands link target %s %q has no endpoint", lt.verb, lt.noun)
+		}
+		listCtx := buildPickerCtx(ctx, targetCs)
+		listCtx.ParentId = lt.id
+		return RunUITable(listCtx, targetCs.Endpoint)
+	case VerbGet:
+		getCtx := buildDetailCtx(ctx, targetCs, lt.id)
+		return RunUIDetailForGet(getCtx, targetCs)
+	default:
+		return fmt.Errorf("ui_commands link target %s %q: unsupported verb", lt.verb, lt.noun)
+	}
 }

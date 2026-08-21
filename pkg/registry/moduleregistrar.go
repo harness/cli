@@ -21,6 +21,10 @@ type WorkflowFn func(ctx *cmdctx.Ctx) error
 // fully-qualified form.
 type ModuleRegistrar interface {
 	Register(cs *spec.CommandSpec) error
+	// QualifyNoun rewrites nd's ui_commands[].ui_handler_fn entries to their
+	// fully-qualified "module:id" form, mirroring what Register does for command
+	// fields. Call before RegisterNoun.
+	QualifyNoun(nd *spec.NounDef)
 	RegisterWorkflow(shortID string, fn WorkflowFn)
 	RegisterTextFormatter(shortID string, fn cmdctx.TextFormatterFn)
 	RegisterBodyFn(shortID string, fn cmdctx.CreateBodyFn)
@@ -85,9 +89,6 @@ func (m *moduleRegistrar) Register(cs *spec.CommandSpec) error {
 	if cs.FollowFn != "" {
 		cs.FollowFn = m.qualify(cs.FollowFn, cmd+" follow_fn", true)
 	}
-	if cs.UIHandlerFn != "" {
-		cs.UIHandlerFn = m.qualify(cs.UIHandlerFn, cmd+" ui_handler_fn", true)
-	}
 	if cs.Endpoint != nil && cs.Endpoint.FetchFn != "" {
 		cs.Endpoint.FetchFn = m.qualify(cs.Endpoint.FetchFn, cmd+" fetch_fn", true)
 	}
@@ -108,6 +109,15 @@ func (m *moduleRegistrar) Register(cs *spec.CommandSpec) error {
 		}
 	}
 	return m.reg.Register(cs)
+}
+
+func (m *moduleRegistrar) QualifyNoun(nd *spec.NounDef) {
+	for i := range nd.UICommands {
+		uc := &nd.UICommands[i]
+		if uc.UIHandlerFn != "" {
+			uc.UIHandlerFn = m.qualify(uc.UIHandlerFn, fmt.Sprintf("noun %q ui_commands[%d] ui_handler_fn", nd.Noun, i), true)
+		}
+	}
 }
 
 func (m *moduleRegistrar) RegisterWorkflow(shortID string, fn WorkflowFn) {

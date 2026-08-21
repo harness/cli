@@ -63,6 +63,21 @@ nouns:
         expr: epochMs(it.recent_execution_info[0].ended)
       - id: last_status
         expr: it.recent_execution_info[0].execution_status
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: pipeline:summary
+        default: true
+      - ui_command_type: text
+        key: y
+        label: yaml
+        noun: pipeline
+      - ui_command_type: link
+        key: e
+        label: list executions
+        verb: list
+        noun: execution
 
   - noun: execution
     short_desc: A single pipeline run instance with status, timing, and trigger info.
@@ -96,6 +111,16 @@ nouns:
         width_max: 60
       - id: url
         expr: url(it)
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: execution
+        default: true
+      - ui_command_type: view
+        key: v
+        label: view logs
+        ui_handler_fn: get_pipeline_log
 
   - noun: trigger
     short_desc: An event-based trigger that automatically starts a pipeline.
@@ -385,6 +410,12 @@ commands:
     verb: get
     noun: pipeline
     short: Get a pipeline's YAML definition (--format json to convert, --raw for full envelope)
+    long: |
+      Get a pipeline's full YAML definition (--format json to convert, --raw for
+      full envelope).
+
+      For lightweight pipeline metadata (name, tags, recent execution status, etc.)
+      without the full YAML, use `get pipeline:summary` instead.
     handler_type: endpoint
     flags:
       - name: branch
@@ -393,6 +424,7 @@ commands:
       path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
       item_expr: it
       field_extract: pipeline_yaml
+      text_formatter: pipeline_yaml
       query_params:
         branch_name: flags.branch
 
@@ -699,7 +731,6 @@ commands:
       - completion_noun: execution
         keep_order: true
     handler_type: endpoint
-    ui_handler_fn: get_pipeline_log
     flags:
       - name: no-graph
         description: Omit the stage/step execution graph from the response
