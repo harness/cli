@@ -835,7 +835,7 @@ func (r *Registry) bindHandler(cmd *cobra.Command, cs *spec.CommandSpec) {
 // execPluginRunE returns a RunE that resolves the plugin binary via
 // plugin.Resolve and delegates to plugin.Exec (platform-specific). version is
 // stamped into HARNESS_PLUGIN for the plugin-side self-check.
-func execPluginRunE(binaryPath, moduleName, version string) func(*cobra.Command, []string) error {
+func (r *Registry) execPluginRunE(binaryPath, moduleName, version string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		binPath, err := plugin.Resolve(binaryPath)
 		if err != nil {
@@ -846,11 +846,16 @@ func execPluginRunE(binaryPath, moduleName, version string) func(*cobra.Command,
 			}
 			return err
 		}
+		// The host resolves noun aliases across every loaded module (e.g. code's
+		// "repo" for "repository"), but the plugin binary only loads its own
+		// spec, so it can't source aliases it doesn't own. Canonicalize before
+		// exec so the plugin always sees canonical noun names.
+		pluginArgs := r.CanonicalizeNounArgs(os.Args[1:])
 		// HARNESS_PLUGIN lets a well-behaved plugin self-check that the grammar
 		// the host parsed came from this binary.
 		os.Setenv("HARNESS_PLUGIN", moduleName+" "+version)
-		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", os.Args[1:])
-		return plugin.Exec(binPath, os.Args[1:])
+		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", pluginArgs)
+		return plugin.Exec(binPath, pluginArgs)
 	}
 }
 
@@ -917,7 +922,7 @@ func (r *Registry) bindExternalCmd(cmd *cobra.Command, cs *spec.CommandSpec) {
 		desc = cmd.Short
 	}
 	cmd.Long = desc + fmt.Sprintf("\n\n(Implemented by plugin %q v%s)", cs.Module, meta.Version)
-	cmd.RunE = execPluginRunE(meta.BinaryPath, cs.Module, meta.Version)
+	cmd.RunE = r.execPluginRunE(meta.BinaryPath, cs.Module, meta.Version)
 }
 
 // bindWorkflowCmd wires flags and RunE for a workflow-backed command.

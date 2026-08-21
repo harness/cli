@@ -3,7 +3,11 @@
 
 package registry
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/harness/cli/pkg/spec"
+)
 
 func TestIndexVerbNoun(t *testing.T) {
 	tests := []struct {
@@ -142,6 +146,116 @@ func TestIndexVerbNoun(t *testing.T) {
 			gotVerb, gotNoun := IndexVerbNoun(tt.args)
 			if gotVerb != tt.wantVerb || gotNoun != tt.wantNoun {
 				t.Errorf("IndexVerbNoun(%v) = (%d, %d), want (%d, %d)", tt.args, gotVerb, gotNoun, tt.wantVerb, tt.wantNoun)
+			}
+		})
+	}
+}
+
+func canonicalizeTestRegistry(t *testing.T) *Registry {
+	t.Helper()
+	r := New()
+	if err := r.RegisterNoun(spec.NounDef{Noun: "repository", NounAliases: []string{"repo"}}); err != nil {
+		t.Fatalf("RegisterNoun repository: %v", err)
+	}
+	if err := r.RegisterNoun(spec.NounDef{Noun: "github_organization", NounAliases: []string{"github_org"}}); err != nil {
+		t.Fatalf("RegisterNoun github_organization: %v", err)
+	}
+	return r
+}
+
+func TestCanonicalizeNounArg(t *testing.T) {
+	r := canonicalizeTestRegistry(t)
+
+	tests := []struct {
+		name string
+		verb string
+		noun string
+		want string
+	}{
+		{
+			name: "plain noun alias canonicalized",
+			verb: VerbList,
+			noun: "repo",
+			want: "repository",
+		},
+		{
+			name: "already canonical, unchanged",
+			verb: VerbList,
+			noun: "repository",
+			want: "repository",
+		},
+		{
+			name: "unknown noun passes through unchanged",
+			verb: VerbList,
+			noun: "widget",
+			want: "widget",
+		},
+		{
+			name: "non-pair verb: variant suffix left untouched",
+			verb: VerbGet,
+			noun: "repo:summary",
+			want: "repository:summary",
+		},
+		{
+			name: "pair verb: alias on the from side canonicalized",
+			verb: VerbMigrate,
+			noun: "scm_bundle:repo",
+			want: "scm_bundle:repository",
+		},
+		{
+			name: "pair verb: aliases on both sides canonicalized",
+			verb: VerbMigrate,
+			noun: "github_org:repo",
+			want: "github_organization:repository",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.CanonicalizeNounArg(tt.verb, tt.noun)
+			if got != tt.want {
+				t.Errorf("CanonicalizeNounArg(%q, %q) = %q, want %q", tt.verb, tt.noun, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCanonicalizeNounArgs(t *testing.T) {
+	r := canonicalizeTestRegistry(t)
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "noun token located and rewritten",
+			args: []string{"list", "repo"},
+			want: []string{"list", "repository"},
+		},
+		{
+			name: "flags before verb and noun preserved",
+			args: []string{"--profile", "prod", "migrate", "github_org:repo"},
+			want: []string{"--profile", "prod", "migrate", "github_organization:repository"},
+		},
+		{
+			name: "no noun token present, args unchanged",
+			args: []string{"version"},
+			want: []string{"version"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.CanonicalizeNounArgs(tt.args)
+			if len(got) != len(tt.want) {
+				t.Fatalf("CanonicalizeNounArgs(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("CanonicalizeNounArgs(%v) = %v, want %v", tt.args, got, tt.want)
+					break
+				}
 			}
 		})
 	}

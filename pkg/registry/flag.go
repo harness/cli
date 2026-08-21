@@ -200,3 +200,56 @@ func indexNextPositional(args []string, start int) (idx, next int) {
 	}
 	return -1, len(args)
 }
+
+// CanonicalizeNounArg rewrites noun — as it appears in the noun slot: a plain
+// noun, "noun:variant", or, for a NounPair verb like migrate, "<from>:<to>" —
+// so every alias is replaced by its canonical noun name, using the full
+// cross-module alias table (r.nounAliases) built up from every loaded spec.
+//
+// This exists for plugin dispatch: the host resolves "harness migrate
+// scm_bundle:repo" using code's "repo" alias for "repository" and execs the
+// owning plugin binary with the original spelling — but that plugin process
+// only loads its own module's spec, so it has no "repository" noun to source
+// the "repo" alias from and rejects it. Canonicalizing at the boundary, on
+// the host side where every alias is known, avoids that mismatch.
+//
+// The ":" suffix means two different things depending on the verb: for a
+// NounPair verb it's a second noun, canonicalized the same as the first
+// half; for every other verb it's a variant selector and is left untouched.
+func (r *Registry) CanonicalizeNounArg(verb, noun string) string {
+	from, rest, hasSuffix := strings.Cut(noun, ":")
+	canonFrom := r.canonicalNoun(from)
+	if !hasSuffix {
+		return canonFrom
+	}
+	if !verbRegistry[verb].NounPair {
+		return canonFrom + ":" + rest
+	}
+	return canonFrom + ":" + r.canonicalNoun(rest)
+}
+
+// canonicalNoun returns noun's canonical name if it's a registered alias,
+// otherwise noun unchanged (it may already be canonical, a variant name, or
+// simply unknown — all of which pass through as-is).
+func (r *Registry) canonicalNoun(noun string) string {
+	if canonical, ok := r.nounAliases[noun]; ok {
+		return canonical
+	}
+	return noun
+}
+
+// CanonicalizeNounArgs rewrites the noun token in args (if present) via
+// CanonicalizeNounArg, locating the verb/noun positions with IndexVerbNoun.
+func (r *Registry) CanonicalizeNounArgs(args []string) []string {
+	verbIdx, nounIdx := IndexVerbNoun(args)
+	if verbIdx == -1 || nounIdx == -1 || nounIdx >= len(args) {
+		return args
+	}
+	canonNoun := r.CanonicalizeNounArg(args[verbIdx], args[nounIdx])
+	if canonNoun == args[nounIdx] {
+		return args
+	}
+	out := append([]string(nil), args...)
+	out[nounIdx] = canonNoun
+	return out
+}
