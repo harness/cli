@@ -430,6 +430,31 @@ nouns:
       - id: color
         expr: it.color
 
+  - noun: repo_label
+    short_desc: A label defined at the repo level, assignable to pull requests (Harness Code).
+    noun_aliases: [repo_labels]
+    fields:
+      - id: id
+        expr: it.id
+      - id: key
+        expr: prLabelColor(it.color, it.key)
+      - id: type
+        expr: it.type
+      - id: description
+        expr: it.description
+      - id: value_count
+        label: Values
+        expr: it.value_count
+        align: right
+      - id: pullreq_count
+        label: PRs Using
+        expr: it.pullreq_count
+        align: right
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
   - noun: code_principal
     short_desc: A person or service account in the current account/org/project scope (Harness Code).
     noun_aliases: [code_principals]
@@ -1074,6 +1099,115 @@ commands:
         page_size_max: 100
         page_base: 1
       columns: [id, key, type, assigned]
+
+  - command: list repo_label
+    verb: list
+    noun: repo_label
+    short: "List labels defined for a repo: harness list repo_label <repo_id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>"
+    id_parts: 1
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: search
+        description: Filter by substring match on label key
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/labels
+      items_expr: it
+      query_params:
+        query: flags.search
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, key, type, description, value_count, pullreq_count, created, updated]
+
+  - command: create repo_label
+    verb: create
+    noun: repo_label
+    short: "Define a new label at the repo level: harness create repo_label <repo_id> --key <key> [--color <color>] [--type static|dynamic] [--description <text>]"
+    handler_type: endpoint
+    requires_id: true
+    id_parts: 1
+    id_label: "<repo_id>"
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: key
+        description: Label key/name
+        required: true
+      - name: color
+        description: "Label color"
+        default: blue
+        completion_values: [blue, brown, cyan, green, indigo, lime, mint, orange, pink, purple, red, violet, yellow]
+      - name: type
+        description: "Label type: static or dynamic"
+        default: static
+        completion_values: [static, dynamic]
+      - name: description
+        description: Label description
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels
+      body_params:
+        key: flags.key
+        color: flags.color
+        type: flags.type
+        description: flags.description
+      no_fields: true
+      text_header: "\nCreated label {{flags.key}} on repo {{ctx.idParts[0]}}\n"
+
+  - command: execute pr:label
+    verb: execute
+    noun: pr
+    noun_variant: label
+    short: "Assign a label to a pull request: harness execute pr:label <repo_id>/<pr_number> --label <label_id>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: label
+        description: "Numeric label ID to assign (see list pr_label / list repo_label)"
+        required: true
+    endpoint:
+      method: PUT
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/labels
+      body_params:
+        label_id: int(flags.label)
+      no_fields: true
+      text_header: "\nAssigned label to PR #{{ctx.idParts[1]}}\n"
+
+  - command: execute pr:unlabel
+    verb: execute
+    noun: pr
+    noun_variant: unlabel
+    short: "Remove a label from a pull request: harness execute pr:unlabel <repo_id>/<pr_number> --label <label_id>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: label
+        description: "Numeric label ID to remove"
+        required: true
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/labels/{{flags.label}}
+      no_fields: true
+      text_header: "\nRemoved label from PR #{{ctx.idParts[1]}}\n"
 
   # ── pr_suggested_reviewer (Harness Code review insights) ───────────────────────
 
