@@ -168,6 +168,39 @@ type NounDef struct {
 	// NounAliases lists alternate names for this noun (e.g. "org", "orgs" for "organization").
 	// Alias commands are wired up as hidden cobra commands and do not appear in help output.
 	NounAliases []string `yaml:"noun_aliases,omitempty"`
+	// UICommands declares the hotkeys the --ui detail overlay offers for this noun:
+	// alternate shapes to render in place (text), navigation to a related noun (link),
+	// or a full-takeover custom TUI (view). Optional; absent means unchanged behavior.
+	UICommands []UICommand `yaml:"ui_commands,omitempty"`
+}
+
+// UICommandType values for UICommand.UICommandType.
+const (
+	UICommandText = "text"
+	UICommandLink = "link"
+	UICommandView = "view"
+)
+
+// UICommand is a single hotkey offered by a noun's --ui detail overlay. One flat
+// struct for all three ui_command_types, matching how CommandSpec/EndpointSpec
+// already mix fields that only apply to some verbs/shapes — checks.go enforces
+// which fields are required/forbidden for which type.
+type UICommand struct {
+	UICommandType string `yaml:"ui_command_type"`
+	Key           string `yaml:"key"`
+	// Label overrides the hotkey hint text shown in the detail overlay's status
+	// line. When empty, the hint is derived from the resolved noun/handler.
+	Label string `yaml:"label,omitempty"`
+	// Default marks the text entry rendered when the detail pane first opens.
+	// Only valid on text entries; exactly one text entry per noun must set it.
+	Default bool `yaml:"default,omitempty"`
+	// Noun is a full "noun[:variant]" string resolved via GetSpec(VerbGet, ...)
+	// for text entries, or GetSpec(Verb, ...) for link entries.
+	Noun string `yaml:"noun,omitempty"`
+	// Verb is the link target's verb: "list" or "get". Link only.
+	Verb string `yaml:"verb,omitempty"`
+	// UIHandlerFn is the registered workflow id to hand off to. View only.
+	UIHandlerFn string `yaml:"ui_handler_fn,omitempty"`
 }
 
 // FieldDef defines a named, reusable field for a noun. Fields declared here can be

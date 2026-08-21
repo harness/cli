@@ -35,6 +35,7 @@ func (noopResolver) GetSpec(verb, noun string) *spec.CommandSpec                
 func (noopResolver) GetNoun(noun string) *spec.NounDef                               { return nil }
 func (noopResolver) ResolveNounAlias(alias string) string                            { return "" }
 func (noopResolver) RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) { return nil, nil }
+func (noopResolver) RunUIHandler(ctx *cmdctx.Ctx, fnID string) error                 { return nil }
 func (noopResolver) FormatList(*cmdctx.Ctx, []any, []spec.FieldDef, []string) error  { return nil }
 func (noopResolver) FetchItems(*cmdctx.Ctx, *spec.EndpointSpec, cmdctx.PagingFlags) ([]any, error) {
 	return nil, nil
@@ -360,6 +361,7 @@ func TestModuleInit_RegistersGetPRWorkflow(t *testing.T) {
 type moduleInitSpy struct{ register func(id string) }
 
 func (s *moduleInitSpy) Register(*spec.CommandSpec) error { return nil }
+func (s *moduleInitSpy) QualifyNoun(*spec.NounDef)        {}
 func (s *moduleInitSpy) RegisterWorkflow(id string, _ registry.WorkflowFn) {
 	if s.register != nil {
 		s.register(id)
