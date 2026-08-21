@@ -422,13 +422,13 @@ nouns:
       - id: id
         expr: it.id
       - id: key
-        expr: it.key
-      - id: color
-        expr: it.color
+        expr: prLabelColor(it.color, it.key)
       - id: type
         expr: it.type
       - id: assigned
         expr: it.assigned
+      - id: color
+        expr: it.color
 
   - noun: code_principal
     short_desc: A person or service account in the current account/org/project scope (Harness Code).
@@ -1073,7 +1073,7 @@ commands:
         page_size_default: 30
         page_size_max: 100
         page_base: 1
-      columns: [id, key, color, type, assigned]
+      columns: [id, key, type, assigned]
 
   # ── pr_suggested_reviewer (Harness Code review insights) ───────────────────────
 

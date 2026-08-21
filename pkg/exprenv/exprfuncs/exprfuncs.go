@@ -71,6 +71,40 @@ func NewStatusIcon(enabled bool) func(string) string {
 	}
 }
 
+// labelColorMap maps a Harness Code label color (EnumLabelColor) to the nearest
+// basic ANSI color, since terminals only give us 8 basic colors for the API's 13.
+var pr_labelColorMap = map[string]console.Color{
+	"blue":   console.ColorBlue,
+	"brown":  console.ColorYellow,
+	"cyan":   console.ColorCyan,
+	"green":  console.ColorGreen,
+	"indigo": console.ColorBlue,
+	"lime":   console.ColorGreen,
+	"mint":   console.ColorCyan,
+	"orange": console.ColorYellow,
+	"pink":   console.ColorMagenta,
+	"purple": console.ColorMagenta,
+	"red":    console.ColorRed,
+	"violet": console.ColorMagenta,
+	"yellow": console.ColorYellow,
+}
+
+// NewLabelColor returns a function that colorizes text using the nearest basic ANSI
+// color for a Harness Code label color. When enabled is false (non-PTY or machine
+// format), the returned function always returns text unchanged.
+func NewPrLabelColor(enabled bool) func(color, text string) string {
+	return func(color, text string) string {
+		if !enabled {
+			return text
+		}
+		c, ok := pr_labelColorMap[color]
+		if !ok {
+			return text
+		}
+		return console.WithColor(c, text)
+	}
+}
+
 // Duration formats the elapsed time between two epoch-millisecond timestamps as
 // a human-readable string ("5m20s" or "42s"). Returns "" when either value is zero.
 // Accepts any numeric type since JSON numbers arrive as float64 in untyped maps.
