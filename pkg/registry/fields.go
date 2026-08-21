@@ -155,13 +155,20 @@ func (r *Registry) ResolveCommandFields(cs *spec.CommandSpec) []spec.FieldDef {
 	return append(base, ep.FieldsExtra...)
 }
 
-// MutableFields returns only the writable fields for a noun (those with mutable_path set).
-func MutableFields(noun *spec.NounDef) []spec.FieldDef {
-	if noun == nil {
+// MutableFields returns writable fields (mutable_path set) from the noun plus
+// any command-level fields_extra. Variant commands (e.g. feature_flag:definition)
+// declare extra writable paths on the endpoint, not on the noun.
+func MutableFields(noun *spec.NounDef, extra []spec.FieldDef) []spec.FieldDef {
+	var src []spec.FieldDef
+	if noun != nil {
+		src = append(src, noun.Fields...)
+	}
+	src = append(src, extra...)
+	if len(src) == 0 {
 		return nil
 	}
 	var out []spec.FieldDef
-	for _, f := range noun.Fields {
+	for _, f := range src {
 		if f.MutablePath != "" {
 			out = append(out, f)
 		}
