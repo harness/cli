@@ -33,7 +33,7 @@ func SSORefreshHandler(ctx *cmdctx.Ctx) error {
 
 	newAccess, newRefresh, err := auth.RefreshSSOToken(resolved.RefreshToken)
 	if err != nil {
-		return fmt.Errorf("%w\n\nRun '%s' to log in again", err, resolved.LoginHint("loginsso"))
+		return fmt.Errorf("%w\n\nRun '%s' to log in again", err, resolved.LoginHint("login --sso"))
 	}
 
 	profileName := strings.TrimPrefix(resolved.Source, "profile:")

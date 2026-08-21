@@ -23,7 +23,8 @@ const credentialsHeader = `# Harness credentials — contains sensitive tokens
 `
 
 type ProfileCredentials struct {
-	Token        string
+	Token        string // PAT or SAT token
+	SSOToken     string // access token; only present for SSO profiles
 	RefreshToken string // only present for SSO profiles
 }
 
@@ -71,10 +72,10 @@ func parseCredentials(content string) (map[string]*ProfileCredentials, error) {
 			result[current] = &ProfileCredentials{}
 		}
 		switch k {
-		case "token", "pat_token":
+		case "token", "pat_token", "sat_token":
 			result[current].Token = v
 		case "sso_token":
-			result[current].Token = v
+			result[current].SSOToken = v
 		case "refresh_token":
 			result[current].RefreshToken = v
 		}
@@ -94,16 +95,16 @@ func SaveCredentials(creds map[string]*ProfileCredentials) error {
 		sb.WriteString("[")
 		sb.WriteString(name)
 		sb.WriteString("]\n")
-		if c.RefreshToken != "" {
-			sb.WriteString("sso_token = \"")
+		if c.Token != "" {
+			sb.WriteString("pat_token = \"")
 			sb.WriteString(c.Token)
+			sb.WriteString("\"\n")
+		} else {
+			sb.WriteString("sso_token = \"")
+			sb.WriteString(c.SSOToken)
 			sb.WriteString("\"\n")
 			sb.WriteString("refresh_token = \"")
 			sb.WriteString(c.RefreshToken)
-			sb.WriteString("\"\n")
-		} else {
-			sb.WriteString("pat_token = \"")
-			sb.WriteString(c.Token)
 			sb.WriteString("\"\n")
 		}
 		sb.WriteString("\n")
@@ -117,7 +118,7 @@ func SaveCredentials(creds map[string]*ProfileCredentials) error {
 	return nil
 }
 
-// SetCredential adds or updates the token for the named profile and saves.
+// SetCredential adds or updates the PAT/SAT token for the named profile and saves.
 func SetCredential(profileName, token string) error {
 	creds, err := LoadCredentials()
 	if err != nil {
@@ -136,7 +137,7 @@ func SetSSOCredentials(profileName, token, refreshToken string) error {
 	if err != nil {
 		return err
 	}
-	creds[profileName] = &ProfileCredentials{Token: token, RefreshToken: refreshToken}
+	creds[profileName] = &ProfileCredentials{SSOToken: token, RefreshToken: refreshToken}
 	return SaveCredentials(creds)
 }
 

@@ -157,6 +157,50 @@ func TestSuggestRootCommand_VerbTypo(t *testing.T) {
 	}
 }
 
+func TestSuggestRootCommand_PluginOwnedNoun(t *testing.T) {
+	r := buildTestRegistry(t)
+	r.RecordPluginOwnedNouns("har", []spec.NounDef{{Noun: "registry"}})
+
+	tests := []struct {
+		name        string
+		args        []string
+		wantContain string
+	}{
+		{
+			name:        "noun-first form",
+			args:        []string{"registry", "list"},
+			wantContain: `"registry" is provided by the "har" plugin, which isn't installed`,
+		},
+		{
+			name:        "noun:variant-first form",
+			args:        []string{"registry:npm", "list"},
+			wantContain: `"registry:npm" is provided by the "har" plugin, which isn't installed`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.SuggestRootCommand(tt.args)
+			if !strings.Contains(got, tt.wantContain) {
+				t.Errorf("SuggestRootCommand(%v) = %q, want to contain %q", tt.args, got, tt.wantContain)
+			}
+		})
+	}
+}
+
+// registered_noun_not_intercepted verifies that a noun already registered
+// (e.g. "artifact", registered by buildTestRegistry to simulate an installed
+// plugin) is never misreported as missing, even when it also appears in the
+// pluginOwnedNouns map.
+func TestSuggestRootCommand_PluginOwnedNoun_AlreadyInstalled(t *testing.T) {
+	r := buildTestRegistry(t)
+	r.RecordPluginOwnedNouns("har", []spec.NounDef{{Noun: "artifact"}})
+
+	got := r.SuggestRootCommand([]string{"artifact", "list"})
+	if strings.Contains(got, "isn't installed") {
+		t.Errorf("expected no plugin-missing suggestion for installed noun, got %q", got)
+	}
+}
+
 func TestSuggestRootCommand_NoSuggestion(t *testing.T) {
 	r := buildTestRegistry(t)
 

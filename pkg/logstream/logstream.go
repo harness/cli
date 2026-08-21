@@ -97,6 +97,7 @@ func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error
 			ts = t.UTC().Format("2006-01-02 15:04:05")
 		}
 		out := strings.TrimRight(ll.Out, "\n")
+		out = strings.ReplaceAll(out, "\r", "")
 		if !isPty {
 			out = console.StripANSI(out)
 			fmt.Fprintf(w, "%s [%s] %s\n", ts, ll.Level, out)

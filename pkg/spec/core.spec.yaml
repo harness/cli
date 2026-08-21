@@ -120,6 +120,12 @@ commands:
         If --org or --project are omitted the profile is saved without them; run 'harness auth setscope'
         afterwards to configure the default scope.
 
+      SSO mode (--sso):
+        Logs in through the browser instead of a token. Your account must be enabled for SSO
+        access; SSO is not the default login method. On a terminal you'll pick an org/project
+        after login; otherwise --org/--project are used, and the profile saves without a scope
+        if they are absent.
+
       The --api-url flag accepts a harness.io hostname ("app.harness.io") or a full URL
       ("https://app.harness.io"). Both forms are expanded to a full URL automatically.
     no_auth: true
@@ -129,7 +135,7 @@ commands:
       - name: api-url
         description: 'Harness API base URL (default "https://app.harness.io")'
       - name: api-token
-        description: API token (reads from stdin if omitted)
+        description: API token (PAT or SAT); reads from stdin if omitted
       - name: account
         description: Account ID (inferred from PAT; must match token if provided)
       - name: org
@@ -139,34 +145,16 @@ commands:
       - name: overwrite
         is_bool: true
         description: Overwrite existing profile without prompting
-      - name: no-overwrite
-        is_bool: true
-        description: Error if profile already exists
       - name: no-validate
         is_bool: true
         description: Skip token validation against the API
-
-  - command: auth loginsso
-    verb: auth
-    noun: loginsso
-    short: Log in via browser SSO (OAuth2)
-    hidden: true
-    no_auth: true
-    handler_type: workflow
-    workflow_id: loginsso
-    flags:
-      - name: profile
-        description: Profile name to save credentials under (default "default")
-      - name: overwrite
+      - name: sso
         is_bool: true
-        description: Overwrite existing profile without prompting
-      - name: no-overwrite
-        is_bool: true
-        description: Error if profile already exists
+        description: Log in via browser SSO (OAuth2) instead of an API token
       - name: force-save
         is_bool: true
         hidden: true
-        description: Save credentials and profile even if post-login steps (org/project picker) fail
+        description: With --sso, save credentials and profile even if post-login steps (org/project picker) fail
 
   - command: auth setscope
     verb: auth

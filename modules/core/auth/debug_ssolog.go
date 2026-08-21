@@ -14,6 +14,7 @@ import (
 
 	"github.com/harness/cli/pkg/auth"
 	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/config"
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/logstream"
 )
@@ -61,10 +62,17 @@ func DebugSSOLogHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	if needLogin {
-		// LoginSSOHandler owns profile creation/update, the org/project wizard, and
-		// credential save. Force overwrite so it doesn't prompt for an existing profile.
-		ctx.FlagValues["overwrite"] = true
-		if err := LoginSSOHandler(ctx); err != nil {
+		// runSSOLogin owns profile creation/update, the org/project wizard, and
+		// credential save.
+		profileName := profileFlag
+		if profileName == "" {
+			profileName = "default"
+		}
+		cfg, cerr := config.LoadConfig()
+		if cerr != nil {
+			return cerr
+		}
+		if err := runSSOLogin(ctx, cfg, profileName); err != nil {
 			return err
 		}
 		resolved, err = auth.Load(profileFlag)

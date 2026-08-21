@@ -17,6 +17,12 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterBodyFn(createPRCommentBodyFnID, createPRCommentBodyFn)
 	reg.RegisterBodyFn(createPRBodyFnID, createPRBodyFn)
 	reg.RegisterQueryParamsFn(listMinePRQueryParamsFnID, listMinePRQueryParamsFn)
+	reg.RegisterQueryParamsFn(reviewPendingPRQueryParamsFnID, reviewPendingPRQueryParamsFn)
 	reg.RegisterFetchFn(listMinePRFetchFnID, listMinePRFetchFn)
+	reg.RegisterFetchFn(codeownersPRFetchFnID, codeownersPRFetchFn)
 	reg.RegisterFlagResolveFn(resolvePrincipalIDFnID, resolvePrincipalID)
+	reg.RegisterBodyFn(reviewPRBodyFnID, reviewPRBodyFn)
+	reg.RegisterWorkflow(getPRWorkflowID, GetPRWorkflow)
+	reg.RegisterTextFormatter(reviewGroupTextFormatterID, reviewGroupTextFormatter)
+	reg.RegisterTextFormatter(insightTextFormatterID, insightTextFormatter)
 }

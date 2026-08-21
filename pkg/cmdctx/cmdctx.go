@@ -121,6 +121,9 @@ type Resolver interface {
 	// ResolveNounAlias returns the canonical noun name for the given alias, or "" if not an alias.
 	ResolveNounAlias(alias string) string
 	RunEndpoint(ctx *Ctx, ep *spec.EndpointSpec) (any, error)
+	// RunUIHandler dispatches to the registered ui_handler_fn, e.g. from a get
+	// command's drilldown detail overlay when the user presses "v".
+	RunUIHandler(ctx *Ctx, fnID string) error
 	// FormatList renders rows through the standard list formatting pipeline (table/json/csv/tsv).
 	// fields declares the available columns; columnIDs sets the default column order (nil = all).
 	FormatList(ctx *Ctx, rows []any, fields []spec.FieldDef, columnIDs []string) error

@@ -75,19 +75,36 @@ func AnyProfileMatchesDomain(domain string) bool {
 	return false
 }
 
-// GetOrCreateTelemetryID returns the stable anonymous telemetry UUID from config,
-// generating and persisting one on first use. Errors are silently ignored — callers
-// should fall back to a session-scoped ID rather than blocking startup.
-func GetOrCreateTelemetryID() string {
+// sentinelTelemetryID stands in for a real telemetry ID when minting a new one
+// isn't safe — e.g. a non-interactive run with no ID on disk yet, where the
+// filesystem is likely ephemeral (CI/containers) and a freshly minted UUID
+// would never persist, inflating user counts with one-off IDs.
+const sentinelTelemetryID = "00000000-0000-0000-0000-000000000000"
+
+// GetOrCreateTelemetryID returns the stable anonymous telemetry UUID from config.
+// If one is already on disk, it's reused regardless of isTTY — that means some
+// interactive run persisted it before, so it's a real machine identity. Otherwise,
+// a new UUID is only minted when isTTY is true, and only returned if it's
+// successfully persisted — an unpersisted ID would just be re-minted next run,
+// inflating user counts with one-off IDs. Non-interactive runs with no existing
+// ID, and any case where persistence fails, fall back to [sentinelTelemetryID].
+// Errors are silently ignored — callers should fall back to a session-scoped ID
+// rather than blocking startup.
+func GetOrCreateTelemetryID(isTTY bool) string {
 	cfg, err := LoadConfig()
 	if err != nil {
-		return uuid.New().String()
+		return sentinelTelemetryID
 	}
 	if cfg.TelemetryID != "" {
 		return cfg.TelemetryID
 	}
+	if !isTTY {
+		return sentinelTelemetryID
+	}
 	cfg.TelemetryID = uuid.New().String()
-	_ = SaveConfig(cfg)
+	if err := SaveConfig(cfg); err != nil {
+		return sentinelTelemetryID
+	}
 	return cfg.TelemetryID
 }
 

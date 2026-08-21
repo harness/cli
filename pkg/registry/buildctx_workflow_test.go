@@ -141,6 +141,36 @@ func TestBuildCtx_WorkflowMissingRequiredID(t *testing.T) {
 	}
 }
 
+func TestBuildCtx_ExecuteNoIdAllowsIdOptional(t *testing.T) {
+	// RequiresId verb (execute) with NoId+AllowsId: omitting the id is fine, ctx.Id stays empty.
+	r := New()
+	registerWorkflowExecute(t, r, "noidallows", &spec.CommandSpec{NoId: true, AllowsId: true})
+	cs := r.GetSpec(VerbExecute, "noidallows")
+	cmd := buildWorkflowTestCmd(t, r, cs)
+	ctx, err := buildCtx(cmd, cs, nil, r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Id != "" {
+		t.Fatalf("ctx.Id = %q, want empty", ctx.Id)
+	}
+}
+
+func TestBuildCtx_ExecuteNoIdAllowsIdPopulated(t *testing.T) {
+	// RequiresId verb (execute) with NoId+AllowsId: passing a positional id still populates ctx.Id.
+	r := New()
+	registerWorkflowExecute(t, r, "noidallows2", &spec.CommandSpec{NoId: true, AllowsId: true})
+	cs := r.GetSpec(VerbExecute, "noidallows2")
+	cmd := buildWorkflowTestCmd(t, r, cs)
+	ctx, err := buildCtx(cmd, cs, []string{"foo"}, r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Id != "foo" {
+		t.Fatalf("ctx.Id = %q, want %q", ctx.Id, "foo")
+	}
+}
+
 func TestBuildCtx_WorkflowRequiredFlag(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "reqflag", &spec.CommandSpec{

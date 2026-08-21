@@ -34,20 +34,6 @@ type specVersionOnly struct {
 	SpecVersion int `yaml:"spec_version"`
 }
 
-type specTypeOnly struct {
-	ModuleType string `yaml:"module_type"`
-}
-
-// isEmbeddedPluginSpec reports whether an embedded spec declares module_type:
-// plugin. Such specs are not builtins — the host loads them dynamically from the
-// home spec dir (via a binary_path), so the main binary must not auto-register
-// them from the embedded FS.
-func isEmbeddedPluginSpec(data []byte) bool {
-	var t specTypeOnly
-	_ = yaml.Unmarshal(data, &t)
-	return t.ModuleType == "plugin"
-}
-
 type specFile struct {
 	SpecVersion     int                 `yaml:"spec_version"`
 	ModuleType      string              `yaml:"module_type"`
@@ -79,26 +65,49 @@ func specParseError(name string, data []byte, parseErr error) error {
 // win: a home spec whose module name is already registered is skipped with a
 // warning.
 //
-// Embedded specs that declare module_type: plugin (e.g. har) are NOT loaded here
-// — they are plugins, not builtins, and reach the host only through the home
-// spec dir (with a binary_path to dispatch to). This lets a dev-installed plugin
-// spec in ~/.harness/spec drive the real dynamic path instead of being masked by
-// an embedded copy.
+// Embedded specs for plugin modules (spec.PluginFiles(), e.g. har) are not
+// registered here — they are plugins, not builtins, and reach the host only
+// through the home spec dir (with a binary_path to dispatch to). This lets a
+// dev-installed plugin spec in ~/.harness/spec drive the real dynamic path
+// instead of being masked by an embedded copy. Only their noun ownership is
+// recorded (best-effort, for "plugin not installed" error messages).
 func LoadSpecs(reg *registry.Registry) error {
-	isHarnessUser := config.AnyProfileMatchesDomain("harness.io")
+	isHarnessUser := os.Getenv("HARNESS_ENABLE_BETA_MODULES") == "1" ||
+		config.AnyProfileMatchesDomain("harness.io")
 	for _, name := range spec.Files() {
 		data, err := spec.Read(name)
 		if err != nil {
 			return fmt.Errorf("spec: read %s: %w", name, err)
 		}
-		if isEmbeddedPluginSpec(data) {
-			continue
-		}
 		if err := loadSpecData(reg, name, data, isHarnessUser, false); err != nil {
 			return err
 		}
 	}
+	for _, name := range spec.PluginFiles() {
+		data, err := spec.Read(name)
+		if err != nil {
+			return fmt.Errorf("spec: read %s: %w", name, err)
+		}
+		if err := recordPluginNouns(reg, name, data, isHarnessUser); err != nil {
+			return err
+		}
+	}
 	return LoadHomeSpecs(reg, isHarnessUser)
+}
+
+// recordPluginNouns records which nouns an embedded plugin spec owns, without
+// registering any of its commands. A harness_internal plugin spec records
+// nothing for non-Harness users, matching how builtin specs are gated.
+func recordPluginNouns(reg *registry.Registry, name string, data []byte, isHarnessUser bool) error {
+	f, err := parseSpecFile(reg, name, data)
+	if err != nil {
+		return err
+	}
+	if f.HarnessInternal && !isHarnessUser {
+		return nil
+	}
+	reg.RecordPluginOwnedNouns(moduleNameFromFile(name), f.Nouns)
+	return nil
 }
 
 // LoadHomeSpecs loads plugin spec files from ~/.harness/spec (the sole source
@@ -181,14 +190,48 @@ func ReadSpecFile(moduleName string) ([]byte, error) {
 	return spec.Read(moduleName + ".spec.yaml")
 }
 
-// LoadSpec loads a single embedded spec file (e.g. "har.spec.yaml") into reg.
-// isHarnessUser gates modules marked harness_internal: true.
-func LoadSpec(reg *registry.Registry, name string, isHarnessUser bool) error {
+// Returns the raw bytes it read so a plugin main() can also hand them to
+// rootcmd.SetupAndExecutePluginRootCmd for its own --spec dump, without a
+// second read of the same file.
+func LoadSpec(reg *registry.Registry, name string, isHarnessUser bool) ([]byte, error) {
 	data, err := spec.Read(name)
 	if err != nil {
-		return fmt.Errorf("spec: read %s: %w", name, err)
+		return nil, fmt.Errorf("spec: read %s: %w", name, err)
 	}
-	return loadSpecData(reg, name, data, isHarnessUser, false)
+	if err := loadSpecData(reg, name, data, isHarnessUser, false); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// LoadSpecBytes is LoadSpec's counterpart for a plugin whose spec file lives in
+// its own repo rather than core's pkg/spec.
+func LoadSpecBytes(reg *registry.Registry, name string, data []byte, isHarnessUser bool) ([]byte, error) {
+	if err := loadSpecData(reg, name, data, isHarnessUser, false); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// parseSpecFile unmarshals spec bytes and checks the spec version. name is used
+// only for error messages.
+func parseSpecFile(reg *registry.Registry, name string, data []byte) (*specFile, error) {
+	var f specFile
+	if reg.StrictYAML {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(&f); err != nil {
+			return nil, specParseError(name, data, err)
+		}
+	} else {
+		if err := yaml.Unmarshal(data, &f); err != nil {
+			return nil, specParseError(name, data, err)
+		}
+	}
+	if f.SpecVersion < MinSpecVersion || f.SpecVersion > MaxSpecVersion {
+		return nil, fmt.Errorf("spec: %s: spec_version %d out of supported range [%d, %d]", name, f.SpecVersion, MinSpecVersion, MaxSpecVersion)
+	}
+	return &f, nil
 }
 
 // loadSpecData parses spec bytes and registers the module, nouns, and commands.
@@ -206,20 +249,9 @@ func LoadSpec(reg *registry.Registry, name string, isHarnessUser bool) error {
 // by check:specs, so a duplicate there is a build bug we surface loudly.
 func loadSpecData(reg *registry.Registry, name string, data []byte, isHarnessUser, fromSpecDir bool) error {
 	module := moduleNameFromFile(name)
-	var f specFile
-	if reg.StrictYAML {
-		dec := yaml.NewDecoder(bytes.NewReader(data))
-		dec.KnownFields(true)
-		if err := dec.Decode(&f); err != nil {
-			return specParseError(name, data, err)
-		}
-	} else {
-		if err := yaml.Unmarshal(data, &f); err != nil {
-			return specParseError(name, data, err)
-		}
-	}
-	if f.SpecVersion < MinSpecVersion || f.SpecVersion > MaxSpecVersion {
-		return fmt.Errorf("spec: %s: spec_version %d out of supported range [%d, %d]", name, f.SpecVersion, MinSpecVersion, MaxSpecVersion)
+	f, err := parseSpecFile(reg, name, data)
+	if err != nil {
+		return err
 	}
 	if f.HarnessInternal && !isHarnessUser {
 		return nil
@@ -236,8 +268,10 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, isHarnessUse
 			return err
 		}
 	}
-	for i, nd := range f.Nouns {
-		if err := reg.RegisterNoun(nd); err != nil {
+	mod := reg.Module(module)
+	for i := range f.Nouns {
+		mod.QualifyNoun(&f.Nouns[i])
+		if err := reg.RegisterNoun(f.Nouns[i]); err != nil {
 			return fmt.Errorf("spec: %s noun[%d]: %w", name, i, err)
 		}
 	}
@@ -258,7 +292,6 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, isHarnessUse
 		Source:      f.Source,
 		InstalledAt: f.InstalledAt,
 	})
-	mod := reg.Module(module)
 	for i, cmd := range f.Commands {
 		if cmd == nil {
 			return fmt.Errorf("spec: %s command[%d] is nil", name, i)

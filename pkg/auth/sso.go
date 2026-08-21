@@ -135,7 +135,7 @@ func CheckAndUpdateAccessToken(r *ResolvedAuth, now time.Time) error {
 
 	// Check refresh token expiry before attempting the network round-trip.
 	if IsAccessTokenExpiringSoon(r.RefreshToken, now) {
-		return fmt.Errorf("%w — run '%s' to log in again", ErrSSOSessionExpired, r.LoginHint("loginsso"))
+		return fmt.Errorf("%w — run '%s' to log in again", ErrSSOSessionExpired, r.LoginHint("login --sso"))
 	}
 
 	newAccess, newRefresh, err := RefreshSSOToken(r.RefreshToken)

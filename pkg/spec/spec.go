@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 )
 
@@ -17,10 +18,25 @@ var ModuleOrder = []string{"core", "platform", "pipeline", "cd", "fme"}
 //go:embed *.spec.yaml
 var specsFS embed.FS
 
-// Files returns the names of all embedded *.spec.yaml files.
+// pluginSpecFiles lists embedded specs for modules that ship as separate plugin
+// binaries. The host never registers these as builtins — it only records their
+// noun ownership so a noun belonging to an uninstalled plugin produces a useful
+// error. A spec declaring module_type: plugin must appear here; the partition is
+// enforced by TestEmbeddedSpecPartition in pkg/specloader.
+var pluginSpecFiles = []string{"har.spec.yaml"}
+
+// Files returns the names of all embedded builtin *.spec.yaml files (everything
+// except pluginSpecFiles).
 func Files() []string {
 	entries, _ := fs.Glob(specsFS, "*.spec.yaml")
-	return entries
+	return slices.DeleteFunc(entries, func(name string) bool {
+		return slices.Contains(pluginSpecFiles, name)
+	})
+}
+
+// PluginFiles returns the names of embedded specs for plugin modules.
+func PluginFiles() []string {
+	return slices.Clone(pluginSpecFiles)
 }
 
 // Read returns the raw contents of a named spec file.
@@ -152,6 +168,39 @@ type NounDef struct {
 	// NounAliases lists alternate names for this noun (e.g. "org", "orgs" for "organization").
 	// Alias commands are wired up as hidden cobra commands and do not appear in help output.
 	NounAliases []string `yaml:"noun_aliases,omitempty"`
+	// UICommands declares the hotkeys the --ui detail overlay offers for this noun:
+	// alternate shapes to render in place (text), navigation to a related noun (link),
+	// or a full-takeover custom TUI (view). Optional; absent means unchanged behavior.
+	UICommands []UICommand `yaml:"ui_commands,omitempty"`
+}
+
+// UICommandType values for UICommand.UICommandType.
+const (
+	UICommandText = "text"
+	UICommandLink = "link"
+	UICommandView = "view"
+)
+
+// UICommand is a single hotkey offered by a noun's --ui detail overlay. One flat
+// struct for all three ui_command_types, matching how CommandSpec/EndpointSpec
+// already mix fields that only apply to some verbs/shapes — checks.go enforces
+// which fields are required/forbidden for which type.
+type UICommand struct {
+	UICommandType string `yaml:"ui_command_type"`
+	Key           string `yaml:"key"`
+	// Label overrides the hotkey hint text shown in the detail overlay's status
+	// line. When empty, the hint is derived from the resolved noun/handler.
+	Label string `yaml:"label,omitempty"`
+	// Default marks the text entry rendered when the detail pane first opens.
+	// Only valid on text entries; exactly one text entry per noun must set it.
+	Default bool `yaml:"default,omitempty"`
+	// Noun is a full "noun[:variant]" string resolved via GetSpec(VerbGet, ...)
+	// for text entries, or GetSpec(Verb, ...) for link entries.
+	Noun string `yaml:"noun,omitempty"`
+	// Verb is the link target's verb: "list" or "get". Link only.
+	Verb string `yaml:"verb,omitempty"`
+	// UIHandlerFn is the registered workflow id to hand off to. View only.
+	UIHandlerFn string `yaml:"ui_handler_fn,omitempty"`
 }
 
 // FieldDef defines a named, reusable field for a noun. Fields declared here can be
@@ -444,6 +493,7 @@ type CommandSpec struct {
 	Long             string              `yaml:"long,omitempty"`
 	RequiresId       bool                `yaml:"requires_id,omitempty"`       // positional [id] is mandatory for this command
 	NoId             bool                `yaml:"no_id,omitempty"`             // opt out of the verb's default RequiresId (e.g. singleton get commands)
+	AllowsId         bool                `yaml:"allows_id,omitempty"`         // when set (with no_id), still populate ctx.Id if a positional arg is given
 	IdLabel          string              `yaml:"id_label,omitempty"`          // overrides "<id>" in the Usage line (e.g. "<registry/path>")
 	ArgsLabel        string              `yaml:"args_label,omitempty"`        // appended to Usage after the id label (e.g. "<local-file>"); only used when has_args is true
 	IdParts          int                 `yaml:"id_parts,omitempty"`          // when > 1, id must contain exactly (id_parts-1) "/" separators; parts available as {ctx:id_part:0}, {ctx:id_part:1}, ...

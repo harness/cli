@@ -18,7 +18,6 @@ import (
 	"github.com/harness/cli/pkg/plugin"
 	"github.com/harness/cli/pkg/registry"
 	"github.com/harness/cli/pkg/release"
-	"github.com/harness/cli/pkg/specloader"
 	"github.com/harness/cli/pkg/telemetry"
 )
 
@@ -75,7 +74,11 @@ func MaybeCheckSpecs(reg *registry.Registry) {
 
 // SetupAndExecutePluginRootCmd is like SetupAndExecuteRootCmd but adds hidden
 // --spec and --modulehelp flags for use by the plugin host.
-func SetupAndExecutePluginRootCmd(root *cobra.Command, reg *registry.Registry, moduleName string) {
+//
+// specBytes is the exact spec YAML this plugin was loaded from (whatever the
+// caller passed to specloader.LoadSpec or specloader.LoadSpecBytes) — dumped
+// verbatim on --spec so the host can capture it at install time
+func SetupAndExecutePluginRootCmd(root *cobra.Command, reg *registry.Registry, moduleName string, specBytes []byte) {
 	if os.Getenv(hbase.EnvDebugCompletion) == "1" && isCompletionInvocation() {
 		hlog.SetDebugFile(hbase.CompletionDebugLogFile())
 	}
@@ -108,7 +111,8 @@ func SetupAndExecutePluginRootCmd(root *cobra.Command, reg *registry.Registry, m
 			return dumpIdentity(moduleName)
 		}
 		if ok, _ := cmd.Flags().GetBool("spec"); ok {
-			return dumpSpec(moduleName)
+			fmt.Print(string(specBytes))
+			return nil
 		}
 		if origRun != nil {
 			return origRun(cmd, args)
@@ -125,15 +129,6 @@ func SetupAndExecutePluginRootCmd(root *cobra.Command, reg *registry.Registry, m
 		defaultHelp(cmd, args)
 	})
 	SetupAndExecuteRootCmd(root, reg)
-}
-
-func dumpSpec(moduleName string) error {
-	data, err := specloader.ReadSpecFile(moduleName)
-	if err != nil {
-		return err
-	}
-	fmt.Print(string(data))
-	return nil
 }
 
 // dumpIdentity emits the sentinel-gated identity object the host checks before

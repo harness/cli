@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -114,7 +115,7 @@ func (r *ResolvedAuth) LoginHint(cmd string) string {
 func Validate(r *ResolvedAuth) error {
 	if r.AuthType == AuthTypeSSO {
 		if r.SSOToken == "" {
-			return fmt.Errorf("no token found for profile — run '%s' to re-authenticate", r.LoginHint("loginsso"))
+			return fmt.Errorf("no token found for profile — run '%s' to re-authenticate", r.LoginHint("login --sso"))
 		}
 	} else {
 		if r.PATToken == "" {
@@ -176,8 +177,20 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading credentials: %w", err)
 	}
+	authType := p.AuthType
+	if authType == "" {
+		authType = AuthTypePAT
+	}
 	profileCreds := creds[name]
-	if profileCreds == nil || profileCreds.Token == "" {
+	activeToken := ""
+	if profileCreds != nil {
+		if authType == AuthTypeSSO {
+			activeToken = profileCreds.SSOToken
+		} else {
+			activeToken = profileCreds.Token
+		}
+	}
+	if activeToken == "" {
 		return nil, fmt.Errorf("no token found for profile %q — run 'harness auth login' to re-authenticate", name)
 	}
 	apiURL := p.APIUrl
@@ -187,10 +200,6 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	registryURL := p.RegistryURL
 	if registryURL == "" {
 		registryURL = hbase.DefaultRegistryURL
-	}
-	authType := p.AuthType
-	if authType == "" {
-		authType = AuthTypePAT
 	}
 	r := &ResolvedAuth{
 		Source:      "profile:" + name,
@@ -202,44 +211,39 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		ProjectID:   p.ProjectID,
 		RegistryURL: registryURL,
 		Email:       p.Email,
-		TokenKind:   TokenType(profileCreds.Token),
+		TokenKind:   TokenType(activeToken),
 	}
 	if authType == AuthTypeSSO {
-		r.SSOToken = profileCreds.Token
+		r.SSOToken = activeToken
 		r.RefreshToken = profileCreds.RefreshToken
 	} else {
-		r.PATToken = profileCreds.Token
+		r.PATToken = activeToken
 	}
 	return r, nil
 }
 
-var (
-	hostLabelRE   = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
-	harnessHostRE = regexp.MustCompile(`^https://([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+harness\.io(/[a-z0-9_-]+)*$`)
-	harnessNameRE = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+harness\.io$`)
-)
+var hostLabelRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
 
-// NormalizeAPIURL recognizes two shorthand forms and expands them:
-//   - bare label (e.g. "harness0")          → "https://harness0.harness.io"
-//   - FQDN under harness.io (e.g. "app.harness.io") → "https://app.harness.io"
-//
-// Any other input is returned unchanged; ValidateAPIURL will reject it.
+// NormalizeAPIURL expands a bare label shorthand (e.g. "harness0" → "https://harness0.harness.io")
+// and, for anything else that has no scheme, prepends "https://" (e.g. "harness.onefiserv.net" →
+// "https://harness.onefiserv.net"). Input that already has a scheme is returned unchanged.
 func NormalizeAPIURL(s string) string {
 	s = strings.TrimSpace(s)
 	if hostLabelRE.MatchString(s) {
 		return "https://" + s + ".harness.io"
 	}
-	if harnessNameRE.MatchString(s) {
+	if !strings.Contains(s, "://") {
 		return "https://" + s
 	}
 	return s
 }
 
-// ValidateAPIURL returns an error if apiURL is not a valid Harness API URL
-// of the form https://<host>.harness.io (no path, no trailing slash).
+// ValidateAPIURL returns an error if apiURL is not a well-formed https:// URL with a host.
+// It no longer restricts the host to *.harness.io, so vanity and on-prem domains are accepted.
 func ValidateAPIURL(apiURL string) error {
-	if !harnessHostRE.MatchString(apiURL) {
-		return fmt.Errorf("%q is not a valid Harness API URL — expected https://<host>.harness.io", apiURL)
+	u, err := url.Parse(apiURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("%q is not a valid URL — expected an https:// URL with a host", apiURL)
 	}
 	return nil
 }

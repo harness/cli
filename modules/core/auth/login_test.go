@@ -52,17 +52,6 @@ const validToken = "pat.acctid.tokenid.secret123"
 // LoginHandler — early-return validation branches
 // --------------------------------------------------------------------------
 
-func TestLoginHandler_mutualExclusiveOverwrite(t *testing.T) {
-	ctx := testCtx(map[string]any{"overwrite": true, "no-overwrite": true})
-	err := LoginHandler(ctx)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Fatalf("error = %q, want %q", err, "mutually exclusive")
-	}
-}
-
 func TestLoginHandler_profileNameValidation(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -116,28 +105,8 @@ func TestLoginHandler_nonInteractive_noToken(t *testing.T) {
 	}
 }
 
-func TestLoginHandler_nonInteractive_existingProfile_noOverwriteFlag(t *testing.T) {
-	dir := isolatedDir(t)
-	writeTestConfig(t, dir, `profiles:
-  default:
-    api_url: https://app.harness.io
-    account_id: acct
-`)
-	ctx := testCtx(map[string]any{
-		"no-overwrite": true,
-		"api-token":    validToken,
-	})
-	err := LoginHandler(ctx)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("error = %q, want %q", err, "already exists")
-	}
-}
-
 func TestLoginHandler_nonInteractive_existingProfile_noFlag(t *testing.T) {
-	// Neither --overwrite nor --no-overwrite → "already exists — pass --overwrite or --no-overwrite"
+	// No --overwrite → "already exists — pass --overwrite to replace it"
 	dir := isolatedDir(t)
 	writeTestConfig(t, dir, `profiles:
   default:
@@ -252,8 +221,8 @@ func TestLoginHandler_IsPty_badAPIURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid API URL")
 	}
-	if !strings.Contains(err.Error(), "not a valid Harness API URL") {
-		t.Fatalf("error = %q, want %q", err, "not a valid Harness API URL")
+	if !strings.Contains(err.Error(), "not a valid URL") {
+		t.Fatalf("error = %q, want %q", err, "not a valid URL")
 	}
 }
 
@@ -283,10 +252,10 @@ func TestLoginHandler_configLoadError(t *testing.T) {
 func TestLoginHandler_nonInteractive_validateTokenCalled(t *testing.T) {
 	// Without --no-validate, validateToken is called. Point it at a test server
 	// that returns 401 so we can confirm the validation error is surfaced.
-	// NOTE: api-url must pass ValidateAPIURL (requires *.harness.io host) which
-	// prevents using a local httptest.Server URL here. The remaining happy-path
-	// branches (lines 165-198) that require a valid api-url + network are covered
-	// by validateToken and fetchRegistryURL unit tests below instead.
+	// NOTE: api-url must pass ValidateAPIURL (requires an https:// scheme) which
+	// prevents using a local httptest.Server URL (http://) here. The remaining
+	// happy-path branches (lines 165-198) that require a valid api-url + network
+	// are covered by validateToken and fetchRegistryURL unit tests below instead.
 	ctx := isolatedCtx(t, map[string]any{
 		"api-token": validToken,
 		// api-url empty → defaults to https://app.harness.io; validateToken will

@@ -93,6 +93,26 @@ func WithColor(c Color, text string) string {
 	return fmt.Sprintf("\x1b[%dm%s\x1b[0m", int(c), text)
 }
 
+// WithBoldColor wraps text in a bold ANSI code, additionally tinted with c when
+// c != 0, when stdout is a TTY.
+func WithBoldColor(c Color, text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	if c != 0 {
+		return fmt.Sprintf("\x1b[1;%dm%s\x1b[0m", int(c), text)
+	}
+	return fmt.Sprintf("\x1b[1m%s\x1b[0m", text)
+}
+
+// WithBold wraps text in a bold ANSI code (no color) when stdout is a TTY.
+func WithBold(text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	return fmt.Sprintf("\x1b[1m%s\x1b[0m", text)
+}
+
 // ReadSecret prints prompt to stderr and reads a masked line from the terminal.
 func ReadSecret(prompt string) (string, error) {
 	if !ensureTTY() {
@@ -129,6 +149,46 @@ func PrintError(msg string) {
 	} else {
 		fmt.Fprintln(os.Stderr, msg)
 	}
+}
+
+// Info prints msg to stdout in cyan, prefixed with an arrow.
+func Info(msg string) {
+	fmt.Println(WithColor(ColorCyan, "→ "+msg))
+}
+
+// Infof formats and prints an informational line. See Info.
+func Infof(format string, args ...any) {
+	Info(fmt.Sprintf(format, args...))
+}
+
+// Success prints msg to stdout in green, prefixed with a checkmark.
+func Success(msg string) {
+	fmt.Println(WithColor(ColorGreen, "✓ "+msg))
+}
+
+// Successf formats and prints a success line. See Success.
+func Successf(format string, args ...any) {
+	Success(fmt.Sprintf(format, args...))
+}
+
+// Warning prints msg to stdout in yellow, prefixed with a warning symbol.
+func Warning(msg string) {
+	fmt.Println(WithColor(ColorYellow, "⚠ "+msg))
+}
+
+// Warningf formats and prints a warning line. See Warning.
+func Warningf(format string, args ...any) {
+	Warning(fmt.Sprintf(format, args...))
+}
+
+// Error prints msg to stderr in red, prefixed with an X.
+func Error(msg string) {
+	fmt.Fprintln(os.Stderr, WithColor(ColorRed, "✗ "+msg))
+}
+
+// Errorf formats and prints an error line. See Error.
+func Errorf(format string, args ...any) {
+	Error(fmt.Sprintf(format, args...))
 }
 
 // ReadPrompt prints "label [defaultVal]: " to stderr and reads a line from the terminal.

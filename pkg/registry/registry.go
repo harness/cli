@@ -53,6 +53,7 @@ type Registry struct {
 	specs                map[string][]*spec.CommandSpec
 	nouns                map[string]spec.NounDef
 	nounAliases          map[string]string // alias name → canonical noun name
+	pluginOwnedNouns     map[string]string // noun (or alias) → owning plugin module
 	moduleMetas          []spec.ModuleMeta
 	workflows            map[string]WorkflowFn
 	textFormatters       map[string]cmdctx.TextFormatterFn
@@ -73,6 +74,7 @@ func New() *Registry {
 		specs:                map[string][]*spec.CommandSpec{},
 		nouns:                map[string]spec.NounDef{},
 		nounAliases:          map[string]string{},
+		pluginOwnedNouns:     map[string]string{},
 		workflows:            map[string]WorkflowFn{},
 		textFormatters:       map[string]cmdctx.TextFormatterFn{},
 		bodyFns:              map[string]cmdctx.CreateBodyFn{},
@@ -92,6 +94,26 @@ func New() *Registry {
 // SetModuleMeta stores metadata for a module loaded from a spec file.
 func (r *Registry) SetModuleMeta(m spec.ModuleMeta) {
 	r.moduleMetas = append(r.moduleMetas, m)
+}
+
+// RecordPluginOwnedNouns records module as the owner of nouns (and their
+// aliases), for best-effort "plugin not installed" error messages.
+func (r *Registry) RecordPluginOwnedNouns(module string, nouns []spec.NounDef) {
+	for _, nd := range nouns {
+		r.pluginOwnedNouns[nd.Noun] = module
+		for _, alias := range nd.NounAliases {
+			r.pluginOwnedNouns[alias] = module
+		}
+	}
+}
+
+// pluginOwnerOfUnregisteredNoun returns the plugin owning noun, or "" if noun
+// is already registered (plugin installed) or has no recorded owner.
+func (r *Registry) pluginOwnerOfUnregisteredNoun(noun string) string {
+	if _, registered := r.nouns[noun]; registered {
+		return ""
+	}
+	return r.pluginOwnedNouns[noun]
 }
 
 // moduleMeta returns the ModuleMeta for a module, or nil if not registered.
@@ -219,6 +241,29 @@ func (r *Registry) GetNoun(noun string) *spec.NounDef {
 		return &nd
 	}
 	return nil
+}
+
+// nounHasUICommands reports whether noun declares a ui_commands list, gating
+// whether --ui is registered/usable on its get command.
+func (r *Registry) nounHasUICommands(noun string) bool {
+	nd, ok := r.nouns[noun]
+	return ok && len(nd.UICommands) > 0
+}
+
+// nounViewHandlerFn returns the ui_handler_fn of noun's view-type ui_commands
+// entry, or "" if it has none. Backs the "get <id> --ui" shortcut that skips
+// the overlay entirely and hands off straight to the custom TUI.
+func (r *Registry) nounViewHandlerFn(noun string) string {
+	nd, ok := r.nouns[noun]
+	if !ok {
+		return ""
+	}
+	for _, uc := range nd.UICommands {
+		if uc.UICommandType == spec.UICommandView {
+			return uc.UIHandlerFn
+		}
+	}
+	return ""
 }
 
 // CheckNoConflicts reports the first way the given nouns/commands would collide
@@ -517,6 +562,9 @@ func (r *Registry) unknownNounError(verb, noun string) error {
 	if canonical, ok := r.nounAliases[noun]; ok {
 		resolvedNoun = canonical
 	}
+	if mod := r.pluginOwnerOfUnregisteredNoun(resolvedNoun); mod != "" {
+		return fmt.Errorf("%q is provided by the %q plugin, which isn't installed\n\nTo install it, run:\n  harness install plugin %s", noun, mod, mod)
+	}
 	nounExistsForVerb := false
 	for _, cs := range r.specs[verb] {
 		if cs.Noun == resolvedNoun || cs.FullNoun() == noun {
@@ -612,6 +660,15 @@ func (r *Registry) SuggestRootCommand(args []string) string {
 	}
 
 	first := positional[0]
+
+	// Case 0: first arg is a noun (or noun:variant) owned by a plugin that
+	// isn't installed, so it was never registered — cobra can't dispatch it
+	// as either a verb or a noun. Covers both "harness <noun> <verb>" and
+	// verb-less plugin verbs (e.g. har's push/pull/configure).
+	nounBase := strings.SplitN(first, ":", 2)[0]
+	if mod := r.pluginOwnerOfUnregisteredNoun(nounBase); mod != "" {
+		return fmt.Sprintf("%q is provided by the %q plugin, which isn't installed\n\nTo install it, run:\n  harness install plugin %s", first, mod, mod)
+	}
 
 	// Case 1: noun-verb transposition — requires at least two positional args.
 	// Handles plain nouns ("pr create"), noun aliases ("prs list"),
@@ -749,7 +806,7 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 		if cs.HasArgs && cs.ArgsLabel != "" {
 			use += " " + cs.ArgsLabel
 		}
-	} else if vspec.AllowsId {
+	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
 		if cs.IdLabel != "" {
 			idLabel = cs.IdLabel
@@ -811,7 +868,7 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasNoun string) *cobra.
 		if cs.HasArgs && cs.ArgsLabel != "" {
 			use += " " + cs.ArgsLabel
 		}
-	} else if vspec.AllowsId {
+	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
 		if cs.IdLabel != "" {
 			idLabel = cs.IdLabel
@@ -910,6 +967,15 @@ func (r *Registry) RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, err
 		return nil, RunListEndpoint(ctx, ep)
 	}
 	return RunEndpoint(ctx, ep)
+}
+
+// RunUIHandler implements cmdctx.Resolver.
+func (r *Registry) RunUIHandler(ctx *cmdctx.Ctx, fnID string) error {
+	fn, ok := r.workflows[fnID]
+	if !ok {
+		return fmt.Errorf("ui_handler_fn %q not registered", fnID)
+	}
+	return fn(ctx)
 }
 
 // FormatList renders rows through the standard list formatting pipeline.
@@ -1072,7 +1138,7 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 	if cs.VerbHandler == VerbList && ep.Paging != nil {
 		addFlag(cmd.Flags(), specUI)
 	}
-	if cs.VerbHandler == VerbGet && cs.BuiltinFlags.UI {
+	if cs.VerbHandler == VerbGet && (cs.BuiltinFlags.UI || r.nounHasUICommands(cs.Noun)) {
 		addFlag(cmd.Flags(), specUI)
 	}
 	for _, f := range cs.Flags {
@@ -1117,11 +1183,21 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	r.emitIntent(cmd, cs, ctx)
 	start := time.Now()
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
-		id, err := RunUIPickerForGet(ctx, cs)
+		if ctx.Id != "" {
+			if fnID := r.nounViewHandlerFn(cs.Noun); fnID != "" {
+				return r.RunUIHandler(ctx, fnID)
+			}
+		}
+		handled, err := RunUIPickerForGet(ctx, cs)
 		if err != nil {
 			return err
 		}
-		ctx.Id = id
+		if handled {
+			return nil
+		}
+		if ctx.Id != "" && r.nounHasUICommands(cs.Noun) {
+			return RunUIDetailForGet(ctx, cs)
+		}
 	}
 	if cs.ConfirmMode != spec.ConfirmNone {
 		if err := runConfirmGate(cs.ConfirmMode, cs.Verb, cs.Noun, ctx.Id, ctx.IsPty, cmdctx.GetBool(ctx.FlagValues, "force")); err != nil {

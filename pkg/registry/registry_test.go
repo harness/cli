@@ -548,6 +548,15 @@ func TestUnknownNounError(t *testing.T) {
 			verb: VerbCreate, noun: "pipelines",
 			wantContain: "not supported for",
 		},
+		{
+			name: "plugin_owned_noun_not_installed",
+			setup: func(r *Registry) {
+				r.Register(wfSpec(VerbList, "pipeline", "pipeline"))
+				r.RecordPluginOwnedNouns("har", []spec.NounDef{{Noun: "registry"}})
+			},
+			verb: VerbGet, noun: "registry",
+			wantContain: `"registry" is provided by the "har" plugin, which isn't installed`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -586,8 +595,8 @@ func TestBuildUseString(t *testing.T) {
 		},
 		{
 			name:      "verb_with_noun_no_id_requirement",
-			cs:        &spec.CommandSpec{Verb: VerbDescribe, Noun: "pipeline"},
-			vs:        verbRegistry[VerbDescribe],
+			cs:        &spec.CommandSpec{Verb: VerbList, Noun: "pipeline"},
+			vs:        VerbSpec{Kind: VerbKindCore},
 			wantEqual: "pipeline",
 		},
 		{
@@ -612,6 +621,12 @@ func TestBuildUseString(t *testing.T) {
 			name:        "allows_id_optional_bracket",
 			cs:          &spec.CommandSpec{Verb: VerbCreate, Noun: "pipeline"},
 			vs:          verbRegistry[VerbCreate],
+			wantContain: "[id]",
+		},
+		{
+			name:        "no_id_with_command_allows_id_optional_bracket",
+			cs:          &spec.CommandSpec{Verb: VerbExecute, Noun: "workspace", NoId: true, AllowsId: true},
+			vs:          verbRegistry[VerbExecute],
 			wantContain: "[id]",
 		},
 		{

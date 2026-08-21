@@ -24,6 +24,41 @@ func TestLoadAllEmbeddedSpecs(t *testing.T) {
 	}
 }
 
+// TestEmbeddedSpecPartition verifies that spec.Files() and spec.PluginFiles()
+// partition the embedded specs by module_type. A plugin spec that leaks into
+// Files() would be registered as a builtin, masking the installed plugin's
+// binary_path; a builtin spec listed in PluginFiles() would never register at
+// all.
+func TestEmbeddedSpecPartition(t *testing.T) {
+	check := func(name string, wantPlugin bool) {
+		data, err := spec.Read(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		var f specFile
+		if err := yaml.Unmarshal(data, &f); err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		if gotPlugin := f.ModuleType == "plugin"; gotPlugin != wantPlugin {
+			if wantPlugin {
+				t.Errorf("%s is in spec.PluginFiles() but declares module_type: %q — remove it from pluginSpecFiles", name, f.ModuleType)
+			} else {
+				t.Errorf("%s declares module_type: plugin but is not in spec.PluginFiles() — add it to pluginSpecFiles in pkg/spec/spec.go", name)
+			}
+		}
+	}
+	for _, name := range spec.Files() {
+		check(name, false)
+	}
+	plugins := spec.PluginFiles()
+	if len(plugins) == 0 {
+		t.Fatal("spec.PluginFiles() is empty — expected at least har.spec.yaml")
+	}
+	for _, name := range plugins {
+		check(name, true)
+	}
+}
+
 // TestDuplicateNoun ensures that loading two specs that declare the same noun
 // produces a clear error rather than a silent override.
 func TestDuplicateNoun(t *testing.T) {
