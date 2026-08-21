@@ -88,6 +88,40 @@ const (
 	PagingStrategyOffsetLimit = "offset_limit" // API accepts offset (items to skip) + limit; response has totalCount
 )
 
+// Valid presence values for MigrateFlag.
+const (
+	MigratePresenceRequired = "required" // flag is registered and must be provided
+	MigratePresenceOptional = "optional" // flag is registered; may be omitted (default)
+	MigratePresenceNone     = "none"     // flag is not registered at all
+)
+
+// MigrateFlag customizes the --from / --to flag of a pair verb (migrate) command.
+// Both fields are optional: an absent block behaves as presence: optional with the
+// generic label.
+type MigrateFlag struct {
+	// Label overrides the flag's --help text (e.g. "GitHub organization to migrate").
+	Label string `yaml:"label,omitempty"`
+	// Presence controls flag registration. See MigratePresence* consts.
+	Presence string `yaml:"presence,omitempty"`
+}
+
+// EffectivePresence returns the declared presence, defaulting to optional for an
+// absent block or an empty field.
+func (m *MigrateFlag) EffectivePresence() string {
+	if m == nil || m.Presence == "" {
+		return MigratePresenceOptional
+	}
+	return m.Presence
+}
+
+// EffectiveLabel returns the declared label, or fallback when none is declared.
+func (m *MigrateFlag) EffectiveLabel(fallback string) string {
+	if m == nil || m.Label == "" {
+		return fallback
+	}
+	return m.Label
+}
+
 // BuiltinFlags enables predefined system flags that have fixed registration and dispatch behavior.
 type BuiltinFlags struct {
 	Page bool `yaml:"page,omitempty"` // --page N (1-indexed); exposed in expr as integer flags.page = N-1
@@ -489,6 +523,9 @@ type CommandSpec struct {
 	Verb             string              `yaml:"verb"`
 	Noun             string              `yaml:"noun,omitempty"`         // base noun; empty for management exceptions
 	NounVariant      string              `yaml:"noun_variant,omitempty"` // optional variant suffix; produces "noun:variant" cobra subcommand
+	NounTo           string              `yaml:"noun_to,omitempty"`      // second noun of a pair verb (migrate/convert); mutually exclusive with NounVariant
+	MigrateFrom      *MigrateFlag        `yaml:"migrate_from,omitempty"` // pair verbs only: customizes --from
+	MigrateTo        *MigrateFlag        `yaml:"migrate_to,omitempty"`   // pair verbs only: customizes --to
 	Short            string              `yaml:"short,omitempty"`
 	Long             string              `yaml:"long,omitempty"`
 	RequiresId       bool                `yaml:"requires_id,omitempty"`       // positional [id] is mandatory for this command
@@ -520,12 +557,15 @@ type CommandSpec struct {
 	External         bool                `yaml:"-"`                         // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
 }
 
-// FullNoun returns "noun:variant" when NounVariant is set, otherwise just Noun.
-// Use this wherever the cobra subcommand name or command identity is needed.
-// Use Noun directly when looking up field definitions or completion sources (base noun only).
+// FullNoun returns "noun:variant" when NounVariant is set, "noun:noun_to" when NounTo is
+// set, otherwise just Noun. Use this wherever the cobra subcommand name or command identity
+// is needed. Use Noun directly when looking up field definitions or completion sources (base noun only).
 func (cs *CommandSpec) FullNoun() string {
 	if cs.NounVariant != "" {
 		return cs.Noun + ":" + cs.NounVariant
+	}
+	if cs.NounTo != "" {
+		return cs.Noun + ":" + cs.NounTo
 	}
 	return cs.Noun
 }

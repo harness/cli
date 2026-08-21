@@ -168,7 +168,19 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		return nil, fmt.Errorf("unexpected argument %q%s", args[1], cs.UsageLine())
 	}
 	nd := r.GetNoun(cs.Noun)
-	if vspec.RequiresId && !cs.NoId {
+	if vspec.NounPair {
+		if len(args) > 0 {
+			return nil, fmt.Errorf("%s %s does not take a positional argument; use --from/--to%s", cs.Verb, cs.FullNoun(), cs.UsageLine())
+		}
+		ctx.MigrateFrom, _ = cmd.Flags().GetString("from")
+		ctx.MigrateTo, _ = cmd.Flags().GetString("to")
+		if cs.MigrateFrom.EffectivePresence() == spec.MigratePresenceRequired && ctx.MigrateFrom == "" {
+			return nil, fmt.Errorf("flag --from is required")
+		}
+		if cs.MigrateTo.EffectivePresence() == spec.MigratePresenceRequired && ctx.MigrateTo == "" {
+			return nil, fmt.Errorf("flag --to is required")
+		}
+	} else if vspec.RequiresId && !cs.NoId {
 		if len(args) == 0 && !skipIdCheck {
 			return nil, fmt.Errorf("%s %s requires a positional %s argument%s", cs.Verb, cs.Noun, idLabel, cs.UsageLine())
 		}
