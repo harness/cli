@@ -101,6 +101,9 @@ const (
 type MigrateFlag struct {
 	// Label overrides the flag's --help text (e.g. "GitHub organization to migrate").
 	Label string `yaml:"label,omitempty"`
+	// IdLabel overrides the "<id>" value placeholder shown after the flag in usage
+	// lines (e.g. "<bundle-folder-or-zip>", "<folder>").
+	IdLabel string `yaml:"id_label,omitempty"`
 	// Presence controls flag registration. See MigratePresence* consts.
 	Presence string `yaml:"presence,omitempty"`
 }
@@ -120,6 +123,28 @@ func (m *MigrateFlag) EffectiveLabel(fallback string) string {
 		return fallback
 	}
 	return m.Label
+}
+
+// EffectiveIdLabel returns the declared value placeholder, defaulting to "<id>".
+func (m *MigrateFlag) EffectiveIdLabel() string {
+	if m == nil || m.IdLabel == "" {
+		return "<id>"
+	}
+	return m.IdLabel
+}
+
+// UsageFragment renders this flag for a usage line: " --name <label>" when required,
+// " [--name <label>]" when optional, "" when the flag is not registered. name is the
+// flag name ("from" or "to").
+func (m *MigrateFlag) UsageFragment(name string) string {
+	switch m.EffectivePresence() {
+	case MigratePresenceNone:
+		return ""
+	case MigratePresenceRequired:
+		return " --" + name + " " + m.EffectiveIdLabel()
+	default:
+		return " [--" + name + " " + m.EffectiveIdLabel() + "]"
+	}
 }
 
 // BuiltinFlags enables predefined system flags that have fixed registration and dispatch behavior.

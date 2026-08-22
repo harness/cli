@@ -296,8 +296,11 @@ neither owns the positional slot. Taking no positional is not an exception — `
 active profile.
 
 A spec entry controls each flag's registration and label via `migrate_from`/`migrate_to` blocks
-(`presence: required|optional|none`, `label: "..."`). `presence: none` drops the flag entirely —
-use it when one side of the pair is fixed and has no id to take, not a boolean toggle on the verb.
+(`presence: required|optional|none`, `label: "..."`, `id_label: "<...>"`). `presence: none` drops the
+flag entirely — use it when one side of the pair is fixed and has no id to take, not a boolean toggle
+on the verb; `label` is the `--help` text and `id_label` is the value placeholder shown in usage lines
+(defaults to `<id>`). `get noun <x>` renders each flag from these: `--from <label>` when required,
+`[--from <label>]` when optional, omitted when `none`.
 A command must declare `handler_type: workflow` and `noun_to` (not `noun_variant`); this is
 enforced by `validateNounPairConstraints` in `pkg/registry/checks.go`.
 

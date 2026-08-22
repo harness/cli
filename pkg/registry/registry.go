@@ -680,6 +680,10 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 	if cs.Noun != "" {
 		use = cs.FullNoun()
 	}
+	// pair verbs take no positional: both endpoints are named by --from/--to
+	if vspec.NounPair {
+		return use + cs.MigrateFrom.UsageFragment("from") + cs.MigrateTo.UsageFragment("to")
+	}
 	if vspec.RequiresId && !cs.NoId {
 		idLabel := "<id>"
 		if cs.IdLabel != "" {

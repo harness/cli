@@ -149,7 +149,7 @@ func GetNounHandler(ctx *cmdctx.Ctx) error {
 		usage := "harness " + cs.Verb + " " + cs.FullNoun()
 		switch {
 		case cs.NounTo != "":
-			usage += " --from <id> --to <id>"
+			usage += cs.MigrateFrom.UsageFragment("from") + cs.MigrateTo.UsageFragment("to")
 		case cs.RequiresParentId && cs.ParentIdLabel != "":
 			usage += " " + cs.ParentIdLabel
 		case cs.IdLabel != "":
