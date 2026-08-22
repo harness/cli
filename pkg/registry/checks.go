@@ -203,7 +203,11 @@ func validateNounPairConstraints(cs *spec.CommandSpec, vs VerbSpec) error {
 		spec *spec.MigrateFlag
 	}{{"migrate_from", cs.MigrateFrom}, {"migrate_to", cs.MigrateTo}} {
 		switch mf.spec.EffectivePresence() {
-		case spec.MigratePresenceRequired, spec.MigratePresenceOptional, spec.MigratePresenceNone:
+		case spec.MigratePresenceRequired, spec.MigratePresenceOptional:
+		case spec.MigratePresenceNone:
+			if mf.spec.Label != "" || mf.spec.IdLabel != "" {
+				return fmt.Errorf("command %q: %s declares label/id_label with presence: none (the flag is not registered)", cs.Command, mf.name)
+			}
 		default:
 			return fmt.Errorf("command %q: %s presence %q must be one of required, optional, none", cs.Command, mf.name, mf.spec.Presence)
 		}
