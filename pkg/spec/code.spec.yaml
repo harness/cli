@@ -608,9 +608,9 @@ commands:
         default: open
         completion_values: [open, closed, merged, all]
       - name: created-after
-        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: created-before
-        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
     endpoint:
       path: /code/api/v1/pullreq
       query_params_fn: list_mine_pr_query_params
@@ -652,9 +652,9 @@ commands:
         default: open
         completion_values: [open, closed, merged, all]
       - name: created-after
-        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: created-before
-        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
     endpoint:
       path: /code/api/v1/pullreq
       query_params_fn: review_pending_pr_query_params
@@ -703,9 +703,9 @@ commands:
         description: "Filter by author (email, UUID, or numeric principal ID)"
         flag_resolve_fn: resolve_principal_id
       - name: created-after
-        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: created-before
-        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: sort
         description: "Sort field: number, created, updated, edited, merged"
         default: number

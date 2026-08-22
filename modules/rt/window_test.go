@@ -74,8 +74,8 @@ func TestUsageWindowFromOnlyEndsNow(t *testing.T) {
 func TestUsageWindowToOnlyEndsAtTheGivenDate(t *testing.T) {
 	start, end := windowFor(t, map[string]any{"to": "2026-06-01"})
 
-	// A bare date is midnight UTC, so the window is the same whoever runs the command.
-	wantEnd := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	// A bare date is midnight where the user is, so --to 2026-06-01 means what it reads as.
+	wantEnd := time.Date(2026, 6, 1, 0, 0, 0, 0, time.Local)
 	if !end.Equal(wantEnd) {
 		t.Errorf("end = %s, want the given %s", end.UTC(), wantEnd)
 	}

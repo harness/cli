@@ -1604,7 +1604,7 @@ commands:
     handler_type: endpoint
     flags:
       - name: from
-        description: Start of the window — 30d, 2w, 2026-01-01, or unix millis
+        description: Start of the window — 30d, 2w, 2026-01-01 (local time), or unix millis
       - name: to
         description: End of the window — same formats as --from
     endpoint:
@@ -1626,7 +1626,7 @@ commands:
     handler_type: endpoint
     flags:
       - name: from
-        description: Start of the window — 30d, 2w, 2026-01-01, or unix millis
+        description: Start of the window — 30d, 2w, 2026-01-01 (local time), or unix millis
       - name: to
         description: End of the window — same formats as --from
     endpoint:
@@ -1643,7 +1643,7 @@ commands:
     handler_type: endpoint
     flags:
       - name: from
-        description: Start of the window — 30d, 2w, 2026-01-01, or unix millis
+        description: Start of the window — 30d, 2w, 2026-01-01 (local time), or unix millis
       - name: to
         description: End of the window — same formats as --from
     endpoint:
