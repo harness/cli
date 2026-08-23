@@ -717,7 +717,7 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentId}}/pullreq
       items_expr: it
-      get_id_expr: string(it.number)
+      get_id_expr: ctx.parentId + "/" + string(it.number)
       query_params:
         state: 'flags.state == "all" ? "" : flags.state'
         query: flags.search
