@@ -69,9 +69,11 @@ help_text: |
   each template came from. Every other template command targets one hub, so
   pass `--hub` when the template is not in the default (unhubbed) one.
 
-  Templates are revisioned: `create loadtest_template:revision <id> --revision
-  <rev>` adds a revision, `list loadtest_template:revisions <id>` lists them,
-  and `get loadtest_template:revision <id> --revision <rev>` fetches one.
+  Templates are revisioned, and a revision is addressed as `<template-id>/<rev>`
+  the same way a pipeline template version is: `create
+  loadtest_template_revision <id>/<rev>` adds one, `list
+  loadtest_template_revision <id>` lists them, and `get
+  loadtest_template_revision <id>/<rev>` fetches one.
   `get loadtest_template:yaml <id>` writes the template as a YAML document.
 
   A **loadtest_script** is the script attached to an RT load test, with its own
@@ -299,6 +301,39 @@ nouns:
         expr: it.description
         width_max: 60
         mutable_path: description
+      - id: created_at
+        expr: it.createdAt
+      - id: created_by
+        expr: it.createdBy
+      - id: updated_at
+        expr: it.updatedAt
+      - id: updated_by
+        expr: it.updatedBy
+      - id: script
+        expr: it.scriptContent
+        field_type: multiline_text
+
+  - noun: loadtest_template_revision
+    short_desc: A specific revision of an RT load test template.
+    noun_aliases: [loadtest_template_revisions]
+    fields:
+      - id: revision
+        expr: it.revision
+      - id: name
+        expr: it.name
+      - id: hub
+        label: Hub
+        expr: it.hubIdentity
+      - id: tool_type
+        label: Tool
+        expr: it.toolType
+      - id: infra_type
+        expr: it.infraType
+      - id: script_source
+        expr: it.scriptSource
+      - id: description
+        expr: it.description
+        width_max: 60
       - id: created_at
         expr: it.createdAt
       - id: created_by
@@ -1394,11 +1429,10 @@ commands:
       no_fields: true
       text_header: "\nDeleted load test template {{ctx.id}}\n"
 
-  - command: list loadtest_template:revisions
+  - command: list loadtest_template_revision
     verb: list
-    noun: loadtest_template
-    noun_variant: revisions
-    short: "List the revisions of a template: harness list loadtest_template:revisions <template-id>"
+    noun: loadtest_template_revision
+    short: "List the revisions of a template: harness list loadtest_template_revision <template-id>"
     requires_parentid: true
     parentid_label: "<template-id>"
     completion_noun: loadtest_template
@@ -1410,7 +1444,10 @@ commands:
       path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.parentId}}/revisions
       # The route answers with a bare array of revisions rather than a page.
       items_expr: it
-      get_id_expr: it.revision
+      get_id_expr: parentId + "/" + it.revision
+      completion:
+        id_expr: it.revision
+        name_expr: it.name
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
@@ -1419,82 +1456,81 @@ commands:
         paging_strategy: flat_list
       columns: [revision, name, tool_type, infra_type, updated_at, updated_by]
 
-  - command: create loadtest_template:revision
+  - command: create loadtest_template_revision
     verb: create
-    noun: loadtest_template
-    noun_variant: revision
+    noun: loadtest_template_revision
     requires_id: true
-    short: "Add a revision to a template: harness create loadtest_template:revision <template-id> --revision v2, or -f template.yaml"
-    completion_noun: loadtest_template
+    short: "Add a revision to a template: harness create loadtest_template_revision <template-id>/v2, or -f template.yaml"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
     flags_builtin:
       set: true
     flags:
-      - name: revision
-        description: Identifier for the new revision
-        required: true
       - name: hub
         description: Hub holding the template
     handler_type: endpoint
     endpoint:
       method: POST
-      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}/revisions
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions
       file_body: optional
       create_strategy: set-fields
       create_body_init:
-        identity: ctx.id
-        revision: flags.revision
+        identity: ctx.idParts[0]
+        revision: ctx.idParts[1]
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
         hubIdentity: flags.hub
       item_expr: it
 
-  - command: get loadtest_template:revision
+  - command: get loadtest_template_revision
     verb: get
-    noun: loadtest_template
-    noun_variant: revision
-    short: "Get one revision of a template: harness get loadtest_template:revision <template-id> --revision v2"
-    id_label: "<template-id>"
-    completion_noun: loadtest_template
+    noun: loadtest_template_revision
+    short: "Get one revision of a template: harness get loadtest_template_revision <template-id>/v2"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
+      - completion_noun: loadtest_template_revision
+        keep_order: true
     handler_type: endpoint
     flags:
-      - name: revision
-        description: Revision to fetch
-        required: true
       - name: hub
         description: Hub holding the template
     endpoint:
-      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}/revisions/{{flags.revision}}
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions/{{ctx.idParts[1]}}
       item_expr: it
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
         hubIdentity: flags.hub
 
-  - command: delete loadtest_template:revision
+  - command: delete loadtest_template_revision
     verb: delete
-    noun: loadtest_template
-    noun_variant: revision
-    short: "Delete one revision of a template: harness delete loadtest_template:revision <template-id> --revision v2"
-    id_label: "<template-id>"
-    completion_noun: loadtest_template
+    noun: loadtest_template_revision
+    short: "Delete one revision of a template: harness delete loadtest_template_revision <template-id>/v2"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
+      - completion_noun: loadtest_template_revision
+        keep_order: true
     confirm_mode: prompt
     handler_type: endpoint
     flags:
-      - name: revision
-        description: Revision to delete
-        required: true
       - name: hub
         description: Hub holding the template
     endpoint:
       method: DELETE
-      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}/revisions/{{flags.revision}}
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions/{{ctx.idParts[1]}}
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
         hubIdentity: flags.hub
       no_fields: true
-      text_header: "\nDeleted revision {{flags.revision}} of template {{ctx.id}}\n"
+      text_header: "\nDeleted revision {{ctx.idParts[1]}} of template {{ctx.idParts[0]}}\n"
 
   - command: list loadtest_template:variables
     verb: list
