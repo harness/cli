@@ -97,8 +97,7 @@ func existingRunIdentities(ctx *cmdctx.Ctx, loadTestID string) map[string]bool {
 	if err != nil {
 		return taken
 	}
-	items, _ := asMap(resp)["items"].([]any)
-	for _, item := range items {
+	for _, item := range itemsOf(resp) {
 		if id := stringField(asMap(item), "identity"); id != "" {
 			taken[id] = true
 		}
@@ -140,7 +139,7 @@ func rerunWorkflow(ctx *cmdctx.Ctx) error {
 		Path:        basePath + "/load-tests/{{ctx.id}}/runs",
 		BodyFn:      "rt:" + startRunBodyFnID,
 		ItemExpr:    "it",
-		QueryParams: scopeQueryExprs,
+		QueryParams: scopeQueryExprs(ctx),
 	}
 	result, err := registry.RunEndpoint(ctx, ep)
 	if err != nil {
@@ -150,9 +149,4 @@ func rerunWorkflow(ctx *cmdctx.Ctx) error {
 		return watchFollowFn(ctx, result)
 	}
 	return nil
-}
-
-var scopeQueryExprs = map[string]string{
-	"organizationIdentifier": `auth.org != "" ? auth.org : nil`,
-	"projectIdentifier":      `auth.project != "" ? auth.project : nil`,
 }

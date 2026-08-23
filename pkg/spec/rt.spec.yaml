@@ -17,10 +17,11 @@ help_text: |
   the tunables (target users, duration) it accepts. Creating one does not run
   anything.
 
-  `create loadtest <id> --set toolType=K6 --set infraIdentifier=<infra> --set
-  environmentIdentifier=<env>` builds the definition from key=value pairs, or
-  pass a whole body with `-f test.yaml`. Use one or the other: when `-f` is
-  given it supplies the entire body and `--set` is ignored.
+  `create loadtest <id> --set tool_type=K6 --set infra=<infra> --set
+  environment=<env>` builds the definition from key=value pairs, or pass a
+  whole body with `-f test.yaml`. Use one or the other: when `-f` is given it
+  supplies the entire body and `--set` is ignored. `--set` takes the field IDs
+  listed by `create loadtest --list-fields`, not the API's own spellings.
 
   Two variants create a load test from something you already have:
   `create loadtest:from_json <id> -f spec.json` takes a declarative endpoint
@@ -40,22 +41,26 @@ help_text: |
   A **loadtest_run** is one execution of an RT load test.
   `execute loadtest <id>` starts a run and prints its identity; add `--follow`
   to stay attached and stream status and metrics until the run reaches a
-  terminal state, exiting non-zero if it fails. Supply run-time values with
-  `--set targetUsers=50`.
+  terminal state, exiting non-zero if it fails. Override the test's own
+  variables for this run with `--set targetUsers=50` — here `--set` takes
+  variable names as the script declares them, which
+  `list loadtest:variables <id>` lists.
 
   Inspect runs with `list loadtest_run` (across the scope) or
   `list loadtest_run <loadtest-id>` (for one test), and
   `get loadtest_run <run-id>`. While a run is live you can retarget it with
-  `update loadtest_run <run-id> --set targetUsers=200` and end it early with
+  `update loadtest_run <run-id> --set target_users=200` and end it early with
   `execute loadtest_run:stop <run-id>`.
 
   `execute loadtest_run:rerun <run-id>` starts a fresh run of the same load
   test with the same shape.
 
-  Results come from `get loadtest_run:summary <run-id>` for the headline
-  numbers, `get loadtest_run:metrics <run-id> --view timeseries|scatter|aggregate`
-  for the metric series, and `get loadtest_run:graph <run-id>` for the
-  render-ready chart payload.
+  Results are separate commands rather than one command with a view flag:
+  `get loadtest_run:summary <run-id>` for the headline numbers,
+  `list loadtest_run:metrics <run-id>` for the time series,
+  `list loadtest_run:requests <run-id>` for sampled individual requests,
+  `list loadtest_run:endpoints <run-id>` for the per-endpoint breakdown, and
+  `list loadtest_run:graph <run-id>` for the render-ready chart series.
 
   A **loadtest_template** is a shareable, versioned RT load test definition.
   Templates live in hubs; `list loadtest_template` spans every hub in the
@@ -64,14 +69,15 @@ help_text: |
   pass `--hub` when the template is not in the default (unhubbed) one.
 
   Templates are revisioned: `create loadtest_template:revision <id> --revision
-  <rev>` adds a revision, `list loadtest_template:revision <id>` lists them,
-  and `get loadtest_template:revision <id>/<rev>` fetches one.
+  <rev>` adds a revision, `list loadtest_template:revisions <id>` lists them,
+  and `get loadtest_template:revision <id> --revision <rev>` fetches one.
   `get loadtest_template:yaml <id>` writes the template as a YAML document.
 
   A **loadtest_script** is the script attached to an RT load test, with its own
   revision history. `get loadtest_script <loadtest-id>` shows the current
-  script, `list loadtest_script <loadtest-id>` lists revisions, and
-  `update loadtest_script <loadtest-id> -f script.jmx` uploads a new one.
+  script, `list loadtest_script:revisions <loadtest-id>` lists revisions,
+  `get loadtest_script:revision <loadtest-id> --revision 3` shows one of them,
+  and `update loadtest_script <loadtest-id> -f script.jmx` uploads a new one.
 
   A **composite_loadtest** is a pipeline that runs RT load tests and chaos
   probes together as stages. Identifiers must not contain hyphens — use
@@ -95,9 +101,11 @@ nouns:
       - id: name
         expr: it.name
         mutable_path: name
+      # Required when creating a load test, and fixed from then on.
       - id: tool_type
         label: Tool
         expr: it.toolType
+        mutable_path: toolType
       - id: environment
         expr: it.environmentIdentifier
         mutable_path: environmentIdentifier
@@ -188,12 +196,15 @@ nouns:
       - id: tool_type
         label: Tool
         expr: it.toolType
+      # Retargetable while the run is live — see update loadtest_run.
       - id: target_users
         label: Users
         expr: it.targetUsers
+        mutable_path: targetUsers
         align: right
       - id: spawn_rate
         expr: it.spawnRate
+        mutable_path: spawnRate
         align: right
       - id: duration
         label: Duration (s)
@@ -263,14 +274,17 @@ nouns:
       - id: name
         expr: it.name
         mutable_path: name
+      # Both are required when creating a template, and fixed from then on.
       - id: revision
         expr: it.revision
+        mutable_path: revision
       - id: hub
         label: Hub
         expr: it.hubIdentity
       - id: tool_type
         label: Tool
         expr: it.toolType
+        mutable_path: toolType
       - id: infra_type
         expr: it.infraType
         mutable_path: infraType
@@ -712,7 +726,7 @@ commands:
     verb: create
     noun: loadtest
     requires_id: true
-    short: "Create a load test: harness create loadtest <id> --set toolType=K6 --set infraIdentifier=<infra> --set environmentIdentifier=<env>, or -f test.yaml"
+    short: "Create a load test: harness create loadtest <id> --set tool_type=K6 --set infra=<infra> --set environment=<env>, or -f test.yaml"
     flags_builtin:
       set: true
     handler_type: endpoint
@@ -735,7 +749,7 @@ commands:
     noun: loadtest
     noun_variant: from_json
     requires_id: true
-    short: "Create a load test from a JSON endpoint spec: harness create loadtest:from_json <id> -f spec.json --set infraIdentifier=<infra> --set environmentIdentifier=<env>"
+    short: "Create a load test from a JSON endpoint spec: harness create loadtest:from_json <id> -f spec.json --set infra=<infra> --set environment=<env>"
     flags_builtin:
       set: true
     handler_type: endpoint
@@ -984,25 +998,25 @@ commands:
   - command: update loadtest_run
     verb: update
     noun: loadtest_run
-    short: "Retarget a running load test: harness update loadtest_run <run-id> --users 200 [--spawn-rate 5]"
+    short: "Retarget a running load test: harness update loadtest_run <run-id> --set target_users=200 [--set spawn_rate=5]"
     id_label: "<run-id>"
     handler_type: endpoint
-    flags:
-      - name: users
-        description: New target number of virtual users
-      - name: spawn-rate
-        description: New spawn rate, in users per second
+    flags_builtin:
+      set: true
     endpoint:
       method: POST
       path: /gateway/loadTest/manager/api/v1/runs/{{ctx.id}}/update
       # This endpoint takes the scope in the body, not just the query string.
+      # --set values arrive as strings and the route binds targetUsers and spawnRate as
+      # numbers, so the two tunables are read from ctx.setArgs and converted here rather
+      # than written straight through by create_strategy: set-fields.
       body_params:
         identity: ctx.id
         accountIdentifier: auth.account
         organizationIdentifier: auth.org
         projectIdentifier: auth.project
-        targetUsers: 'flags.users != "" ? int(flags.users) : nil'
-        spawnRate: 'flags["spawn-rate"] != "" ? float(flags["spawn-rate"]) : nil'
+        targetUsers: 'ctx.setArgs.target_users == nil ? nil : int(ctx.setArgs.target_users)'
+        spawnRate: 'ctx.setArgs.spawn_rate == nil ? nil : float(ctx.setArgs.spawn_rate)'
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
@@ -1315,7 +1329,7 @@ commands:
     verb: create
     noun: loadtest_template
     requires_id: true
-    short: "Create a load test template: harness create loadtest_template <id> --set toolType=K6 --set revision=v1, or -f template.yaml"
+    short: "Create a load test template: harness create loadtest_template <id> --set tool_type=K6 --set revision=v1, or -f template.yaml"
     flags_builtin:
       set: true
     flags:

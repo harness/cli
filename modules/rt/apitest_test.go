@@ -87,11 +87,16 @@ func api(format string, args ...any) string {
 }
 
 func itemsPage(items ...map[string]any) map[string]any {
-	page := make([]any, 0, len(items))
+	return map[string]any{"items": bareList(items...)}
+}
+
+// The shape the revision routes actually answer with: rows, with no page around them.
+func bareList(items ...map[string]any) []any {
+	list := make([]any, 0, len(items))
 	for _, item := range items {
-		page = append(page, item)
+		list = append(list, item)
 	}
-	return map[string]any{"items": page}
+	return list
 }
 
 // The runs-of-a-load-test response; the identity picker reads only the identities.

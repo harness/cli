@@ -87,8 +87,7 @@ func resolveScriptRevision(ctx *cmdctx.Ctx, raw string) (string, error) {
 		return "", fmt.Errorf("reading the script revisions of load test %q: %w", ctx.Id, err)
 	}
 
-	items, _ := asMap(resp)["items"].([]any)
-	for _, item := range items {
+	for _, item := range itemsOf(resp) {
 		m := asMap(item)
 		if int(floatField(m, "revisionNumber")) != number {
 			continue

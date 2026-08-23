@@ -7,6 +7,8 @@
 package rt
 
 import (
+	"strconv"
+
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/registry"
 )
@@ -42,6 +44,27 @@ func scopeParams(ctx *cmdctx.Ctx) map[string]string {
 		qp["projectIdentifier"] = ctx.Auth.ProjectID
 	}
 	return qp
+}
+
+// A hand-built EndpointSpec still has its query_params evaluated as expressions, so the
+// shared scope values are quoted into literal exprs rather than written out a second time.
+func scopeQueryExprs(ctx *cmdctx.Ctx) map[string]string {
+	params := scopeParams(ctx)
+	exprs := make(map[string]string, len(params))
+	for name, value := range params {
+		exprs[name] = strconv.Quote(value)
+	}
+	return exprs
+}
+
+// Collections come back in two shapes: the paged routes wrap their rows in an items
+// envelope, while the revision routes answer with a bare array. Readers take either.
+func itemsOf(resp any) []any {
+	if items, ok := resp.([]any); ok {
+		return items
+	}
+	items, _ := asMap(resp)["items"].([]any)
+	return items
 }
 
 func asMap(v any) map[string]any {
