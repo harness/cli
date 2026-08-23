@@ -17,15 +17,16 @@ help_text: |
   the tunables (target users, duration) it accepts. Creating one does not run
   anything.
 
-  `create loadtest <id> --set tool_type=K6 --set infra=<infra> --set
-  environment=<env>` builds the definition from key=value pairs, or pass a
-  whole body with `-f test.yaml`. Use one or the other: when `-f` is given it
-  supplies the entire body and `--set` is ignored. `--set` takes the field IDs
-  listed by `create loadtest --list-fields`, not the API's own spellings.
+  `create loadtest <id> -f test.yaml` creates one from a whole body. Every tool
+  type requires a `toolConfig` block, which key=value pairs cannot express, so
+  `-f` is the path in — `get loadtest <id> --yaml -o test.yaml` on an existing
+  test gives you a body to edit. `--set` is ignored whenever `-f` is present.
 
   Two variants create a load test from something you already have:
-  `create loadtest:from_json <id> -f spec.json` takes a declarative endpoint
-  spec instead of a tool script, and `create loadtest:from_template <id>
+  `create loadtest:from_json <id> -f request.json` takes a declarative endpoint
+  spec instead of a tool script — the file is the whole request body, with the
+  spec under `jsonSpec` alongside `toolType`, `infraIdentifier` and
+  `environmentIdentifier` — and `create loadtest:from_template <id>
   --template <template-id>` instantiates a template. A template-backed test is
   either a REFERENCE (a pointer — the template stays the source of truth) or a
   LOCAL copy. Use `execute loadtest:sync <id>` to re-pull a REFERENCE test
@@ -101,11 +102,11 @@ nouns:
       - id: name
         expr: it.name
         mutable_path: name
-      # Required when creating a load test, and fixed from then on.
+      # No mutable_path: toolType is fixed at create, and create needs a toolConfig
+      # block that --set cannot express, so a load test is created with -f.
       - id: tool_type
         label: Tool
         expr: it.toolType
-        mutable_path: toolType
       - id: environment
         expr: it.environmentIdentifier
         mutable_path: environmentIdentifier
@@ -274,17 +275,16 @@ nouns:
       - id: name
         expr: it.name
         mutable_path: name
-      # Both are required when creating a template, and fixed from then on.
+      # No mutable_path on either: both are fixed at create, and a template is
+      # created with -f for the same reason a load test is.
       - id: revision
         expr: it.revision
-        mutable_path: revision
       - id: hub
         label: Hub
         expr: it.hubIdentity
       - id: tool_type
         label: Tool
         expr: it.toolType
-        mutable_path: toolType
       - id: infra_type
         expr: it.infraType
         mutable_path: infraType
@@ -726,7 +726,7 @@ commands:
     verb: create
     noun: loadtest
     requires_id: true
-    short: "Create a load test: harness create loadtest <id> --set tool_type=K6 --set infra=<infra> --set environment=<env>, or -f test.yaml"
+    short: "Create a load test: harness create loadtest <id> -f test.yaml — the body carries the toolConfig block that --set cannot express"
     flags_builtin:
       set: true
     handler_type: endpoint
@@ -749,7 +749,7 @@ commands:
     noun: loadtest
     noun_variant: from_json
     requires_id: true
-    short: "Create a load test from a JSON endpoint spec: harness create loadtest:from_json <id> -f spec.json --set infra=<infra> --set environment=<env>"
+    short: "Create a load test from a JSON endpoint spec: harness create loadtest:from_json <id> -f request.json — the file is the whole body, endpoint spec under jsonSpec"
     flags_builtin:
       set: true
     handler_type: endpoint
@@ -1329,7 +1329,7 @@ commands:
     verb: create
     noun: loadtest_template
     requires_id: true
-    short: "Create a load test template: harness create loadtest_template <id> --set tool_type=K6 --set revision=v1, or -f template.yaml"
+    short: "Create a load test template: harness create loadtest_template <id> -f template.yaml — templates carry a toolConfig block too"
     flags_builtin:
       set: true
     flags:
