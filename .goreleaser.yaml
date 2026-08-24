@@ -86,13 +86,14 @@ nfpms:
     bindir: /usr/bin
 
 homebrew_casks:
-  # skip_upload: cask files are still built into dist/ so this stays testable, but
-  # nothing is pushed until harness/homebrew-tap exists and HOMEBREW_TAP_GITHUB_TOKEN
-  # is set — see docs/publishing-to-homebrew.md. Remove once both are in place.
-  - name: harness
+  # Installs the core `harness` binary only — modules/plugins are pulled in
+  # afterwards with `harness install module <name>`.
+  - name: harness-cli
     ids: [harness-core]
     binaries: [harness]
-    skip_upload: true
+    # "auto" publishes on stable tags and skips prerelease tags (v1.2.3-rc1),
+    # so an rc never becomes what `brew install` hands out.
+    skip_upload: auto
     repository:
       owner: harness
       name: homebrew-tap
@@ -106,6 +107,10 @@ homebrew_casks:
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/harness"]
           end
+          system_command "#{staged_path}/harness",
+                         args: ["--post-install"],
+                         env: { "HARNESS_INSTALL_TYPE" => "brew" },
+                         must_succeed: false
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"

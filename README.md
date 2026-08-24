@@ -120,6 +120,14 @@ irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
 $env:HARNESS_NONINTERACTIVE=1; $env:HARNESS_CORE_ONLY=1; irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
 ```
 
+### Homebrew (macOS)
+
+```sh
+brew install --cask harness/tap/harness-cli
+```
+
+Installs the core `harness` binary only. Modules/Plugins are managed by the CLI, not by Homebrew.
+
 ### Manual install
 
 Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases), place `harness` on your `PATH`, and register the bundled `har` plugin with `harness install plugin`. Unix bundles are `tar.gz`; Windows bundles are `zip`. Published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64`, `windows_amd64`, and `windows_arm64`.
@@ -147,6 +155,9 @@ harness install cli --core-only      # skip module updates
 | `--force`              | Install even if the current version is already up to date            |
 | `--check`              | Print the resolved version without installing; exits 1 if not found  |
 | `--core-only`          | Only install the core binary, skip module updates                    |
+
+> [!NOTE]
+> If you installed with Homebrew, upgrade with Homebrew: `brew upgrade --cask harness/tap/harness-cli`.
 
 External modules are managed the same way:
 
@@ -751,7 +762,7 @@ Add the built binaries to your `PATH` for the duration of the session:
 source local-setup.zsh
 ```
 
-For details on the release process and Homebrew publishing, see [`BUILD.md`](BUILD.md) and [`docs/publishing-to-homebrew.md`](docs/publishing-to-homebrew.md).
+For details on the release process, see [`BUILD.md`](BUILD.md).
 
 ---
 
