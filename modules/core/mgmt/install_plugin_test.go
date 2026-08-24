@@ -80,7 +80,11 @@ func TestParsePluginRef(t *testing.T) {
 		},
 		{
 			"registry name", "har",
-			pluginRef{GithubRef: &GithubPluginRef{GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har"}},
+			pluginRef{PluginName: "har"},
+		},
+		{
+			"unregistered but valid name", "notaplugin",
+			pluginRef{PluginName: "notaplugin"},
 		},
 	}
 	for _, tt := range tests {
@@ -89,7 +93,7 @@ func TestParsePluginRef(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parsePluginRef(%q): %v", tt.ref, err)
 			}
-			if got.URL != tt.want.URL || got.LocalPath != tt.want.LocalPath {
+			if got.URL != tt.want.URL || got.LocalPath != tt.want.LocalPath || got.PluginName != tt.want.PluginName {
 				t.Fatalf("parsePluginRef(%q) = %+v, want %+v", tt.ref, got, tt.want)
 			}
 			switch {
@@ -108,7 +112,6 @@ func TestParsePluginRef(t *testing.T) {
 	}{
 		{"bad archive ref", "dist/foo.tar.gz", "not a path harness recognizes"},
 		{"bad github ref shape", "a/b/c/d", "not a valid owner/repo"},
-		{"unknown registry name", "notaplugin", "unknown plugin"},
 		{"invalid plugin name syntax", "Not_Valid", "not a URL, an existing file"},
 	}
 	for _, tt := range errTests {
@@ -121,6 +124,16 @@ func TestParsePluginRef(t *testing.T) {
 				t.Fatalf("parsePluginRef(%q) error = %v, want it to contain %q", tt.ref, err, tt.wantSubstr)
 			}
 		})
+	}
+}
+
+func TestInstallRegistryPluginUnknownName(t *testing.T) {
+	err := installRegistryPlugin("notaplugin", "", "", false, false, false)
+	if err == nil {
+		t.Fatal("installRegistryPlugin(\"notaplugin\"): expected an error")
+	}
+	if !strings.Contains(err.Error(), "unknown plugin") {
+		t.Fatalf("installRegistryPlugin(\"notaplugin\") error = %v, want it to contain %q", err, "unknown plugin")
 	}
 }
 

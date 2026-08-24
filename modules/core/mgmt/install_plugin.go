@@ -31,8 +31,9 @@ import (
 // publishes to, and the tag prefix its releases are published under ("" means
 // core's own bare "vX.Y.Z" convention rather than "{TagPrefix}/vX.Y.Z").
 // PkgName is the release package name when already known — always true for a
-// registry entry, never true for a ref parsed from owner/repo[/prefix]
-// syntax, where it's discovered from the release's own assets instead.
+// registry entry. For a ref parsed from owner/repo[/prefix] syntax it starts
+// empty and is either discovered from the release's own assets, or supplied
+// via --plugin-name.
 type GithubPluginRef struct {
 	GithubRepo string
 	TagPrefix  string
@@ -62,18 +63,21 @@ func registryNames() string {
 }
 
 // pluginRef is the parsed shape of an install-plugin <ref> argument — exactly
-// one of URL, LocalPath, or GithubRef is set.
+// one of URL, LocalPath, PluginName, or GithubRef is set.
 type pluginRef struct {
-	URL       string
-	LocalPath string
-	GithubRef *GithubPluginRef
+	URL        string
+	LocalPath  string
+	PluginName string
+	GithubRef  *GithubPluginRef
 }
 
 // parsePluginRef classifies an install-plugin <ref> argument as a tarball URL,
-// a local path, or a GitHub plugin ref — the latter either parsed from
-// owner/repo[/prefix] syntax, or resolved from a bare registry name via
-// pluginRegistry. It touches no filesystem or network, so every branch of the
-// classification is unit-testable on its own.
+// a local path, a GitHub plugin ref parsed from owner/repo[/prefix] syntax, or
+// a bare plugin name — the latter left for the caller to resolve against
+// pluginRegistry, since a registry name and a raw GitHub ref are resolved
+// differently (e.g. --plugin-name is meaningless for the former). It touches
+// no filesystem or network, so every branch of the classification is
+// unit-testable on its own.
 func parsePluginRef(ref string) (pluginRef, error) {
 	switch {
 	case strings.HasPrefix(ref, "http://"), strings.HasPrefix(ref, "https://"):
@@ -91,16 +95,11 @@ func parsePluginRef(ref string) (pluginRef, error) {
 			return pluginRef{}, fmt.Errorf("%q is not a valid owner/repo or owner/repo/prefix GitHub ref", ref)
 		}
 		return pluginRef{GithubRef: &GithubPluginRef{GithubRepo: owner + "/" + repoName, TagPrefix: prefix}}, nil
-	default:
+	case plugin.ValidateName(ref) == nil:
 		// Bare name → registry lookup. Same path `install module` takes.
-		if err := plugin.ValidateName(ref); err != nil {
-			return pluginRef{}, fmt.Errorf("%q is not a URL, an existing file, an owner/repo ref, or a valid plugin name — supported names: %s", ref, registryNames())
-		}
-		entry, ok := pluginRegistry[ref]
-		if !ok {
-			return pluginRef{}, fmt.Errorf("unknown plugin %q — supported: %s\n\nTo install an unregistered plugin, pass its tarball URL, path, or owner/repo ref", ref, registryNames())
-		}
-		return pluginRef{GithubRef: &entry}, nil
+		return pluginRef{PluginName: ref}, nil
+	default:
+		return pluginRef{}, fmt.Errorf("%q is not a URL, an existing file, an owner/repo ref, or a valid plugin name — supported names: %s", ref, registryNames())
 	}
 }
 
@@ -150,12 +149,19 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	case parsed.GithubRef != nil:
 		gh := *parsed.GithubRef
-		// --plugin-name only disambiguates a ref whose pkgName isn't already
-		// known — a registry entry's asset is already pinned.
-		if gh.PkgName == "" && pluginName != "" {
+		// --plugin-name disambiguates a release with more than one plugin
+		// asset, since the pkgName here is never known ahead of time.
+		if pluginName != "" {
 			gh.PkgName = plugin.BinaryPrefix + "plugin-" + pluginName
 		}
 		return installPluginFromRelease(gh.GithubRepo, gh.TagPrefix, gh.PkgName, version, githubToken, allowDrafts, force, check)
+	case parsed.PluginName != "":
+		// A registry entry's asset is already pinned, so --plugin-name has
+		// nothing to disambiguate.
+		if pluginName != "" {
+			return fmt.Errorf("--plugin-name is not valid with %q — its release asset name is already known", parsed.PluginName)
+		}
+		return installRegistryPlugin(parsed.PluginName, version, githubToken, allowDrafts, force, check)
 	default:
 		return fmt.Errorf("internal error: parsePluginRef(%q) returned no variant", ref)
 	}
@@ -196,7 +202,7 @@ func splitGitHubRef(ref string) (owner, repoName, prefix string, ok bool) {
 func installRegistryPlugin(name, version, githubToken string, allowDrafts, force, check bool) error {
 	entry, ok := pluginRegistry[name]
 	if !ok {
-		return fmt.Errorf("unknown plugin %q — supported: %s", name, registryNames())
+		return fmt.Errorf("unknown plugin %q — supported: %s\n\nTo install an unregistered plugin, pass its tarball URL, path, or owner/repo ref", name, registryNames())
 	}
 	return installPluginFromRelease(entry.GithubRepo, entry.TagPrefix, entry.PkgName, version, githubToken, allowDrafts, force, check)
 }

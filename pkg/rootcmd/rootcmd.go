@@ -57,16 +57,10 @@ func MaybeRunPostInstall() {
 }
 
 // MaybeRunPostUpgrade exits if this invocation is install cli's post-upgrade
-// hook (hbase.PostUpgradeFlag), run against the binary it just installed (or
-// confirmed already up to date) right after that binary's own
-// "install plugin all" has brought plugins to their own latest. Unlike
-// postInstallFlag — fired by external installer scripts that have no context
-// on what changed — this is invoked by our own upgrade code specifically so a
-// future release can do upgrade-finishing work (migrations, cleanup) that
-// only the new binary's code knows how to do, without the old binary needing
-// to know about it. The flag itself lives in hbase, not here, since
-// modules/core/mgmt invokes it and can't depend on rootcmd. No-op today.
-// The flag is always passed as the sole argument (see runInstalledBinary), so only os.Args[1] is checked.
+// hook (hbase.PostUpgradeFlag), run against the newly installed binary right
+// after "install plugin all" has brought plugins to their own latest. No-op
+// today. The flag is always passed as the sole argument (see
+// runInstalledBinary), so only os.Args[1] is checked.
 func MaybeRunPostUpgrade() {
 	if firstArg() != hbase.PostUpgradeFlag {
 		return
