@@ -21,36 +21,39 @@ import (
 	"github.com/harness/cli/pkg/telemetry"
 )
 
-// MaybeRunBackgroundUpdateCheck exits if this invocation is the background update subprocess.
-func MaybeRunBackgroundUpdateCheck() {
-	for _, arg := range os.Args[1:] {
-		if arg == release.FlagName {
-			release.RunBackgroundCheck()
-			os.Exit(0)
-		}
+// firstArg returns os.Args[1], or "" if no argument was passed.
+func firstArg() string {
+	if len(os.Args) > 1 {
+		return os.Args[1]
 	}
+	return ""
 }
 
-// postInstallFlag is the hidden flag the installers (install.sh, install.ps1,
-// the Homebrew cask's postflight hook) invoke right after placing a fresh
-// binary on disk, purely to fire a cli_installed telemetry event.
-const postInstallFlag = "--post-install"
+// MaybeRunBackgroundUpdateCheck exits if this invocation is the background update subprocess.
+// The flag is always passed as the sole argument (see release.MaybeSpawn), so only os.Args[1] is checked.
+func MaybeRunBackgroundUpdateCheck() {
+	if firstArg() != hbase.BackgroundUpdateCheckFlag {
+		return
+	}
+	release.RunBackgroundCheck()
+	os.Exit(0)
+}
 
 // MaybeRunPostInstall exits if this invocation is an installer's post-install
 // telemetry ping. Respects the same opt-out as every other event.
+// The flag is always passed as the sole argument (see install.sh/install.ps1), so only os.Args[1] is checked.
 func MaybeRunPostInstall() {
-	for _, arg := range os.Args[1:] {
-		if arg == postInstallFlag {
-			flush := telemetry.Init()
-			telemetry.RecordInstall(telemetry.InstallEvent{
-				RunID:       hbase.RunID,
-				InstallType: telemetry.ResolveInstallType(),
-				Env:         telemetry.NewEnv(),
-			})
-			flush()
-			os.Exit(0)
-		}
+	if firstArg() != hbase.PostInstallFlag {
+		return
 	}
+	flush := telemetry.Init()
+	telemetry.RecordInstall(telemetry.InstallEvent{
+		RunID:       hbase.RunID,
+		InstallType: telemetry.ResolveInstallType(),
+		Env:         telemetry.NewEnv(),
+	})
+	flush()
+	os.Exit(0)
 }
 
 // MaybeRunPostUpgrade exits if this invocation is install cli's post-upgrade
@@ -63,12 +66,12 @@ func MaybeRunPostInstall() {
 // only the new binary's code knows how to do, without the old binary needing
 // to know about it. The flag itself lives in hbase, not here, since
 // modules/core/mgmt invokes it and can't depend on rootcmd. No-op today.
+// The flag is always passed as the sole argument (see runInstalledBinary), so only os.Args[1] is checked.
 func MaybeRunPostUpgrade() {
-	for _, arg := range os.Args[1:] {
-		if arg == hbase.PostUpgradeFlag {
-			os.Exit(0)
-		}
+	if firstArg() != hbase.PostUpgradeFlag {
+		return
 	}
+	os.Exit(0)
 }
 
 // MaybeCheckSpecs runs spec validation and exits if HARNESS_CHECKSPECS=1, otherwise returns immediately.
