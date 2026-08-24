@@ -1,6 +1,6 @@
 module github.com/harness/cli
 
-go 1.26.0
+go 1.26.7
 
 require (
 	charm.land/bubbles/v2 v2.1.1
