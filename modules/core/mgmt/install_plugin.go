@@ -154,7 +154,10 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 		if pluginName != "" {
 			gh.PkgName = plugin.BinaryPrefix + "plugin-" + pluginName
 		}
-		return installPluginFromRelease(gh.GithubRepo, gh.TagPrefix, gh.PkgName, version, githubToken, allowDrafts, force, check)
+		if err := installPluginFromRelease(gh.GithubRepo, gh.TagPrefix, gh.PkgName, version, githubToken, allowDrafts, force, check); err != nil {
+			return withLocalPathHint(ref, err)
+		}
+		return nil
 	case parsed.PluginName != "":
 		// A registry entry's asset is already pinned, so --plugin-name has
 		// nothing to disambiguate.
@@ -167,10 +170,8 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 	}
 }
 
-// looksLikePath reports whether ref should be treated as a filesystem path
-// rather than a registry name or a GitHub ref. Only these three forms count —
-// there is no filesystem probing here, so a bareword or a relative path
-// without "./" is never silently treated as a path.
+// looksLikePath deliberately excludes bare relative paths (e.g. "foo/bar") —
+// those are parsed as GitHub owner/repo refs instead.
 func looksLikePath(ref string) bool {
 	return filepath.IsAbs(ref) || strings.HasPrefix(ref, "~/") || strings.HasPrefix(ref, "./")
 }
@@ -194,6 +195,15 @@ func splitGitHubRef(ref string) (owner, repoName, prefix string, ok bool) {
 	return owner, repoName, prefix, true
 }
 
+// withLocalPathHint covers a relative path like "devhome/bin/harness-har",
+// indistinguishable from an owner/repo ref to parsePluginRef.
+func withLocalPathHint(ref string, err error) error {
+	if _, statErr := os.Stat(ref); statErr != nil {
+		return err
+	}
+	return fmt.Errorf("%w\n\n%q exists on disk — to install from a local path, prefix it with \"./\" (e.g. %q)", err, ref, "./"+ref)
+}
+
 // installRegistryPlugin installs a plugin named in pluginRegistry. Its repo is
 // always release.Repo and its pkgName is always known, so it's a thin wrapper
 // over installPluginFromRelease, which also serves the generic
@@ -207,16 +217,6 @@ func installRegistryPlugin(name, version, githubToken string, allowDrafts, force
 	return installPluginFromRelease(entry.GithubRepo, entry.TagPrefix, entry.PkgName, version, githubToken, allowDrafts, force, check)
 }
 
-// installAllRegistryPlugins updates every registry-known plugin that is
-// currently installed to its own latest release. "all" has no single version
-// to install — each plugin releases independently of core and of every other
-// plugin — so a caller-supplied --version is rejected rather than silently
-// ignored or applied to every plugin. --force is rejected too: forcing a
-// reinstall of every plugin regardless of its own up-to-date state is a
-// per-plugin decision, made by naming that plugin directly. --github-token
-// and --allow-drafts are rejected as well — every registry plugin releases
-// from release.Repo under core's own visible, non-draft release process, so
-// neither flag has anything to do for a registry name.
 func installAllRegistryPlugins(version, githubToken string, allowDrafts, force, check bool) error {
 	if version != "" && version != "latest" {
 		return fmt.Errorf(`--version is not valid with "all" — each plugin releases independently, so there is no single version to install`)
@@ -276,7 +276,7 @@ func installPluginFromRelease(repo, prefix, pkgName, version, githubToken string
 
 	rel, resolvedVersion, err := resolveReleaseForPrefix(repo, prefix, version, githubToken, allowDrafts)
 	if err != nil {
-		return fmt.Errorf("version %s not found in %s: %w", versionLabel(version), repo, err)
+		return fmt.Errorf("version %s not found in github.com/%s: %w", versionLabel(version), repo, err)
 	}
 
 	var asset *release.Asset
