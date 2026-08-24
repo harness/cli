@@ -68,6 +68,32 @@ nouns:
         expr: epochMs(it.updated)
       - id: created
         expr: epochMs(it.created)
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: repository
+        default: true
+      - ui_command_type: link
+        key: r
+        label: list pull requests
+        verb: list
+        noun: pr
+      - ui_command_type: link
+        key: b
+        label: list branches
+        verb: list
+        noun: branch
+      - ui_command_type: link
+        key: t
+        label: list tags
+        verb: list
+        noun: tag
+      - ui_command_type: link
+        key: k
+        label: list commits
+        verb: list
+        noun: commit
 
   - noun: pr
     short_desc: A Harness Code pull request.
@@ -166,6 +192,40 @@ nouns:
         expr: epochMs(it.updated)
       - id: merged
         expr: epochMs(it.merged)
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: pr
+        default: true
+      - ui_command_type: text
+        key: g
+        label: review groups
+        noun: pr:review_group
+      - ui_command_type: link
+        key: r
+        label: list reviewers
+        verb: list
+        noun: pr_reviewer
+      - ui_command_type: link
+        key: c
+        label: list checks
+        verb: list
+        noun: pr_check
+      - ui_command_type: link
+        key: m
+        label: list comments
+        verb: list
+        noun: pr_comment
+      - ui_command_type: link
+        key: k
+        label: list commits
+        verb: list
+        noun: pr_commit
+      - ui_command_type: text
+        key: i
+        label: view ai review
+        noun: pr:insight
 
   - noun: branch
     short_desc: A git branch in a Harness Code repository.
