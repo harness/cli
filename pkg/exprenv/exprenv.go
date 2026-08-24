@@ -90,7 +90,7 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		"formatMetadata":        exprfuncs.FormatMetadata,
 		"pipelineSparkline":     exprfuncs.NewPipelineSparkline(ctx.IsPty && !isMachineFormat(flags)),
 		"statusIcon":            exprfuncs.NewStatusIcon(ctx.IsPty && !isMachineFormat(flags)),
-		"prLabelColor":            exprfuncs.NewPrLabelColor(ctx.IsPty && !isMachineFormat(flags)),
+		"prLabelColor":          exprfuncs.NewPrLabelColor(ctx.IsPty && !isMachineFormat(flags)),
 		"spaceAfter":            exprfuncs.SpaceAfter,
 		"duration":              exprfuncs.Duration,
 		"harScopeUrl":           exprfuncs.HarScopeUrl,
