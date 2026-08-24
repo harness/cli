@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -26,14 +27,16 @@ import (
 	"github.com/harness/cli/pkg/specloader"
 )
 
-// registryEntry is a bare-name-installable plugin's fixed identity: its
-// release package name and the tag prefix its releases are published under.
-// Core itself has no entry — it is not a plugin — so prefix "" here always
-// means "a module release, on harness/cli, under {prefix}/vX.Y.Z" rather than
-// core's own bare "vX.Y.Z" convention.
-type registryEntry struct {
-	pkgName string
-	prefix  string
+// GithubPluginRef identifies a plugin release on GitHub: the "owner/repo" it
+// publishes to, and the tag prefix its releases are published under ("" means
+// core's own bare "vX.Y.Z" convention rather than "{TagPrefix}/vX.Y.Z").
+// PkgName is the release package name when already known — always true for a
+// registry entry, never true for a ref parsed from owner/repo[/prefix]
+// syntax, where it's discovered from the release's own assets instead.
+type GithubPluginRef struct {
+	GithubRepo string
+	TagPrefix  string
+	PkgName    string
 }
 
 // pluginRegistry is the optional name→artifact resolver behind the bare-name
@@ -43,10 +46,10 @@ type registryEntry struct {
 // cover secret/internal/third-party plugins.
 //
 // Every entry releases independently of core and of each other, each under its
-// own "{prefix}/vX.Y.Z" tag on release.Repo — a module shipping a fix does not
-// wait on core's release cadence.
-var pluginRegistry = map[string]registryEntry{
-	"har": {pkgName: "harness-plugin-har", prefix: "har"},
+// own "{TagPrefix}/vX.Y.Z" tag on release.Repo — a module shipping a fix does
+// not wait on core's release cadence.
+var pluginRegistry = map[string]GithubPluginRef{
+	"har": {GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har"},
 }
 
 func registryNames() string {
@@ -58,87 +61,191 @@ func registryNames() string {
 	return strings.Join(names, ", ")
 }
 
+// pluginRef is the parsed shape of an install-plugin <ref> argument — exactly
+// one of URL, LocalPath, or GithubRef is set.
+type pluginRef struct {
+	URL       string
+	LocalPath string
+	GithubRef *GithubPluginRef
+}
+
+// parsePluginRef classifies an install-plugin <ref> argument as a tarball URL,
+// a local path, or a GitHub plugin ref — the latter either parsed from
+// owner/repo[/prefix] syntax, or resolved from a bare registry name via
+// pluginRegistry. It touches no filesystem or network, so every branch of the
+// classification is unit-testable on its own.
+func parsePluginRef(ref string) (pluginRef, error) {
+	switch {
+	case strings.HasPrefix(ref, "http://"), strings.HasPrefix(ref, "https://"):
+		return pluginRef{URL: ref}, nil
+	case looksLikePath(ref):
+		return pluginRef{LocalPath: ref}, nil
+	case isArchive(ref):
+		// Doesn't match looksLikePath, but the extension makes the intent
+		// clear enough to give a precise fix instead of trying (and failing)
+		// a GitHub ref lookup or an "unknown plugin name" error.
+		return pluginRef{}, fmt.Errorf("%q looks like a plugin archive, but is not a path harness recognizes — local paths must be absolute, or start with \"./\" or \"~/\"", ref)
+	case strings.Contains(ref, "/"):
+		owner, repoName, prefix, ok := splitGitHubRef(ref)
+		if !ok {
+			return pluginRef{}, fmt.Errorf("%q is not a valid owner/repo or owner/repo/prefix GitHub ref", ref)
+		}
+		return pluginRef{GithubRef: &GithubPluginRef{GithubRepo: owner + "/" + repoName, TagPrefix: prefix}}, nil
+	default:
+		// Bare name → registry lookup. Same path `install module` takes.
+		if err := plugin.ValidateName(ref); err != nil {
+			return pluginRef{}, fmt.Errorf("%q is not a URL, an existing file, an owner/repo ref, or a valid plugin name — supported names: %s", ref, registryNames())
+		}
+		entry, ok := pluginRegistry[ref]
+		if !ok {
+			return pluginRef{}, fmt.Errorf("unknown plugin %q — supported: %s\n\nTo install an unregistered plugin, pass its tarball URL, path, or owner/repo ref", ref, registryNames())
+		}
+		return pluginRef{GithubRef: &entry}, nil
+	}
+}
+
 // InstallPluginHandler installs a plugin from a tarball URL, a local tarball, a
-// local binary, or a bare registry name. All four forms funnel into the same
-// routine: get a binary on disk → identity gate (--identity) → install into
-// ~/.harness/bin → capture grammar (--spec) → write <name>.spec.yaml with the
-// host-owned provenance block. Core is the only writer of spec files.
+// local binary, an owner/repo[/prefix] GitHub ref, or a bare registry name. All
+// forms funnel into the same routine: get a binary on disk → identity gate
+// (--identity) → install into ~/.harness/bin → capture grammar (--spec) →
+// write <name>.spec.yaml with the host-owned provenance block. Core is the
+// only writer of spec files.
 func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 	ref := ctx.Id
 	if ref == "" {
-		return fmt.Errorf("install plugin requires a tarball URL, a local tarball or binary path, or a plugin name (%s)", registryNames())
+		return fmt.Errorf("install plugin requires a tarball URL, a local tarball or binary path, an owner/repo[/prefix] GitHub ref, or a plugin name (%s)", registryNames())
 	}
+	parsed, err := parsePluginRef(ref)
+	if err != nil {
+		return err
+	}
+
 	version := cmdctx.GetString(ctx.FlagValues, "version")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	check := cmdctx.GetBool(ctx.FlagValues, "check")
 	githubToken := cmdctx.GetString(ctx.FlagValues, "github-token")
 	allowDrafts := cmdctx.GetBool(ctx.FlagValues, "allow-drafts")
+	pluginName := cmdctx.GetString(ctx.FlagValues, "plugin-name")
 
 	switch {
-	case strings.HasPrefix(ref, "http://"), strings.HasPrefix(ref, "https://"):
+	case parsed.URL != "":
 		// A bare URL has no discoverable checksum file and no promised name.
-		res, err := installPluginFromURL(ref, "", ref, "")
+		res, err := installPluginFromURL(parsed.URL, "", parsed.URL, "")
 		if err != nil {
 			return err
 		}
 		res.report()
 		return nil
-	case looksLikePath(ref):
-		res, err := installPluginFromPath(ref)
+	case parsed.LocalPath != "":
+		res, err := installPluginFromPath(parsed.LocalPath)
 		if err != nil {
 			return err
 		}
 		res.report()
 		return nil
+	case parsed.GithubRef != nil:
+		gh := *parsed.GithubRef
+		// --plugin-name only disambiguates a ref whose pkgName isn't already
+		// known — a registry entry's asset is already pinned.
+		if gh.PkgName == "" && pluginName != "" {
+			gh.PkgName = plugin.BinaryPrefix + "plugin-" + pluginName
+		}
+		return installPluginFromRelease(gh.GithubRepo, gh.TagPrefix, gh.PkgName, version, githubToken, allowDrafts, force, check)
 	default:
-		// Bare name → registry lookup. Same path `install module` takes.
-		if err := plugin.ValidateName(ref); err != nil {
-			return fmt.Errorf("%q is not a URL, an existing file, or a valid plugin name — supported names: %s", ref, registryNames())
-		}
-		if _, ok := pluginRegistry[ref]; !ok {
-			return fmt.Errorf("unknown plugin %q — supported: %s\n\nTo install an unregistered plugin, pass its tarball URL or path", ref, registryNames())
-		}
-		return installRegistryPlugin(ref, version, githubToken, allowDrafts, force, check)
+		return fmt.Errorf("internal error: parsePluginRef(%q) returned no variant", ref)
 	}
 }
 
 // looksLikePath reports whether ref should be treated as a filesystem path
-// rather than a registry name. A ref containing a separator is always a path
-// (so a typo'd path errors as a missing file, not an unknown plugin); a bare
-// word is a path only if a file by that name actually exists.
+// rather than a registry name or a GitHub ref. Only these three forms count —
+// there is no filesystem probing here, so a bareword or a relative path
+// without "./" is never silently treated as a path.
 func looksLikePath(ref string) bool {
-	if strings.ContainsAny(ref, `/\`) || strings.HasPrefix(ref, "~") || strings.HasPrefix(ref, ".") {
-		return true
-	}
-	_, err := os.Stat(ref)
-	return err == nil
+	return filepath.IsAbs(ref) || strings.HasPrefix(ref, "~/") || strings.HasPrefix(ref, "./")
 }
 
-// installRegistryPlugin installs a plugin named in pluginRegistry from the
-// Harness GitHub release tagged {prefix}/vX.Y.Z ("" / "latest" resolves to
-// that module's own latest release — independent of core's version and of
-// every other module's). check reports availability and drift without
-// installing.
-//
-// This is the only ref form that does an up-to-date check: a name means "get me
-// the current one", so reinstalling an identical version is wasted work. An
-// explicit URL or path names a specific artifact and is always installed.
-//
-// githubToken, when set, is forwarded to release resolution and asset download
-// so this can also install from a draft release or a private repo; allowDrafts
-// additionally includes drafts when resolving "latest" (meaningless without a
-// token, since an unauthenticated request never sees a draft to begin with).
+// splitGitHubRef parses ref as "owner/repo" or "owner/repo/prefix". Any other
+// slash count is rejected outright rather than falling through to be treated
+// as a bare plugin name.
+func splitGitHubRef(ref string) (owner, repoName, prefix string, ok bool) {
+	parts := strings.Split(ref, "/")
+	switch len(parts) {
+	case 2:
+		owner, repoName = parts[0], parts[1]
+	case 3:
+		owner, repoName, prefix = parts[0], parts[1], parts[2]
+	default:
+		return "", "", "", false
+	}
+	if owner == "" || repoName == "" || (len(parts) == 3 && prefix == "") {
+		return "", "", "", false
+	}
+	return owner, repoName, prefix, true
+}
+
+// installRegistryPlugin installs a plugin named in pluginRegistry. Its repo is
+// always release.Repo and its pkgName is always known, so it's a thin wrapper
+// over installPluginFromRelease, which also serves the generic
+// owner/repo[/prefix] ref form where the repo is user-supplied and pkgName may
+// have to be discovered from the release's own assets.
 func installRegistryPlugin(name, version, githubToken string, allowDrafts, force, check bool) error {
 	entry, ok := pluginRegistry[name]
 	if !ok {
 		return fmt.Errorf("unknown plugin %q — supported: %s", name, registryNames())
 	}
+	return installPluginFromRelease(entry.GithubRepo, entry.TagPrefix, entry.PkgName, version, githubToken, allowDrafts, force, check)
+}
 
+// installPluginFromRelease resolves a release tagged {prefix}/vX.Y.Z ("" /
+// "latest" resolves to that prefix's own latest release) in repo, finds the
+// plugin asset in it, and installs it — checking drift against any existing
+// install first. check reports availability and drift without installing.
+//
+// pkgName, when known (the registry form), selects the asset directly.
+// When empty (a generic owner/repo[/prefix] ref, where no pkgName is known
+// ahead of time), the asset — and the plugin's name — is discovered by
+// pattern-matching the release's own assets.
+//
+// This is the only ref form that does an up-to-date check: naming a release
+// this way means "get me the current one", so reinstalling an identical
+// version is wasted work. An explicit URL or path names a specific artifact
+// and is always installed.
+//
+// githubToken, when set, is forwarded to release resolution and asset download
+// so this can also install from a draft release or a private repo; allowDrafts
+// additionally includes drafts when resolving "latest" (meaningless without a
+// token, since an unauthenticated request never sees a draft to begin with).
+func installPluginFromRelease(repo, prefix, pkgName, version, githubToken string, allowDrafts, force, check bool) error {
 	platform, err := detectPlatform()
 	if err != nil {
 		return err
 	}
 	hlog.Debug("platform detected", "platform", platform)
+
+	rel, resolvedVersion, err := resolveReleaseForPrefix(repo, prefix, version, githubToken, allowDrafts)
+	if err != nil {
+		if check {
+			fmt.Printf("Version %s not found in %s: %v\n", versionLabel(version), repo, err)
+			os.Exit(1)
+		}
+		return err
+	}
+
+	var asset *release.Asset
+	var name string
+	if pkgName != "" {
+		name = strings.TrimPrefix(pkgName, plugin.BinaryPrefix+"plugin-")
+		asset, err = archiveAsset(rel, pkgName, resolvedVersion, platform)
+	} else {
+		asset, name, err = discoverPluginAsset(rel, resolvedVersion, platform)
+	}
+	if err != nil {
+		if check {
+			fmt.Printf("%s %s not available for platform %s: %v\n", repo, resolvedVersion, platform, err)
+			os.Exit(1)
+		}
+		return err
+	}
 
 	installed := installedPluginVersion(name)
 	// A spec whose binary is gone is not an install, whatever version it
@@ -154,15 +261,6 @@ func installRegistryPlugin(name, version, githubToken string, allowDrafts, force
 	}
 
 	if check {
-		rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version, githubToken, allowDrafts)
-		if err != nil {
-			fmt.Printf("Plugin %q version %s not found: %v\n", name, versionLabel(version), err)
-			os.Exit(1)
-		}
-		if _, err := archiveAssetURL(rel, entry.pkgName, resolvedVersion, platform); err != nil {
-			fmt.Printf("Plugin %q %s not available for platform %s\n", name, resolvedVersion, platform)
-			os.Exit(1)
-		}
 		if installed == "" {
 			fmt.Printf("Plugin %q %s is available to install\n", name, resolvedVersion)
 			return nil
@@ -181,11 +279,6 @@ func installRegistryPlugin(name, version, githubToken string, allowDrafts, force
 		return nil
 	}
 
-	rel, resolvedVersion, err := resolveReleaseForPrefix(release.Repo, entry.prefix, version, githubToken, allowDrafts)
-	if err != nil {
-		return err
-	}
-
 	if !force && installed != "" {
 		if cmp, ok := cmpVersion(resolvedVersion, installed); ok && cmp <= 0 {
 			if cmp < 0 {
@@ -197,25 +290,70 @@ func installRegistryPlugin(name, version, githubToken string, allowDrafts, force
 		}
 	}
 
-	archiveAsset, err := archiveAsset(rel, entry.pkgName, resolvedVersion, platform)
-	if err != nil {
-		return err
-	}
 	checksumAsset, err := checksumAsset(rel)
 	if err != nil {
 		return err
 	}
 	hlog.Info("downloading plugin", "plugin", name, "version", resolvedVersion, "platform", platform)
-	// expectName: the registry promised us this plugin, so a tarball that
-	// identifies as something else is a bad registry entry, not a new plugin —
-	// and must be rejected before it lands anywhere on disk.
-	res, err := installPluginFromAsset(archiveAsset, checksumAsset, githubToken, name)
+	// expectName: the release promised us this plugin (by registry entry or by
+	// asset-name discovery), so a tarball that identifies as something else is
+	// a bad release, not a new plugin — and must be rejected before it lands
+	// anywhere on disk.
+	res, err := installPluginFromAsset(asset, checksumAsset, githubToken, name)
 	if err != nil {
 		return err
 	}
 	res.report()
 	return nil
 }
+
+// discoverPluginAsset finds the sole plugin asset in rel for version and
+// platform when pkgName isn't known ahead of time (the generic
+// owner/repo[/prefix] ref form). It pattern-matches every asset against
+// harness-plugin-<name>_<version>_<platform>{.tar.gz,.tgz,.zip} and returns
+// the one match together with the <name> it captured — that name becomes both
+// the identity-gate expectation and the plugin's spec/version-tracking key.
+//
+// Zero matches means the release has no plugin for this platform; two or more
+// means the release ships more than one plugin and --plugin-name is needed to
+// pick one.
+func discoverPluginAsset(rel *release.Release, version, platform string) (*release.Asset, string, error) {
+	ver := strings.TrimPrefix(version, "v")
+	suffix := fmt.Sprintf("_%s_%s%s", ver, platform, archiveExtensionForPlatform(platform))
+
+	type candidate struct {
+		asset *release.Asset
+		name  string
+	}
+	var matches []candidate
+	for i := range rel.Assets {
+		a := &rel.Assets[i]
+		m := pluginAssetNamePattern.FindStringSubmatch(a.Name)
+		if m == nil || !strings.HasSuffix(a.Name, suffix) {
+			continue
+		}
+		matches = append(matches, candidate{asset: a, name: m[1]})
+	}
+
+	switch len(matches) {
+	case 1:
+		return matches[0].asset, matches[0].name, nil
+	case 0:
+		return nil, "", fmt.Errorf("no plugin asset for platform %s in release %s", platform, rel.TagName)
+	}
+	names := make([]string, len(matches))
+	for i, m := range matches {
+		names[i] = m.name
+	}
+	sort.Strings(names)
+	return nil, "", fmt.Errorf("release %s has %d plugin candidates for platform %s (%s) — pass --plugin-name to pick one",
+		rel.TagName, len(matches), platform, strings.Join(names, ", "))
+}
+
+// pluginAssetNamePattern captures <name> out of a harness-plugin-<name>_...
+// release asset name — the naming convention every plugin release, registered
+// or not, is expected to follow.
+var pluginAssetNamePattern = regexp.MustCompile(`^` + regexp.QuoteMeta(plugin.BinaryPrefix+"plugin-") + `([a-z0-9]+(?:-[a-z0-9]+)*)_`)
 
 // installedPlugin is what a successful install produces: the gated identity and
 // the path the binary actually landed at.
