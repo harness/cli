@@ -1165,6 +1165,52 @@ commands:
       no_fields: true
       text_header: "\nCreated label {{flags.key}} on repo {{ctx.idParts[0]}}\n"
 
+  - command: update repo_label
+    verb: update
+    noun: repo_label
+    short: "Update a repo-level label: harness update repo_label <repo_id>/<key> [--new-key <key>] [--color <color>] [--type static|dynamic] [--description <text>]"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<repo_id>/<key>"
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: new-key
+        description: New label key/name (renames the label)
+      - name: color
+        description: "Label color"
+        completion_values: [blue, brown, cyan, green, indigo, lime, mint, orange, pink, purple, red, violet, yellow]
+      - name: type
+        description: "Label type: static or dynamic"
+        completion_values: [static, dynamic]
+      - name: description
+        description: Label description
+    endpoint:
+      method: PATCH
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels/{{ctx.idParts[1]}}
+      body_params:
+        key: flags.new-key
+        color: flags.color
+        type: flags.type
+        description: flags.description
+      no_fields: true
+      text_header: "\nUpdated label {{ctx.idParts[1]}} on repo {{ctx.idParts[0]}}\n"
+
+  - command: delete repo_label
+    verb: delete
+    noun: repo_label
+    confirm_mode: prompt
+    short: "Delete a label from a repo: harness delete repo_label <repo_id>/<key>"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<repo_id>/<key>"
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels/{{ctx.idParts[1]}}
+      item_expr: it
+
   - command: execute pr:label
     verb: execute
     noun: pr
