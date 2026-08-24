@@ -235,6 +235,16 @@ Do not hardcode into source files, comments, or documentation:
 
 Use placeholder text like `<accountId>`, `<token>`, `<email>` in examples.
 
+## Comments
+
+Write a comment only for a non-obvious WHY: a hidden constraint, an invariant, a gotcha ("if you change X, also update Y"), or a workaround. Don't write a comment that:
+- Restates what the code already says — in its name, its type, or (for a function that rejects/validates specific cases) the error message it returns. A comment that duplicates a value found elsewhere in the function drifts the moment one side is edited and the other isn't, leaving a reader to reconcile two sources instead of trusting one.
+- Explains a design decision or naming choice ("we did X instead of Y because...").
+- Recounts history ("this used to be Z", "added for the W feature", "changed after bug #123").
+- Walks through what the code does step by step — a good name already carries that.
+
+Default to zero comments; most functions need none. If one is warranted, keep it to 1-2 lines — reaching for 4-5 lines above a small function is a sign it needs a clearer name or shape, not a bigger comment.
+
 ## Common pitfalls
 
 - **Binary not updated**: `task build` alone isn't enough — must `cp` to `~/.local/bin/harness`.

@@ -57,9 +57,6 @@ type Release struct {
 }
 
 const (
-	// FlagName is the hidden flag that triggers the background subprocess behavior.
-	FlagName = "--background-update-check"
-
 	cacheFile = "update-check.json"
 	// Repo is the GitHub repo for Harness CLI releases.
 	Repo          = "harness/cli"
@@ -109,7 +106,7 @@ func MaybeSpawn() {
 		return
 	}
 	hlog.Debug("spawning background update check", "exe", exe)
-	cmd := exec.Command(exe, FlagName)
+	cmd := exec.Command(exe, hbase.BackgroundUpdateCheckFlag)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil

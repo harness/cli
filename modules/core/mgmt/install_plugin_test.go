@@ -10,7 +10,171 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/harness/cli/pkg/release"
 )
+
+func TestLooksLikePath(t *testing.T) {
+	tests := []struct {
+		ref  string
+		want bool
+	}{
+		{"/abs/path/foo.tar.gz", true},
+		{"~/foo.tar.gz", true},
+		{"./foo.tar.gz", true},
+		{"./bin/harness-har", true},
+		{"foo.tar.gz", false},          // bareword, no marker — not a path
+		{"dist/foo.tar.gz", false},     // relative with a slash but no "./" — not a path
+		{"harness-har", false},         // bareword, even if a same-named file exists in cwd
+		{"someorg/some-plugin", false}, // owner/repo shape
+		{"~foo/bar", false},            // "~" not followed by "/" doesn't count
+	}
+	for _, tt := range tests {
+		if got := looksLikePath(tt.ref); got != tt.want {
+			t.Errorf("looksLikePath(%q) = %v, want %v", tt.ref, got, tt.want)
+		}
+	}
+}
+
+func TestSplitGitHubRef(t *testing.T) {
+	tests := []struct {
+		ref                             string
+		wantOwner, wantRepo, wantPrefix string
+		wantOK                          bool
+	}{
+		{"someorg/some-plugin", "someorg", "some-plugin", "", true},
+		{"someorg/some-plugin/myplugin", "someorg", "some-plugin", "myplugin", true},
+		{"a/b/c/d", "", "", "", false},
+		{"onlyoneword", "", "", "", false},
+		{"owner/", "", "", "", false},
+		{"/repo", "", "", "", false},
+		{"owner/repo/", "", "", "", false},
+	}
+	for _, tt := range tests {
+		owner, repoName, prefix, ok := splitGitHubRef(tt.ref)
+		if ok != tt.wantOK || owner != tt.wantOwner || repoName != tt.wantRepo || prefix != tt.wantPrefix {
+			t.Errorf("splitGitHubRef(%q) = (%q, %q, %q, %v), want (%q, %q, %q, %v)",
+				tt.ref, owner, repoName, prefix, ok, tt.wantOwner, tt.wantRepo, tt.wantPrefix, tt.wantOK)
+		}
+	}
+}
+
+func TestParsePluginRef(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  string
+		want pluginRef
+	}{
+		{"url", "https://example.com/foo.tar.gz", pluginRef{URL: "https://example.com/foo.tar.gz"}},
+		{"http url", "http://example.com/foo.tar.gz", pluginRef{URL: "http://example.com/foo.tar.gz"}},
+		{"absolute path", "/abs/path/foo.tar.gz", pluginRef{LocalPath: "/abs/path/foo.tar.gz"}},
+		{"home path", "~/foo.tar.gz", pluginRef{LocalPath: "~/foo.tar.gz"}},
+		{"dot path", "./foo.tar.gz", pluginRef{LocalPath: "./foo.tar.gz"}},
+		{
+			"owner/repo", "someorg/some-plugin",
+			pluginRef{GithubRef: &GithubPluginRef{GithubRepo: "someorg/some-plugin"}},
+		},
+		{
+			"owner/repo/prefix", "someorg/some-plugin/myplugin",
+			pluginRef{GithubRef: &GithubPluginRef{GithubRepo: "someorg/some-plugin", TagPrefix: "myplugin"}},
+		},
+		{
+			"registry name", "har",
+			pluginRef{PluginName: "har"},
+		},
+		{
+			"unregistered but valid name", "notaplugin",
+			pluginRef{PluginName: "notaplugin"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parsePluginRef(tt.ref)
+			if err != nil {
+				t.Fatalf("parsePluginRef(%q): %v", tt.ref, err)
+			}
+			if got.URL != tt.want.URL || got.LocalPath != tt.want.LocalPath || got.PluginName != tt.want.PluginName {
+				t.Fatalf("parsePluginRef(%q) = %+v, want %+v", tt.ref, got, tt.want)
+			}
+			switch {
+			case tt.want.GithubRef == nil && got.GithubRef != nil:
+				t.Fatalf("parsePluginRef(%q).GithubRef = %+v, want nil", tt.ref, got.GithubRef)
+			case tt.want.GithubRef != nil && got.GithubRef == nil:
+				t.Fatalf("parsePluginRef(%q).GithubRef = nil, want %+v", tt.ref, tt.want.GithubRef)
+			case tt.want.GithubRef != nil && *got.GithubRef != *tt.want.GithubRef:
+				t.Fatalf("parsePluginRef(%q).GithubRef = %+v, want %+v", tt.ref, got.GithubRef, tt.want.GithubRef)
+			}
+		})
+	}
+
+	errTests := []struct {
+		name, ref, wantSubstr string
+	}{
+		{"bad archive ref", "dist/foo.tar.gz", "not a path harness recognizes"},
+		{"bad github ref shape", "a/b/c/d", "not a valid owner/repo"},
+		{"invalid plugin name syntax", "Not_Valid", "not a URL, an existing file"},
+	}
+	for _, tt := range errTests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parsePluginRef(tt.ref)
+			if err == nil {
+				t.Fatalf("parsePluginRef(%q): expected an error", tt.ref)
+			}
+			if !strings.Contains(err.Error(), tt.wantSubstr) {
+				t.Fatalf("parsePluginRef(%q) error = %v, want it to contain %q", tt.ref, err, tt.wantSubstr)
+			}
+		})
+	}
+}
+
+func TestInstallRegistryPluginUnknownName(t *testing.T) {
+	err := installRegistryPlugin("notaplugin", "", "", false, false, false)
+	if err == nil {
+		t.Fatal("installRegistryPlugin(\"notaplugin\"): expected an error")
+	}
+	if !strings.Contains(err.Error(), "unknown plugin") {
+		t.Fatalf("installRegistryPlugin(\"notaplugin\") error = %v, want it to contain %q", err, "unknown plugin")
+	}
+}
+
+func TestDiscoverPluginAsset(t *testing.T) {
+	rel := &release.Release{
+		TagName: "v1.2.3",
+		Assets: []release.Asset{
+			{Name: "harness-core_1.2.3_darwin_amd64.tar.gz"},
+			{Name: "harness-plugin-har_1.2.3_darwin_amd64.tar.gz"},
+			{Name: "harness-plugin-har_1.2.3_linux_amd64.tar.gz"},
+			{Name: "harness_1.2.3_checksums.txt"},
+		},
+	}
+	asset, name, err := discoverPluginAsset(rel, "v1.2.3", "darwin_amd64")
+	if err != nil {
+		t.Fatalf("discoverPluginAsset: %v", err)
+	}
+	if name != "har" {
+		t.Errorf("name = %q, want %q", name, "har")
+	}
+	if asset.Name != "harness-plugin-har_1.2.3_darwin_amd64.tar.gz" {
+		t.Errorf("asset = %q, want the darwin_amd64 asset", asset.Name)
+	}
+
+	if _, _, err := discoverPluginAsset(rel, "v1.2.3", "windows_amd64"); err == nil {
+		t.Fatal("expected an error for a platform with no plugin asset")
+	}
+
+	multi := &release.Release{
+		TagName: "v1.2.3",
+		Assets: []release.Asset{
+			{Name: "harness-plugin-har_1.2.3_darwin_amd64.tar.gz"},
+			{Name: "harness-plugin-foo_1.2.3_darwin_amd64.tar.gz"},
+		},
+	}
+	if _, _, err := discoverPluginAsset(multi, "v1.2.3", "darwin_amd64"); err == nil {
+		t.Fatal("expected an error when more than one plugin asset matches")
+	} else if !strings.Contains(err.Error(), "--plugin-name") {
+		t.Fatalf("error = %v, want it to mention --plugin-name", err)
+	}
+}
 
 func TestIsArchive(t *testing.T) {
 	tests := []struct {

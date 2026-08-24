@@ -27,6 +27,13 @@ var BuildTime = ""
 // TimeoutExitCode is the exit code used when a command is killed by --timeout.
 const TimeoutExitCode = 124
 
+// Hidden flags. See the corresponding rootcmd.MaybeRun* function for each.
+const (
+	PostUpgradeFlag           = "--post-upgrade"
+	PostInstallFlag           = "--post-install"
+	BackgroundUpdateCheckFlag = "--background-update-check"
+)
+
 const (
 	HarnessHome         = "~/.harness"
 	ConfigFileName      = "config.yaml"
