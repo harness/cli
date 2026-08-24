@@ -27,6 +27,9 @@ var BuildTime = ""
 // TimeoutExitCode is the exit code used when a command is killed by --timeout.
 const TimeoutExitCode = 124
 
+// PostUpgradeFlag is the hidden flag `install cli` passes to the binary it just installed. See rootcmd.MaybeRunPostUpgrade.
+const PostUpgradeFlag = "--post-upgrade"
+
 const (
 	HarnessHome         = "~/.harness"
 	ConfigFileName      = "config.yaml"

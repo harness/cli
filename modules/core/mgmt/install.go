@@ -251,12 +251,17 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	// Bring any installed plugins up to their own latest by shelling out to the
 	// binary that was just installed, not this process's own code — a change to
 	// how plugin installs work ships with the release that carries it instead
-	// of lagging one core upgrade behind. A failure here is reported but never
-	// fails the overall install: it's non-fatal today, and once install has a
-	// postinstall hook, that's the place a failure here would be retried or
-	// escalated, not here.
+	// of lagging one core upgrade behind.
 	if err := runInstalledBinary(installedBinPath, "install", "plugin", "all"); err != nil {
 		fmt.Printf("warning: could not update plugins: %v\n", err)
+	}
+
+	// Let the binary just installed finish its own upgrade — a hook for
+	// whatever migration or cleanup work a future release needs that only its
+	// own code can know how to do. Runs after plugins so that work can assume
+	// plugins are already at their final state.
+	if err := runInstalledBinary(installedBinPath, hbase.PostUpgradeFlag); err != nil {
+		fmt.Printf("warning: post-upgrade hook failed: %v\n", err)
 	}
 
 	return nil
