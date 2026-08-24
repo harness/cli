@@ -904,6 +904,69 @@ commands:
       no_fields: true
       text_header: "\nClosed PR #{{ctx.idParts[1]}}\n"
 
+  - command: execute pr:reopen
+    verb: execute
+    noun: pr
+    noun_variant: reopen
+    short: "Reopen a closed pull request: harness execute pr:reopen <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/state
+      body_params:
+        state: '"open"'
+      no_fields: true
+      text_header: "\nReopened PR #{{ctx.idParts[1]}}\n"
+
+  - command: execute pr:ready
+    verb: execute
+    noun: pr
+    noun_variant: ready
+    short: "Mark a draft pull request as ready for review: harness execute pr:ready <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/state
+      body_params:
+        is_draft: "false"
+      no_fields: true
+      text_header: "\nMarked PR #{{ctx.idParts[1]}} as ready for review\n"
+
+  - command: execute pr:edit
+    verb: execute
+    noun: pr
+    noun_variant: edit
+    short: "Edit a pull request's title/description: harness execute pr:edit <repo_id>/<pr_number> [--title <text>] [--description <text>]"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: title
+        description: New PR title
+      - name: description
+        description: New PR description
+    endpoint:
+      method: PATCH
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}
+      body_params:
+        title: flags.title
+        description: flags.description
+      no_fields: true
+      text_header: "\nUpdated PR #{{ctx.idParts[1]}}\n"
+
   - command: execute pr:review
     verb: execute
     noun: pr
