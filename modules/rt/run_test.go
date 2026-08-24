@@ -154,6 +154,12 @@ func TestRerunStartsAFreshRunOfTheSameLoadTest(t *testing.T) {
 	if name, _ := post.body["name"].(string); !strings.Contains(name, "checkout-aaa") {
 		t.Errorf("name = %q, want the run it reruns named", name)
 	}
+	// The rerun spec is hand-built, so its scope has to match what every other call sends.
+	for name, want := range scopeParams(ctx) {
+		if got := post.query.Get(name); got != want {
+			t.Errorf("%s = %q on the rerun, want %q", name, got, want)
+		}
+	}
 	// Callers reuse ctx after a workflow returns.
 	if ctx.Id != "checkout-aaa" {
 		t.Errorf("ctx.Id = %q, want the previous run restored", ctx.Id)
@@ -262,6 +268,50 @@ func TestScopeParams(t *testing.T) {
 
 	if got := scopeParams(&cmdctx.Ctx{}); len(got) != 0 {
 		t.Errorf("got %v, want nothing when there is no auth", got)
+	}
+}
+
+// The rerun endpoint spec is built in Go, so its scope params must come from the same
+// place as every other call's — a param added to one has to appear in the other.
+func TestScopeQueryExprsQuotesTheSameParams(t *testing.T) {
+	ctx := &cmdctx.Ctx{Auth: &auth.ResolvedAuth{
+		AccountID: "acct", OrgID: "eng", ProjectID: "payments",
+	}}
+
+	exprs := scopeQueryExprs(ctx)
+	params := scopeParams(ctx)
+	if len(exprs) != len(params) {
+		t.Fatalf("got %d exprs for %d params: %v vs %v", len(exprs), len(params), exprs, params)
+	}
+	for name, value := range params {
+		if exprs[name] != `"`+value+`"` {
+			t.Errorf("expr for %s = %s, want the value as a quoted literal", name, exprs[name])
+		}
+	}
+
+	if got := scopeQueryExprs(&cmdctx.Ctx{}); len(got) != 0 {
+		t.Errorf("got %v, want nothing when there is no auth", got)
+	}
+}
+
+func TestItemsOfReadsBothShapes(t *testing.T) {
+	row := map[string]any{"identity": "rev-one"}
+
+	page := itemsOf(map[string]any{"items": []any{row}})
+	if len(page) != 1 || asMap(page[0])["identity"] != "rev-one" {
+		t.Errorf("got %v, want the row out of the page envelope", page)
+	}
+
+	bare := itemsOf([]any{row})
+	if len(bare) != 1 || asMap(bare[0])["identity"] != "rev-one" {
+		t.Errorf("got %v, want the row out of the bare array", bare)
+	}
+
+	// A 404 body, an empty page and a null all mean "no rows", not a panic.
+	for _, resp := range []any{nil, map[string]any{"message": "not found"}, map[string]any{}} {
+		if got := itemsOf(resp); len(got) != 0 {
+			t.Errorf("itemsOf(%v) = %v, want no rows", resp, got)
+		}
 	}
 }
 

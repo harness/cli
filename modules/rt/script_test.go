@@ -137,7 +137,7 @@ func TestEncodeScriptBodyMissingFlag(t *testing.T) {
 
 func TestResolveScriptRevisionByNumber(t *testing.T) {
 	ctx, calls := apiCtx(t, map[string]any{
-		api("/load-tests/checkout/script/revisions"): itemsPage(
+		api("/load-tests/checkout/script/revisions"): bareList(
 			map[string]any{"revisionNumber": float64(1), "identity": "rev-one"},
 			map[string]any{"revisionNumber": float64(2), "identity": "rev-two"},
 		),
@@ -158,13 +158,28 @@ func TestResolveScriptRevisionByNumber(t *testing.T) {
 
 func TestResolveScriptRevisionTrimsTheNumber(t *testing.T) {
 	ctx, _ := apiCtx(t, map[string]any{
-		api("/load-tests/checkout/script/revisions"): itemsPage(
+		api("/load-tests/checkout/script/revisions"): bareList(
 			map[string]any{"revisionNumber": float64(2), "identity": "rev-two"},
 		),
 	})
 	ctx.Id = "checkout"
 
 	if got, err := resolveScriptRevision(ctx, " 2 "); err != nil || got != "rev-two" {
+		t.Errorf("got %q, %v; want rev-two", got, err)
+	}
+}
+
+// The revisions route answers with a bare array today, but the paged routes next to it
+// answer with an envelope, so a revision number resolves either way.
+func TestResolveScriptRevisionReadsAPagedResponseToo(t *testing.T) {
+	ctx, _ := apiCtx(t, map[string]any{
+		api("/load-tests/checkout/script/revisions"): itemsPage(
+			map[string]any{"revisionNumber": float64(2), "identity": "rev-two"},
+		),
+	})
+	ctx.Id = "checkout"
+
+	if got, err := resolveScriptRevision(ctx, "2"); err != nil || got != "rev-two" {
 		t.Errorf("got %q, %v; want rev-two", got, err)
 	}
 }
@@ -195,7 +210,7 @@ func TestResolveScriptRevisionNeedsALoadTest(t *testing.T) {
 
 func TestResolveScriptRevisionUnknownNumber(t *testing.T) {
 	ctx, _ := apiCtx(t, map[string]any{
-		api("/load-tests/checkout/script/revisions"): itemsPage(
+		api("/load-tests/checkout/script/revisions"): bareList(
 			map[string]any{"revisionNumber": float64(1), "identity": "rev-one"},
 		),
 	})

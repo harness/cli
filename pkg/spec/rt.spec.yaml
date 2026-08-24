@@ -17,14 +17,16 @@ help_text: |
   the tunables (target users, duration) it accepts. Creating one does not run
   anything.
 
-  `create loadtest <id> --set toolType=K6 --set infraIdentifier=<infra> --set
-  environmentIdentifier=<env>` builds the definition from key=value pairs, or
-  pass a whole body with `-f test.yaml`. Use one or the other: when `-f` is
-  given it supplies the entire body and `--set` is ignored.
+  `create loadtest <id> -f test.yaml` creates one from a whole body. Every tool
+  type requires a `toolConfig` block, which key=value pairs cannot express, so
+  `-f` is the path in — `get loadtest <id> --yaml -o test.yaml` on an existing
+  test gives you a body to edit. `--set` is ignored whenever `-f` is present.
 
   Two variants create a load test from something you already have:
-  `create loadtest:from_json <id> -f spec.json` takes a declarative endpoint
-  spec instead of a tool script, and `create loadtest:from_template <id>
+  `create loadtest:from_json <id> -f request.json` takes a declarative endpoint
+  spec instead of a tool script — the file is the whole request body, with the
+  spec under `jsonSpec` alongside `toolType`, `infraIdentifier` and
+  `environmentIdentifier` — and `create loadtest:from_template <id>
   --template <template-id>` instantiates a template. A template-backed test is
   either a REFERENCE (a pointer — the template stays the source of truth) or a
   LOCAL copy. Use `execute loadtest:sync <id>` to re-pull a REFERENCE test
@@ -40,22 +42,26 @@ help_text: |
   A **loadtest_run** is one execution of an RT load test.
   `execute loadtest <id>` starts a run and prints its identity; add `--follow`
   to stay attached and stream status and metrics until the run reaches a
-  terminal state, exiting non-zero if it fails. Supply run-time values with
-  `--set targetUsers=50`.
+  terminal state, exiting non-zero if it fails. Override the test's own
+  variables for this run with `--set targetUsers=50` — here `--set` takes
+  variable names as the script declares them, which
+  `list loadtest:variables <id>` lists.
 
   Inspect runs with `list loadtest_run` (across the scope) or
   `list loadtest_run <loadtest-id>` (for one test), and
   `get loadtest_run <run-id>`. While a run is live you can retarget it with
-  `update loadtest_run <run-id> --set targetUsers=200` and end it early with
+  `update loadtest_run <run-id> --set target_users=200` and end it early with
   `execute loadtest_run:stop <run-id>`.
 
   `execute loadtest_run:rerun <run-id>` starts a fresh run of the same load
   test with the same shape.
 
-  Results come from `get loadtest_run:summary <run-id>` for the headline
-  numbers, `get loadtest_run:metrics <run-id> --view timeseries|scatter|aggregate`
-  for the metric series, and `get loadtest_run:graph <run-id>` for the
-  render-ready chart payload.
+  Results are separate commands rather than one command with a view flag:
+  `get loadtest_run:summary <run-id>` for the headline numbers,
+  `list loadtest_run:metrics <run-id>` for the time series,
+  `list loadtest_run:requests <run-id>` for sampled individual requests,
+  `list loadtest_run:endpoints <run-id>` for the per-endpoint breakdown, and
+  `list loadtest_run:graph <run-id>` for the render-ready chart series.
 
   A **loadtest_template** is a shareable, versioned RT load test definition.
   Templates live in hubs; `list loadtest_template` spans every hub in the
@@ -63,15 +69,18 @@ help_text: |
   each template came from. Every other template command targets one hub, so
   pass `--hub` when the template is not in the default (unhubbed) one.
 
-  Templates are revisioned: `create loadtest_template:revision <id> --revision
-  <rev>` adds a revision, `list loadtest_template:revision <id>` lists them,
-  and `get loadtest_template:revision <id>/<rev>` fetches one.
+  Templates are revisioned, and a revision is addressed as `<template-id>/<rev>`
+  the same way a pipeline template version is: `create
+  loadtest_template_revision <id>/<rev>` adds one, `list
+  loadtest_template_revision <id>` lists them, and `get
+  loadtest_template_revision <id>/<rev>` fetches one.
   `get loadtest_template:yaml <id>` writes the template as a YAML document.
 
   A **loadtest_script** is the script attached to an RT load test, with its own
   revision history. `get loadtest_script <loadtest-id>` shows the current
-  script, `list loadtest_script <loadtest-id>` lists revisions, and
-  `update loadtest_script <loadtest-id> -f script.jmx` uploads a new one.
+  script, `list loadtest_script:revisions <loadtest-id>` lists revisions,
+  `get loadtest_script:revision <loadtest-id> --revision 3` shows one of them,
+  and `update loadtest_script <loadtest-id> -f script.jmx` uploads a new one.
 
   A **composite_loadtest** is a pipeline that runs RT load tests and chaos
   probes together as stages. Identifiers must not contain hyphens — use
@@ -95,6 +104,8 @@ nouns:
       - id: name
         expr: it.name
         mutable_path: name
+      # No mutable_path: toolType is fixed at create, and create needs a toolConfig
+      # block that --set cannot express, so a load test is created with -f.
       - id: tool_type
         label: Tool
         expr: it.toolType
@@ -188,12 +199,15 @@ nouns:
       - id: tool_type
         label: Tool
         expr: it.toolType
+      # Retargetable while the run is live — see update loadtest_run.
       - id: target_users
         label: Users
         expr: it.targetUsers
+        mutable_path: targetUsers
         align: right
       - id: spawn_rate
         expr: it.spawnRate
+        mutable_path: spawnRate
         align: right
       - id: duration
         label: Duration (s)
@@ -263,6 +277,8 @@ nouns:
       - id: name
         expr: it.name
         mutable_path: name
+      # No mutable_path on either: both are fixed at create, and a template is
+      # created with -f for the same reason a load test is.
       - id: revision
         expr: it.revision
       - id: hub
@@ -285,6 +301,39 @@ nouns:
         expr: it.description
         width_max: 60
         mutable_path: description
+      - id: created_at
+        expr: it.createdAt
+      - id: created_by
+        expr: it.createdBy
+      - id: updated_at
+        expr: it.updatedAt
+      - id: updated_by
+        expr: it.updatedBy
+      - id: script
+        expr: it.scriptContent
+        field_type: multiline_text
+
+  - noun: loadtest_template_revision
+    short_desc: A specific revision of an RT load test template.
+    noun_aliases: [loadtest_template_revisions]
+    fields:
+      - id: revision
+        expr: it.revision
+      - id: name
+        expr: it.name
+      - id: hub
+        label: Hub
+        expr: it.hubIdentity
+      - id: tool_type
+        label: Tool
+        expr: it.toolType
+      - id: infra_type
+        expr: it.infraType
+      - id: script_source
+        expr: it.scriptSource
+      - id: description
+        expr: it.description
+        width_max: 60
       - id: created_at
         expr: it.createdAt
       - id: created_by
@@ -712,7 +761,7 @@ commands:
     verb: create
     noun: loadtest
     requires_id: true
-    short: "Create a load test: harness create loadtest <id> --set toolType=K6 --set infraIdentifier=<infra> --set environmentIdentifier=<env>, or -f test.yaml"
+    short: "Create a load test: harness create loadtest <id> -f test.yaml — the body carries the toolConfig block that --set cannot express"
     flags_builtin:
       set: true
     handler_type: endpoint
@@ -735,7 +784,7 @@ commands:
     noun: loadtest
     noun_variant: from_json
     requires_id: true
-    short: "Create a load test from a JSON endpoint spec: harness create loadtest:from_json <id> -f spec.json --set infraIdentifier=<infra> --set environmentIdentifier=<env>"
+    short: "Create a load test from a JSON endpoint spec: harness create loadtest:from_json <id> -f request.json — the file is the whole body, endpoint spec under jsonSpec"
     flags_builtin:
       set: true
     handler_type: endpoint
@@ -984,25 +1033,25 @@ commands:
   - command: update loadtest_run
     verb: update
     noun: loadtest_run
-    short: "Retarget a running load test: harness update loadtest_run <run-id> --users 200 [--spawn-rate 5]"
+    short: "Retarget a running load test: harness update loadtest_run <run-id> --set target_users=200 [--set spawn_rate=5]"
     id_label: "<run-id>"
     handler_type: endpoint
-    flags:
-      - name: users
-        description: New target number of virtual users
-      - name: spawn-rate
-        description: New spawn rate, in users per second
+    flags_builtin:
+      set: true
     endpoint:
       method: POST
       path: /gateway/loadTest/manager/api/v1/runs/{{ctx.id}}/update
       # This endpoint takes the scope in the body, not just the query string.
+      # --set values arrive as strings and the route binds targetUsers and spawnRate as
+      # numbers, so the two tunables are read from ctx.setArgs and converted here rather
+      # than written straight through by create_strategy: set-fields.
       body_params:
         identity: ctx.id
         accountIdentifier: auth.account
         organizationIdentifier: auth.org
         projectIdentifier: auth.project
-        targetUsers: 'flags.users != "" ? int(flags.users) : nil'
-        spawnRate: 'flags["spawn-rate"] != "" ? float(flags["spawn-rate"]) : nil'
+        targetUsers: 'ctx.setArgs.target_users == nil ? nil : int(ctx.setArgs.target_users)'
+        spawnRate: 'ctx.setArgs.spawn_rate == nil ? nil : float(ctx.setArgs.spawn_rate)'
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
@@ -1315,7 +1364,7 @@ commands:
     verb: create
     noun: loadtest_template
     requires_id: true
-    short: "Create a load test template: harness create loadtest_template <id> --set toolType=K6 --set revision=v1, or -f template.yaml"
+    short: "Create a load test template: harness create loadtest_template <id> -f template.yaml — templates carry a toolConfig block too"
     flags_builtin:
       set: true
     flags:
@@ -1380,11 +1429,10 @@ commands:
       no_fields: true
       text_header: "\nDeleted load test template {{ctx.id}}\n"
 
-  - command: list loadtest_template:revisions
+  - command: list loadtest_template_revision
     verb: list
-    noun: loadtest_template
-    noun_variant: revisions
-    short: "List the revisions of a template: harness list loadtest_template:revisions <template-id>"
+    noun: loadtest_template_revision
+    short: "List the revisions of a template: harness list loadtest_template_revision <template-id>"
     requires_parentid: true
     parentid_label: "<template-id>"
     completion_noun: loadtest_template
@@ -1396,7 +1444,10 @@ commands:
       path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.parentId}}/revisions
       # The route answers with a bare array of revisions rather than a page.
       items_expr: it
-      get_id_expr: it.revision
+      get_id_expr: parentId + "/" + it.revision
+      completion:
+        id_expr: it.revision
+        name_expr: it.name
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
@@ -1405,82 +1456,81 @@ commands:
         paging_strategy: flat_list
       columns: [revision, name, tool_type, infra_type, updated_at, updated_by]
 
-  - command: create loadtest_template:revision
+  - command: create loadtest_template_revision
     verb: create
-    noun: loadtest_template
-    noun_variant: revision
+    noun: loadtest_template_revision
     requires_id: true
-    short: "Add a revision to a template: harness create loadtest_template:revision <template-id> --revision v2, or -f template.yaml"
-    completion_noun: loadtest_template
+    short: "Add a revision to a template: harness create loadtest_template_revision <template-id>/v2, or -f template.yaml"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
     flags_builtin:
       set: true
     flags:
-      - name: revision
-        description: Identifier for the new revision
-        required: true
       - name: hub
         description: Hub holding the template
     handler_type: endpoint
     endpoint:
       method: POST
-      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}/revisions
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions
       file_body: optional
       create_strategy: set-fields
       create_body_init:
-        identity: ctx.id
-        revision: flags.revision
+        identity: ctx.idParts[0]
+        revision: ctx.idParts[1]
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
         hubIdentity: flags.hub
       item_expr: it
 
-  - command: get loadtest_template:revision
+  - command: get loadtest_template_revision
     verb: get
-    noun: loadtest_template
-    noun_variant: revision
-    short: "Get one revision of a template: harness get loadtest_template:revision <template-id> --revision v2"
-    id_label: "<template-id>"
-    completion_noun: loadtest_template
+    noun: loadtest_template_revision
+    short: "Get one revision of a template: harness get loadtest_template_revision <template-id>/v2"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
+      - completion_noun: loadtest_template_revision
+        keep_order: true
     handler_type: endpoint
     flags:
-      - name: revision
-        description: Revision to fetch
-        required: true
       - name: hub
         description: Hub holding the template
     endpoint:
-      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}/revisions/{{flags.revision}}
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions/{{ctx.idParts[1]}}
       item_expr: it
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
         hubIdentity: flags.hub
 
-  - command: delete loadtest_template:revision
+  - command: delete loadtest_template_revision
     verb: delete
-    noun: loadtest_template
-    noun_variant: revision
-    short: "Delete one revision of a template: harness delete loadtest_template:revision <template-id> --revision v2"
-    id_label: "<template-id>"
-    completion_noun: loadtest_template
+    noun: loadtest_template_revision
+    short: "Delete one revision of a template: harness delete loadtest_template_revision <template-id>/v2"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
+      - completion_noun: loadtest_template_revision
+        keep_order: true
     confirm_mode: prompt
     handler_type: endpoint
     flags:
-      - name: revision
-        description: Revision to delete
-        required: true
       - name: hub
         description: Hub holding the template
     endpoint:
       method: DELETE
-      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}/revisions/{{flags.revision}}
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions/{{ctx.idParts[1]}}
       query_params:
         organizationIdentifier: 'auth.org != "" ? auth.org : nil'
         projectIdentifier: 'auth.project != "" ? auth.project : nil'
         hubIdentity: flags.hub
       no_fields: true
-      text_header: "\nDeleted revision {{flags.revision}} of template {{ctx.id}}\n"
+      text_header: "\nDeleted revision {{ctx.idParts[1]}} of template {{ctx.idParts[0]}}\n"
 
   - command: list loadtest_template:variables
     verb: list
