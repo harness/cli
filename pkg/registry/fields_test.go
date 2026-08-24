@@ -106,6 +106,7 @@ func (tr *testResolver) ResolveEndpointValidator(id string) cmdctx.EndpointValid
 func (tr *testResolver) RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 	return nil, nil
 }
+func (tr *testResolver) RunUIHandler(ctx *cmdctx.Ctx, fnID string) error { return nil }
 func (tr *testResolver) FormatList(ctx *cmdctx.Ctx, rows []any, fields []spec.FieldDef, columnIDs []string) error {
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 )
 
@@ -17,10 +18,25 @@ var ModuleOrder = []string{"core", "platform", "pipeline", "cd", "fme"}
 //go:embed *.spec.yaml
 var specsFS embed.FS
 
-// Files returns the names of all embedded *.spec.yaml files.
+// pluginSpecFiles lists embedded specs for modules that ship as separate plugin
+// binaries. The host never registers these as builtins — it only records their
+// noun ownership so a noun belonging to an uninstalled plugin produces a useful
+// error. A spec declaring module_type: plugin must appear here; the partition is
+// enforced by TestEmbeddedSpecPartition in pkg/specloader.
+var pluginSpecFiles = []string{"har.spec.yaml"}
+
+// Files returns the names of all embedded builtin *.spec.yaml files (everything
+// except pluginSpecFiles).
 func Files() []string {
 	entries, _ := fs.Glob(specsFS, "*.spec.yaml")
-	return entries
+	return slices.DeleteFunc(entries, func(name string) bool {
+		return slices.Contains(pluginSpecFiles, name)
+	})
+}
+
+// PluginFiles returns the names of embedded specs for plugin modules.
+func PluginFiles() []string {
+	return slices.Clone(pluginSpecFiles)
 }
 
 // Read returns the raw contents of a named spec file.
@@ -71,6 +87,65 @@ const (
 	PagingStrategyCursor      = "cursor"       // token-based iteration; no random access, not countable (not yet implemented)
 	PagingStrategyOffsetLimit = "offset_limit" // API accepts offset (items to skip) + limit; response has totalCount
 )
+
+// Valid presence values for MigrateFlag.
+const (
+	MigratePresenceRequired = "required" // flag is registered and must be provided
+	MigratePresenceOptional = "optional" // flag is registered; may be omitted (default)
+	MigratePresenceNone     = "none"     // flag is not registered at all
+)
+
+// MigrateFlag customizes the --from / --to flag of a pair verb (migrate) command.
+// Both fields are optional: an absent block behaves as presence: optional with the
+// generic label.
+type MigrateFlag struct {
+	// Label overrides the flag's --help text (e.g. "GitHub organization to migrate").
+	Label string `yaml:"label,omitempty"`
+	// IdLabel overrides the "<id>" value placeholder shown after the flag in usage
+	// lines (e.g. "<bundle-folder-or-zip>", "<folder>").
+	IdLabel string `yaml:"id_label,omitempty"`
+	// Presence controls flag registration. See MigratePresence* consts.
+	Presence string `yaml:"presence,omitempty"`
+}
+
+// EffectivePresence returns the declared presence, defaulting to optional for an
+// absent block or an empty field.
+func (m *MigrateFlag) EffectivePresence() string {
+	if m == nil || m.Presence == "" {
+		return MigratePresenceOptional
+	}
+	return m.Presence
+}
+
+// EffectiveLabel returns the declared label, or fallback when none is declared.
+func (m *MigrateFlag) EffectiveLabel(fallback string) string {
+	if m == nil || m.Label == "" {
+		return fallback
+	}
+	return m.Label
+}
+
+// EffectiveIdLabel returns the declared value placeholder, defaulting to "<id>".
+func (m *MigrateFlag) EffectiveIdLabel() string {
+	if m == nil || m.IdLabel == "" {
+		return "<id>"
+	}
+	return m.IdLabel
+}
+
+// UsageFragment renders this flag for a usage line: " --name <label>" when required,
+// " [--name <label>]" when optional, "" when the flag is not registered. name is the
+// flag name ("from" or "to").
+func (m *MigrateFlag) UsageFragment(name string) string {
+	switch m.EffectivePresence() {
+	case MigratePresenceNone:
+		return ""
+	case MigratePresenceRequired:
+		return " --" + name + " " + m.EffectiveIdLabel()
+	default:
+		return " [--" + name + " " + m.EffectiveIdLabel() + "]"
+	}
+}
 
 // BuiltinFlags enables predefined system flags that have fixed registration and dispatch behavior.
 type BuiltinFlags struct {
@@ -152,6 +227,39 @@ type NounDef struct {
 	// NounAliases lists alternate names for this noun (e.g. "org", "orgs" for "organization").
 	// Alias commands are wired up as hidden cobra commands and do not appear in help output.
 	NounAliases []string `yaml:"noun_aliases,omitempty"`
+	// UICommands declares the hotkeys the --ui detail overlay offers for this noun:
+	// alternate shapes to render in place (text), navigation to a related noun (link),
+	// or a full-takeover custom TUI (view). Optional; absent means unchanged behavior.
+	UICommands []UICommand `yaml:"ui_commands,omitempty"`
+}
+
+// UICommandType values for UICommand.UICommandType.
+const (
+	UICommandText = "text"
+	UICommandLink = "link"
+	UICommandView = "view"
+)
+
+// UICommand is a single hotkey offered by a noun's --ui detail overlay. One flat
+// struct for all three ui_command_types, matching how CommandSpec/EndpointSpec
+// already mix fields that only apply to some verbs/shapes — checks.go enforces
+// which fields are required/forbidden for which type.
+type UICommand struct {
+	UICommandType string `yaml:"ui_command_type"`
+	Key           string `yaml:"key"`
+	// Label overrides the hotkey hint text shown in the detail overlay's status
+	// line. When empty, the hint is derived from the resolved noun/handler.
+	Label string `yaml:"label,omitempty"`
+	// Default marks the text entry rendered when the detail pane first opens.
+	// Only valid on text entries; exactly one text entry per noun must set it.
+	Default bool `yaml:"default,omitempty"`
+	// Noun is a full "noun[:variant]" string resolved via GetSpec(VerbGet, ...)
+	// for text entries, or GetSpec(Verb, ...) for link entries.
+	Noun string `yaml:"noun,omitempty"`
+	// Verb is the link target's verb: "list" or "get". Link only.
+	Verb string `yaml:"verb,omitempty"`
+	// UIHandlerFn is the registered workflow id to hand off to. View only.
+	UIHandlerFn string `yaml:"ui_handler_fn,omitempty"`
 }
 
 // FieldDef defines a named, reusable field for a noun. Fields declared here can be
@@ -440,10 +548,14 @@ type CommandSpec struct {
 	Verb             string              `yaml:"verb"`
 	Noun             string              `yaml:"noun,omitempty"`         // base noun; empty for management exceptions
 	NounVariant      string              `yaml:"noun_variant,omitempty"` // optional variant suffix; produces "noun:variant" cobra subcommand
+	NounTo           string              `yaml:"noun_to,omitempty"`      // second noun of a pair verb (migrate/convert); mutually exclusive with NounVariant
+	MigrateFrom      *MigrateFlag        `yaml:"migrate_from,omitempty"` // pair verbs only: customizes --from
+	MigrateTo        *MigrateFlag        `yaml:"migrate_to,omitempty"`   // pair verbs only: customizes --to
 	Short            string              `yaml:"short,omitempty"`
 	Long             string              `yaml:"long,omitempty"`
 	RequiresId       bool                `yaml:"requires_id,omitempty"`       // positional [id] is mandatory for this command
 	NoId             bool                `yaml:"no_id,omitempty"`             // opt out of the verb's default RequiresId (e.g. singleton get commands)
+	AllowsId         bool                `yaml:"allows_id,omitempty"`         // when set (with no_id), still populate ctx.Id if a positional arg is given
 	IdLabel          string              `yaml:"id_label,omitempty"`          // overrides "<id>" in the Usage line (e.g. "<registry/path>")
 	ArgsLabel        string              `yaml:"args_label,omitempty"`        // appended to Usage after the id label (e.g. "<local-file>"); only used when has_args is true
 	IdParts          int                 `yaml:"id_parts,omitempty"`          // when > 1, id must contain exactly (id_parts-1) "/" separators; parts available as {ctx:id_part:0}, {ctx:id_part:1}, ...
@@ -470,12 +582,15 @@ type CommandSpec struct {
 	External         bool                `yaml:"-"`                         // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
 }
 
-// FullNoun returns "noun:variant" when NounVariant is set, otherwise just Noun.
-// Use this wherever the cobra subcommand name or command identity is needed.
-// Use Noun directly when looking up field definitions or completion sources (base noun only).
+// FullNoun returns "noun:variant" when NounVariant is set, "noun:noun_to" when NounTo is
+// set, otherwise just Noun. Use this wherever the cobra subcommand name or command identity
+// is needed. Use Noun directly when looking up field definitions or completion sources (base noun only).
 func (cs *CommandSpec) FullNoun() string {
 	if cs.NounVariant != "" {
 		return cs.Noun + ":" + cs.NounVariant
+	}
+	if cs.NounTo != "" {
+		return cs.Noun + ":" + cs.NounTo
 	}
 	return cs.Noun
 }

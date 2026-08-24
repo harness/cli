@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -84,6 +85,7 @@ func Load(profileFlag string) (*ResolvedAuth, error) {
 		}
 		return &ResolvedAuth{
 			Source:      SourceEnv,
+			AuthType:    AuthTypePAT,
 			PATToken:    key,
 			AccountID:   acct,
 			OrgID:       os.Getenv(hbase.EnvOrg),
@@ -221,33 +223,28 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	return r, nil
 }
 
-var (
-	hostLabelRE   = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
-	harnessHostRE = regexp.MustCompile(`^https://([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+harness\.io(/[a-z0-9_-]+)*$`)
-	harnessNameRE = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+harness\.io$`)
-)
+var hostLabelRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
 
-// NormalizeAPIURL recognizes two shorthand forms and expands them:
-//   - bare label (e.g. "harness0")          → "https://harness0.harness.io"
-//   - FQDN under harness.io (e.g. "app.harness.io") → "https://app.harness.io"
-//
-// Any other input is returned unchanged; ValidateAPIURL will reject it.
+// NormalizeAPIURL expands a bare label shorthand (e.g. "harness0" → "https://harness0.harness.io")
+// and, for anything else that has no scheme, prepends "https://" (e.g. "harness.onefiserv.net" →
+// "https://harness.onefiserv.net"). Input that already has a scheme is returned unchanged.
 func NormalizeAPIURL(s string) string {
 	s = strings.TrimSpace(s)
 	if hostLabelRE.MatchString(s) {
 		return "https://" + s + ".harness.io"
 	}
-	if harnessNameRE.MatchString(s) {
+	if !strings.Contains(s, "://") {
 		return "https://" + s
 	}
 	return s
 }
 
-// ValidateAPIURL returns an error if apiURL is not a valid Harness API URL
-// of the form https://<host>.harness.io (no path, no trailing slash).
+// ValidateAPIURL returns an error if apiURL is not a well-formed https:// URL with a host.
+// It no longer restricts the host to *.harness.io, so vanity and on-prem domains are accepted.
 func ValidateAPIURL(apiURL string) error {
-	if !harnessHostRE.MatchString(apiURL) {
-		return fmt.Errorf("%q is not a valid Harness API URL — expected https://<host>.harness.io", apiURL)
+	u, err := url.Parse(apiURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("%q is not a valid URL — expected an https:// URL with a host", apiURL)
 	}
 	return nil
 }

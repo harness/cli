@@ -355,6 +355,173 @@ nouns:
         label: Stage ID
         expr: it.check.payload.data.stage_identifier
 
+  - noun: pr_insight
+    short_desc: Risk summary for a pull request (Harness Code review insights).
+    noun_aliases: [pr_insights]
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+    fields:
+      - id: risk
+        expr: it.risk
+      - id: content
+        expr: it.content
+        field_type: multiline_text
+
+  - noun: pr_review_group
+    short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).
+    noun_aliases: [pr_review_groups]
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+
+  - noun: pr_reviewer
+    short_desc: A reviewer on a pull request, with their review decision (Harness Code).
+    noun_aliases: [pr_reviewers]
+    fields:
+      - id: id
+        label: Id
+        expr: it.reviewer.id
+      - id: display_name
+        label: Display Name
+        expr: it.reviewer.display_name
+      - id: email
+        expr: it.reviewer.email
+      - id: uid
+        expr: it.reviewer.uid
+      - id: decision
+        expr: it.review_decision
+      - id: type
+        expr: it.type
+      - id: added_by
+        label: Added By
+        expr: it.added_by.display_name
+      - id: updated
+        expr: epochMs(it.updated)
+
+  - noun: pr_codeowner
+    short_desc: A codeowner (individual or group member) evaluated against a pull request (Harness Code).
+    noun_aliases: [pr_codeowners]
+    fields:
+      - id: pattern
+        expr: it.pattern
+      - id: owner_type
+        label: Owner Type
+        expr: it.owner_type
+      - id: display_name
+        label: Display Name
+        expr: it.display_name
+      - id: email
+        expr: it.email
+      - id: group_name
+        label: Group
+        expr: it.group_name
+      - id: decision
+        expr: it.review_decision
+
+  - noun: pr_label
+    short_desc: A label assignable to a pull request (Harness Code).
+    noun_aliases: [pr_labels]
+    fields:
+      - id: id
+        expr: it.id
+      - id: key
+        expr: prLabelColor(it.color, it.key)
+      - id: type
+        expr: it.type
+      - id: assigned
+        expr: it.assigned
+      - id: color
+        expr: it.color
+
+  - noun: repo_label
+    short_desc: A label defined at the repo level, assignable to pull requests (Harness Code).
+    noun_aliases: [repo_labels]
+    fields:
+      - id: id
+        expr: it.id
+      - id: key
+        expr: prLabelColor(it.color, it.key)
+      - id: type
+        expr: it.type
+      - id: description
+        expr: it.description
+      - id: value_count
+        label: Values
+        expr: it.value_count
+        align: right
+      - id: pullreq_count
+        label: PRs Using
+        expr: it.pullreq_count
+        align: right
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
+  - noun: code_principal
+    short_desc: A person or service account in the current account/org/project scope (Harness Code).
+    noun_aliases: [code_principals]
+    fields:
+      - id: id
+        expr: it.id
+      - id: display_name
+        label: Display Name
+        expr: it.display_name
+      - id: email
+        expr: it.email
+      - id: uid
+        expr: it.uid
+      - id: type
+        expr: it.type
+
+  - noun: pr_suggested_reviewer
+    short_desc: A suggested reviewer for a pull request (Harness Code review insights).
+    noun_aliases: [pr_suggested_reviewers]
+    fields:
+      - id: display_name
+        label: Display Name
+        expr: it.reviewer.display_name
+      - id: email
+        expr: it.reviewer.email
+      - id: uid
+        expr: it.reviewer.uid
+      - id: suggested_by
+        label: Suggested By
+        expr: it.suggested_by.display_name
+      - id: suggested_at
+        label: Suggested At
+        expr: epochMs(it.suggested_at)
+
+  - noun: pr_suggested_label
+    short_desc: A suggested label for a pull request (Harness Code review insights).
+    noun_aliases: [pr_suggested_labels]
+    fields:
+      - id: key
+        expr: it.label.key
+      - id: color
+        expr: it.label.color
+      - id: type
+        expr: it.label.type
+      - id: suggested_by
+        label: Suggested By
+        expr: it.suggested_by.display_name
+      - id: suggested
+        label: Suggested At
+        expr: epochMs(it.suggested)
+
+  - noun: pr_success_criterion
+    short_desc: An AI review success-criterion result for a pull request (Harness Code review insights).
+    noun_aliases: [pr_success_criteria]
+    fields:
+      - id: id
+        label: ID
+        expr: it.id
+      - id: status
+        expr: it.status
+      - id: summary
+        expr: it.summary
+      - id: started
+        expr: epochMs(it.started)
+      - id: ended
+        expr: epochMs(it.ended)
+
   - noun: pr_activity
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
@@ -481,12 +648,56 @@ commands:
         default: open
         completion_values: [open, closed, merged, all]
       - name: created-after
-        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: created-before
-        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
     endpoint:
       path: /code/api/v1/pullreq
       query_params_fn: list_mine_pr_query_params
+      fetch_fn: list_mine_pr_fetch
+      items_expr: it
+      get_id_expr: string(it.number)
+      query_params:
+        state: 'flags.state == "all" ? "" : flags.state'
+        created_gt: 'parseDateMs(flags["created-after"])'
+        created_lt: 'parseDateMs(flags["created-before"])'
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      fields_extra:
+        - id: repo
+          label: Repo
+          expr: it.repository.identifier
+        - id: url
+          label: URL
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+      columns: [repo, number, title, state, source_branch, target_branch, updated]
+
+  - command: list pr:review_pending
+    verb: list
+    noun: pr
+    noun_variant: review_pending
+    short: "List pull requests awaiting your review, across all repos: harness list pr:review_pending [--state open|closed|merged|all]"
+    handler_type: endpoint
+    flags:
+      - name: state
+        description: "Filter by state: open, closed, merged, all"
+        default: open
+        completion_values: [open, closed, merged, all]
+      - name: created-after
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
+      - name: created-before
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
+    endpoint:
+      path: /code/api/v1/pullreq
+      query_params_fn: review_pending_pr_query_params
       fetch_fn: list_mine_pr_fetch
       items_expr: it
       get_id_expr: string(it.number)
@@ -532,9 +743,9 @@ commands:
         description: "Filter by author (email, UUID, or numeric principal ID)"
         flag_resolve_fn: resolve_principal_id
       - name: created-after
-        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: created-before
-        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: sort
         description: "Sort field: number, created, updated, edited, merged"
         default: number
@@ -575,7 +786,8 @@ commands:
     verb: get
     noun: pr
     short: "Get pull request details: harness get pr <repo_id>/<pr_number>"
-    handler_type: endpoint
+    handler_type: workflow
+    workflow_id: get_pr
     id_parts: 2
     completion_seq:
       - completion_noun: repository
@@ -671,6 +883,445 @@ commands:
         state: '"closed"'
       no_fields: true
       text_header: "\nClosed PR #{{ctx.idParts[1]}}\n"
+
+  - command: execute pr:review
+    verb: execute
+    noun: pr
+    noun_variant: review
+    short: "Submit a review decision on a pull request: harness execute pr:review <repo_id>/<pr_number> --decision approve|changereq"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: decision
+        description: "Review decision: approve, changereq"
+        completion_values: [approve, changereq]
+        required: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviews
+      body_fn: review_pr_body
+      no_fields: true
+      text_header: "\nReview submitted for PR #{{ctx.idParts[1]}}\n"
+
+  # ── pr_insight (Harness Code review insights) ─────────────────────────────────
+
+  - command: get pr:insight
+    verb: get
+    noun: pr
+    noun_variant: insight
+    fields_noun: pr_insight
+    short: "Get the risk summary insight for a pull request: harness get pr:insight <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/aicr/api/v1/pullreqs/{{ctx.idParts[1]}}/overview
+      item_expr: it
+      query_params:
+        repo_path: auth.scope + "/" + ctx.idParts[0]
+      text_footer: "\n{{url(it)}}\n"
+      text_formatter: pr_insight_text
+
+  # ── pr_review_group (Harness Code review insights) ────────────────────────────
+
+  - command: get pr:review_group
+    verb: get
+    noun: pr
+    noun_variant: review_group
+    fields_noun: pr_review_group
+    short: "Get the risk-bucketed review groups for a pull request: harness get pr:review_group <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.idParts[0]}}/+/pullreq/{{ctx.idParts[1]}}/view
+      item_expr: it
+      text_formatter: pr_review_group_text
+
+  # ── principal ────────────────────────────────────────────────────────────────
+
+  - command: list code_principal
+    verb: list
+    noun: code_principal
+    short: "List people/service accounts in scope: harness list code_principal [--search <text>]"
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by substring match on name/email/uid
+    endpoint:
+      path: /code/api/v1/principals
+      items_expr: it
+      get_id_expr: "-"
+      query_params:
+        query: flags.search
+        type: '"user"'
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, display_name, email, uid, type]
+
+  # ── pr_reviewer / pr_codeowner ──────────────────────────────────────────────────
+
+  - command: list pr_reviewer
+    verb: list
+    noun: pr_reviewer
+    short: "List reviewers on a pull request: harness list pr_reviewer <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/reviewers
+      items_expr: it
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [id, display_name, email, decision, type, added_by, updated]
+
+  - command: create pr_reviewer
+    verb: create
+    noun: pr_reviewer
+    short: "Add a reviewer to a pull request: harness create pr_reviewer <repo_id>/<pr_number> --reviewer <email|uid|id>"
+    handler_type: endpoint
+    requires_id: true
+    id_parts: 2
+    id_label: "<repo_id>/<pr_number>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: reviewer
+        description: "Reviewer to add (email, UID, or numeric principal ID)"
+        required: true
+        flag_resolve_fn: resolve_principal_id
+    endpoint:
+      method: PUT
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviewers
+      body_params:
+        reviewer_id: int(flags.reviewer)
+      no_fields: true
+      text_header: "\nAdded reviewer to PR #{{ctx.idParts[1]}}\n"
+
+  - command: delete pr_reviewer
+    verb: delete
+    noun: pr_reviewer
+    confirm_mode: prompt
+    short: "Remove a reviewer from a pull request: harness delete pr_reviewer <repo_id>/<pr_number>/<reviewer_id>"
+    handler_type: endpoint
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<reviewer_id>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/reviewers/{{ctx.idParts[2]}}
+      item_expr: it
+
+  - command: list pr_codeowner
+    verb: list
+    noun: pr_codeowner
+    short: "List codeowners evaluated on a pull request: harness list pr_codeowner <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/codeowners
+      items_expr: "[it]"
+      fetch_fn: codeowners_pr_fetch
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [pattern, owner_type, display_name, email, group_name, decision]
+
+  # ── pr_label ─────────────────────────────────────────────────────────────────────
+
+  - command: list pr_label
+    verb: list
+    noun: pr_label
+    short: "List labels assignable to a pull request: harness list pr_label <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: assignable
+        description: "Only show labels assignable to this PR (default true); set --assignable=false to see all repo/space labels"
+        default: "true"
+      - name: search
+        description: Filter by substring match on label key
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/labels
+      items_expr: it.label_data
+      query_params:
+        assignable: flags.assignable
+        query: flags.search
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, key, type, assigned]
+
+  - command: list repo_label
+    verb: list
+    noun: repo_label
+    short: "List labels defined for a repo: harness list repo_label <repo_id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>"
+    id_parts: 1
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: search
+        description: Filter by substring match on label key
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/labels
+      items_expr: it
+      query_params:
+        query: flags.search
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, key, type, description, value_count, pullreq_count, created, updated]
+
+  - command: create repo_label
+    verb: create
+    noun: repo_label
+    short: "Define a new label at the repo level: harness create repo_label <repo_id> --key <key> [--color <color>] [--type static|dynamic] [--description <text>]"
+    handler_type: endpoint
+    requires_id: true
+    id_parts: 1
+    id_label: "<repo_id>"
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: key
+        description: Label key/name
+        required: true
+      - name: color
+        description: "Label color"
+        default: blue
+        completion_values: [blue, brown, cyan, green, indigo, lime, mint, orange, pink, purple, red, violet, yellow]
+      - name: type
+        description: "Label type: static or dynamic"
+        default: static
+        completion_values: [static, dynamic]
+      - name: description
+        description: Label description
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels
+      body_params:
+        key: flags.key
+        color: flags.color
+        type: flags.type
+        description: flags.description
+      no_fields: true
+      text_header: "\nCreated label {{flags.key}} on repo {{ctx.idParts[0]}}\n"
+
+  - command: update repo_label
+    verb: update
+    noun: repo_label
+    short: "Update a repo-level label: harness update repo_label <repo_id>/<key> [--new-key <key>] [--color <color>] [--type static|dynamic] [--description <text>]"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<repo_id>/<key>"
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: new-key
+        description: New label key/name (renames the label)
+      - name: color
+        description: "Label color"
+        completion_values: [blue, brown, cyan, green, indigo, lime, mint, orange, pink, purple, red, violet, yellow]
+      - name: type
+        description: "Label type: static or dynamic"
+        completion_values: [static, dynamic]
+      - name: description
+        description: Label description
+    endpoint:
+      method: PATCH
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels/{{ctx.idParts[1]}}
+      body_params:
+        key: flags.new-key
+        color: flags.color
+        type: flags.type
+        description: flags.description
+      no_fields: true
+      text_header: "\nUpdated label {{ctx.idParts[1]}} on repo {{ctx.idParts[0]}}\n"
+
+  - command: delete repo_label
+    verb: delete
+    noun: repo_label
+    confirm_mode: prompt
+    short: "Delete a label from a repo: harness delete repo_label <repo_id>/<key>"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<repo_id>/<key>"
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels/{{ctx.idParts[1]}}
+      item_expr: it
+
+  - command: execute pr:label
+    verb: execute
+    noun: pr
+    noun_variant: label
+    short: "Assign a label to a pull request: harness execute pr:label <repo_id>/<pr_number> --label <label_id>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: label
+        description: "Numeric label ID to assign (see list pr_label / list repo_label)"
+        required: true
+    endpoint:
+      method: PUT
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/labels
+      body_params:
+        label_id: int(flags.label)
+      no_fields: true
+      text_header: "\nAssigned label to PR #{{ctx.idParts[1]}}\n"
+
+  - command: execute pr:unlabel
+    verb: execute
+    noun: pr
+    noun_variant: unlabel
+    short: "Remove a label from a pull request: harness execute pr:unlabel <repo_id>/<pr_number> --label <label_id>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: label
+        description: "Numeric label ID to remove"
+        required: true
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/labels/{{flags.label}}
+      no_fields: true
+      text_header: "\nRemoved label from PR #{{ctx.idParts[1]}}\n"
+
+  # ── pr_suggested_reviewer (Harness Code review insights) ───────────────────────
+
+  - command: list pr_suggested_reviewer
+    verb: list
+    noun: pr_suggested_reviewer
+    short: "List suggested reviewers for a pull request: harness list pr_suggested_reviewer <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/reviewers
+      items_expr: it.suggestions
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [display_name, email, suggested_by, suggested_at]
+
+  # ── pr_suggested_label (Harness Code review insights) ───────────────────────────
+
+  - command: list pr_suggested_label
+    verb: list
+    noun: pr_suggested_label
+    short: "List suggested labels for a pull request: harness list pr_suggested_label <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/pullreq/{{ctx.parentIdParts[1]}}/suggestions/labels
+      items_expr: it
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [key, color, type, suggested_by, suggested]
+
+  # ── pr_success_criterion (Harness Code review insights) ────────────────────────
+
+  - command: list pr_success_criterion
+    verb: list
+    noun: pr_success_criterion
+    short: "List AI review success criteria for a pull request: harness list pr_success_criterion <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /gateway/aicr/api/v1/pullreqs/{{ctx.parentIdParts[1]}}/review
+      items_expr: it.criteria
+      get_id_expr: "-"
+      query_params:
+        repo_path: auth.scope + "/" + ctx.parentIdParts[0]
+      paging:
+        paging_strategy: flat_list
+      columns: [id, status, summary, started, ended]
 
   # ── branch ──────────────────────────────────────────────────────────────────
 

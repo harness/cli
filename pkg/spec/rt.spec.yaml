@@ -1,0 +1,1705 @@
+spec_version: 1
+module_type: builtin
+module_desc: Resilience Testing — RT load tests, runs, templates, scripts, and usage
+help_text: |
+  ## Resilience Testing (rt)
+
+  Resilience Testing (RT) is how Harness verifies the way a service holds up
+  under stress. Load testing is the feature area available today: run JMeter,
+  Locust, and k6 RT load tests against your services. Later RT areas add their
+  own nouns under this same module, so `rt` is the module and `loadtest` is
+  what you name on the command line.
+
+  ### Domain Model
+
+  A **loadtest** is a reusable RT load test definition: which tool to run,
+  which script to run, which infrastructure and environment to run it on, and
+  the tunables (target users, duration) it accepts. Creating one does not run
+  anything.
+
+  `create loadtest <id> -f test.yaml` creates one from a whole body. Every tool
+  type requires a `toolConfig` block, which key=value pairs cannot express, so
+  `-f` is the path in — `get loadtest <id> --yaml -o test.yaml` on an existing
+  test gives you a body to edit. `--set` is ignored whenever `-f` is present.
+
+  Two variants create a load test from something you already have:
+  `create loadtest:from_json <id> -f request.json` takes a declarative endpoint
+  spec instead of a tool script — the file is the whole request body, with the
+  spec under `jsonSpec` alongside `toolType`, `infraIdentifier` and
+  `environmentIdentifier` — and `create loadtest:from_template <id>
+  --template <template-id>` instantiates a template. A template-backed test is
+  either a REFERENCE (a pointer — the template stays the source of truth) or a
+  LOCAL copy. Use `execute loadtest:sync <id>` to re-pull a REFERENCE test
+  after its template changes; `templateUpdateAvailable` on the test tells you
+  when that is worth doing.
+
+  Export a test with `get loadtest <id> --yaml -o test.yaml`, edit it, and
+  apply it back with `update loadtest <id> -f test.yaml`.
+
+  `list loadtest:variables <id>` shows the variables and runtime inputs the
+  test accepts — the inputs you can override at run time.
+
+  A **loadtest_run** is one execution of an RT load test.
+  `execute loadtest <id>` starts a run and prints its identity; add `--follow`
+  to stay attached and stream status and metrics until the run reaches a
+  terminal state, exiting non-zero if it fails. Override the test's own
+  variables for this run with `--set targetUsers=50` — here `--set` takes
+  variable names as the script declares them, which
+  `list loadtest:variables <id>` lists.
+
+  Inspect runs with `list loadtest_run` (across the scope) or
+  `list loadtest_run <loadtest-id>` (for one test), and
+  `get loadtest_run <run-id>`. While a run is live you can retarget it with
+  `update loadtest_run <run-id> --set target_users=200` and end it early with
+  `execute loadtest_run:stop <run-id>`.
+
+  `execute loadtest_run:rerun <run-id>` starts a fresh run of the same load
+  test with the same shape.
+
+  Results are separate commands rather than one command with a view flag:
+  `get loadtest_run:summary <run-id>` for the headline numbers,
+  `list loadtest_run:metrics <run-id>` for the time series,
+  `list loadtest_run:requests <run-id>` for sampled individual requests,
+  `list loadtest_run:endpoints <run-id>` for the per-endpoint breakdown, and
+  `list loadtest_run:graph <run-id>` for the render-ready chart series.
+
+  A **loadtest_template** is a shareable, versioned RT load test definition.
+  Templates live in hubs; `list loadtest_template` spans every hub in the
+  scope unless you narrow it with `--hub`, and the HUB column names the hub
+  each template came from. Every other template command targets one hub, so
+  pass `--hub` when the template is not in the default (unhubbed) one.
+
+  Templates are revisioned, and a revision is addressed as `<template-id>/<rev>`
+  the same way a pipeline template version is: `create
+  loadtest_template_revision <id>/<rev>` adds one, `list
+  loadtest_template_revision <id>` lists them, and `get
+  loadtest_template_revision <id>/<rev>` fetches one.
+  `get loadtest_template:yaml <id>` writes the template as a YAML document.
+
+  A **loadtest_script** is the script attached to an RT load test, with its own
+  revision history. `get loadtest_script <loadtest-id>` shows the current
+  script, `list loadtest_script:revisions <loadtest-id>` lists revisions,
+  `get loadtest_script:revision <loadtest-id> --revision 3` shows one of them,
+  and `update loadtest_script <loadtest-id> -f script.jmx` uploads a new one.
+
+  A **composite_loadtest** is a pipeline that runs RT load tests and chaos
+  probes together as stages. Identifiers must not contain hyphens — use
+  underscores.
+
+  **loadtest_usage** reports RT load testing consumption for the account. It is
+  account-wide and ignores `--org` / `--project`.
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: loadtest
+    short_desc: "RT load test definitions — the tool, script, infrastructure, and tunables for a test."
+    noun_aliases: [loadtests]
+    fields:
+      - id: identity
+        label: ID
+        expr: it.identity
+      - id: name
+        expr: it.name
+        mutable_path: name
+      # No mutable_path: toolType is fixed at create, and create needs a toolConfig
+      # block that --set cannot express, so a load test is created with -f.
+      - id: tool_type
+        label: Tool
+        expr: it.toolType
+      - id: environment
+        expr: it.environmentIdentifier
+        mutable_path: environmentIdentifier
+      - id: infra
+        label: Infra
+        expr: it.infraIdentifier
+        mutable_path: infraIdentifier
+      - id: target_type
+        expr: it.targetType
+        mutable_path: targetType
+      - id: last_status
+        label: Last Run
+        expr: 'it.recentRuns == nil || len(it.recentRuns) == 0 ? "" : it.recentRuns[0].status'
+      - id: last_executed
+        expr: it.lastExecuted
+      - id: target_users
+        label: Users
+        expr: it.targetUsers
+        align: right
+      - id: duration
+        label: Duration (s)
+        expr: it.durationSeconds
+        align: right
+      - id: max_duration
+        label: Max Duration (s)
+        expr: it.maxDurationSec
+        align: right
+      - id: script_source
+        expr: it.scriptSource
+        mutable_path: scriptSource
+      - id: cleanup_policy
+        expr: it.cleanupPolicy
+        mutable_path: cleanupPolicy
+      - id: import_type
+        expr: it.importType
+      - id: template
+        expr: 'it.templateReference == nil ? "" : it.templateReference.identity'
+      - id: template_revision
+        expr: 'it.templateReference == nil ? "" : it.templateReference.revision'
+      - id: template_hub
+        expr: 'it.templateReference == nil ? "" : it.templateReference.hubIdentity'
+      - id: update_available
+        label: Update Available
+        expr: it.templateUpdateAvailable
+      - id: tags
+        expr: it.tags
+        field_type: set
+        mutable_path: tags
+      - id: service_references
+        label: Services
+        expr: it.serviceReferences
+        field_type: set
+        mutable_path: serviceReferences
+      - id: description
+        expr: it.description
+        width_max: 60
+        mutable_path: description
+      - id: created_at
+        expr: it.createdAt
+      - id: created_by
+        expr: it.createdBy
+      - id: updated_at
+        expr: it.updatedAt
+      - id: updated_by
+        expr: it.updatedBy
+      - id: script
+        expr: it.scriptContent
+        field_type: multiline_text
+
+  - noun: loadtest_run
+    short_desc: "RT load test runs — one execution of an RT load test, with its live and final metrics."
+    noun_aliases: [loadtest_runs]
+    fields:
+      - id: identity
+        label: ID
+        expr: it.identity
+      - id: name
+        expr: it.name
+      - id: loadtest
+        label: Load Test
+        expr: it.loadTestIdentity
+      - id: status
+        expr: it.status
+      - id: run_sequence
+        label: "#"
+        expr: it.runSequence
+        align: right
+      - id: tool_type
+        label: Tool
+        expr: it.toolType
+      # Retargetable while the run is live — see update loadtest_run.
+      - id: target_users
+        label: Users
+        expr: it.targetUsers
+        mutable_path: targetUsers
+        align: right
+      - id: spawn_rate
+        expr: it.spawnRate
+        mutable_path: spawnRate
+        align: right
+      - id: duration
+        label: Duration (s)
+        expr: it.durationSeconds
+        align: right
+      - id: ramp_up
+        label: Ramp Up (s)
+        expr: it.rampUpTimeSec
+        align: right
+      - id: worker_count
+        label: Workers
+        expr: it.workerCount
+        align: right
+      - id: environment
+        expr: it.environmentIdentifier
+      - id: infra
+        label: Infra
+        expr: it.infraIdentifier
+      - id: target_type
+        expr: it.targetType
+      - id: started_at
+        expr: it.startedAt
+      - id: finished_at
+        expr: it.finishedAt
+      - id: rps
+        label: RPS
+        expr: 'it.lastMetrics == nil ? nil : it.lastMetrics.totalRps'
+        align: right
+      - id: requests
+        expr: 'it.lastMetrics == nil ? nil : it.lastMetrics.totalRequests'
+        align: right
+      - id: failures
+        expr: 'it.lastMetrics == nil ? nil : it.lastMetrics.totalFailures'
+        align: right
+      - id: error_rate
+        expr: 'it.lastMetrics == nil ? nil : it.lastMetrics.errorRate'
+        align: right
+      - id: avg_response_ms
+        label: Avg (ms)
+        expr: 'it.lastMetrics == nil ? nil : it.lastMetrics.avgResponseMs'
+        align: right
+      - id: p95_response_ms
+        label: P95 (ms)
+        expr: 'it.lastMetrics == nil ? nil : it.lastMetrics.p95ResponseMs'
+        align: right
+      - id: p99_response_ms
+        label: P99 (ms)
+        expr: 'it.lastMetrics == nil ? nil : it.lastMetrics.p99ResponseMs'
+        align: right
+      - id: error_code
+        expr: it.errorCode
+      - id: error_message
+        expr: it.errorMessage
+        width_max: 80
+      - id: created_at
+        expr: it.createdAt
+      - id: created_by
+        expr: it.createdBy
+
+  - noun: loadtest_template
+    short_desc: "RT load test templates — shareable, revisioned definitions held in hubs."
+    noun_aliases: [loadtest_templates]
+    fields:
+      - id: identity
+        label: ID
+        expr: it.identity
+      - id: name
+        expr: it.name
+        mutable_path: name
+      # No mutable_path on either: both are fixed at create, and a template is
+      # created with -f for the same reason a load test is.
+      - id: revision
+        expr: it.revision
+      - id: hub
+        label: Hub
+        expr: it.hubIdentity
+      - id: tool_type
+        label: Tool
+        expr: it.toolType
+      - id: infra_type
+        expr: it.infraType
+        mutable_path: infraType
+      - id: script_source
+        expr: it.scriptSource
+        mutable_path: scriptSource
+      - id: tags
+        expr: it.tags
+        field_type: set
+        mutable_path: tags
+      - id: description
+        expr: it.description
+        width_max: 60
+        mutable_path: description
+      - id: created_at
+        expr: it.createdAt
+      - id: created_by
+        expr: it.createdBy
+      - id: updated_at
+        expr: it.updatedAt
+      - id: updated_by
+        expr: it.updatedBy
+      - id: script
+        expr: it.scriptContent
+        field_type: multiline_text
+
+  - noun: loadtest_template_revision
+    short_desc: A specific revision of an RT load test template.
+    noun_aliases: [loadtest_template_revisions]
+    fields:
+      - id: revision
+        expr: it.revision
+      - id: name
+        expr: it.name
+      - id: hub
+        label: Hub
+        expr: it.hubIdentity
+      - id: tool_type
+        label: Tool
+        expr: it.toolType
+      - id: infra_type
+        expr: it.infraType
+      - id: script_source
+        expr: it.scriptSource
+      - id: description
+        expr: it.description
+        width_max: 60
+      - id: created_at
+        expr: it.createdAt
+      - id: created_by
+        expr: it.createdBy
+      - id: updated_at
+        expr: it.updatedAt
+      - id: updated_by
+        expr: it.updatedBy
+      - id: script
+        expr: it.scriptContent
+        field_type: multiline_text
+
+  - noun: loadtest_script
+    short_desc: "RT load test scripts — the script attached to an RT load test, and its revisions."
+    noun_aliases: [loadtest_scripts]
+    fields:
+      - id: identity
+        label: ID
+        expr: it.identity
+      - id: revision_number
+        label: Rev
+        expr: it.revisionNumber
+        align: right
+      - id: loadtest
+        label: Load Test
+        expr: it.loadTestIdentity
+      - id: description
+        expr: it.description
+        width_max: 60
+      - id: is_bundle
+        label: Bundle
+        expr: it.isBundle
+      - id: bundle_main_file
+        expr: it.bundleMainFile
+      - id: created_at
+        expr: it.createdAt
+      - id: created_by
+        expr: it.createdBy
+      - id: script
+        expr: 'coalesce(it.scriptContent, it.bundleMainContent)'
+        field_type: multiline_text
+
+  - noun: composite_loadtest
+    short_desc: "Composite RT load tests — pipelines that run RT load tests and chaos probes as stages."
+    noun_aliases: [composite_loadtests]
+    fields:
+      - id: pipeline_identifier
+        label: ID
+        expr: it.pipelineIdentifier
+      - id: name
+        expr: it.name
+      - id: loadtest_count
+        label: Load Tests
+        expr: it.loadTestCount
+        align: right
+      - id: probe_count
+        label: Probes
+        expr: it.probeCount
+        align: right
+      - id: stage_names
+        label: Stages
+        expr: it.stageNames
+        field_type: set
+      - id: tags
+        expr: it.tags
+        field_type: tags
+      - id: description
+        expr: it.description
+        width_max: 60
+      # Epoch millis: without epochMs the table prints a float64 as 1.787e+12.
+      - id: created_at
+        expr: epochMs(it.createdAt)
+        field_type: ts
+      - id: last_updated_at
+        expr: epochMs(it.lastUpdatedAt)
+        field_type: ts
+
+  - noun: loadtest_variable
+    short_desc: "Variables and runtime inputs an RT load test or template accepts."
+    noun_aliases: [loadtest_variables]
+    fields:
+      - id: name
+        expr: it.name
+      - id: value
+        expr: it.value
+      - id: type
+        expr: it.type
+      - id: required
+        expr: it.required
+      - id: category
+        expr: it.category
+      - id: default
+        expr: it.default
+      - id: allowed_values
+        expr: it.allowedValues
+        field_type: set
+      - id: description
+        expr: it.description
+        width_max: 60
+
+  - noun: loadtest_run_summary
+    short_desc: "Headline result of a finished or running RT load test run."
+    fields:
+      - id: run_id
+        label: Run
+        expr: it.runId
+      - id: run_name
+        expr: it.runName
+      - id: status
+        expr: it.status
+      - id: duration
+        expr: it.duration
+      - id: total_requests
+        expr: it.totalRequests
+        align: right
+      - id: rps
+        label: RPS
+        expr: it.requestsPerSec
+        align: right
+      - id: error_rate
+        label: Error Rate (%)
+        expr: it.errorRate
+        align: right
+      - id: avg_response_s
+        label: Avg (s)
+        expr: it.avgResponseTime
+        align: right
+      - id: p50_response_ms
+        label: P50 (ms)
+        expr: it.p50ResponseMs
+        align: right
+      - id: p95_response_ms
+        label: P95 (ms)
+        expr: it.p95ResponseMs
+        align: right
+      - id: p99_response_ms
+        label: P99 (ms)
+        expr: it.p99ResponseMs
+        align: right
+      - id: peak_vus
+        label: Peak VUs
+        expr: it.peakVUs
+        align: right
+      - id: iterations
+        expr: it.iterationsCompleted
+        align: right
+      - id: target_users
+        label: Target Users
+        expr: it.targetUsers
+        align: right
+      - id: spawn_rate
+        expr: it.spawnRate
+        align: right
+      - id: duration_seconds
+        label: Duration (s)
+        expr: it.durationSeconds
+        align: right
+      - id: started_at
+        expr: it.startedAt
+      - id: finished_at
+        expr: it.finishedAt
+
+  - noun: loadtest_metric
+    short_desc: "One time-series sample taken during an RT load test run."
+    noun_aliases: [loadtest_metrics]
+    fields:
+      - id: timestamp
+        expr: it.timestamp
+      - id: rps
+        label: RPS
+        expr: it.totalRps
+        align: right
+      - id: users
+        expr: it.currentUsers
+        align: right
+      - id: p50_response_ms
+        label: P50 (ms)
+        expr: it.p50ResponseMs
+        align: right
+      - id: p95_response_ms
+        label: P95 (ms)
+        expr: it.p95ResponseMs
+        align: right
+      - id: p99_response_ms
+        label: P99 (ms)
+        expr: it.p99ResponseMs
+        align: right
+      - id: error_rate
+        label: Error Rate (%)
+        expr: it.errorRate
+        align: right
+
+  - noun: loadtest_graph_point
+    short_desc: "One plotting sample from an RT load test run — the minimal series behind the run chart."
+    noun_aliases: [loadtest_graph_points]
+    fields:
+      - id: timestamp
+        expr: epochMs(it.timestamp)
+      - id: users
+        expr: it.users
+        align: right
+      - id: rps
+        label: RPS
+        expr: it.requestsPerSec
+        align: right
+      - id: errors_per_sec
+        label: Errors/s
+        expr: it.errorsPerSec
+        align: right
+      - id: avg_response_s
+        label: Avg (s)
+        expr: it.avgResponseTime
+        align: right
+
+  - noun: loadtest_request
+    short_desc: "One sampled request from an RT load test run, for response-time distribution."
+    noun_aliases: [loadtest_requests]
+    fields:
+      - id: timestamp
+        expr: it.timestamp
+      - id: method
+        expr: it.method
+      - id: endpoint
+        expr: it.endpoint
+      - id: response_time_ms
+        label: Response (ms)
+        expr: it.responseTimeMs
+        align: right
+      - id: success
+        expr: it.success
+
+  - noun: loadtest_endpoint_stat
+    short_desc: "Per-endpoint request statistics aggregated across an RT load test run."
+    noun_aliases: [loadtest_endpoint_stats]
+    fields:
+      - id: method
+        expr: it.method
+      - id: endpoint
+        expr: it.endpoint
+      - id: total_requests
+        expr: it.totalRequests
+        align: right
+      - id: total_failures
+        expr: it.totalFailures
+        align: right
+      - id: error_rate
+        label: Error Rate (%)
+        expr: it.errorRate
+        align: right
+      - id: avg_response_ms
+        label: Avg (ms)
+        expr: it.avgResponseTimeMs
+        align: right
+      - id: min_response_ms
+        label: Min (ms)
+        expr: it.minResponseTimeMs
+        align: right
+      - id: max_response_ms
+        label: Max (ms)
+        expr: it.maxResponseTimeMs
+        align: right
+      - id: p50_response_ms
+        label: P50 (ms)
+        expr: it.p50ResponseMs
+        align: right
+      - id: rps
+        label: RPS
+        expr: it.avgRps
+        align: right
+
+  - noun: loadtest_usage
+    short_desc: "Per-service RT load testing consumption. Account-wide; ignores --org and --project."
+    noun_aliases: [loadtest_usages]
+    fields:
+      - id: service
+        label: Service
+        expr: it.serviceId
+      - id: org
+        expr: it.orgId
+      - id: project
+        expr: it.projectId
+      - id: run_count
+        label: Runs
+        expr: it.runCount
+        align: right
+      - id: peak_users
+        expr: it.peakUsers
+        align: right
+      - id: max_worker_count
+        label: Max Workers
+        expr: it.maxWorkerCount
+        align: right
+      - id: total_duration_sec
+        label: Duration (s)
+        expr: it.totalDurationSec
+        align: right
+      - id: total_vu_seconds
+        label: VU Seconds
+        expr: it.totalVuSeconds
+        align: right
+      - id: tool_types
+        label: Tools
+        expr: it.toolTypes
+        field_type: set
+      - id: infra_types
+        label: Infra
+        expr: it.infraTypes
+        field_type: set
+      - id: complexity
+        expr: it.complexity
+        align: right
+
+  - noun: loadtest_usage_total
+    short_desc: "Account-wide RT load testing consumption total and the weighting behind it."
+    fields:
+      - id: account
+        expr: it.accountId
+      - id: total_usage
+        label: Total Usage
+        expr: it.totalUsage
+        align: right
+      - id: service_count
+        label: Services
+        expr: it.serviceCount
+        align: right
+      - id: base_service_weight
+        expr: 'it.ratioConfig == nil ? nil : it.ratioConfig.baseServiceWeight'
+        align: right
+      - id: metric_weights
+        expr: 'it.ratioConfig == nil ? nil : formatMetadata(it.ratioConfig.metricWeights)'
+      - id: metric_thresholds
+        expr: 'it.ratioConfig == nil ? nil : formatMetadata(it.ratioConfig.metricThresholds)'
+      - id: updated_at
+        expr: 'it.ratioConfig == nil ? nil : epochMs(it.ratioConfig.updatedAt)'
+      - id: updated_by
+        expr: 'it.ratioConfig == nil ? nil : it.ratioConfig.updatedBy'
+
+commands:
+  # ---------------------------------------------------------------- loadtest
+
+  - command: list loadtest
+    verb: list
+    noun: loadtest
+    short: "List load tests: harness list loadtest [--search <text>] [--tool JMeter|Locust|K6] [--status <status>]"
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter RT load tests by name
+      - name: tool
+        description: Filter by tool type
+        completion_values: [JMeter, Locust, K6]
+      - name: environment
+        description: Filter by environment identifier
+      - name: status
+        description: Filter by last run status
+        completion_values: [Pending, Running, Stopping, Stopped, Finished, Failed]
+      - name: tag
+        description: Filter by tag (repeatable)
+        is_multi: true
+      - name: sort
+        description: Field to sort by
+      - name: sort-ascending
+        description: Sort ascending instead of descending
+        is_bool: true
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-tests
+      items_expr: it.items
+      get_id_expr: it.identity
+      completion:
+        id_expr: it.identity
+        name_expr: it.name
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        search: flags.search
+        toolType: flags.tool
+        environmentIdentifier: flags.environment
+        status: flags.status
+        sortField: flags.sort
+        sortAscending: 'flags["sort-ascending"] ? "true" : nil'
+      # A repeatable flag cannot go through query_params: it formats as "[]", not joined.
+      query_params_fn: loadtest_filters
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 15
+        page_size_max: 100
+        page_base: 0
+        total_expr: it.pagination.totalItems
+      columns: [identity, name, tool_type, environment, last_status, last_executed]
+
+  - command: get loadtest
+    verb: get
+    noun: loadtest
+    short: "Get a load test: harness get loadtest <id> [--yaml]"
+    id_label: "<loadtest-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}
+      item_expr: it
+      yaml_pick_expr: it
+      yaml_exclude:
+        - uniqueId
+        - parentUniqueId
+        - accountIdentifier
+        - organizationIdentifier
+        - projectIdentifier
+        - createdAt
+        - createdBy
+        - updatedAt
+        - updatedBy
+        - createdByUserDetails
+        - updatedByUserDetails
+        - recentRuns
+        - lastExecuted
+        - latestRevisionIdentifier
+        - templateUpdateAvailable
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+
+  - command: create loadtest
+    verb: create
+    noun: loadtest
+    requires_id: true
+    short: "Create a load test: harness create loadtest <id> -f test.yaml — the body carries the toolConfig block that --set cannot express"
+    flags_builtin:
+      set: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/load-tests
+      file_body: optional
+      create_strategy: set-fields
+      create_body_init:
+        identity: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      item_expr: it
+      text_footer: "\nStart it with: harness execute loadtest {{it.identity}}\n"
+
+  - command: create loadtest:from_json
+    verb: create
+    noun: loadtest
+    noun_variant: from_json
+    requires_id: true
+    short: "Create a load test from a JSON endpoint spec: harness create loadtest:from_json <id> -f request.json — the file is the whole body, endpoint spec under jsonSpec"
+    flags_builtin:
+      set: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/load-tests/from-json
+      file_body: optional
+      create_strategy: set-fields
+      create_body_init:
+        identity: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      item_expr: it
+      text_footer: "\nStart it with: harness execute loadtest {{it.identity}}\n"
+
+  - command: create loadtest:from_template
+    verb: create
+    noun: loadtest
+    noun_variant: from_template
+    requires_id: true
+    short: "Create a load test from a template: harness create loadtest:from_template <id> --template <template-id> [--revision <rev>] [--import-type REFERENCE|LOCAL]"
+    flags_builtin:
+      set: true
+    flags:
+      - name: template
+        description: Identity of the template to instantiate
+        required: true
+        completion_noun: loadtest_template
+      - name: revision
+        description: Template revision to pin (defaults to the latest)
+      - name: hub
+        description: Hub holding the template
+      - name: import-type
+        description: REFERENCE keeps the template as the source of truth; LOCAL copies it
+        default: REFERENCE
+        completion_values: [REFERENCE, LOCAL]
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/load-tests/from-template
+      file_body: optional
+      create_strategy: set-fields
+      create_body_init:
+        identity: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+        importType: flags["import-type"]
+        templateReference.identity: flags.template
+        templateReference.revision: 'flags.revision != "" ? flags.revision : nil'
+        templateReference.hubIdentity: 'flags.hub != "" ? flags.hub : nil'
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      item_expr: it
+      text_footer: "\nStart it with: harness execute loadtest {{it.identity}}\n"
+
+  - command: update loadtest
+    verb: update
+    noun: loadtest
+    short: "Update a load test: harness update loadtest <id> --set name=<name>, or -f test.yaml"
+    id_label: "<loadtest-id>"
+    flags_builtin:
+      set: true
+      del: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: it
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      item_expr: it
+
+  - command: update loadtest:json_spec
+    verb: update
+    noun: loadtest
+    noun_variant: json_spec
+    short: "Replace a load test's JSON endpoint spec: harness update loadtest:json_spec <id> -f spec.json"
+    id_label: "<loadtest-id>"
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}/json-script
+      file_body: required
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      no_fields: true
+      text_header: "\nUpdated the JSON spec for load test {{ctx.id}}\n"
+
+  - command: delete loadtest
+    verb: delete
+    noun: loadtest
+    short: "Delete a load test: harness delete loadtest <id>"
+    id_label: "<loadtest-id>"
+    confirm_mode: prompt
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      no_fields: true
+      text_header: "\nDeleted load test {{ctx.id}}\n"
+
+  - command: list loadtest:variables
+    verb: list
+    noun: loadtest
+    noun_variant: variables
+    short: "Show the variables and runtime inputs a load test accepts: harness list loadtest:variables <loadtest-id>"
+    requires_parentid: true
+    parentid_label: "<loadtest-id>"
+    completion_noun: loadtest
+    fields_noun: loadtest_variable
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.parentId}}/variables
+      items_expr: 'concat(it.inputs ?? [], it.variables ?? [])'
+      # Variables are not addressable resources — there is no "get one" form.
+      get_id_expr: "-"
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      paging:
+        paging_strategy: flat_list
+      columns: [name, value, type, required, description]
+
+  - command: execute loadtest:sync
+    verb: execute
+    noun: loadtest
+    noun_variant: sync
+    short: "Re-pull a template-backed load test from its template: harness execute loadtest:sync <id>"
+    id_label: "<loadtest-id>"
+    completion_noun: loadtest
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}/sync-template
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      item_expr: it
+      text_header: "\nSynced load test {{ctx.id}} from its template\n"
+
+  - command: execute loadtest
+    verb: execute
+    noun: loadtest
+    short: "Start a load test run: harness execute loadtest <id> [--set targetUsers=50] [--follow]"
+    id_label: "<loadtest-id>"
+    completion_noun: loadtest
+    fields_noun: loadtest_run
+    follow_fn: watch
+    flags_builtin:
+      set: true
+    flags:
+      - name: name
+        description: Name for this run (defaults to the generated run identity)
+      - name: follow
+        description: Stream status and metrics until the run reaches a terminal state
+        is_bool: true
+      - name: interval
+        description: How often to poll while following, such as 5s or 2m (default 10s)
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}/runs
+      # The server wants a client-supplied identity, and overrides as an array not an object.
+      body_fn: start_run
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      item_expr: it
+      text_footer: "\nWatch it with: harness get loadtest_run {{it.identity}} --follow\n"
+
+  # ------------------------------------------------------------ loadtest_run
+
+  - command: list loadtest_run
+    verb: list
+    noun: loadtest_run
+    short: "List load test runs: harness list loadtest_run [<loadtest-id>] [--status Running]"
+    parentid_label: "[<loadtest-id>]"
+    completion_noun: loadtest
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter runs by name
+      - name: status
+        description: Filter by run status
+        completion_values: [Pending, Running, Stopping, Stopped, Finished, Failed]
+      - name: sort
+        description: Field to sort by
+      - name: sort-ascending
+        description: Sort ascending instead of descending
+        is_bool: true
+    endpoint:
+      # With a load test id the runs come from that test, without one from the whole scope.
+      path: '{{ctx.parentId != "" ? "/gateway/loadTest/manager/api/v1/load-tests/" + ctx.parentId + "/runs" : "/gateway/loadTest/manager/api/v1/runs"}}'
+      items_expr: it.items
+      get_id_expr: it.identity
+      completion:
+        id_expr: it.identity
+        name_expr: it.name
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        search: flags.search
+        status: flags.status
+        sortField: flags.sort
+        sortAscending: 'flags["sort-ascending"] ? "true" : nil'
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 15
+        page_size_max: 100
+        page_base: 0
+        total_expr: it.pagination.totalItems
+      columns: [identity, loadtest, status, run_sequence, target_users, duration, started_at]
+
+  - command: get loadtest_run
+    verb: get
+    noun: loadtest_run
+    short: "Get a load test run: harness get loadtest_run <run-id> [--follow]"
+    id_label: "<run-id>"
+    follow_fn: watch
+    handler_type: endpoint
+    flags:
+      - name: follow
+        description: Stream status and metrics until the run reaches a terminal state
+        is_bool: true
+      - name: interval
+        description: How often to poll while following, such as 5s or 2m (default 10s)
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/runs/{{ctx.id}}
+      item_expr: it
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+
+  - command: update loadtest_run
+    verb: update
+    noun: loadtest_run
+    short: "Retarget a running load test: harness update loadtest_run <run-id> --set target_users=200 [--set spawn_rate=5]"
+    id_label: "<run-id>"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/runs/{{ctx.id}}/update
+      # This endpoint takes the scope in the body, not just the query string.
+      # --set values arrive as strings and the route binds targetUsers and spawnRate as
+      # numbers, so the two tunables are read from ctx.setArgs and converted here rather
+      # than written straight through by create_strategy: set-fields.
+      body_params:
+        identity: ctx.id
+        accountIdentifier: auth.account
+        organizationIdentifier: auth.org
+        projectIdentifier: auth.project
+        targetUsers: 'ctx.setArgs.target_users == nil ? nil : int(ctx.setArgs.target_users)'
+        spawnRate: 'ctx.setArgs.spawn_rate == nil ? nil : float(ctx.setArgs.spawn_rate)'
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      no_fields: true
+      text_header: "\nUpdated run {{ctx.id}}\n"
+
+  - command: execute loadtest_run:stop
+    verb: execute
+    noun: loadtest_run
+    noun_variant: stop
+    short: "Stop a running load test: harness execute loadtest_run:stop <run-id> [--follow]"
+    id_label: "<run-id>"
+    completion_noun: loadtest_run
+    follow_fn: watch
+    handler_type: endpoint
+    flags:
+      - name: follow
+        description: Stay attached until the run finishes stopping
+        is_bool: true
+      - name: interval
+        description: How often to poll while following, such as 5s or 2m (default 10s)
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/runs/{{ctx.id}}/stop
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      # The endpoint acknowledges the request; it does not return the run.
+      no_fields: true
+      text_header: "\nRequested stop for run {{ctx.id}}\n"
+
+  - command: execute loadtest_run:rerun
+    verb: execute
+    noun: loadtest_run
+    noun_variant: rerun
+    short: "Run a load test again with the same shape: harness execute loadtest_run:rerun <run-id> [--follow]"
+    id_label: "<run-id>"
+    completion_noun: loadtest_run
+    handler_type: workflow
+    workflow_id: rerun
+    flags:
+      - name: follow
+        description: Stream status and metrics until the new run reaches a terminal state
+        is_bool: true
+      - name: interval
+        description: How often to poll while following, such as 5s or 2m (default 10s)
+
+  - command: get loadtest_run:summary
+    verb: get
+    noun: loadtest_run
+    noun_variant: summary
+    short: "Show the headline results of a load test run: harness get loadtest_run:summary <run-id>"
+    id_label: "<run-id>"
+    completion_noun: loadtest_run
+    fields_noun: loadtest_run_summary
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/runs/{{ctx.id}}/summary
+      item_expr: it
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+
+  - command: list loadtest_run:metrics
+    verb: list
+    noun: loadtest_run
+    noun_variant: metrics
+    short: "Show the metric series for a load test run: harness list loadtest_run:metrics <run-id>"
+    requires_parentid: true
+    parentid_label: "<run-id>"
+    completion_noun: loadtest_run
+    fields_noun: loadtest_metric
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/runs/{{ctx.parentId}}/metrics/timeseries
+      items_expr: it.dataPoints
+      get_id_expr: "-"
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      paging:
+        paging_strategy: flat_list
+
+  - command: list loadtest_run:graph
+    verb: list
+    noun: loadtest_run
+    noun_variant: graph
+    short: "Show the plotting series behind a run chart: harness list loadtest_run:graph <run-id>"
+    requires_parentid: true
+    parentid_label: "<run-id>"
+    completion_noun: loadtest_run
+    fields_noun: loadtest_graph_point
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/runs/{{ctx.parentId}}/graph
+      items_expr: it.dataPoints
+      get_id_expr: "-"
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      paging:
+        paging_strategy: flat_list
+
+  - command: list loadtest_run:requests
+    verb: list
+    noun: loadtest_run
+    noun_variant: requests
+    short: "Show sampled requests from a load test run: harness list loadtest_run:requests <run-id>"
+    requires_parentid: true
+    parentid_label: "<run-id>"
+    completion_noun: loadtest_run
+    fields_noun: loadtest_request
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/runs/{{ctx.parentId}}/metrics/scatter
+      items_expr: it.dataPoints
+      get_id_expr: "-"
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      paging:
+        paging_strategy: flat_list
+
+  - command: list loadtest_run:endpoints
+    verb: list
+    noun: loadtest_run
+    noun_variant: endpoints
+    short: "Break a load test run down by endpoint: harness list loadtest_run:endpoints <run-id>"
+    requires_parentid: true
+    parentid_label: "<run-id>"
+    completion_noun: loadtest_run
+    fields_noun: loadtest_endpoint_stat
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/runs/{{ctx.parentId}}/metrics/aggregate
+      items_expr: it.endpointStats
+      get_id_expr: "-"
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      paging:
+        paging_strategy: flat_list
+
+  # --------------------------------------------------------- loadtest_script
+
+  - command: get loadtest_script
+    verb: get
+    noun: loadtest_script
+    short: "Show the script attached to a load test: harness get loadtest_script <loadtest-id>"
+    id_label: "<loadtest-id>"
+    completion_noun: loadtest
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}/script
+      item_expr: it
+      # The API returns scriptContent base64-encoded; decode it for display.
+      text_formatter: format_script
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+
+  - command: update loadtest_script
+    verb: update
+    noun: loadtest_script
+    short: "Replace the script on a load test: harness update loadtest_script <loadtest-id> -f test.jmx"
+    id_label: "<loadtest-id>"
+    completion_noun: loadtest
+    handler_type: endpoint
+    flags:
+      # Not file_body: the API stores scripts base64-encoded, so encode_script reads this flag.
+      - name: file
+        short: f
+        description: Script file to upload, or - to read it from stdin
+        required: true
+      - name: description
+        description: Description recorded against the new revision
+    endpoint:
+      method: PUT
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}/script
+      # scriptContent must be base64; the raw file is read and encoded in Go.
+      body_fn: encode_script
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      no_fields: true
+      text_header: "\nUpdated the script on load test {{ctx.id}}\n"
+
+  - command: list loadtest_script:revisions
+    verb: list
+    noun: loadtest_script
+    noun_variant: revisions
+    short: "List the script revisions of a load test: harness list loadtest_script:revisions <loadtest-id>"
+    requires_parentid: true
+    parentid_label: "<loadtest-id>"
+    completion_noun: loadtest
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.parentId}}/script/revisions
+      # A bare array rather than a page, so there is no envelope to read a total from.
+      items_expr: it
+      get_id_expr: it.identity
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      paging:
+        paging_strategy: flat_list
+      columns: [revision_number, identity, description, is_bundle, created_at, created_by]
+
+  - command: get loadtest_script:revision
+    verb: get
+    noun: loadtest_script
+    noun_variant: revision
+    short: "Show one script revision: harness get loadtest_script:revision <loadtest-id> --revision 3"
+    id_label: "<loadtest-id>"
+    completion_noun: loadtest
+    handler_type: endpoint
+    flags:
+      - name: revision
+        description: Revision number, or the revision identifier
+        required: true
+        # The endpoint keys on the identifier, but people think in numbers, so look it up.
+        flag_resolve_fn: resolve_script_revision
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-tests/{{ctx.id}}/script/revisions/{{flags.revision}}
+      item_expr: it
+      text_formatter: format_script
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+
+  # ------------------------------------------------------- loadtest_template
+
+  - command: list loadtest_template
+    verb: list
+    noun: loadtest_template
+    short: "List load test templates: harness list loadtest_template [--hub <hub>] [--tool JMeter|Locust|K6]"
+    handler_type: endpoint
+    flags:
+      - name: hub
+        description: Narrow to one hub (default spans every hub in the scope)
+      - name: search
+        description: Filter templates by name
+      - name: tool
+        description: Filter by tool type
+        completion_values: [JMeter, Locust, K6]
+      - name: infra-type
+        description: Filter by infrastructure type
+        completion_values: [kubernetes, linux]
+      - name: sort
+        description: Field to sort by
+      - name: sort-ascending
+        description: Sort ascending instead of descending
+        is_bool: true
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-test-templates
+      items_expr: it.items
+      get_id_expr: it.identity
+      completion:
+        id_expr: it.identity
+        name_expr: it.name
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+        search: flags.search
+        toolType: flags.tool
+        infraType: flags["infra-type"]
+        sortField: flags.sort
+        sortAscending: 'flags["sort-ascending"] ? "true" : nil'
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 15
+        page_size_max: 100
+        page_base: 0
+        total_expr: it.pagination.totalItems
+      columns: [identity, name, hub, tool_type, infra_type, revision, updated_at]
+
+  - command: get loadtest_template
+    verb: get
+    noun: loadtest_template
+    short: "Get a load test template: harness get loadtest_template <id> [--hub <hub>]"
+    id_label: "<template-id>"
+    handler_type: endpoint
+    flags:
+      - name: hub
+        description: Hub holding the template
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}
+      item_expr: it
+      yaml_pick_expr: it
+      yaml_exclude:
+        - uniqueId
+        - parentUniqueId
+        - accountIdentifier
+        - organizationIdentifier
+        - projectIdentifier
+        - createdAt
+        - createdBy
+        - updatedAt
+        - updatedBy
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+
+  - command: create loadtest_template
+    verb: create
+    noun: loadtest_template
+    requires_id: true
+    short: "Create a load test template: harness create loadtest_template <id> -f template.yaml — templates carry a toolConfig block too"
+    flags_builtin:
+      set: true
+    flags:
+      - name: hub
+        description: Hub to create the template in
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/load-test-templates
+      file_body: optional
+      create_strategy: set-fields
+      create_body_init:
+        identity: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+      item_expr: it
+
+  - command: update loadtest_template
+    verb: update
+    noun: loadtest_template
+    short: "Update a load test template: harness update loadtest_template <id> --set name=<name>, or -f template.yaml"
+    id_label: "<template-id>"
+    flags_builtin:
+      set: true
+      del: true
+    flags:
+      - name: hub
+        description: Hub holding the template
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: it
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+      item_expr: it
+
+  - command: delete loadtest_template
+    verb: delete
+    noun: loadtest_template
+    short: "Delete a load test template: harness delete loadtest_template <id> [--hub <hub>]"
+    id_label: "<template-id>"
+    confirm_mode: prompt
+    handler_type: endpoint
+    flags:
+      - name: hub
+        description: Hub holding the template
+    endpoint:
+      method: DELETE
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.id}}
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+      no_fields: true
+      text_header: "\nDeleted load test template {{ctx.id}}\n"
+
+  - command: list loadtest_template_revision
+    verb: list
+    noun: loadtest_template_revision
+    short: "List the revisions of a template: harness list loadtest_template_revision <template-id>"
+    requires_parentid: true
+    parentid_label: "<template-id>"
+    completion_noun: loadtest_template
+    handler_type: endpoint
+    flags:
+      - name: hub
+        description: Hub holding the template
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.parentId}}/revisions
+      # The route answers with a bare array of revisions rather than a page.
+      items_expr: it
+      get_id_expr: parentId + "/" + it.revision
+      completion:
+        id_expr: it.revision
+        name_expr: it.name
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+      paging:
+        paging_strategy: flat_list
+      columns: [revision, name, tool_type, infra_type, updated_at, updated_by]
+
+  - command: create loadtest_template_revision
+    verb: create
+    noun: loadtest_template_revision
+    requires_id: true
+    short: "Add a revision to a template: harness create loadtest_template_revision <template-id>/v2, or -f template.yaml"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
+    flags_builtin:
+      set: true
+    flags:
+      - name: hub
+        description: Hub holding the template
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions
+      file_body: optional
+      create_strategy: set-fields
+      create_body_init:
+        identity: ctx.idParts[0]
+        revision: ctx.idParts[1]
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+      item_expr: it
+
+  - command: get loadtest_template_revision
+    verb: get
+    noun: loadtest_template_revision
+    short: "Get one revision of a template: harness get loadtest_template_revision <template-id>/v2"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
+      - completion_noun: loadtest_template_revision
+        keep_order: true
+    handler_type: endpoint
+    flags:
+      - name: hub
+        description: Hub holding the template
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions/{{ctx.idParts[1]}}
+      item_expr: it
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+
+  - command: delete loadtest_template_revision
+    verb: delete
+    noun: loadtest_template_revision
+    short: "Delete one revision of a template: harness delete loadtest_template_revision <template-id>/v2"
+    id_parts: 2
+    id_label: "<template-id/revision>"
+    completion_seq:
+      - completion_noun: loadtest_template
+      - completion_noun: loadtest_template_revision
+        keep_order: true
+    confirm_mode: prompt
+    handler_type: endpoint
+    flags:
+      - name: hub
+        description: Hub holding the template
+    endpoint:
+      method: DELETE
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.idParts[0]}}/revisions/{{ctx.idParts[1]}}
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        hubIdentity: flags.hub
+      no_fields: true
+      text_header: "\nDeleted revision {{ctx.idParts[1]}} of template {{ctx.idParts[0]}}\n"
+
+  - command: list loadtest_template:variables
+    verb: list
+    noun: loadtest_template
+    noun_variant: variables
+    short: "Show the variables and inputs a template accepts: harness list loadtest_template:variables <template-id>"
+    requires_parentid: true
+    parentid_label: "<template-id>"
+    completion_noun: loadtest_template
+    fields_noun: loadtest_variable
+    handler_type: endpoint
+    flags:
+      - name: revision
+        description: Revision to read (defaults to the latest)
+      - name: hub
+        description: Hub holding the template
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-test-templates/{{ctx.parentId}}/variables
+      items_expr: 'concat(it.inputs ?? [], it.variables ?? [])'
+      get_id_expr: "-"
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        revision: flags.revision
+        hubIdentity: flags.hub
+      paging:
+        paging_strategy: flat_list
+      columns: [name, value, type, required, description]
+
+  - command: get loadtest_template:yaml
+    verb: get
+    noun: loadtest_template
+    noun_variant: yaml
+    short: "Export a template as YAML: harness get loadtest_template:yaml <template-id> [-o template.yaml]"
+    id_label: "<template-id>"
+    completion_noun: loadtest_template
+    # Answers application/x-yaml, so it is read and written through as raw bytes.
+    handler_type: workflow
+    workflow_id: export_template_yaml
+    flags:
+      - name: revision
+        description: Revision to export (defaults to the latest)
+      - name: hub
+        description: Hub holding the template
+
+  # ------------------------------------------------------ composite_loadtest
+
+  - command: list composite_loadtest
+    verb: list
+    noun: composite_loadtest
+    short: "List composite load tests: harness list composite_loadtest"
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter composite RT load tests by name
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/composite-load-tests
+      items_expr: it.items
+      get_id_expr: it.pipelineIdentifier
+      completion:
+        id_expr: it.pipelineIdentifier
+        name_expr: it.name
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        search: flags.search
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 15
+        page_size_max: 100
+        page_base: 0
+        total_expr: it.pagination.totalItems
+      columns: [pipeline_identifier, name, loadtest_count, probe_count, stage_names, last_updated_at]
+
+  - command: create composite_loadtest
+    verb: create
+    noun: composite_loadtest
+    requires_id: true
+    short: "Create a composite load test: harness create composite_loadtest <id> --loadtest <loadtest-id> --probe <probe-id>"
+    handler_type: endpoint
+    flags:
+      - name: name
+        description: Display name (defaults to the identifier)
+      - name: description
+        description: Description of the composite RT load test
+      - name: objective
+        description: What this composite RT load test is trying to prove
+      - name: loadtest
+        description: Identity of the RT load test to run
+        required: true
+        completion_noun: loadtest
+      - name: probe
+        description: Identity of the chaos probe to run alongside it
+        required: true
+      - name: probe-infra
+        description: Infrastructure reference for the probe (defaults to a runtime input)
+      - name: probe-duration
+        description: How long the probe runs, e.g. 10m
+    endpoint:
+      method: POST
+      path: /gateway/loadTest/manager/api/v1/composite-load-tests
+      # Keys on "identifier", not "identity", and rejects hyphens with an unclear message,
+      # so the body is built in Go where the identifier is checked before the call goes out.
+      body_fn: composite_body
+      query_params:
+        organizationIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+      item_expr: it
+      no_fields: true
+      text_header: "\nCreated composite load test {{it.identifier}} (pipeline {{it.pipelineIdentifier}})\n"
+
+  # ---------------------------------------------------------- loadtest_usage
+
+  - command: list loadtest_usage
+    verb: list
+    noun: loadtest_usage
+    short: "Break account load testing usage down by service: harness list loadtest_usage [--from 30d]"
+    handler_type: endpoint
+    flags:
+      - name: from
+        description: Start of the window — 30d, 2w, 2026-01-01 (local time), or unix millis
+      - name: to
+        description: End of the window — same formats as --from
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-service-usage/details
+      items_expr: it.services
+      get_id_expr: it.serviceId
+      # Account-wide, so no scope params. The window is built in Go: the spec cannot say "now".
+      query_params_fn: usage_window
+      paging:
+        paging_strategy: flat_list
+      columns: [service, org, project, run_count, peak_users, total_duration_sec, complexity]
+
+  - command: get loadtest_usage
+    verb: get
+    noun: loadtest_usage
+    no_id: true
+    short: "Show total account load testing usage: harness get loadtest_usage [--from 30d]"
+    fields_noun: loadtest_usage_total
+    handler_type: endpoint
+    flags:
+      - name: from
+        description: Start of the window — 30d, 2w, 2026-01-01 (local time), or unix millis
+      - name: to
+        description: End of the window — same formats as --from
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-service-usage/overall
+      item_expr: it
+      query_params_fn: usage_window
+
+  - command: get loadtest_usage:report
+    verb: get
+    noun: loadtest_usage
+    noun_variant: report
+    no_id: true
+    short: "Export the account usage report: harness get loadtest_usage:report [--from 30d] [--format csv]"
+    handler_type: endpoint
+    flags:
+      - name: from
+        description: Start of the window — 30d, 2w, 2026-01-01 (local time), or unix millis
+      - name: to
+        description: End of the window — same formats as --from
+    endpoint:
+      path: /gateway/loadTest/manager/api/v1/load-service-usage/report
+      query_params_fn: usage_window
+      # A matrix rather than an object, so columns come from the header row at runtime.
+      item_expr: it
+      no_fields: true
+      list_transform_fn: usage_report_rows

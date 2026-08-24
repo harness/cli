@@ -221,8 +221,8 @@ func TestLoginHandler_IsPty_badAPIURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid API URL")
 	}
-	if !strings.Contains(err.Error(), "not a valid Harness API URL") {
-		t.Fatalf("error = %q, want %q", err, "not a valid Harness API URL")
+	if !strings.Contains(err.Error(), "not a valid URL") {
+		t.Fatalf("error = %q, want %q", err, "not a valid URL")
 	}
 }
 
@@ -252,10 +252,10 @@ func TestLoginHandler_configLoadError(t *testing.T) {
 func TestLoginHandler_nonInteractive_validateTokenCalled(t *testing.T) {
 	// Without --no-validate, validateToken is called. Point it at a test server
 	// that returns 401 so we can confirm the validation error is surfaced.
-	// NOTE: api-url must pass ValidateAPIURL (requires *.harness.io host) which
-	// prevents using a local httptest.Server URL here. The remaining happy-path
-	// branches (lines 165-198) that require a valid api-url + network are covered
-	// by validateToken and fetchRegistryURL unit tests below instead.
+	// NOTE: api-url must pass ValidateAPIURL (requires an https:// scheme) which
+	// prevents using a local httptest.Server URL (http://) here. The remaining
+	// happy-path branches (lines 165-198) that require a valid api-url + network
+	// are covered by validateToken and fetchRegistryURL unit tests below instead.
 	ctx := isolatedCtx(t, map[string]any{
 		"api-token": validToken,
 		// api-url empty → defaults to https://app.harness.io; validateToken will

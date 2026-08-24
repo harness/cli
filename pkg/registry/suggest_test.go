@@ -40,6 +40,8 @@ func buildTestRegistry(t *testing.T) *Registry {
 		{Command: "get pipeline:summary", Verb: VerbGet, Noun: "pipeline", NounVariant: "summary", Module: "pipeline", HandlerType: spec.HandlerWorkflow, WorkflowID: wfID},
 		{Command: "list connector", Verb: VerbList, Noun: "connector", Module: "platform", HandlerType: spec.HandlerWorkflow, WorkflowID: wfID},
 		{Command: "list artifact", Verb: VerbList, Noun: "artifact", Module: "har", HandlerType: spec.HandlerWorkflow, WorkflowID: wfID},
+		{Command: "push artifact:generic", Verb: VerbPush, Noun: "artifact", NounVariant: "generic", Module: "har", HandlerType: spec.HandlerWorkflow, WorkflowID: wfID},
+		{Command: "push artifact:npm", Verb: VerbPush, Noun: "artifact", NounVariant: "npm", Module: "har", HandlerType: spec.HandlerWorkflow, WorkflowID: wfID},
 	} {
 		if err := r.Register(cs); err != nil {
 			t.Fatalf("Register %s %s: %v", cs.Verb, cs.Noun, err)
@@ -48,78 +50,13 @@ func buildTestRegistry(t *testing.T) *Registry {
 	return r
 }
 
-func TestSuggestRootCommand_Transposition(t *testing.T) {
-	r := buildTestRegistry(t)
-
-	tests := []struct {
-		name        string
-		args        []string
-		wantContain string // substring the suggestion must contain
-	}{
-		{
-			name:        "noun-verb swap: pr create",
-			args:        []string{"pr", "create"},
-			wantContain: "harness create pr",
-		},
-		{
-			name:        "noun-verb swap: pr list",
-			args:        []string{"pr", "list"},
-			wantContain: "harness list pr",
-		},
-		{
-			name:        "noun-verb swap with extra args",
-			args:        []string{"pr", "create", "--set", "title=foo"},
-			wantContain: "harness create pr",
-		},
-		{
-			name:        "alias used: prs list",
-			args:        []string{"prs", "list"},
-			wantContain: "harness list pr",
-		},
-		{
-			name:        "alias used: pull_request create",
-			args:        []string{"pull_request", "create"},
-			wantContain: "harness create pr", // suggestion uses canonical noun
-		},
-		{
-			name:        "pipeline list transposition",
-			args:        []string{"pipeline", "list"},
-			wantContain: "harness list pipeline",
-		},
-		{
-			name:        "noun:variant with verb: pipeline:summary get",
-			args:        []string{"pipeline:summary", "get"},
-			wantContain: "harness get pipeline:summary",
-		},
-		{
-			name:        "verb:variant transposition: pr list:mine",
-			args:        []string{"pr", "list:mine"},
-			wantContain: "harness list pr:mine",
-		},
-		{
-			name:        "verb:variant transposition: pr execute:merge",
-			args:        []string{"pr", "execute:merge"},
-			wantContain: "harness execute pr:merge",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := r.SuggestRootCommand(tt.args)
-			if got == "" {
-				t.Fatal("expected a suggestion, got empty string")
-			}
-			if !strings.Contains(got, tt.wantContain) {
-				t.Errorf("suggestion %q does not contain %q", got, tt.wantContain)
-			}
-			if !strings.Contains(got, "Did you mean?") {
-				t.Errorf("suggestion %q missing 'Did you mean?' header", got)
-			}
-		})
-	}
-}
-
-func TestSuggestRootCommand_VerbTypo(t *testing.T) {
+// TestSuggestRootCommand_Wiring is a thin integration smoke test confirming
+// SuggestRootCommand correctly locates the verb/noun tokens via IndexVerbNoun
+// and dispatches to the right suggest* function. The exhaustive case matrix
+// for each kind of suggestion lives in suggest_logic_test.go (pure
+// string-in/string-out, no flag combinations to worry about) and
+// flag_test.go (token-index extraction).
+func TestSuggestRootCommand_Wiring(t *testing.T) {
 	r := buildTestRegistry(t)
 
 	tests := []struct {
@@ -128,22 +65,33 @@ func TestSuggestRootCommand_VerbTypo(t *testing.T) {
 		wantContain string
 	}{
 		{
-			name:        "one transposed letter: creaet",
+			name:        "transposition, with flags interspersed",
+			args:        []string{"--profile", "prod", "pr", "create", "--set", "title=foo"},
+			wantContain: "harness create pr",
+		},
+		{
+			name:        "migrate transposition beats generic transposition",
+			args:        []string{"github_repo", "migrate", "scm_bundle:repo"},
+			wantContain: "harness migrate ...",
+		},
+		{
+			name:        "export in verb slot, no export verb exists",
+			args:        []string{"repo", "export", "scm_bundle:repo"},
+			wantContain: "harness migrate ...",
+		},
+		{
+			name:        "verb typo",
 			args:        []string{"creaet", "pipeline"},
 			wantContain: "harness create",
 		},
 		{
-			name:        "one missing letter: lsit",
-			args:        []string{"lsit", "pr"},
-			wantContain: "harness list",
-		},
-		{
-			name:        "one extra letter: listt",
-			args:        []string{"listt", "pr"},
-			wantContain: "harness list",
+			name:        "plugin-owned noun",
+			args:        []string{"registry", "list"},
+			wantContain: `"registry" is provided by the "har" plugin, which isn't installed`,
 		},
 	}
 
+	r.RecordPluginOwnedNouns("har", []spec.NounDef{{Noun: "registry"}})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := r.SuggestRootCommand(tt.args)
@@ -152,36 +100,6 @@ func TestSuggestRootCommand_VerbTypo(t *testing.T) {
 			}
 			if !strings.Contains(got, tt.wantContain) {
 				t.Errorf("suggestion %q does not contain %q", got, tt.wantContain)
-			}
-		})
-	}
-}
-
-func TestSuggestRootCommand_PluginOwnedNoun(t *testing.T) {
-	r := buildTestRegistry(t)
-	r.RecordPluginOwnedNouns("har", []spec.NounDef{{Noun: "registry"}})
-
-	tests := []struct {
-		name        string
-		args        []string
-		wantContain string
-	}{
-		{
-			name:        "noun-first form",
-			args:        []string{"registry", "list"},
-			wantContain: `"registry" is provided by the "har" plugin, which isn't installed`,
-		},
-		{
-			name:        "noun:variant-first form",
-			args:        []string{"registry:npm", "list"},
-			wantContain: `"registry:npm" is provided by the "har" plugin, which isn't installed`,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := r.SuggestRootCommand(tt.args)
-			if !strings.Contains(got, tt.wantContain) {
-				t.Errorf("SuggestRootCommand(%v) = %q, want to contain %q", tt.args, got, tt.wantContain)
 			}
 		})
 	}
@@ -198,6 +116,23 @@ func TestSuggestRootCommand_PluginOwnedNoun_AlreadyInstalled(t *testing.T) {
 	got := r.SuggestRootCommand([]string{"artifact", "list"})
 	if strings.Contains(got, "isn't installed") {
 		t.Errorf("expected no plugin-missing suggestion for installed noun, got %q", got)
+	}
+}
+
+// TestSuggestRootCommand_VerbTypoBeatsPluginOwnedNoun guards the priority fix:
+// a plugin-owned noun name that also happens to be a near-typo of a real verb
+// (e.g. a hypothetical noun "got", one edit away from "get") must surface the
+// verb-typo suggestion, not a misleading "plugin not installed" message.
+func TestSuggestRootCommand_VerbTypoBeatsPluginOwnedNoun(t *testing.T) {
+	r := buildTestRegistry(t)
+	r.RecordPluginOwnedNouns("hypothetical", []spec.NounDef{{Noun: "got"}})
+
+	got := r.SuggestRootCommand([]string{"got", "pipeline"})
+	if strings.Contains(got, "isn't installed") {
+		t.Errorf("expected verb-typo suggestion, got plugin-owned-noun message: %q", got)
+	}
+	if !strings.Contains(got, "harness get") {
+		t.Errorf("suggestion %q does not contain %q", got, "harness get")
 	}
 }
 
@@ -228,14 +163,6 @@ func TestSuggestRootCommand_NoSuggestion(t *testing.T) {
 			name: "empty args",
 			args: []string{},
 		},
-		{
-			name: "known noun + known verb but combo not registered",
-			args: []string{"connector", "create"}, // create connector not registered
-		},
-		{
-			name: "verb typo too far: creaxyz",
-			args: []string{"creaxyz", "pipeline"},
-		},
 	}
 
 	for _, tt := range tests {
@@ -243,69 +170,6 @@ func TestSuggestRootCommand_NoSuggestion(t *testing.T) {
 			got := r.SuggestRootCommand(tt.args)
 			if got != "" {
 				t.Errorf("expected no suggestion, got %q", got)
-			}
-		})
-	}
-}
-
-func TestSuggestRootCommand_FlagsStripped(t *testing.T) {
-	r := buildTestRegistry(t)
-
-	tests := []struct {
-		name        string
-		args        []string
-		wantContain string
-	}{
-		{
-			name:        "value flag --profile stripped",
-			args:        []string{"--profile", "prod", "pr", "create"},
-			wantContain: "harness create pr",
-		},
-		{
-			name:        "bool flag --debug stripped (not consuming next positional)",
-			args:        []string{"--debug", "pr", "create"},
-			wantContain: "harness create pr",
-		},
-		{
-			name:        "bool flag --json stripped",
-			args:        []string{"--json", "pr", "create"},
-			wantContain: "harness create pr",
-		},
-		{
-			name:        "bool flag --yaml stripped",
-			args:        []string{"--yaml", "pr", "create"},
-			wantContain: "harness create pr",
-		},
-		{
-			name:        "bool flag --all stripped",
-			args:        []string{"--all", "pr", "list"},
-			wantContain: "harness list pr",
-		},
-		{
-			name:        "bool flag --list-columns stripped",
-			args:        []string{"--list-columns", "pr", "list"},
-			wantContain: "harness list pr",
-		},
-		{
-			name:        "bool flag --list-fields stripped",
-			args:        []string{"--list-fields", "pr", "list"},
-			wantContain: "harness list pr",
-		},
-		{
-			name:        "mixed bool and value flags stripped",
-			args:        []string{"--debug", "--profile", "prod", "--json", "pr", "create"},
-			wantContain: "harness create pr",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := r.SuggestRootCommand(tt.args)
-			if got == "" {
-				t.Fatalf("expected a suggestion, got empty string")
-			}
-			if !strings.Contains(got, tt.wantContain) {
-				t.Errorf("suggestion %q does not contain %q", got, tt.wantContain)
 			}
 		})
 	}

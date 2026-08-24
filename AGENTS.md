@@ -28,12 +28,14 @@ harness <verb> <noun> --help   # flags for a specific command
 
 | Verb | Purpose |
 |------|---------|
-| `list` | List resources (paginated) |
-| `get` | Get a single resource by id |
-| `create` | Create a resource |
-| `update` | Update a resource |
-| `delete` | Delete a resource |
-| `execute` | Run/trigger a resource (pipelines, merges, etc.) |
+| `list` | Return zero or more resources of one type, optionally scoped to a parent. |
+| `get` | Retrieve one resource by its identifier. |
+| `create` | Bring a new Harness resource into existence. |
+| `update` | Write a resource's fields — reversible by writing the old value back. |
+| `delete` | Destroy a server-side Harness resource. |
+| `execute` | Initiate work that yields a run or result. |
+
+Unsure which verb an operation belongs to (e.g. `import` vs `create`, `execute` vs `update`)? See [docs/verbs.md](docs/verbs.md) for the full classification rules.
 
 ### Qualified nouns (`noun:variant`)
 
@@ -240,3 +242,4 @@ Use placeholder text like `<accountId>`, `<token>`, `<email>` in examples.
 - **Code API paths**: Use bare repo identifier in path (e.g. `/code/api/v1/repos/{{ctx.parentId}}/branches`). org/project go as query params automatically — do NOT prefix paths with `{{auth.account}}/{{auth.org}}/{{auth.project}}`.
 - **`columns` on `get`**: Ignored. Use `fields_subset` on the endpoint to filter `get` output.
 - **gRPC oneof fields**: Include all variants in `??` chain (entity_type, event_type, metric_type, view_type, relationship_type, config_type).
+- **Adding a core flag** (a root flag or a built-in flag wired per verb/endpoint, not a per-command spec flag): also add it to `coreFlagTable` in `pkg/registry/flag.go`, marking `Bool: true` if it takes no value argument. That table is the single source of truth for recognizing core flags and their shape when scanning raw args (e.g. `SuggestRootCommand`).

@@ -310,6 +310,91 @@ func TestRegister_VerbHandlerDefaultsToVerb(t *testing.T) {
 	}
 }
 
+func TestRegister_NounPair(t *testing.T) {
+	r := registryWithNoop(t)
+	cs := &spec.CommandSpec{
+		Command:     "migrate github_organization:repository",
+		Verb:        VerbMigrate,
+		Noun:        "github_organization",
+		NounTo:      "repository",
+		Module:      "migrate",
+		HandlerType: spec.HandlerWorkflow,
+		WorkflowID:  "test:noop",
+	}
+	if err := r.Register(cs); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if r.GetSpec(VerbMigrate, "github_organization:repository") == nil {
+		t.Fatal("GetSpec did not find registered migrate pair command")
+	}
+}
+
+func TestRegister_NounPairErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		cs      *spec.CommandSpec
+		wantErr string
+	}{
+		{
+			name: "missing_noun_to",
+			cs: &spec.CommandSpec{
+				Command: "migrate github_organization", Verb: VerbMigrate, Noun: "github_organization",
+				Module: "migrate", HandlerType: spec.HandlerWorkflow, WorkflowID: "test:noop",
+			},
+			wantErr: "must declare noun_to",
+		},
+		{
+			name: "noun_variant_rejected",
+			cs: &spec.CommandSpec{
+				Command: "migrate github_organization:repository", Verb: VerbMigrate,
+				Noun: "github_organization", NounVariant: "repository", NounTo: "repository", Module: "migrate",
+				HandlerType: spec.HandlerWorkflow, WorkflowID: "test:noop",
+			},
+			wantErr: "must not declare noun_variant",
+		},
+		{
+			name: "endpoint_backed_rejected",
+			cs: &spec.CommandSpec{
+				Command: "migrate github_organization:repository", Verb: VerbMigrate,
+				Noun: "github_organization", NounTo: "repository", Module: "migrate",
+				HandlerType: spec.HandlerEndpoint, Endpoint: &spec.EndpointSpec{Path: "/x"},
+			},
+			wantErr: "must use handler_type: workflow",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := registryWithNoop(t)
+			if err := r.Register(tc.cs); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Register() err = %v, want to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestRegister_NounPairIgnoresOwnership documents that pair verbs are exempt from
+// single-module noun ownership: two different modules may each register a migrate
+// command referencing the same noun token, as long as the exact pair differs.
+func TestRegister_NounPairIgnoresOwnership(t *testing.T) {
+	r := registryWithNoop(t)
+	cs1 := &spec.CommandSpec{
+		Command: "migrate github_organization:repository", Verb: VerbMigrate,
+		Noun: "github_organization", NounTo: "repository", Module: "github_plugin",
+		HandlerType: spec.HandlerWorkflow, WorkflowID: "test:noop",
+	}
+	cs2 := &spec.CommandSpec{
+		Command: "migrate github_organization:scm_bundle", Verb: VerbMigrate,
+		Noun: "github_organization", NounTo: "scm_bundle", Module: "other_plugin",
+		HandlerType: spec.HandlerWorkflow, WorkflowID: "test:noop",
+	}
+	if err := r.Register(cs1); err != nil {
+		t.Fatalf("Register cs1: %v", err)
+	}
+	if err := r.Register(cs2); err != nil {
+		t.Fatalf("Register cs2 from a different module against the same \"from\" noun: %v", err)
+	}
+}
+
 func TestRegister_IsMainBinarySetsExternal(t *testing.T) {
 	r := registryWithNoop(t)
 	r.IsMainBinary = true
@@ -549,6 +634,24 @@ func TestUnknownNounError(t *testing.T) {
 			wantContain: "not supported for",
 		},
 		{
+			name: "migrate_pair_noun_typo_suggests_full_pair",
+			setup: func(r *Registry) {
+				r.RegisterNoun(spec.NounDef{Noun: "scm_bundle"})
+				r.RegisterNoun(spec.NounDef{Noun: "repository", NounAliases: []string{"repo"}})
+				r.Register(&spec.CommandSpec{
+					Command:     "migrate scm_bundle:repository",
+					Verb:        VerbMigrate,
+					Noun:        "scm_bundle",
+					NounTo:      "repository",
+					Module:      "migrate",
+					HandlerType: spec.HandlerWorkflow,
+					WorkflowID:  "test:noop",
+				})
+			},
+			verb: VerbMigrate, noun: "scm_bundle:repox",
+			wantContain: "Did you mean: scm_bundle:repository",
+		},
+		{
 			name: "plugin_owned_noun_not_installed",
 			setup: func(r *Registry) {
 				r.Register(wfSpec(VerbList, "pipeline", "pipeline"))
@@ -595,8 +698,8 @@ func TestBuildUseString(t *testing.T) {
 		},
 		{
 			name:      "verb_with_noun_no_id_requirement",
-			cs:        &spec.CommandSpec{Verb: VerbDescribe, Noun: "pipeline"},
-			vs:        verbRegistry[VerbDescribe],
+			cs:        &spec.CommandSpec{Verb: VerbList, Noun: "pipeline"},
+			vs:        VerbSpec{Kind: VerbKindCore},
 			wantEqual: "pipeline",
 		},
 		{
@@ -621,6 +724,12 @@ func TestBuildUseString(t *testing.T) {
 			name:        "allows_id_optional_bracket",
 			cs:          &spec.CommandSpec{Verb: VerbCreate, Noun: "pipeline"},
 			vs:          verbRegistry[VerbCreate],
+			wantContain: "[id]",
+		},
+		{
+			name:        "no_id_with_command_allows_id_optional_bracket",
+			cs:          &spec.CommandSpec{Verb: VerbExecute, Noun: "workspace", NoId: true, AllowsId: true},
+			vs:          verbRegistry[VerbExecute],
 			wantContain: "[id]",
 		},
 		{

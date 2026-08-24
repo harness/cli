@@ -46,6 +46,15 @@ func runSSOLogin(ctx *cmdctx.Ctx, cfg *config.Config, profileName string) error 
 	orgID := cmdctx.GetString(ctx.FlagValues, "org")
 	projectID := cmdctx.GetString(ctx.FlagValues, "project")
 
+	// Existing profile's saved org/project, offered as pre-selected picker
+	// defaults (mirroring the PAT wizard's "use existing" behavior). Unlike
+	// --org/--project flags, these never skip the picker outright.
+	var existingOrgID, existingProjectID string
+	if existingProfile, exists := cfg.Profiles[profileName]; exists {
+		existingOrgID = existingProfile.OrgID
+		existingProjectID = existingProfile.ProjectID
+	}
+
 	meta, err := auth.FetchAuthServerMeta(&http.Client{Timeout: 10 * time.Second}, auth.SSOAuthServerURL())
 	if err != nil {
 		return fmt.Errorf("SSO discovery failed: %w", err)
@@ -64,13 +73,20 @@ func runSSOLogin(ctx *cmdctx.Ctx, cfg *config.Config, profileName string) error 
 	// Reuse the existing set-wizard to pick org/project. Without a TTY, or when both
 	// were passed as flags, the profile is saved with whatever scope we have.
 	if console.IsBothTTY() && (orgID == "" || projectID == "") {
+		preselectOrgID, preselectProjectID := orgID, projectID
+		if preselectOrgID == "" {
+			preselectOrgID = existingOrgID
+		}
+		if preselectProjectID == "" {
+			preselectProjectID = existingProjectID
+		}
 		result, werr := RunSetWizard(ctx, &SetWizardInput{
 			APIURL:    apiURL,
 			Token:     token,
 			AccountID: accountID,
 			AuthType:  auth.AuthTypeSSO,
-			OrgID:     orgID,
-			ProjectID: projectID,
+			OrgID:     preselectOrgID,
+			ProjectID: preselectProjectID,
 		})
 		if werr != nil {
 			if !forceSave {

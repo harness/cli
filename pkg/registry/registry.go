@@ -243,6 +243,29 @@ func (r *Registry) GetNoun(noun string) *spec.NounDef {
 	return nil
 }
 
+// nounHasUICommands reports whether noun declares a ui_commands list, gating
+// whether --ui is registered/usable on its get command.
+func (r *Registry) nounHasUICommands(noun string) bool {
+	nd, ok := r.nouns[noun]
+	return ok && len(nd.UICommands) > 0
+}
+
+// nounViewHandlerFn returns the ui_handler_fn of noun's view-type ui_commands
+// entry, or "" if it has none. Backs the "get <id> --ui" shortcut that skips
+// the overlay entirely and hands off straight to the custom TUI.
+func (r *Registry) nounViewHandlerFn(noun string) string {
+	nd, ok := r.nouns[noun]
+	if !ok {
+		return ""
+	}
+	for _, uc := range nd.UICommands {
+		if uc.UICommandType == spec.UICommandView {
+			return uc.UIHandlerFn
+		}
+	}
+	return ""
+}
+
 // CheckNoConflicts reports the first way the given nouns/commands would collide
 // with anything already registered, without mutating the registry. It is the
 // read-only precondition for atomically loading an untrusted (plugin) spec:
@@ -478,10 +501,13 @@ func (r *Registry) BuildCommands() []*cobra.Command {
 		}
 		for _, cs := range specs {
 			verbCmds[verb].AddCommand(r.buildCmd(cs))
-			nd := r.GetNoun(cs.Noun)
-			if nd != nil {
-				for _, alias := range nd.NounAliases {
-					verbCmds[verb].AddCommand(r.buildAliasCmd(cs, alias))
+			fromNames, toNames := r.aliasNamePairs(cs)
+			for _, from := range fromNames {
+				for _, to := range toNames {
+					if from == cs.Noun && to == cs.NounTo {
+						continue // canonical command, already built above
+					}
+					verbCmds[verb].AddCommand(r.buildAliasCmd(cs, from, to))
 				}
 			}
 		}
@@ -556,14 +582,23 @@ func (r *Registry) unknownNounError(verb, noun string) error {
 	} else {
 		msg = fmt.Sprintf("%q is not a valid noun for %q", noun, verb)
 	}
-	// Build candidates: every FullNoun and its aliases, scoped to this verb only.
+	// Build candidates: every FullNoun and its from/to alias combinations, scoped to this verb only.
 	type candidate struct{ display, canonical string }
 	var candidates []candidate
 	for _, cs := range r.specs[verb] {
-		candidates = append(candidates, candidate{cs.FullNoun(), cs.FullNoun()})
-		if nd := r.GetNoun(cs.Noun); nd != nil {
-			for _, alias := range nd.NounAliases {
-				candidates = append(candidates, candidate{alias, cs.FullNoun()})
+		fn := cs.FullNoun()
+		candidates = append(candidates, candidate{fn, fn})
+		fromNames, toNames := r.aliasNamePairs(cs)
+		for _, from := range fromNames {
+			for _, to := range toNames {
+				if from == cs.Noun && to == cs.NounTo {
+					continue // canonical, already added above
+				}
+				display := from
+				if to != "" {
+					display += ":" + to
+				}
+				candidates = append(candidates, candidate{display, fn})
 			}
 		}
 	}
@@ -591,135 +626,6 @@ func (r *Registry) unknownNounError(verb, noun string) error {
 		msg += "\n\nDid you mean: " + strings.Join(suggestions, ", ") + "?"
 	}
 	return errors.New(msg)
-}
-
-// SuggestRootCommand inspects raw CLI args and returns a user-friendly error message
-// when the user likely made one of two mistakes:
-//
-//  1. Noun-verb transposition: "harness pr create" instead of "harness create pr".
-//     Detected deterministically — args[0] must be a known noun (or alias), args[1]
-//     a known verb, and the combination must exist in the registry.
-//
-//  2. Verb typo: "harness creaet pipeline" — args[0] looks like a mistyped verb
-//     (Levenshtein ≤ 2 from a known verb that has registered commands).
-//
-// Returns "" when neither case applies so the caller can fall through to the
-// original error.
-func (r *Registry) SuggestRootCommand(args []string) string {
-	if len(args) == 0 {
-		return ""
-	}
-
-	// Boolean flags that take no value argument (root persistent + common output flags).
-	// All others are assumed to consume the next token as their value.
-	boolFlags := map[string]bool{
-		"--debug": true, "--json": true, "--yaml": true,
-		"--all": true, "--count": true, "--raw": true,
-		"--no-headers": true, "--list-columns": true, "--list-fields": true,
-		"--ui": true, "--force": true, "--spec": true, "--modulehelp": true,
-	}
-
-	// Strip leading flags (e.g. --profile, --debug) to find the first positional arg.
-	positional := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if strings.HasPrefix(a, "-") {
-			// Skip the value of flags that take an argument (but not bool flags).
-			if !strings.Contains(a, "=") && !boolFlags[a] {
-				i++
-			}
-			continue
-		}
-		positional = append(positional, a)
-	}
-	if len(positional) == 0 {
-		return ""
-	}
-
-	first := positional[0]
-
-	// Case 0: first arg is a noun (or noun:variant) owned by a plugin that
-	// isn't installed, so it was never registered — cobra can't dispatch it
-	// as either a verb or a noun. Covers both "harness <noun> <verb>" and
-	// verb-less plugin verbs (e.g. har's push/pull/configure).
-	nounBase := strings.SplitN(first, ":", 2)[0]
-	if mod := r.pluginOwnerOfUnregisteredNoun(nounBase); mod != "" {
-		return fmt.Sprintf("%q is provided by the %q plugin, which isn't installed\n\nTo install it, run:\n  harness install plugin %s", first, mod, mod)
-	}
-
-	// Case 1: noun-verb transposition — requires at least two positional args.
-	// Handles plain nouns ("pr create"), noun aliases ("prs list"),
-	// noun:variant ("pipeline:summary get"), and verb:variant ("pr list:mine").
-	if len(positional) >= 2 {
-		maybeNoun := first
-		maybeVerb := positional[1]
-
-		// Strip :variant suffix from both positions before registry lookups.
-		nounBase := strings.SplitN(maybeNoun, ":", 2)[0]
-		verbBase := strings.SplitN(maybeVerb, ":", 2)[0]
-
-		resolvedNoun := nounBase
-		if canonical, ok := r.nounAliases[nounBase]; ok {
-			resolvedNoun = canonical
-		}
-		// Reconstruct the full noun with variant for the suggestion (e.g. "pipeline:summary").
-		fullNoun := resolvedNoun
-		if idx := strings.Index(maybeNoun, ":"); idx >= 0 {
-			fullNoun = resolvedNoun + maybeNoun[idx:]
-		}
-
-		_, nounKnown := r.nouns[resolvedNoun]
-		_, verbKnown := verbRegistry[verbBase]
-		if nounKnown && verbKnown {
-			// Check plain noun first (e.g. "harness create pr").
-			// If verb had a variant (e.g. "list:mine"), also check noun+verbVariant
-			// (e.g. "harness list pr:mine" when user typed "harness pr list:mine").
-			verbVariant := ""
-			if idx := strings.Index(maybeVerb, ":"); idx >= 0 {
-				verbVariant = maybeVerb[idx+1:]
-			}
-			lookupNoun := fullNoun
-			if verbVariant != "" {
-				lookupNoun = resolvedNoun + ":" + verbVariant
-			}
-			if r.GetSpec(verbBase, lookupNoun) != nil {
-				// Reconstruct the corrected command: verb before noun.
-				// When verb had a variant (e.g. list:mine), move it to the noun (list pr:mine).
-				// When noun had a variant (e.g. pipeline:summary), preserve it on the noun.
-				suggestedNoun := fullNoun
-				if verbVariant != "" {
-					suggestedNoun = resolvedNoun + ":" + verbVariant
-				}
-				corrected := append([]string{"harness", verbBase, suggestedNoun}, positional[2:]...)
-				return fmt.Sprintf("unknown command %q\n\nDid you mean?\n  %s", first, strings.Join(corrected, " "))
-			}
-		}
-	}
-
-	// Case 2: verb typo — first arg looks like a mistyped verb.
-	bestDist := map[string]int{}
-	for verb := range r.specs {
-		d := strutil.Levenshtein(first, verb)
-		if d <= 2 && d > 0 {
-			bestDist[verb] = d
-		}
-	}
-	if len(bestDist) > 0 {
-		suggestions := make([]string, 0, len(bestDist))
-		for v := range bestDist {
-			suggestions = append(suggestions, v)
-		}
-		sort.Slice(suggestions, func(i, j int) bool {
-			di, dj := bestDist[suggestions[i]], bestDist[suggestions[j]]
-			if di != dj {
-				return di < dj
-			}
-			return suggestions[i] < suggestions[j]
-		})
-		return fmt.Sprintf("unknown command %q\n\nDid you mean?\n  harness %s", first, strings.Join(suggestions, "\n  harness "))
-	}
-
-	return ""
 }
 
 func addSetupFn(cmd *cobra.Command, vs VerbSpec, setup func(*cobra.Command, []string) error) {
@@ -774,6 +680,10 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 	if cs.Noun != "" {
 		use = cs.FullNoun()
 	}
+	// pair verbs take no positional: both endpoints are named by --from/--to
+	if vspec.NounPair {
+		return use + cs.MigrateFrom.UsageFragment("from") + cs.MigrateTo.UsageFragment("to")
+	}
 	if vspec.RequiresId && !cs.NoId {
 		idLabel := "<id>"
 		if cs.IdLabel != "" {
@@ -783,7 +693,7 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 		if cs.HasArgs && cs.ArgsLabel != "" {
 			use += " " + cs.ArgsLabel
 		}
-	} else if vspec.AllowsId {
+	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
 		if cs.IdLabel != "" {
 			idLabel = cs.IdLabel
@@ -828,13 +738,35 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 	return cmd
 }
 
+// aliasNamePairs returns every (from, to) name combination that should resolve to cs:
+// cs.Noun/cs.NounTo plus their registered aliases (cross-producted for pair verbs).
+// For non-pair commands, to is always "" and only from varies.
+func (r *Registry) aliasNamePairs(cs *spec.CommandSpec) (fromNames, toNames []string) {
+	var fromAliases, toAliases []string
+	if nd := r.GetNoun(cs.Noun); nd != nil {
+		fromAliases = nd.NounAliases
+	}
+	fromNames = append([]string{cs.Noun}, fromAliases...)
+	toNames = []string{cs.NounTo}
+	if cs.NounTo != "" {
+		if nd := r.GetNoun(cs.NounTo); nd != nil {
+			toAliases = nd.NounAliases
+		}
+		toNames = append(toNames, toAliases...)
+	}
+	return fromNames, toNames
+}
+
 // buildAliasCmd constructs a hidden cobra.Command that delegates to the same handler as cs
-// but uses aliasNoun as the subcommand name. Alias commands are hidden from help output.
-func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasNoun string) *cobra.Command {
+// but uses aliasFrom (and, for pair verbs, aliasTo) as the subcommand name. Alias commands
+// are hidden from help output. aliasTo is ignored except for pair-verb commands (cs.NounTo != "").
+func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string) *cobra.Command {
 	vspec := verbRegistry[cs.Verb]
-	use := aliasNoun
+	use := aliasFrom
 	if cs.NounVariant != "" {
 		use += ":" + cs.NounVariant
+	} else if cs.NounTo != "" {
+		use += ":" + aliasTo
 	}
 	if vspec.RequiresId && !cs.NoId {
 		idLabel := "<id>"
@@ -845,7 +777,7 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasNoun string) *cobra.
 		if cs.HasArgs && cs.ArgsLabel != "" {
 			use += " " + cs.ArgsLabel
 		}
-	} else if vspec.AllowsId {
+	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
 		if cs.IdLabel != "" {
 			idLabel = cs.IdLabel
@@ -907,7 +839,7 @@ func (r *Registry) bindHandler(cmd *cobra.Command, cs *spec.CommandSpec) {
 // execPluginRunE returns a RunE that resolves the plugin binary via
 // plugin.Resolve and delegates to plugin.Exec (platform-specific). version is
 // stamped into HARNESS_PLUGIN for the plugin-side self-check.
-func execPluginRunE(binaryPath, moduleName, version string) func(*cobra.Command, []string) error {
+func (r *Registry) execPluginRunE(binaryPath, moduleName, version string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		binPath, err := plugin.Resolve(binaryPath)
 		if err != nil {
@@ -918,11 +850,16 @@ func execPluginRunE(binaryPath, moduleName, version string) func(*cobra.Command,
 			}
 			return err
 		}
+		// The host resolves noun aliases across every loaded module (e.g. code's
+		// "repo" for "repository"), but the plugin binary only loads its own
+		// spec, so it can't source aliases it doesn't own. Canonicalize before
+		// exec so the plugin always sees canonical noun names.
+		pluginArgs := r.CanonicalizeNounArgs(os.Args[1:])
 		// HARNESS_PLUGIN lets a well-behaved plugin self-check that the grammar
 		// the host parsed came from this binary.
 		os.Setenv("HARNESS_PLUGIN", moduleName+" "+version)
-		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", os.Args[1:])
-		return plugin.Exec(binPath, os.Args[1:])
+		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", pluginArgs)
+		return plugin.Exec(binPath, pluginArgs)
 	}
 }
 
@@ -944,6 +881,15 @@ func (r *Registry) RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, err
 		return nil, RunListEndpoint(ctx, ep)
 	}
 	return RunEndpoint(ctx, ep)
+}
+
+// RunUIHandler implements cmdctx.Resolver.
+func (r *Registry) RunUIHandler(ctx *cmdctx.Ctx, fnID string) error {
+	fn, ok := r.workflows[fnID]
+	if !ok {
+		return fmt.Errorf("ui_handler_fn %q not registered", fnID)
+	}
+	return fn(ctx)
 }
 
 // FormatList renders rows through the standard list formatting pipeline.
@@ -980,7 +926,7 @@ func (r *Registry) bindExternalCmd(cmd *cobra.Command, cs *spec.CommandSpec) {
 		desc = cmd.Short
 	}
 	cmd.Long = desc + fmt.Sprintf("\n\n(Implemented by plugin %q v%s)", cs.Module, meta.Version)
-	cmd.RunE = execPluginRunE(meta.BinaryPath, cs.Module, meta.Version)
+	cmd.RunE = r.execPluginRunE(meta.BinaryPath, cs.Module, meta.Version)
 }
 
 // bindWorkflowCmd wires flags and RunE for a workflow-backed command.
@@ -988,6 +934,14 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 	addFlags(cmd.Flags(), specFormat, specJson, specYaml, specOut, specRaw)
 	if cs.VerbHandler == VerbList {
 		addFlags(cmd.Flags(), specColumns, specNoHeaders, specListColumns)
+	}
+	if verbRegistry[cs.Verb].NounPair {
+		if cs.MigrateFrom.EffectivePresence() != spec.MigratePresenceNone {
+			cmd.Flags().String("from", "", cs.MigrateFrom.EffectiveLabel("Source identifier to migrate from"))
+		}
+		if cs.MigrateTo.EffectivePresence() != spec.MigratePresenceNone {
+			cmd.Flags().String("to", "", cs.MigrateTo.EffectiveLabel("Destination identifier to migrate to"))
+		}
 	}
 	if cs.BuiltinFlags.Set {
 		cmd.Flags().StringArray("set", nil, "Set a field value as key=value (repeatable)")
@@ -1106,7 +1060,7 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 	if cs.VerbHandler == VerbList && ep.Paging != nil {
 		addFlag(cmd.Flags(), specUI)
 	}
-	if cs.VerbHandler == VerbGet && cs.BuiltinFlags.UI {
+	if cs.VerbHandler == VerbGet && (cs.BuiltinFlags.UI || r.nounHasUICommands(cs.Noun)) {
 		addFlag(cmd.Flags(), specUI)
 	}
 	for _, f := range cs.Flags {
@@ -1151,11 +1105,21 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	r.emitIntent(cmd, cs, ctx)
 	start := time.Now()
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
-		id, err := RunUIPickerForGet(ctx, cs)
+		if ctx.Id != "" {
+			if fnID := r.nounViewHandlerFn(cs.Noun); fnID != "" {
+				return r.RunUIHandler(ctx, fnID)
+			}
+		}
+		handled, err := RunUIPickerForGet(ctx, cs)
 		if err != nil {
 			return err
 		}
-		ctx.Id = id
+		if handled {
+			return nil
+		}
+		if ctx.Id != "" && r.nounHasUICommands(cs.Noun) {
+			return RunUIDetailForGet(ctx, cs)
+		}
 	}
 	if cs.ConfirmMode != spec.ConfirmNone {
 		if err := runConfirmGate(cs.ConfirmMode, cs.Verb, cs.Noun, ctx.Id, ctx.IsPty, cmdctx.GetBool(ctx.FlagValues, "force")); err != nil {
