@@ -357,6 +357,8 @@ commands:
       Install a plugin into the harness home directory (~/.harness).
 
       <ref> may be:
+        - "all", to update every registry plugin that is currently installed
+          to its own latest release
         - a plugin name, resolved to a Harness release (currently: har)
         - an owner/repo GitHub ref, resolved to that repo's latest release
         - an owner/repo/prefix GitHub ref, for a repo whose releases are tagged
@@ -376,8 +378,19 @@ commands:
       more than one plugin asset for the platform; it has no effect on the
       plugin-name form, where the asset is already known.
 
+      "all" installs each currently-installed registry plugin at its own
+      latest — it does not install plugins that were never installed.
+      --version and --force are rejected: there is no single version across
+      plugins that release independently, and forcing every plugin to
+      reinstall regardless of its own state is a per-plugin decision made by
+      naming that plugin directly. --github-token and --allow-drafts are
+      rejected too, since registry plugins are never behind a private or
+      draft release. --check applies to every plugin; a failure on one
+      plugin is reported and skipped rather than aborting the rest.
+
       Examples:
         harness install plugin har                             # install by name
+        harness install plugin all                              # update every installed registry plugin
         harness install plugin someorg/some-plugin              # install from a GitHub repo's latest release
         harness install plugin someorg/some-plugin/myplugin     # install from a repo tagged myplugin/vX.Y.Z
         harness install plugin https://example.com/foo.tar.gz  # install from a tarball URL

@@ -115,10 +115,6 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 	if ref == "" {
 		return fmt.Errorf("install plugin requires a tarball URL, a local tarball or binary path, an owner/repo[/prefix] GitHub ref, or a plugin name (%s)", registryNames())
 	}
-	parsed, err := parsePluginRef(ref)
-	if err != nil {
-		return err
-	}
 
 	version := cmdctx.GetString(ctx.FlagValues, "version")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
@@ -126,6 +122,15 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 	githubToken := cmdctx.GetString(ctx.FlagValues, "github-token")
 	allowDrafts := cmdctx.GetBool(ctx.FlagValues, "allow-drafts")
 	pluginName := cmdctx.GetString(ctx.FlagValues, "plugin-name")
+
+	if ref == "all" {
+		return installAllRegistryPlugins(version, githubToken, allowDrafts, force, check)
+	}
+
+	parsed, err := parsePluginRef(ref)
+	if err != nil {
+		return err
+	}
 
 	switch {
 	case parsed.URL != "":
@@ -196,6 +201,47 @@ func installRegistryPlugin(name, version, githubToken string, allowDrafts, force
 	return installPluginFromRelease(entry.GithubRepo, entry.TagPrefix, entry.PkgName, version, githubToken, allowDrafts, force, check)
 }
 
+// installAllRegistryPlugins updates every registry-known plugin that is
+// currently installed to its own latest release. "all" has no single version
+// to install — each plugin releases independently of core and of every other
+// plugin — so a caller-supplied --version is rejected rather than silently
+// ignored or applied to every plugin. --force is rejected too: forcing a
+// reinstall of every plugin regardless of its own up-to-date state is a
+// per-plugin decision, made by naming that plugin directly. --github-token
+// and --allow-drafts are rejected as well — every registry plugin releases
+// from release.Repo under core's own visible, non-draft release process, so
+// neither flag has anything to do for a registry name.
+func installAllRegistryPlugins(version, githubToken string, allowDrafts, force, check bool) error {
+	if version != "" && version != "latest" {
+		return fmt.Errorf(`--version is not valid with "all" — each plugin releases independently, so there is no single version to install`)
+	}
+	if force {
+		return fmt.Errorf(`--force is not valid with "all" — install a plugin by name to force its reinstall`)
+	}
+	if githubToken != "" {
+		return fmt.Errorf(`--github-token is not valid with "all" — registry plugins are never behind a private or draft release`)
+	}
+	if allowDrafts {
+		return fmt.Errorf(`--allow-drafts is not valid with "all" — registry plugins are never behind a private or draft release`)
+	}
+	names := installedRegistryPlugins()
+	if len(names) == 0 {
+		fmt.Println("no registry plugins installed")
+		return nil
+	}
+	var failed []string
+	for _, name := range names {
+		if err := installRegistryPlugin(name, "", "", false, false, check); err != nil {
+			fmt.Printf("warning: could not install plugin %q: %v\n", name, err)
+			failed = append(failed, name)
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to install %d of %d plugin(s): %s", len(failed), len(names), strings.Join(failed, ", "))
+	}
+	return nil
+}
+
 // installPluginFromRelease resolves a release tagged {prefix}/vX.Y.Z ("" /
 // "latest" resolves to that prefix's own latest release) in repo, finds the
 // plugin asset in it, and installs it — checking drift against any existing
@@ -224,11 +270,7 @@ func installPluginFromRelease(repo, prefix, pkgName, version, githubToken string
 
 	rel, resolvedVersion, err := resolveReleaseForPrefix(repo, prefix, version, githubToken, allowDrafts)
 	if err != nil {
-		if check {
-			fmt.Printf("Version %s not found in %s: %v\n", versionLabel(version), repo, err)
-			os.Exit(1)
-		}
-		return err
+		return fmt.Errorf("version %s not found in %s: %w", versionLabel(version), repo, err)
 	}
 
 	var asset *release.Asset
@@ -240,11 +282,7 @@ func installPluginFromRelease(repo, prefix, pkgName, version, githubToken string
 		asset, name, err = discoverPluginAsset(rel, resolvedVersion, platform)
 	}
 	if err != nil {
-		if check {
-			fmt.Printf("%s %s not available for platform %s: %v\n", repo, resolvedVersion, platform, err)
-			os.Exit(1)
-		}
-		return err
+		return fmt.Errorf("%s %s not available for platform %s: %w", repo, resolvedVersion, platform, err)
 	}
 
 	installed := installedPluginVersion(name)
