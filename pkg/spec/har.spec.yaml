@@ -1019,7 +1019,7 @@ commands:
     workflow_id: execute_registry_firewall_scan
     flags:
       - name: lockfile
-        description: "Path to lock file (package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle)"
+        description: "Path to lock file (package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle, packages.lock.json)"
         required: true
 
   - command: execute artifact:npm_install

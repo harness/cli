@@ -690,8 +690,10 @@ func parseLockFile(filePath string) ([]dependency, error) {
 		return parsePomXml(data)
 	case strings.HasSuffix(name, "build.gradle"), strings.HasSuffix(name, "build.gradle.kts"):
 		return parseBuildGradle(data)
+	case name == "packages.lock.json":
+		return nugetParseLockFile(filePath)
 	default:
-		return nil, fmt.Errorf("unsupported file %q (supported: package.json, package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle)", name)
+		return nil, fmt.Errorf("unsupported file %q (supported: package.json, package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle, packages.lock.json)", name)
 	}
 }
 
