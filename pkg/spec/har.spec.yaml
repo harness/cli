@@ -565,6 +565,9 @@ commands:
       - name: force
         description: "Hard delete without soft-delete recovery; prompts for confirmation"
         is_bool: true
+      - name: yes
+        description: "Skip the confirmation prompt when executing with --dry-run=false"
+        is_bool: true
 
   - command: get artifact
     verb: get
