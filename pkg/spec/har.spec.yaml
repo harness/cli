@@ -749,6 +749,24 @@ commands:
       - name: labels
         description: Labels (comma-separated list or JSON array)
         is_array: true
+      - name: source
+        description: "Upstream source, required when --type UPSTREAM (Dockerhub, Custom, AwsEcr, MavenCentral, PyPi, NpmJs, NugetOrg, Crates, GoProxy, HuggingFace, Anaconda, Pubdev, Packagist, PuppetForge)"
+      - name: url
+        description: "Upstream remote URL, required when --source Custom"
+      - name: auth-type
+        description: "Upstream auth type, required when --type UPSTREAM (UserPassword, AccessKeySecretKey, Anonymous)"
+      - name: username
+        description: "Upstream username, when --auth-type UserPassword"
+      - name: secret-identifier
+        description: "Secret identifier for the upstream password, when --auth-type UserPassword"
+      - name: access-key
+        description: "Upstream access key, when --auth-type AccessKeySecretKey"
+      - name: secret-key-identifier
+        description: "Secret identifier for the upstream secret key, when --auth-type AccessKeySecretKey"
+      - name: remote-url-suffix
+        description: "Optional path suffix appended to the upstream remote URL (e.g. overriding /simple for Python upstreams)"
+      - name: firewall-mode
+        description: "Optional upstream firewall mode"
     endpoint:
       method: POST
       path: /har/api/v1/registry
@@ -760,6 +778,15 @@ commands:
         description: flags.description
         packageType: flags["package-type"]
         config.type: coalesce(flags.type, "VIRTUAL")
+        config.source: flags.source
+        config.url: flags.url
+        config.authType: flags["auth-type"]
+        config.remoteUrlSuffix: flags["remote-url-suffix"]
+        config.firewallMode: flags["firewall-mode"]
+        config.auth.userName: flags.username
+        config.auth.secretIdentifier: flags["secret-identifier"]
+        config.auth.accessKey: flags["access-key"]
+        config.auth.secretKeyIdentifier: flags["secret-key-identifier"]
         labels: flags.labels
       item_expr: it.data
 
@@ -949,6 +976,7 @@ commands:
       method: POST
       path: /har/api/v2/copy
       query_params:
+        account_identifier: auth.account
         src_registry_identifier: ctx.idParts[0]
         src_artifact: ctx.idParts[1]
         src_version: ctx.idParts[2]

@@ -157,6 +157,27 @@ func doHAR(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, url, meth
 	return nil
 }
 
+// applyLevelScope returns a copy of cmdCtx.Auth with OrgID/ProjectID stripped per
+// cmdCtx.Level ("org" clears ProjectID, "account" clears OrgID and ProjectID),
+// mirroring the scope-handling in pkg/registry/endpoint.go's callEndpointFull.
+// firewall_scan is a workflow-handler command, so it never goes through that
+// endpoint layer and must apply --level itself.
+func applyLevelScope(cmdCtx *cmdctx.Ctx) *auth.ResolvedAuth {
+	a := cmdCtx.Auth
+	switch cmdCtx.Level {
+	case "org":
+		copy := *a
+		copy.ProjectID = ""
+		a = &copy
+	case "account":
+		copy := *a
+		copy.OrgID = ""
+		copy.ProjectID = ""
+		a = &copy
+	}
+	return a
+}
+
 // getRegistryUUID fetches the registry via the HAR v1 API and returns its UUID.
 func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryID string) (string, error) {
 	apiUrl, accountID, orgID, projectID := a.APIUrl, a.AccountID, a.OrgID, a.ProjectID
@@ -171,6 +192,9 @@ func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth,
 	if err != nil {
 		return "", err
 	}
+	q := u.Query()
+	q.Set("accountIdentifier", accountID)
+	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
 		return "", err
@@ -204,7 +228,7 @@ func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth,
 // ---- handler ----
 
 func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
-	a := cmdCtx.Auth
+	a := applyLevelScope(cmdCtx)
 
 	if len(cmdCtx.IdParts) < 3 {
 		return fmt.Errorf("artifact:firewall_scan requires <registry/name/version>, got %q", cmdCtx.Id)
@@ -473,7 +497,7 @@ type auditScanResult struct {
 }
 
 func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
-	a := cmdCtx.Auth
+	a := applyLevelScope(cmdCtx)
 	registryID := cmdCtx.Id
 	filePath := cmdctx.GetString(cmdCtx.FlagValues, "lockfile")
 
