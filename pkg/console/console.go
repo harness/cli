@@ -113,6 +113,23 @@ func WithBold(text string) string {
 	return fmt.Sprintf("\x1b[1m%s\x1b[0m", text)
 }
 
+// WithItalic wraps text in an italic ANSI code (no color) when stdout is a TTY.
+func WithItalic(text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	return fmt.Sprintf("\x1b[3m%s\x1b[0m", text)
+}
+
+// WithHighlight renders text in red on a dark grey background when stdout is
+// a TTY, used for inline code spans.
+func WithHighlight(text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	return fmt.Sprintf("\x1b[91;48;5;236m%s\x1b[0m", text)
+}
+
 // ReadSecret prints prompt to stderr and reads a masked line from the terminal.
 func ReadSecret(prompt string) (string, error) {
 	if !ensureTTY() {

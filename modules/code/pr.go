@@ -93,7 +93,7 @@ func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *
 	}
 
 	if desc := strings.TrimSpace(data.GetString("it.description")); desc != "" {
-		fmt.Fprintf(w, "\n%s\n", desc)
+		fmt.Fprintf(w, "\n%s\n", console.RenderMarkdown(desc))
 	}
 	_, err = fmt.Fprint(w, interpolate(baseSpec.Endpoint.TextFooter, pr))
 	return err
