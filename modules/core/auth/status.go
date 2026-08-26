@@ -43,6 +43,7 @@ type statusChecks struct {
 type statusResult struct {
 	Source             string       `json:"Source"`
 	Profile            string       `json:"Profile"`
+	ProfileMissing     bool         `json:"-"` // profile has no entry in config at all; StatusHandler returns early on this
 	APIUrl             string       `json:"APIUrl"`
 	RegistryURL        string       `json:"RegistryURL,omitempty"`
 	AccountID          string       `json:"AccountID"`
@@ -74,6 +75,12 @@ func StatusHandler(ctx *cmdctx.Ctx) error {
 	tokenStatus := cmdctx.GetBool(ctx.FlagValues, "token-status")
 
 	r := runStatusChecks(profileFlag)
+
+	// A profile that doesn't exist in config at all has nothing to report —
+	// skip the status table and return the clean error directly.
+	if r.ProfileMissing {
+		return errors.New(r.Status.Profile.Error)
+	}
 
 	if jsonMode {
 		out, _ := json.MarshalIndent(r, "", "  ")
@@ -329,6 +336,8 @@ func populateKnownProfileFields(r *statusResult, pName string) {
 	}
 	p, ok := cfg.Profiles[pName]
 	if !ok {
+		// Env-var auth has no profile to look up; only a named profile can be "missing".
+		r.ProfileMissing = r.Source != auth.SourceEnv
 		return
 	}
 	r.APIUrl = p.APIUrl
