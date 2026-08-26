@@ -131,12 +131,14 @@ function Install-HarnessBinaries {
 
         # A failure here still leaves a working core, so note it instead of aborting.
         if (-not $CoreOnly) {
-            Write-Info "Installing har module..."
-            & $coreTarget install module har 2>$null | Out-Null
-            if ($LASTEXITCODE -eq 0) {
-                Write-Ok "Installed har module to ~\.harness\bin"
-            } else {
-                Write-Note "Could not install the har module - run 'harness install module har' to retry"
+            foreach ($module in @("har", "migrate")) {
+                Write-Info "Installing $module module..."
+                & $coreTarget install module $module 2>$null | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Ok "Installed $module module to ~\.harness\bin"
+                } else {
+                    Write-Note "Could not install the $module module - run 'harness install module $module' to retry"
+                }
             }
         }
     } finally {
