@@ -56,8 +56,10 @@ type GithubPluginRef struct {
 // own "{TagPrefix}/vX.Y.Z" tag on release.Repo — a module shipping a fix does
 // not wait on core's release cadence.
 var pluginRegistry = map[string]GithubPluginRef{
-	"har":     {GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har", Desc: "Harness Artifact Registry (push and pull artifacts)"},
-	"migrate": {GithubRepo: release.Repo, TagPrefix: "migrate", PkgName: "harness-plugin-migrate", Desc: "Migrate repos, pull requests and pipelines into Harness from another SCM"},
+	"har": {GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har",
+		Desc: "Harness Artifact Registry (push and pull artifacts)"},
+	"migrate": {GithubRepo: release.Repo, TagPrefix: "migrate", PkgName: "harness-plugin-migrate",
+		Desc: "module_desc: Migrate repositories and their pull requests into Harness Code from another SCM"},
 }
 
 // UninstalledRegistryPlugins returns registry-known plugins that aren't in

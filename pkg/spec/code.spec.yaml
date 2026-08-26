@@ -631,17 +631,6 @@ commands:
       no_fields: true
       text_header: "\nUpdated repository {{ctx.id}}\n"
 
-  - command: delete repository
-    verb: delete
-    noun: repository
-    confirm_mode: confirm_id
-    short: Delete a repository
-    handler_type: endpoint
-    endpoint:
-      method: DELETE
-      path: /code/api/v1/repos/{{ctx.id}}
-      item_expr: it
-
   - command: pull repository
     verb: pull
     noun: repository
