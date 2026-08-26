@@ -13,6 +13,14 @@ help_text: |
   repository. A pull request targets a repository branch and has an activity timeline
   (comments, reviews, state changes) and threaded comments associated with it.
 
+  ### Migrating from another SCM
+
+  To bring existing repositories, pull requests, and pipelines into Harness Code
+  from GitHub, GitLab, Bitbucket, or Bitbucket Server, use the `migrate` plugin
+  module rather than the commands below:
+
+      harness get module migrate
+
   ### Nouns
 
   {{nouns}}

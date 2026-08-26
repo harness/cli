@@ -24,6 +24,7 @@ import (
 	"github.com/harness/cli/pkg/hlog"
 	"github.com/harness/cli/pkg/plugin"
 	"github.com/harness/cli/pkg/release"
+	"github.com/harness/cli/pkg/spec"
 	"github.com/harness/cli/pkg/specloader"
 )
 
@@ -38,6 +39,11 @@ type GithubPluginRef struct {
 	GithubRepo string
 	TagPrefix  string
 	PkgName    string
+	// Desc is a one-line summary shown in `list module`/`list plugin` for
+	// registry plugins that aren't installed — the module's own spec (and its
+	// module_desc) isn't loaded until install, so this is the only
+	// description available before then.
+	Desc string
 }
 
 // pluginRegistry is the optional name→artifact resolver behind the bare-name
@@ -50,8 +56,28 @@ type GithubPluginRef struct {
 // own "{TagPrefix}/vX.Y.Z" tag on release.Repo — a module shipping a fix does
 // not wait on core's release cadence.
 var pluginRegistry = map[string]GithubPluginRef{
-	"har":     {GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har"},
-	"migrate": {GithubRepo: release.Repo, TagPrefix: "migrate", PkgName: "harness-plugin-migrate"},
+	"har":     {GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har", Desc: "Harness Artifact Registry (push and pull artifacts)"},
+	"migrate": {GithubRepo: release.Repo, TagPrefix: "migrate", PkgName: "harness-plugin-migrate", Desc: "Migrate repos, pull requests and pipelines into Harness from another SCM"},
+}
+
+// UninstalledRegistryPlugins returns registry-known plugins that aren't in
+// seen (keyed by module name), as ModuleMeta stubs carrying only Name/Type/Desc.
+// Registry plugins aren't loaded until installed, so they're otherwise absent
+// from GetModuleMetas() — this is how callers like `list module` and the
+// no-args `harness` summary surface them as available-but-not-installed.
+func UninstalledRegistryPlugins(seen map[string]bool) []spec.ModuleMeta {
+	names := make([]string, 0, len(pluginRegistry))
+	for name := range pluginRegistry {
+		if !seen[name] {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	metas := make([]spec.ModuleMeta, 0, len(names))
+	for _, name := range names {
+		metas = append(metas, spec.ModuleMeta{Name: name, Type: "plugin", Desc: pluginRegistry[name].Desc})
+	}
+	return metas
 }
 
 func registryNames() string {
