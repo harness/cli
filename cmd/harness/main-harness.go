@@ -14,6 +14,7 @@ import (
 
 	"github.com/harness/cli/modules/code"
 	"github.com/harness/cli/modules/core"
+	"github.com/harness/cli/modules/core/mgmt"
 	"github.com/harness/cli/modules/gitops"
 	"github.com/harness/cli/modules/iacm"
 	"github.com/harness/cli/modules/pipeline"
@@ -74,12 +75,15 @@ func main() {
 }
 
 func renderModules(metas []spec.ModuleMeta) string {
+	seen := map[string]bool{}
 	var visible []spec.ModuleMeta
 	for _, m := range metas {
+		seen[m.Name] = true
 		if !m.Core {
 			visible = append(visible, m)
 		}
 	}
+	visible = append(visible, mgmt.UninstalledRegistryPlugins(seen)...)
 
 	// find longest name for alignment
 	maxLen := 0
