@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/console"
@@ -17,14 +18,6 @@ import (
 	"github.com/harness/cli/pkg/registry"
 	"github.com/harness/cli/pkg/spec"
 )
-
-// prHeaderFieldIDs are the noun fields folded into renderPRHeader's title/badge,
-// branch, and stats lines, so they aren't repeated in the labeled-field dump below.
-var prHeaderFieldIDs = map[string]bool{
-	"number": true, "title": true, "state": true, "is_draft": true,
-	"source_branch": true, "target_branch": true, "author": true,
-	"commits": true, "files_changed": true, "additions": true, "deletions": true,
-}
 
 const getPRWorkflowID = "get_pr"
 
@@ -92,24 +85,6 @@ func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *
 
 	renderPRHeader(w, data)
 
-	nounForFields := ctx.Noun
-	if ctx.FieldsNoun != "" {
-		nounForFields = ctx.FieldsNoun
-	}
-	var labeledFields []spec.FieldDef
-	if nd := ctx.Resolver.GetNoun(nounForFields); nd != nil {
-		for _, f := range nd.Fields {
-			if f.FieldType == "multiline_text" || f.FieldType == "yaml" || prHeaderFieldIDs[f.ID] {
-				continue
-			}
-			labeledFields = append(labeledFields, f)
-		}
-	}
-
-	if err := format.BuildTextFieldFormatter(labeledFields, "", "", interpolate)(w, data); err != nil {
-		return err
-	}
-
 	if insightSpec != nil {
 		sectionData := extractutil.MakeDataAccessor(exprEnv, insightData)
 		if err := insightTextFormatter(w, sectionData); err != nil {
@@ -135,26 +110,88 @@ func renderPRHeader(w io.Writer, d cmdctx.DataAccessor) {
 	if d.GetBool("it.is_draft") && state == "open" {
 		badge = "draft"
 	}
+
+	when := d.GetInt64("it.created")
+	if merged := d.GetInt64("it.merged"); merged > 0 {
+		when = merged
+	}
+
 	fmt.Fprintf(w, "%s %s  %s\n",
-	title,
-	console.WithBold(fmt.Sprintf("#%d", number)),
-	console.WithBoldColor(prStateColor(badge), strings.ToUpper(badge)),
+		console.WithBold(title),
+		fmt.Sprintf("#%d", number),
+		relativeTime(when),
 	)
 
 	author := d.GetString("it.author.display_name")
 	source := d.GetString("it.source_branch")
 	target := d.GetString("it.target_branch")
-	fmt.Fprintf(w, "%s wants to merge %s into %s\n", author, source, target)
+	fmt.Fprintf(w, "%s • %s wants to merge %s into %s\n", 
+	console.WithColor(prStateColor(badge), strings.ToUpper(badge)),author, source, target)
 
 	files := d.GetInt64("it.stats.files_changed")
 	commits := d.GetInt64("it.stats.commits")
 	additions := d.GetInt64("it.stats.additions")
 	deletions := d.GetInt64("it.stats.deletions")
-	fmt.Fprintf(w, "%d file%s changed · %d commit%s · %s %s\n\n",
+	fmt.Fprintf(w, "%d file%s changed · %d commit%s · %s %s ",
 		files, plural(files), commits, plural(commits),
 		console.WithColor(console.ColorGreen, fmt.Sprintf("+%d", additions)),
 		console.WithColor(console.ColorRed, fmt.Sprintf("-%d", deletions)),
 	)
+
+	var extras []string
+	if check := d.GetString("it.merge_check_status"); check != "" {
+		extras = append(extras, checkStatusText(check))
+	}
+	if required := d.GetInt64("it.stats.reviews.required_count"); required > 0 {
+		approved := d.GetInt64("it.stats.reviews.latest_approvals")
+		extras = append(extras, fmt.Sprintf("Reviews: %d/%d approved", approved, required))
+	}
+	if len(extras) > 0 {
+		fmt.Fprintln(w, strings.Join(extras, " · "))
+	}
+
+	fmt.Fprintln(w)
+}
+
+// relativeTime renders an epoch-ms timestamp as a coarse "N units ago" string,
+// gh pr view style. Returns "" for a zero/missing timestamp.
+func relativeTime(epochMs int64) string {
+	if epochMs <= 0 {
+		return ""
+	}
+	d := time.Since(time.UnixMilli(epochMs))
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		n := int64(d.Minutes())
+		return fmt.Sprintf("• %d min%s ago", n, plural(n))
+	case d < 24*time.Hour:
+		n := int64(d.Hours())
+		return fmt.Sprintf("• %d hr%s ago", n, plural(n))
+	case d < 30*24*time.Hour:
+		n := int64(d.Hours() / 24)
+		return fmt.Sprintf("• %d day%s ago", n, plural(n))
+	case d < 365*24*time.Hour:
+		n := int64(d.Hours() / 24 / 30)
+		return fmt.Sprintf("• %d mon%s ago", n, plural(n))
+	default:
+		n := int64(d.Hours() / 24 / 365)
+		return fmt.Sprintf("• %d yr%s ago", n, plural(n))
+	}
+}
+
+// checkStatusText renders a merge_check_status value as a colorized one-liner,
+// following gh pr view's "✓ Checks passing" style.
+func checkStatusText(status string) string {
+	switch strings.ToLower(status) {
+	case "mergeable":
+		return console.WithColor(console.ColorGreen, "• ✓ Checks passing")
+	case "unchecked", "checking":
+		return console.WithColor(console.ColorYellow, "• … Checks running")
+	default:
+		return console.WithColor(console.ColorRed, "• ✗ Checks failing ("+status+")")
+	}
 }
 
 // plural returns "s" unless n is exactly 1.
