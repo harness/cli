@@ -50,7 +50,8 @@ type GithubPluginRef struct {
 // own "{TagPrefix}/vX.Y.Z" tag on release.Repo — a module shipping a fix does
 // not wait on core's release cadence.
 var pluginRegistry = map[string]GithubPluginRef{
-	"har": {GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har"},
+	"har":     {GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har"},
+	"migrate": {GithubRepo: release.Repo, TagPrefix: "migrate", PkgName: "harness-plugin-migrate"},
 }
 
 func registryNames() string {

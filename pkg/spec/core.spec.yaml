@@ -357,7 +357,7 @@ commands:
       Install a plugin into the harness home directory (~/.harness).
 
       <ref> may be:
-        - a plugin name, resolved to a Harness release (currently: har)
+        - a plugin name, resolved to a Harness release (currently: har, migrate)
         - an owner/repo GitHub ref, resolved to that repo's latest release
         - an owner/repo/prefix GitHub ref, for a repo whose releases are tagged
           "{prefix}/vX.Y.Z" rather than a bare "vX.Y.Z"
