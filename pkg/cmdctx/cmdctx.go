@@ -106,6 +106,11 @@ type RawBody struct {
 // flag value as an empty string. Returning an error aborts the command.
 type FlagResolveFn func(ctx *Ctx, raw string) (string, error)
 
+// IdPartDefaultFn supplies a value for a missing/sentinel id_part, derived from
+// ctx and the environment (e.g. the current directory's git remote) rather than
+// from user input — see spec.IdPartDefaultFn and spec.IdPartSentinel.
+type IdPartDefaultFn func(ctx *Ctx) (string, error)
+
 // Resolver looks up registered handler functions by their fully-qualified ID.
 // The registry implements this; commands receive it via Ctx.Resolver.
 type Resolver interface {
@@ -113,6 +118,7 @@ type Resolver interface {
 	ResolveBodyFn(id string) CreateBodyFn
 	ResolveQueryParamsFn(id string) QueryParamsFn
 	ResolveFlagResolveFn(id string) FlagResolveFn
+	ResolveIdPartDefaultFn(id string) IdPartDefaultFn
 	ResolveFetchFn(id string) (FetchFn, error)
 	ResolveListTransformFn(id string) ListTransformFn
 	ResolveEndpointValidator(id string) EndpointValidatorFn

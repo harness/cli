@@ -34,6 +34,7 @@ type ModuleRegistrar interface {
 	RegisterListTransformFn(shortID string, fn cmdctx.ListTransformFn)
 	RegisterFlagCompletionFn(shortID string, fn FlagCompletionFn)
 	RegisterFlagResolveFn(shortID string, fn cmdctx.FlagResolveFn)
+	RegisterIdPartDefaultFn(shortID string, fn cmdctx.IdPartDefaultFn)
 	RegisterEndpointValidatorFn(shortID string, fn cmdctx.EndpointValidatorFn)
 }
 
@@ -88,6 +89,9 @@ func (m *moduleRegistrar) Register(cs *spec.CommandSpec) error {
 	}
 	if cs.FollowFn != "" {
 		cs.FollowFn = m.qualify(cs.FollowFn, cmd+" follow_fn", true)
+	}
+	if cs.IdPartDefaultFn != "" {
+		cs.IdPartDefaultFn = m.qualify(cs.IdPartDefaultFn, cmd+" id_part_default_fn", true)
 	}
 	if cs.Endpoint != nil && cs.Endpoint.FetchFn != "" {
 		cs.Endpoint.FetchFn = m.qualify(cs.Endpoint.FetchFn, cmd+" fetch_fn", true)
@@ -171,6 +175,12 @@ func (m *moduleRegistrar) RegisterFlagCompletionFn(shortID string, fn FlagComple
 func (m *moduleRegistrar) RegisterFlagResolveFn(shortID string, fn cmdctx.FlagResolveFn) {
 	if q := m.qualify(shortID, fmt.Sprintf("flag_resolve_fn %q", shortID), false); q != "" {
 		m.reg.RegisterFlagResolveFn(q, fn)
+	}
+}
+
+func (m *moduleRegistrar) RegisterIdPartDefaultFn(shortID string, fn cmdctx.IdPartDefaultFn) {
+	if q := m.qualify(shortID, fmt.Sprintf("id_part_default_fn %q", shortID), false); q != "" {
+		m.reg.RegisterIdPartDefaultFn(q, fn)
 	}
 }
 

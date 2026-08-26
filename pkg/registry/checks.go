@@ -119,6 +119,11 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 			errs = append(errs, fmt.Sprintf("command %q: follow_fn %q not registered", cs.Command, cs.FollowFn))
 		}
 	}
+	if cs.IdPartDefaultFn != "" {
+		if _, ok := r.idPartDefaultFns[cs.IdPartDefaultFn]; !ok {
+			errs = append(errs, fmt.Sprintf("command %q: id_part_default_fn %q not registered", cs.Command, cs.IdPartDefaultFn))
+		}
+	}
 	for _, f := range cs.Flags {
 		if f.CompletionFn != "" {
 			if _, ok := r.flagCompletionFns[f.CompletionFn]; !ok {
