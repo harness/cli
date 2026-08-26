@@ -32,7 +32,7 @@ type condaIndexJSON struct {
 //
 // The upload is a raw PUT to:
 //
-//	{registryURL}/pkg/{accountID}/{registry}/conda/{subdir}/{filename}
+//	{registryURL}/pkg/{accountID}/{registry}/conda/upload
 //
 // with headers:
 //
@@ -83,8 +83,8 @@ func pushCondaArtifact(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	// URL: {registryURL}/pkg/{accountID}/{registry}/conda/{subdir}/{filename}
-	subpath := fmt.Sprintf("%s/conda/%s/%s", registry, meta.Subdir, fileName)
+	// URL: {registryURL}/pkg/{accountID}/{registry}/conda/upload
+	subpath := fmt.Sprintf("%s/conda/upload", registry)
 	uploadURL, err := buildPkgURL(ctx.Auth.RegistryURL, ctx.Auth.AccountID, subpath)
 	if err != nil {
 		return err

@@ -565,6 +565,9 @@ commands:
       - name: force
         description: "Hard delete without soft-delete recovery; prompts for confirmation"
         is_bool: true
+      - name: yes
+        description: "Skip the confirmation prompt when executing with --dry-run=false"
+        is_bool: true
 
   - command: get artifact
     verb: get
@@ -746,6 +749,24 @@ commands:
       - name: labels
         description: Labels (comma-separated list or JSON array)
         is_array: true
+      - name: source
+        description: "Upstream source, required when --type UPSTREAM (Dockerhub, Custom, AwsEcr, MavenCentral, PyPi, NpmJs, NugetOrg, Crates, GoProxy, HuggingFace, Anaconda, Pubdev, Packagist, PuppetForge)"
+      - name: url
+        description: "Upstream remote URL, required when --source Custom"
+      - name: auth-type
+        description: "Upstream auth type, required when --type UPSTREAM (UserPassword, AccessKeySecretKey, Anonymous)"
+      - name: username
+        description: "Upstream username, when --auth-type UserPassword"
+      - name: secret-identifier
+        description: "Secret identifier for the upstream password, when --auth-type UserPassword"
+      - name: access-key
+        description: "Upstream access key, when --auth-type AccessKeySecretKey"
+      - name: secret-key-identifier
+        description: "Secret identifier for the upstream secret key, when --auth-type AccessKeySecretKey"
+      - name: remote-url-suffix
+        description: "Optional path suffix appended to the upstream remote URL (e.g. overriding /simple for Python upstreams)"
+      - name: firewall-mode
+        description: "Optional upstream firewall mode"
     endpoint:
       method: POST
       path: /har/api/v1/registry
@@ -757,6 +778,15 @@ commands:
         description: flags.description
         packageType: flags["package-type"]
         config.type: coalesce(flags.type, "VIRTUAL")
+        config.source: flags.source
+        config.url: flags.url
+        config.authType: flags["auth-type"]
+        config.remoteUrlSuffix: flags["remote-url-suffix"]
+        config.firewallMode: flags["firewall-mode"]
+        config.auth.userName: flags.username
+        config.auth.secretIdentifier: flags["secret-identifier"]
+        config.auth.accessKey: flags["access-key"]
+        config.auth.secretKeyIdentifier: flags["secret-key-identifier"]
         labels: flags.labels
       item_expr: it.data
 
@@ -946,6 +976,7 @@ commands:
       method: POST
       path: /har/api/v2/copy
       query_params:
+        account_identifier: auth.account
         src_registry_identifier: ctx.idParts[0]
         src_artifact: ctx.idParts[1]
         src_version: ctx.idParts[2]
@@ -988,7 +1019,7 @@ commands:
     workflow_id: execute_registry_firewall_scan
     flags:
       - name: lockfile
-        description: "Path to lock file (package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle)"
+        description: "Path to lock file (package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle, packages.lock.json)"
         required: true
 
   - command: execute artifact:npm_install
