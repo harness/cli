@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/harness/cli/pkg/hbase"
@@ -89,9 +90,16 @@ func SaveCredentials(creds map[string]*ProfileCredentials) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("creating credentials dir: %w", err)
 	}
+	names := make([]string, 0, len(creds))
+	for name := range creds {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	var sb strings.Builder
 	sb.WriteString(credentialsHeader)
-	for name, c := range creds {
+	for _, name := range names {
+		c := creds[name]
 		sb.WriteString("[")
 		sb.WriteString(name)
 		sb.WriteString("]\n")
