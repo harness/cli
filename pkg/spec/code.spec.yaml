@@ -634,6 +634,17 @@ commands:
       path: /code/api/v1/repos/{{ctx.id}}
       item_expr: it
 
+  - command: pull repository
+    verb: pull
+    noun: repository
+    short: "Clone a repository: harness pull repository <repo_id> [<dest-dir>]"
+    handler_type: workflow
+    workflow_id: pull_repository
+    has_args: true
+    args_label: "[<dest-dir>]"
+    completion_seq:
+      - completion_noun: repository
+
   # ── pr ──────────────────────────────────────────────────────────────────────
 
   - command: list pr:mine
@@ -835,6 +846,23 @@ commands:
       update_body_pick: it
       no_fields: true
       text_header: "\nUpdated PR #{{ctx.idParts[1]}}\n"
+
+  - command: pull pr
+    verb: pull
+    noun: pr
+    short: "Fetch and check out a pull request's source branch (run inside an existing clone): harness pull pr [<repo_id>/]<pr_number>"
+    handler_type: workflow
+    workflow_id: pull_pr
+    id_label: "[<repo_id>/]<pr_number>"
+    id_allow_slash: true
+    flags:
+      - name: remote
+        description: "Local git remote to resolve the repo from and fetch through"
+        default: origin
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
 
   - command: execute pr:merge
     verb: execute

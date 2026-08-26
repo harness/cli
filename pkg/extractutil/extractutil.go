@@ -4,11 +4,12 @@
 package extractutil
 
 import (
-	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/expr-lang/expr"
+
+	"github.com/harness/cli/pkg/strutil"
 )
 
 type accessor struct {
@@ -50,7 +51,7 @@ func (a *accessor) GetString(path string) string {
 	}
 	s, ok := v.(string)
 	if !ok {
-		return fmt.Sprint(v)
+		return strutil.Stringify(v)
 	}
 	return s
 }
