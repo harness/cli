@@ -4,6 +4,7 @@
 package code
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -11,9 +12,11 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/harness/cli/pkg/auth"
 	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/extractutil"
 	"github.com/harness/cli/pkg/registry"
 	"github.com/harness/cli/pkg/spec"
 )
@@ -342,6 +345,135 @@ func TestReviewGroupTextFormatter_ColorizesBulletAndRiskTag(t *testing.T) {
 	}
 	if !strings.Contains(out, "auth/middleware.go") {
 		t.Fatalf("output must still list the file path, got:\n%s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// renderPRHeader / relativeTime / checkStatusText / plural / prStateColor
+// ---------------------------------------------------------------------------
+
+func TestRelativeTime(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name    string
+		epochMs int64
+		want    string
+	}{
+		{"zero timestamp", 0, ""},
+		{"negative timestamp", -5, ""},
+		{"just now", now.Add(-10 * time.Second).UnixMilli(), "just now"},
+		{"minutes ago", now.Add(-5 * time.Minute).UnixMilli(), "• 5 mins ago"},
+		{"one minute ago (singular)", now.Add(-1 * time.Minute).UnixMilli(), "• 1 min ago"},
+		{"hours ago", now.Add(-3 * time.Hour).UnixMilli(), "• 3 hrs ago"},
+		{"days ago", now.Add(-13 * 24 * time.Hour).UnixMilli(), "• 13 days ago"},
+		{"one day ago (singular)", now.Add(-1 * 24 * time.Hour).UnixMilli(), "• 1 day ago"},
+		{"months ago", now.Add(-60 * 24 * time.Hour).UnixMilli(), "• 2 mons ago"},
+		{"years ago", now.Add(-400 * 24 * time.Hour).UnixMilli(), "• 1 yr ago"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := relativeTime(tt.epochMs); got != tt.want {
+				t.Fatalf("relativeTime(%d) = %q, want %q", tt.epochMs, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckStatusText(t *testing.T) {
+	tests := []struct {
+		status string
+		want   string
+	}{
+		{"mergeable", "✓ Checks passing"},
+		{"Mergeable", "✓ Checks passing"},
+		{"unchecked", "… Checks running"},
+		{"checking", "… Checks running"},
+		{"blocked", "✗ Checks failing (blocked)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			got := checkStatusText(tt.status)
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("checkStatusText(%q) = %q, want to contain %q", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPlural(t *testing.T) {
+	if got := plural(1); got != "" {
+		t.Fatalf("plural(1) = %q, want empty", got)
+	}
+	for _, n := range []int64{0, 2, -1} {
+		if got := plural(n); got != "s" {
+			t.Fatalf("plural(%d) = %q, want %q", n, got, "s")
+		}
+	}
+}
+
+func TestPRStateColor(t *testing.T) {
+	tests := map[string]bool{"open": true, "draft": true, "merged": true, "closed": true, "unknown": false}
+	for state, wantColor := range tests {
+		got := prStateColor(state) != 0
+		if got != wantColor {
+			t.Fatalf("prStateColor(%q) colored = %v, want %v", state, got, wantColor)
+		}
+	}
+}
+
+func TestRenderPRHeader_OmitsEmptyChecksAndReviews(t *testing.T) {
+	pr := map[string]any{
+		"number": 1, "title": "Add feature", "state": "open", "is_draft": false,
+		"source_branch": "feature", "target_branch": "main",
+		"author": map[string]any{"display_name": "Jane Doe"},
+		"stats":  map[string]any{"files_changed": 2, "commits": 1, "additions": 10, "deletions": 3},
+	}
+	d := extractutil.MakeDataAccessor(map[string]any{}, pr)
+	var buf bytes.Buffer
+	renderPRHeader(&buf, d)
+	out := buf.String()
+
+	if strings.Contains(out, "Checks") {
+		t.Fatalf("expected no checks line when merge_check_status is empty, got:\n%s", out)
+	}
+	if strings.Contains(out, "Reviews:") {
+		t.Fatalf("expected no reviews line when required_count is 0, got:\n%s", out)
+	}
+	if !strings.Contains(out, "#1") || !strings.Contains(out, "Add feature") {
+		t.Fatalf("expected header with number and title, got:\n%s", out)
+	}
+	if !strings.Contains(out, "OPEN") {
+		t.Fatalf("expected OPEN badge, got:\n%s", out)
+	}
+}
+
+func TestRenderPRHeader_IncludesChecksAndReviewsWhenPresent(t *testing.T) {
+	pr := map[string]any{
+		"number": 111, "title": "Point spec at v4 endpoints", "state": "open", "is_draft": true,
+		"source_branch": "worktree-fme-spec-fix", "target_branch": "main",
+		"author": map[string]any{"display_name": "Deepak Puthraya"},
+		"stats": map[string]any{
+			"files_changed": 12, "commits": 8, "additions": 938, "deletions": 58,
+			"reviews": map[string]any{"required_count": 1, "latest_approvals": 0},
+		},
+		"merge_check_status": "mergeable",
+	}
+	d := extractutil.MakeDataAccessor(map[string]any{}, pr)
+	var buf bytes.Buffer
+	renderPRHeader(&buf, d)
+	out := buf.String()
+
+	if !strings.Contains(out, "DRAFT") {
+		t.Fatalf("expected DRAFT badge for is_draft PR in open state, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Checks passing") {
+		t.Fatalf("expected checks line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Reviews: 0/1 approved") {
+		t.Fatalf("expected reviews line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "938") || !strings.Contains(out, "58") {
+		t.Fatalf("expected additions/deletions stats, got:\n%s", out)
 	}
 }
 
