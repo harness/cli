@@ -3,6 +3,20 @@
 
 package strutil
 
+import (
+	"fmt"
+	"strconv"
+)
+
+// Stringify renders a value for display, avoiding Go's default scientific
+// notation for large/small float64 values (e.g. API numbers decoded from JSON).
+func Stringify(v any) string {
+	if f, ok := v.(float64); ok {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+	return fmt.Sprint(v)
+}
+
 // Levenshtein returns the edit distance between two strings.
 func Levenshtein(a, b string) int {
 	ra, rb := []rune(a), []rune(b)

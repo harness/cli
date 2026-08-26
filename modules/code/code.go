@@ -23,6 +23,8 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterFlagResolveFn(resolvePrincipalIDFnID, resolvePrincipalID)
 	reg.RegisterBodyFn(reviewPRBodyFnID, reviewPRBodyFn)
 	reg.RegisterWorkflow(getPRWorkflowID, GetPRWorkflow)
+	reg.RegisterWorkflow(pullRepositoryWorkflowID, pullRepositoryWorkflow)
+	reg.RegisterWorkflow(pullPRWorkflowID, pullPRWorkflow)
 	reg.RegisterTextFormatter(reviewGroupTextFormatterID, reviewGroupTextFormatter)
 	reg.RegisterTextFormatter(insightTextFormatterID, insightTextFormatter)
 }

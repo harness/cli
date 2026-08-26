@@ -109,7 +109,7 @@ tasks:
     deps: [build:har, install]
     cmds:
       - mkdir -p ~/.local/bin
-      - cp ./bin/harness-har ~/.local/bin/harness-har
+      - cp ./devhome/bin/harness-har ~/.local/bin/harness-har
       - echo "Installed ~/.local/bin/harness-har"
 
   dev:

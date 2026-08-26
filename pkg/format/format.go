@@ -23,6 +23,7 @@ import (
 	"github.com/harness/cli/pkg/console"
 	"github.com/harness/cli/pkg/extractutil"
 	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/strutil"
 )
 
 // TextFormatterFn is an alias for the canonical type in cmdctx.
@@ -208,7 +209,7 @@ func FormatFieldsOutput(flags cmdctx.FormatFlags, data any, itemExpr string, fie
 		if v == nil {
 			vals = append(vals, "")
 		} else {
-			vals = append(vals, fmt.Sprintf("%v", v))
+			vals = append(vals, strutil.Stringify(v))
 		}
 	}
 	fmt.Fprintln(w, strings.Join(vals, "\t"))
@@ -501,7 +502,7 @@ func BuildTable(tspec *spec.TableSpec, itemsExpr string, resp any, noHeaders boo
 			if val == nil {
 				row[i] = ""
 			} else {
-				row[i] = fmt.Sprint(val)
+				row[i] = strutil.Stringify(val)
 			}
 		}
 		t.AppendRow(row)
@@ -538,7 +539,7 @@ func renderCSV(w io.Writer, tspec *spec.TableSpec, itemsExpr string, resp any, n
 			if val == nil {
 				record[i] = ""
 			} else {
-				record[i] = fmt.Sprint(val)
+				record[i] = strutil.Stringify(val)
 			}
 		}
 		if err := cw.Write(record); err != nil {
@@ -571,7 +572,7 @@ func renderTSV(w io.Writer, tspec *spec.TableSpec, itemsExpr string, resp any, n
 			if val == nil {
 				grid[r][i] = ""
 			} else {
-				s := fmt.Sprint(val)
+				s := strutil.Stringify(val)
 				grid[r][i] = s
 				if strings.ContainsAny(s, "\t\n") {
 					encodeCol[i] = true

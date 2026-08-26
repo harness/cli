@@ -21,6 +21,7 @@ import (
 	"github.com/harness/cli/pkg/extractutil"
 	"github.com/harness/cli/pkg/format"
 	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/strutil"
 	"github.com/harness/cli/pkg/tui"
 )
 
@@ -405,7 +406,7 @@ func formatUICell(val any) string {
 	if val == nil {
 		return ""
 	}
-	return fmt.Sprint(val)
+	return strutil.Stringify(val)
 }
 
 func itemsToTableRows(items []any, tspec *spec.TableSpec, exprEnv map[string]any) ([]tui.Row, error) {

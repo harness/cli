@@ -162,7 +162,10 @@ func pkgmgrBulkEvalAndDisplay(ctx context.Context, hc *http.Client, a *auth.Reso
 		}
 		// Fetch and print policy-set violation details for BLOCKED/WARN.
 		if r.ScanID != "" {
-			detailURL := buildScanDetailsURL(a.APIUrl, r.ScanID, a.AccountID)
+			detailURL, err := buildScanDetailsURL(a.APIUrl, r.ScanID, a.AccountID)
+			if err != nil {
+				continue
+			}
 			var detailResp scanDetailsResp
 			if err := doHAR(ctx, hc, a, detailURL, "GET", nil, &detailResp); err == nil && detailResp.Data != nil {
 				printScanDetails(detailResp.Data)
@@ -193,7 +196,10 @@ func pkgmgrRunBatch(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, 
 
 // pkgmgrInitiateAndPoll initiates a bulk eval and polls until SUCCESS or FAILURE.
 func pkgmgrInitiateAndPoll(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryUUID string, batch []artifactScanInput, batchNum int) ([]bulkScanItem, error) {
-	evalURL := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
+	evalURL, err := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("building evaluation URL: %w", err)
+	}
 	var initResp bulkEvalAcceptedResp
 	if err := doHAR(ctx, hc, a, evalURL, "POST", bulkEvalRequest{
 		RegistryId: registryUUID,
@@ -206,7 +212,10 @@ func pkgmgrInitiateAndPoll(ctx context.Context, hc *http.Client, a *auth.Resolve
 	}
 	evaluationID := *initResp.Data.EvaluationId
 
-	statusURL := buildEvalStatusURL(a.APIUrl, evaluationID, a.AccountID, a.OrgID, a.ProjectID)
+	statusURL, err := buildEvalStatusURL(a.APIUrl, evaluationID, a.AccountID, a.OrgID, a.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("building status URL: %w", err)
+	}
 	pollRetries := 0
 	for poll := 0; poll < 120; poll++ {
 		var statusResp bulkEvalStatusResp

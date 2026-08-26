@@ -21,7 +21,7 @@ import (
 // ctx.Id      = "<registry>" (only the registry name is needed; there is no per-package name)
 // ctx.Args[0] = local .rpm file path
 //
-// The upload endpoint is POST {registryURL}/pkg/{accountID}/{registry}/rpm/
+// The upload endpoint is PUT {registryURL}/pkg/{accountID}/{registry}/rpm/
 func pushRpmArtifact(ctx *cmdctx.Ctx) error {
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push rpm requires a local file path: push artifact <registry> <local-file>")
@@ -76,7 +76,7 @@ func pushRpmArtifact(ctx *cmdctx.Ctx) error {
 
 	fmt.Fprintf(os.Stderr, "Uploading %s → %s/rpm/ ...\n", filepath.Base(localFile), registry)
 
-	req, err := http.NewRequest("POST", uploadURL, &body)
+	req, err := http.NewRequest("PUT", uploadURL, &body)
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
