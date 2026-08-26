@@ -106,11 +106,32 @@ func runStatusChecks(profileFlag string) statusResult {
 	resolved, loadErr := auth.Load(profileFlag)
 	if loadErr != nil {
 		r.Status.Profile = checkResult{OK: false, Error: loadErr.Error()}
-		r.Status.API = skip
+		populateKnownProfileFields(&r, profileName(anticipatedSource))
+
+		// APIUrl needs no credential, so check it independently even though
+		// auth failed — it's real signal, not something we're skipping.
+		if r.APIUrl != "" {
+			overridden := os.Getenv(hbase.EnvSSOBaseURL) != ""
+			r.Status.API = checkAPIUrl(r.APIUrl, overridden)
+		} else {
+			r.Status.API = skip
+		}
 		r.Status.User = skip
-		r.Status.Account = skip
-		r.Status.Org = &skip
-		r.Status.Project = &skip
+		r.Status.Account = notVerifiedResult()
+		if r.OrgID != "" {
+			org := notVerifiedResult()
+			r.Status.Org = &org
+		} else {
+			org := notSetResult(anticipatedSource, hbase.EnvOrg, "org")
+			r.Status.Org = &org
+		}
+		if r.ProjectID != "" {
+			proj := notVerifiedResult()
+			r.Status.Project = &proj
+		} else {
+			proj := notSetResult(anticipatedSource, hbase.EnvProject, "project")
+			r.Status.Project = &proj
+		}
 		return r
 	}
 	r.Source = resolved.Source
@@ -295,6 +316,37 @@ func runStatusChecks(profileFlag string) statusResult {
 		uiBase, resolved.AccountID, resolved.OrgID, resolved.ProjectID)
 
 	return r
+}
+
+// populateKnownProfileFields fills in whatever profile fields we already know from
+// config even though auth.Load failed — the profile's own APIUrl/AccountID/OrgID/
+// ProjectID don't require a valid token to read, so a bad/missing credential
+// shouldn't blank them out on the status display.
+func populateKnownProfileFields(r *statusResult, pName string) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return
+	}
+	p, ok := cfg.Profiles[pName]
+	if !ok {
+		return
+	}
+	r.APIUrl = p.APIUrl
+	r.RegistryURL = p.RegistryURL
+	r.AccountID = p.AccountID
+	r.OrgID = p.OrgID
+	r.ProjectID = p.ProjectID
+	if p.AuthType == auth.AuthTypeSSO {
+		r.TokenType = "SSO"
+	} else {
+		r.TokenType = "PAT"
+	}
+}
+
+// notVerifiedResult marks a value we have on file but couldn't confirm against the
+// API because an earlier check (token/API reachability) failed first.
+func notVerifiedResult() checkResult {
+	return checkResult{OK: false, Error: "not verified"}
 }
 
 func notSetResult(source, envVar, noun string) checkResult {
@@ -482,7 +534,10 @@ func currentUserFields(u any) (email, uuid string) {
 func checkAPIUrl(apiURL string, overridden bool) checkResult {
 	formatErr := auth.ValidateAPIURL(apiURL)
 
-	u, _ := url.Parse(apiURL)
+	u, err := url.Parse(apiURL)
+	if err != nil || u.Hostname() == "" {
+		return checkResult{OK: false, Error: fmt.Sprintf("%q is not a valid URL — expected an https:// URL with a host", apiURL)}
+	}
 	if _, err := net.DialTimeout("tcp", u.Hostname()+":443", 5*time.Second); err != nil {
 		if _, ok := errors.AsType[*net.DNSError](err); ok {
 			return checkResult{OK: false, Error: fmt.Sprintf("cannot resolve host %q — check your API URL", u.Hostname())}
