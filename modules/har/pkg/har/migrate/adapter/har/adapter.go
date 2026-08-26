@@ -134,7 +134,10 @@ func (a *harAdapter) UploadFile(
 }
 
 func (a *harAdapter) GetOCIImagePath(registry string, _ string, image string) (string, error) {
-	parse, _ := url.Parse(a.reg.Endpoint)
+	parse, err := url.Parse(a.reg.Endpoint)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse [%s], err: %w", a.reg.Endpoint, err)
+	}
 	return util.GenOCIImagePath(parse.Host, strings.ToLower(a.reg.AccountID), registry, image), nil
 }
 

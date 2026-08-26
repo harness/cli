@@ -482,7 +482,11 @@ func currentUserFields(u any) (email, uuid string) {
 func checkAPIUrl(apiURL string, overridden bool) checkResult {
 	formatErr := auth.ValidateAPIURL(apiURL)
 
-	u, _ := url.Parse(apiURL)
+	u, parseErr := url.Parse(apiURL)
+	if parseErr != nil {
+		return checkResult{OK: false, Error: fmt.Sprintf("malformed API URL %q — %s", apiURL, parseErr)}
+	}
+
 	if _, err := net.DialTimeout("tcp", u.Hostname()+":443", 5*time.Second); err != nil {
 		if _, ok := errors.AsType[*net.DNSError](err); ok {
 			return checkResult{OK: false, Error: fmt.Sprintf("cannot resolve host %q — check your API URL", u.Hostname())}
