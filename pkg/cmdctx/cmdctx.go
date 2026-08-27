@@ -101,10 +101,18 @@ type RawBody struct {
 	Content     string
 }
 
+// FlagResolveResult is the result of resolving a flag's raw value. Value is
+// the resolved value for the flag itself. Defaults, if non-nil, supplies
+// values for OTHER flags — applied only if that flag is still unset; an
+// already-set flag is never overridden.
+type FlagResolveResult struct {
+	Value    string
+	Defaults map[string]string
+}
+
 // FlagResolveFn transforms a raw flag string value before it is placed into
-// the CEL expression environment. Returning ("", nil) is valid and leaves the
-// flag value as an empty string. Returning an error aborts the command.
-type FlagResolveFn func(ctx *Ctx, raw string) (string, error)
+// the CEL expression environment. Returning an error aborts the command.
+type FlagResolveFn func(ctx *Ctx, raw string) (*FlagResolveResult, error)
 
 // Resolver looks up registered handler functions by their fully-qualified ID.
 // The registry implements this; commands receive it via Ctx.Resolver.

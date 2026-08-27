@@ -324,6 +324,9 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 // resolveFlagValues runs any flag_resolve_fn declared on spec flags, overwriting
 // the raw string value in ctx.FlagValues with the resolved result. Skips flags
 // whose value is empty. Called after buildFlagValues and auth resolution.
+//
+// A resolver may also return Defaults for sibling flags; each is applied only
+// if that flag is currently unset, so an explicitly-set flag always wins.
 func resolveFlagValues(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
 	for _, f := range cs.Flags {
 		if f.FlagResolveFn == "" {
@@ -337,11 +340,16 @@ func resolveFlagValues(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
 		if fn == nil {
 			return fmt.Errorf("flag_resolve_fn %q not registered", f.FlagResolveFn)
 		}
-		resolved, err := fn(ctx, raw)
+		result, err := fn(ctx, raw)
 		if err != nil {
 			return fmt.Errorf("--%s: %w", f.Name, err)
 		}
-		ctx.FlagValues[f.Name] = resolved
+		ctx.FlagValues[f.Name] = result.Value
+		for name, def := range result.Defaults {
+			if existing, _ := ctx.FlagValues[name].(string); existing == "" {
+				ctx.FlagValues[name] = def
+			}
+		}
 	}
 	return nil
 }

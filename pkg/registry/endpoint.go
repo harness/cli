@@ -222,6 +222,14 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 		if err != nil {
 			return nil, nil, err
 		}
+		if err := runEndpointValidators(ctx, ep, cmdctx.EndpointRequest{
+			Method:      method,
+			Path:        path,
+			QueryParams: qp,
+			Body:        body,
+		}); err != nil {
+			return nil, nil, err
+		}
 		if rb, ok := body.(*cmdctx.RawBody); ok {
 			hlog.Debug("raw body", "content_type", rb.ContentType, "size", len(rb.Content))
 			if len(extraHeaders) > 0 {
