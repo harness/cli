@@ -269,6 +269,95 @@ func TestGetPRWorkflow_InsightSuccessRendersSection(t *testing.T) {
 	}
 }
 
+func TestGetPRWorkflow_ActivityFailureOmitsSectionButSucceeds(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/activities") {
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"number":1}`))
+	}))
+	defer srv.Close()
+
+	var err error
+	out := captureStdout(t, func() {
+		err = GetPRWorkflow(insightTestCtx(srv.URL, ""))
+	})
+	if err != nil {
+		t.Fatalf("get pr must succeed even when the activity endpoint fails, got: %v", err)
+	}
+	if strings.Contains(out, "Not showing") {
+		t.Fatalf("output must omit the comments summary when the activity fetch fails, got:\n%s", out)
+	}
+}
+
+func TestGetPRWorkflow_ActivityWithNoCommentsOmitsSection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/activities"):
+			w.Write([]byte(`[]`))
+		default:
+			w.Write([]byte(`{"number":1}`))
+		}
+	}))
+	defer srv.Close()
+
+	var err error
+	out := captureStdout(t, func() {
+		err = GetPRWorkflow(insightTestCtx(srv.URL, ""))
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(out, "Not showing") {
+		t.Fatalf("output must omit the comments summary when there are no comments, got:\n%s", out)
+	}
+}
+
+func TestGetPRWorkflow_ActivitySuccessRendersCommentsSummary(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/activities"):
+			w.Write([]byte(`[
+				{"kind":"comment","type":"comment","author":{"display_name":"Alice"},"text":"first comment","order":1,"created":1000},
+				{"kind":"comment","type":"comment","author":{"display_name":"Bob"},"text":"newest comment","order":2,"created":2000}
+			]`))
+		default:
+			w.Write([]byte(`{"number":1}`))
+		}
+	}))
+	defer srv.Close()
+
+	var err error
+	out := captureStdout(t, func() {
+		err = GetPRWorkflow(insightTestCtx(srv.URL, ""))
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Not showing 2 comments") {
+		t.Fatalf("expected collapsed comments summary with count 2, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Bob") || !strings.Contains(out, "newest comment") {
+		t.Fatalf("expected the newest comment (Bob's) to be shown, got:\n%s", out)
+	}
+	if strings.Contains(out, "first comment") {
+		t.Fatalf("expected only the newest comment to render, not the older one, got:\n%s", out)
+	}
+	if !strings.Contains(out, "harness list pr_comment repo1/42") {
+		t.Fatalf("expected hint pointing at \"list pr_comment\" with the PR id, got:\n%s", out)
+	}
+	// The comments summary must render after the description and before the footer link.
+	summaryIdx := strings.Index(out, "Not showing")
+	lastLinkIdx := strings.LastIndex(out, "/pulls/42")
+	if summaryIdx == -1 || lastLinkIdx == -1 || lastLinkIdx < summaryIdx {
+		t.Fatalf("expected the PR link to appear after the comments summary, got:\n%s", out)
+	}
+}
+
 // TestReviewGroupCommand_StandaloneRendersLink verifies "get pr:review_group" run on
 // its own (it's no longer embedded in GetPRWorkflow) still prints its own trailing
 // PR link.

@@ -63,13 +63,23 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 		}
 	}
 
-	return renderPR(ctx, baseSpec, pr, insightSpec, insightData)
+	activityEndpoint := &spec.EndpointSpec{
+		Path: "/code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/activities",
+	}
+	activityData, err := registry.CallEndpoint(ctx, activityEndpoint)
+	if err != nil {
+		hlog.Warn("activity fetch failed, omitting comments summary from get pr", "err", err)
+		activityData = nil
+	}
+
+	return renderPR(ctx, baseSpec, pr, insightSpec, insightData, activityData)
 }
 
-// renderPR prints "get pr" output in three parts so the AI Code Review (Insight)
-// section can sit between them: labeled fields, then the insight section (best-effort
-// — a failure here still only omits it), then the description text block and footer.
-func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *spec.CommandSpec, insightData any) error {
+// renderPR prints "get pr" output in parts so the AI Code Review (Insight) and
+// comments sections can sit where they belong: labeled fields, then the insight
+// section (best-effort — a failure here still only omits it), then the description
+// text block, then a collapsed comments summary (best-effort), then the footer.
+func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *spec.CommandSpec, insightData any, activityData any) error {
 	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 	if err != nil {
 		return err
@@ -95,6 +105,12 @@ func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *
 	if desc := strings.TrimSpace(data.GetString("it.description")); desc != "" {
 		fmt.Fprintf(w, "\n%s\n", console.RenderMarkdown(desc))
 	}
+
+	if activities, ok := activityData.([]any); ok {
+		fmt.Fprintln(w)
+		renderCommentsSummary(w, activities, time.Now(), "harness list pr_comment "+ctx.Id)
+	}
+
 	_, err = fmt.Fprint(w, interpolate(baseSpec.Endpoint.TextFooter, pr))
 	return err
 }
