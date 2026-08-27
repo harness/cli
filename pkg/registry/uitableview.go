@@ -626,7 +626,7 @@ func (m uiTableModel) colPickView() string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(tui.CLIAccent))
 	subtleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLITextMuted))
 	cursorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLIAccent)).Bold(true)
-	checkedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLIAccent)).Bold(true)
+	checkedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLIBrightWhite)).Bold(true)
 
 	b.WriteString(titleStyle.Render("  columns") + "\n\n")
 
