@@ -59,7 +59,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	return &client{
 		client: &http.Client{
 			Transport: &bearerTransport{
-				base:  &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+				base:  &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
 				token: reg.Credentials.Password,
 			},
 		},
