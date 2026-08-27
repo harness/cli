@@ -1051,6 +1051,16 @@ commands:
       - completion_noun: repository
       - completion_noun: pr
         keep_order: true
+    flags:
+      - name: show-resolved
+        is_bool: true
+        description: Show the full body/diff/replies of resolved code-comment threads instead of collapsing them to one line
+      - name: show-outdated
+        is_bool: true
+        description: Show the full body/diff/replies of outdated code-comment threads instead of collapsing them to one line
+      - name: no-diffs
+        is_bool: true
+        description: Hide diff hunks on code-comment threads
     endpoint:
       path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/activities
       item_expr: it

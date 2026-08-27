@@ -59,7 +59,7 @@ func TestBuildRenderItems(t *testing.T) {
 	deleteEvent := activityGroup{root: activity{kind: "system", typ: "branch-delete", author: "bob", createdMs: 1400,
 		payload: map[string]any{"sha": "4c946ae2bf7f9"}}}
 
-	items := buildRenderItems([]activityGroup{comment, mergeEvent, deleteEvent})
+	items := buildRenderItems([]activityGroup{comment, mergeEvent, deleteEvent}, renderOptions{})
 
 	if len(items) != 3 {
 		t.Fatalf("expected one item per activity — no consolidation — got %d items: %+v", len(items), items)
@@ -74,6 +74,45 @@ func TestBuildRenderItems(t *testing.T) {
 	if items[2].kind != "line" || items[2].sysCategory != "default" || !items[2].sysMuted ||
 		items[2].sysText != "deleted branch 4c946ae2" {
 		t.Fatalf("expected a separate, muted branch-delete line — same author as the merge, but no longer combined onto it — got %+v", items[2])
+	}
+}
+
+func TestBuildRenderItems_CollapsedCodeThreadIsALineNotABlock(t *testing.T) {
+	resolvedThread := activityGroup{root: activity{kind: "code-comment", typ: "code-comment", resolved: true, codeComment: map[string]any{"path": "a.go"}}}
+
+	collapsed := buildRenderItems([]activityGroup{resolvedThread}, renderOptions{})
+	if collapsed[0].kind != "line" {
+		t.Errorf("expected a resolved code thread with --show-resolved unset to render as a spacing-tight line, got kind %q", collapsed[0].kind)
+	}
+
+	expanded := buildRenderItems([]activityGroup{resolvedThread}, renderOptions{showResolved: true})
+	if expanded[0].kind != "block" {
+		t.Errorf("expected --show-resolved to expand the thread back into a padded block, got kind %q", expanded[0].kind)
+	}
+}
+
+func TestShouldCollapseCodeThread(t *testing.T) {
+	cases := []struct {
+		name               string
+		outdated, resolved bool
+		opts               renderOptions
+		want               bool
+	}{
+		{"neither tag stays expanded", false, false, renderOptions{}, false},
+		{"outdated collapses by default", true, false, renderOptions{}, true},
+		{"resolved collapses by default", false, true, renderOptions{}, true},
+		{"show-outdated expands an outdated-only thread", true, false, renderOptions{showOutdated: true}, false},
+		{"show-resolved expands a resolved-only thread", false, true, renderOptions{showResolved: true}, false},
+		{"both tags need both flags: only show-outdated set stays collapsed", true, true, renderOptions{showOutdated: true}, true},
+		{"both tags need both flags: only show-resolved set stays collapsed", true, true, renderOptions{showResolved: true}, true},
+		{"both tags expand once both flags are set", true, true, renderOptions{showOutdated: true, showResolved: true}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := shouldCollapseCodeThread(c.outdated, c.resolved, c.opts); got != c.want {
+				t.Errorf("shouldCollapseCodeThread(%v, %v, %+v) = %v, want %v", c.outdated, c.resolved, c.opts, got, c.want)
+			}
+		})
 	}
 }
 

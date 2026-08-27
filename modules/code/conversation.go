@@ -27,7 +27,12 @@ import (
 // those to a column width breaks them across lines and makes them unclickable in a
 // terminal. Lines are printed as authored; the terminal soft-wraps if it must.
 func prConversationTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
-	if err := renderConversation(w, d.GetSlice("it")); err != nil {
+	opts := renderOptions{
+		showResolved: d.GetBool(`flags["show-resolved"]`),
+		showOutdated: d.GetBool(`flags["show-outdated"]`),
+		showDiffs:    !d.GetBool(`flags["no-diffs"]`),
+	}
+	if err := renderConversation(w, d.GetSlice("it"), opts); err != nil {
 		return err
 	}
 	if u := d.GetString("url(it)"); u != "" {
@@ -206,17 +211,24 @@ func systemEventGlyph(category string) (glyph string, muted bool) {
 	}
 }
 
-// buildRenderItems turns each thread group into one render item: a "full" comment
-// or code-comment thread, or a "dim" system-event line. Every system event gets
-// its own line — an earlier version consolidated consecutive same-author events
-// (e.g. `merge` immediately followed by `branch-delete`) onto one comma-joined
-// line, but that reads as confusing rather than tidy, especially once each event
-// category has its own icon and color.
-func buildRenderItems(groups []activityGroup) []renderItem {
+// buildRenderItems turns each thread group into one render item: a "block"
+// comment or code-comment thread, or a "line" system-event line. Every system
+// event gets its own line — an earlier version consolidated consecutive
+// same-author events (e.g. `merge` immediately followed by `branch-delete`)
+// onto one comma-joined line, but that reads as confusing rather than tidy,
+// especially once each event category has its own icon and color. A code
+// thread that collapses to its one-line tagged header (see
+// shouldCollapseCodeThread) is a "line" too, for the same reason: once it's
+// not printing a body, it shouldn't get a block's blank-line padding either.
+func buildRenderItems(groups []activityGroup, opts renderOptions) []renderItem {
 	items := make([]renderItem, 0, len(groups))
 	for _, g := range groups {
 		if g.root.kind != "system" {
-			items = append(items, renderItem{kind: "block", group: g})
+			kind := "block"
+			if isCodeThread(g.root) && shouldCollapseCodeThread(asBool(g.root.codeComment["outdated"]), g.root.resolved, opts) {
+				kind = "line"
+			}
+			items = append(items, renderItem{kind: kind, group: g})
 			continue
 		}
 		category := systemEventCategory(g.root)
@@ -242,8 +254,16 @@ func needsBlankLine(prev, next string) bool {
 	return !(prev == "line" && next == "line")
 }
 
+// renderOptions carries every flag-driven rendering choice, so adding one
+// doesn't mean threading a new parameter through every render function.
+type renderOptions struct {
+	showResolved bool // --show-resolved: expand resolved code-comment threads instead of collapsing them
+	showOutdated bool // --show-outdated: expand outdated code-comment threads instead of collapsing them
+	showDiffs    bool // !--no-diffs: include the diff hunk on code-comment threads
+}
+
 // renderConversation is the pure rendering core behind prConversationTextFormatter.
-func renderConversation(w io.Writer, raw []any) error {
+func renderConversation(w io.Writer, raw []any, opts renderOptions) error {
 	activities := make([]activity, 0, len(raw))
 	for _, r := range raw {
 		if a, ok := parseActivity(r); ok {
@@ -256,7 +276,7 @@ func renderConversation(w io.Writer, raw []any) error {
 	}
 
 	lastKind := ""
-	for _, item := range buildRenderItems(threadGroups(activities)) {
+	for _, item := range buildRenderItems(threadGroups(activities), opts) {
 		if needsBlankLine(lastKind, item.kind) {
 			fmt.Fprintln(w)
 		}
@@ -267,7 +287,7 @@ func renderConversation(w io.Writer, raw []any) error {
 			continue
 		}
 		if isCodeThread(item.group.root) {
-			writeCodeThread(w, item.group.root, item.group.replies)
+			writeCodeThread(w, item.group.root, item.group.replies, opts)
 		} else {
 			writeCommentThread(w, item.group.root, item.group.replies)
 		}
@@ -516,15 +536,37 @@ func writeBody(w io.Writer, text string) {
 // code comment threads
 // ---------------------------------------------------------------------------
 
-func writeCodeThread(w io.Writer, root activity, replies []activity) {
+// shouldCollapseCodeThread reports whether a code-comment thread should render
+// as its one-line header only, hiding the location, diff, body, and replies.
+// Outdated and resolved threads collapse by default — they're the ones a
+// reader has the least reason to dig into — unless the matching --show-outdated
+// / --show-resolved flag opts back in. A thread that's both stays collapsed
+// unless both flags are set.
+func shouldCollapseCodeThread(outdated, resolved bool, opts renderOptions) bool {
+	if outdated && !opts.showOutdated {
+		return true
+	}
+	if resolved && !opts.showResolved {
+		return true
+	}
+	return false
+}
+
+func writeCodeThread(w io.Writer, root activity, replies []activity, opts renderOptions) {
+	outdated := asBool(root.codeComment["outdated"])
+	resolved := root.resolved
 	var tags []string
-	if asBool(root.codeComment["outdated"]) {
+	if outdated {
 		tags = append(tags, "outdated")
 	}
-	if root.resolved {
+	if resolved {
 		tags = append(tags, "resolved")
 	}
 	fmt.Fprintln(w, commentedHeader(root, tags))
+
+	if shouldCollapseCodeThread(outdated, resolved, opts) {
+		return
+	}
 
 	path := asString(root.codeComment["path"])
 	line := asInt64(root.codeComment["line_new"])
@@ -539,11 +581,13 @@ func writeCodeThread(w io.Writer, root activity, replies []activity) {
 		fmt.Fprintln(w, "  "+loc)
 	}
 
-	if title := asString(root.payload["title"]); title != "" {
-		fmt.Fprintln(w, "  "+console.WithColor(console.ColorBrightBlack, title))
-	}
-	for _, l := range asSlice(root.payload["lines"]) {
-		fmt.Fprintln(w, "  "+colorDiffLine(asString(l)))
+	if opts.showDiffs {
+		if title := asString(root.payload["title"]); title != "" {
+			fmt.Fprintln(w, "  "+console.WithColor(console.ColorBrightBlack, title))
+		}
+		for _, l := range asSlice(root.payload["lines"]) {
+			fmt.Fprintln(w, "  "+colorDiffLine(asString(l)))
+		}
 	}
 
 	if root.text != "" {
