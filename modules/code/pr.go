@@ -141,8 +141,8 @@ func renderPRHeader(w io.Writer, d cmdctx.DataAccessor) {
 	author := d.GetString("it.author.display_name")
 	source := d.GetString("it.source_branch")
 	target := d.GetString("it.target_branch")
-	fmt.Fprintf(w, "%s • %s wants to merge %s into %s\n", 
-	console.WithColor(prStateColor(badge), strings.ToUpper(badge)),author, source, target)
+	fmt.Fprintf(w, "%s • %s wants to merge %s into %s\n",
+		console.WithColor(prStateColor(badge), strings.ToUpper(badge)), author, source, target)
 
 	files := d.GetInt64("it.stats.files_changed")
 	commits := d.GetInt64("it.stats.commits")
