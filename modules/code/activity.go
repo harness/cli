@@ -73,7 +73,7 @@ func asInt64(v any) int64 {
 // isComment reports whether the activity is part of the comment/reply thread,
 // as opposed to a system/review timeline event.
 func isComment(kind string) bool {
-	return kind == "comment" || kind == "change-comment"
+	return kind == "comment"
 }
 
 // renderCommentsSummary prints a gh-pr-view-style collapsed comments section:
@@ -102,12 +102,16 @@ func renderCommentsSummary(w io.Writer, activities []any, now time.Time, hintCmd
 	newest := comments[len(comments)-1]
 
 	plu := "s"
-	if len(comments) == 1 {
+	if len(comments)-1 == 1 {
 		plu = ""
 	}
-	divider := fmt.Sprintf(" Not showing %d comment%s ", len(comments), plu)
+	divider := fmt.Sprintf(" Not showing %d comment%s ", len(comments)-1, plu)
 	pad := strings.Repeat("─", 8)
-	fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+divider+pad))
+	if len(comments) == 1 {
+		fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" Comment "+pad))
+	} else {
+		fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+divider+pad))
+	}
 	fmt.Fprintln(w)
 
 	fmt.Fprintf(w, "%s • %s • %s\n\n", console.WithBold(newest.AuthorName), relativeTimeSince(time.UnixMilli(newest.Created), now), console.WithColor(console.ColorBrightBlue, "Newest comment"))
