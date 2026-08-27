@@ -534,6 +534,7 @@ nouns:
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
     multi_level: true
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
     fields:
       - id: id
         label: ID
@@ -1035,6 +1036,25 @@ commands:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.idParts[0]}}/+/pullreq/{{ctx.idParts[1]}}/view
       item_expr: it
       text_formatter: pr_review_group_text
+
+  # ── pr conversation (threaded activity timeline as prose) ──────────────────────
+
+  - command: get pr:conversation
+    verb: get
+    noun: pr
+    noun_variant: conversation
+    fields_noun: pr_activity
+    short: "Show a pull request's conversation timeline: harness get pr:conversation <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/activities
+      item_expr: it
+      text_formatter: pr_conversation_text
 
   # ── principal ────────────────────────────────────────────────────────────────
 

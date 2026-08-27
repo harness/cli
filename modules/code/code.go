@@ -6,10 +6,11 @@ package code
 import "github.com/harness/cli/pkg/registry"
 
 const (
-	mergePRBodyFnID         = "merge_pr_body"
-	createPRCommentBodyFnID = "create_pr_comment_body"
-	createPRBodyFnID        = "create_pr_body"
-	resolvePrincipalIDFnID  = "resolve_principal_id"
+	mergePRBodyFnID               = "merge_pr_body"
+	createPRCommentBodyFnID       = "create_pr_comment_body"
+	createPRBodyFnID              = "create_pr_body"
+	resolvePrincipalIDFnID        = "resolve_principal_id"
+	prConversationTextFormatterID = "pr_conversation_text"
 )
 
 func ModuleInit(reg registry.ModuleRegistrar) {
@@ -27,4 +28,5 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(pullPRWorkflowID, pullPRWorkflow)
 	reg.RegisterTextFormatter(reviewGroupTextFormatterID, reviewGroupTextFormatter)
 	reg.RegisterTextFormatter(insightTextFormatterID, insightTextFormatter)
+	reg.RegisterTextFormatter(prConversationTextFormatterID, prConversationTextFormatter)
 }
