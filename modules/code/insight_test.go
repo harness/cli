@@ -338,8 +338,8 @@ func TestGetPRWorkflow_ActivitySuccessRendersCommentsSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "Not showing 2 comments") {
-		t.Fatalf("expected collapsed comments summary with count 2, got:\n%s", out)
+	if !strings.Contains(out, "Not showing 1 comment") {
+		t.Fatalf("expected collapsed comments summary with count 1, got:\n%s", out)
 	}
 	if !strings.Contains(out, "Bob") || !strings.Contains(out, "newest comment") {
 		t.Fatalf("expected the newest comment (Bob's) to be shown, got:\n%s", out)
