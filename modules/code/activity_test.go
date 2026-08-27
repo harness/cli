@@ -68,12 +68,17 @@ func TestRenderCommentsSummary_ShowsNewestCommentOnly(t *testing.T) {
 			"text": "newest comment", "order": float64(2),
 			"created": float64(now.UnixMilli()),
 		},
+		map[string]any{
+			"kind": "change-comment", "author": map[string]any{"display_name": "Charlie"},
+			"text": "change comment", "order": float64(3),
+			"created": float64(now.Add(-3 * time.Hour).UnixMilli()),
+		},
 	}
 	out := captureStdout(t, func() {
 		renderCommentsSummary(os.Stdout, activities, now, "harness list pr_comment repo1/42")
 	})
-	if !strings.Contains(out, "Not showing 2 comments") {
-		t.Fatalf("expected collapsed comments summary with count 2, got:\n%s", out)
+	if !strings.Contains(out, "Not showing 1 comment") {
+		t.Fatalf("expected collapsed comments summary with count 1 comment, got:\n%s", out)
 	}
 	if !strings.Contains(out, "Bob") || !strings.Contains(out, "newest comment") {
 		t.Fatalf("expected the newest comment (Bob's) to be shown, got:\n%s", out)
