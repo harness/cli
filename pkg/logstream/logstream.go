@@ -81,31 +81,38 @@ func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error
 		Time  string `json:"time"`
 	}
 
-	sc := bufio.NewScanner(strings.NewReader(text))
-	for sc.Scan() {
-		line := sc.Text()
-		if line == "" {
-			continue
+	// bufio.Reader.ReadString grows its buffer as needed instead of erroring on
+	// lines longer than a fixed token size, unlike bufio.Scanner.
+	r := bufio.NewReader(strings.NewReader(text))
+	for {
+		raw, rerr := r.ReadString('\n')
+		line := strings.TrimRight(raw, "\r\n")
+		if line != "" {
+			var ll logLine
+			if err := json.Unmarshal([]byte(line), &ll); err != nil {
+				fmt.Fprintln(w, line)
+			} else {
+				ts := ll.Time
+				if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+					ts = t.UTC().Format("2006-01-02 15:04:05")
+				}
+				out := strings.TrimRight(ll.Out, "\n")
+				out = strings.ReplaceAll(out, "\r", "")
+				if !isPty {
+					out = console.StripANSI(out)
+					fmt.Fprintf(w, "%s [%s] %s\n", ts, ll.Level, out)
+				} else {
+					fmt.Fprintf(w, "%s [%s] %s\033[0m\n", ts, ll.Level, out)
+				}
+			}
 		}
-		var ll logLine
-		if err := json.Unmarshal([]byte(line), &ll); err != nil {
-			fmt.Fprintln(w, line)
-			continue
-		}
-		ts := ll.Time
-		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-			ts = t.UTC().Format("2006-01-02 15:04:05")
-		}
-		out := strings.TrimRight(ll.Out, "\n")
-		out = strings.ReplaceAll(out, "\r", "")
-		if !isPty {
-			out = console.StripANSI(out)
-			fmt.Fprintf(w, "%s [%s] %s\n", ts, ll.Level, out)
-		} else {
-			fmt.Fprintf(w, "%s [%s] %s\033[0m\n", ts, ll.Level, out)
+		if rerr != nil {
+			if rerr == io.EOF {
+				return nil
+			}
+			return rerr
 		}
 	}
-	return sc.Err()
 }
 
 // FetchAndPrintLog fetches a log blob and writes it to out.
@@ -342,14 +349,17 @@ func StreamSSEToChannel(ctx context.Context, hc *http.Client, a *auth.ResolvedAu
 	}
 
 	var hadContent bool
-	sc := bufio.NewScanner(resp.Body)
+	// bufio.Reader.ReadString grows its buffer as needed instead of erroring on
+	// lines longer than a fixed token size, unlike bufio.Scanner.
+	r := bufio.NewReader(resp.Body)
 	var eventType, dataLine string
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.HasPrefix(line, ":") {
-			continue
-		}
-		if line == "" {
+	for {
+		raw, rerr := r.ReadString('\n')
+		line := strings.TrimRight(raw, "\r\n")
+		switch {
+		case strings.HasPrefix(line, ":"):
+			// comment line, ignore
+		case line == "":
 			if eventType == "error" && dataLine == "eof" {
 				return hadContent, nil
 			}
@@ -363,15 +373,18 @@ func StreamSSEToChannel(ctx context.Context, hc *http.Client, a *auth.ResolvedAu
 			}
 			eventType = ""
 			dataLine = ""
-			continue
-		}
-		if strings.HasPrefix(line, "event:") {
+		case strings.HasPrefix(line, "event:"):
 			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-		} else if strings.HasPrefix(line, "data:") {
+		case strings.HasPrefix(line, "data:"):
 			dataLine = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		}
+		if rerr != nil {
+			if rerr == io.EOF {
+				return hadContent, nil
+			}
+			return hadContent, rerr
+		}
 	}
-	return hadContent, sc.Err()
 }
 
 // FetchBlobToChannel fetches a completed log blob and sends it as a single EvBlob event.
@@ -464,6 +477,38 @@ func FetchLogKeys(ctx *cmdctx.Ctx, execId string) ([]LogKeyEntry, string, error)
 	return entries, exec.PipelineStatus, nil
 }
 
+// StageSubtreeEntries filters entries down to the full subtree of steps nested under the
+// stage named stageFilter, excluding the stage's own top-level entry. Subtree membership is
+// determined via BaseFQN (a dot-delimited ancestry path), not immediate-parent name, so
+// steps nested behind containers like spec.execution or a parallel step-group are included.
+// Returns nil if no entry's name matches stageFilter. stageFilter == "" returns entries
+// unchanged.
+func StageSubtreeEntries(entries []LogKeyEntry, stageFilter string) []LogKeyEntry {
+	if stageFilter == "" {
+		return entries
+	}
+	var stageFQN string
+	found := false
+	for _, e := range entries {
+		if strings.EqualFold(e.Name, stageFilter) {
+			stageFQN = e.FQN
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	prefix := stageFQN + "."
+	var out []LogKeyEntry
+	for _, e := range entries {
+		if strings.HasPrefix(e.FQN, prefix) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // FollowMulti follows all log keys for an execution (or a stage/step filtered subset).
 // extraSkipTypes supplements BaseSkipStepTypes — pass nil to use the base set only.
 func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style MultiStyle, extraSkipTypes map[string]bool) error {
@@ -499,9 +544,11 @@ func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style 
 	var finalStatus string
 	var hasSSE bool
 
-	nodeMatchesFilter := func(node execgraph.GraphNode, parentName string) bool {
-		name := execgraph.NodeName(node)
-		if stageFilter != "" && !strings.EqualFold(name, stageFilter) && !strings.EqualFold(parentName, stageFilter) {
+	// nodeMatchesFilter is evaluated during the graph walk below, which tracks insideStage:
+	// true once we've descended into the matched stage's subtree via any edge. The stage's
+	// own top-level node is walked with insideStage still false, so it's excluded.
+	nodeMatchesFilter := func(name string, insideStage bool) bool {
+		if stageFilter != "" && !insideStage {
 			return false
 		}
 		if stepFilter != "" && !strings.EqualFold(name, stepFilter) {
@@ -526,16 +573,21 @@ func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style 
 
 		seenNode := make(map[string]bool)
 		var newNodes []nodeEntry
-		var walk func(id string, parentName string)
-		walk = func(id string, parentName string) {
+		var walk func(id string, insideStage bool)
+		walk = func(id string, insideStage bool) {
 			if seenNode[id] {
 				return
 			}
 			seenNode[id] = true
 			node := exec.Graph.NodeMap[id]
 			name := execgraph.NodeName(node)
+			// Only detect stage entry from OUTSIDE the stage — once already inside, a
+			// deeper node coincidentally sharing the stage's display name (e.g. stage
+			// "MessageCheck" containing a step also named "messagecheck") must not be
+			// mistaken for a fresh entry into the stage.
+			childInsideStage := insideStage || (stageFilter != "" && strings.EqualFold(name, stageFilter))
 			if execgraph.HasLogs(node) && !skipTypes[node.StepType] {
-				if !nodeStarted[node.UUID] && nodeMatchesFilter(node, parentName) {
+				if !nodeStarted[node.UUID] && nodeMatchesFilter(name, insideStage) {
 					bucket := format.ClassifyExecutionStatus(node.Status)
 					if bucket == format.StatusRunning || bucket == format.StatusSuccess || bucket == format.StatusSkipped || bucket == format.StatusFailed {
 						newNodes = append(newNodes, nodeEntry{logUnits: execgraph.GetLogUnits(node), node: node, rank: node.Rank})
@@ -543,14 +595,14 @@ func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style 
 				}
 			}
 			for _, child := range exec.Graph.NodeAdjacencyListMap[id].Children {
-				walk(child, name)
+				walk(child, childInsideStage)
 			}
 			for _, next := range exec.Graph.NodeAdjacencyListMap[id].NextIDs {
-				walk(next, parentName)
+				walk(next, insideStage)
 			}
 		}
 		if exec.Graph.RootNodeID != "" {
-			walk(exec.Graph.RootNodeID, "")
+			walk(exec.Graph.RootNodeID, false)
 		}
 
 		hlog.Debug("pollOnce", "pipelineStatus", exec.PipelineStatus, "newNodes", len(newNodes))
