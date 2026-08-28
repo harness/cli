@@ -102,6 +102,8 @@ func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *
 		}
 	}
 
+	pad := strings.Repeat("─", 25)
+	fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" Description "+pad))
 	if desc := strings.TrimSpace(data.GetString("it.description")); desc != "" {
 		fmt.Fprintf(w, "\n%s\n", console.RenderMarkdown(desc))
 	}
@@ -132,7 +134,7 @@ func renderPRHeader(w io.Writer, d cmdctx.DataAccessor) {
 		when = merged
 	}
 
-	fmt.Fprintf(w, "%s %s  %s\n",
+	fmt.Fprintf(w, "\n%s %s  %s\n\n",
 		console.WithBold(title),
 		fmt.Sprintf("#%d", number),
 		relativeTime(when),
@@ -141,7 +143,7 @@ func renderPRHeader(w io.Writer, d cmdctx.DataAccessor) {
 	author := d.GetString("it.author.display_name")
 	source := d.GetString("it.source_branch")
 	target := d.GetString("it.target_branch")
-	fmt.Fprintf(w, "%s • %s wants to merge %s into %s\n",
+	fmt.Fprintf(w, "%s • %s wants to merge %s into %s\n\n",
 		console.WithColor(prStateColor(badge), strings.ToUpper(badge)), author, source, target)
 
 	files := d.GetInt64("it.stats.files_changed")

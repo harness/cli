@@ -101,17 +101,8 @@ func renderCommentsSummary(w io.Writer, activities []any, now time.Time, hintCmd
 	})
 	newest := comments[len(comments)-1]
 
-	plu := "s"
-	if len(comments)-1 == 1 {
-		plu = ""
-	}
-	divider := fmt.Sprintf(" Not showing %d comment%s ", len(comments)-1, plu)
 	pad := strings.Repeat("─", 8)
-	if len(comments) == 1 {
-		fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" Comment "+pad))
-	} else {
-		fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+divider+pad))
-	}
+	fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" Comments "+pad))
 	fmt.Fprintln(w)
 
 	fmt.Fprintf(w, "%s • %s • %s\n\n", console.WithBold(newest.AuthorName), relativeTimeSince(time.UnixMilli(newest.Created), now), console.WithColor(console.ColorBrightBlue, "Newest comment"))
