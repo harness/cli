@@ -6,11 +6,45 @@ package format
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"unicode"
 
+	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/spec"
 )
+
+// EnvColumnsFor returns the --columns override configured via hbase.EnvColumns for the
+// given noun, or "" if the env var is unset or has no entry for that noun. Callers should
+// only consult this when --columns wasn't passed explicitly, since the flag always wins.
+//
+// Format: semicolon-separated "noun=columns" entries, e.g.
+//
+//	HARNESS_CLI_COLUMNS="pipeline=id,name,status;execution=id,status,started"
+//
+// The "columns" half uses the exact same syntax as --columns (including +/- modify mode)
+// and is split from the noun on the first "=" only, so a column expression containing "="
+// (e.g. "status:it.status == 'success'") is preserved intact.
+func EnvColumnsFor(noun string) string {
+	raw := os.Getenv(hbase.EnvColumns)
+	if raw == "" {
+		return ""
+	}
+	for _, entry := range strings.Split(raw, ";") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		idx := strings.Index(entry, "=")
+		if idx < 0 {
+			continue
+		}
+		if key := strings.TrimSpace(entry[:idx]); key == noun {
+			return strings.TrimSpace(entry[idx+1:])
+		}
+	}
+	return ""
+}
 
 // ApplyColumns resolves a --columns string against a set of known FieldDefs into []TableColumn.
 //

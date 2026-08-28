@@ -521,7 +521,11 @@ func renderListWithFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, items []any, f
 		}
 		listResult = unwrapped
 	}
-	return format.FormatArrayOutput(ctx.FormatFlags, ctx.IsPty, listResult, listItemsExpr, tspec, fields, exprEnv, meta)
+	flags := ctx.FormatFlags
+	if flags.Columns == "" {
+		flags.Columns = format.EnvColumnsFor(ctx.Noun)
+	}
+	return format.FormatArrayOutput(flags, ctx.IsPty, listResult, listItemsExpr, tspec, fields, exprEnv, meta)
 }
 
 // runEndpointValidators runs all validators_endpoint declared on ep, in order.
