@@ -87,6 +87,11 @@ nouns:
         label: list pull requests
         verb: list
         noun: pr
+      - ui_command_type: up
+        key: "<"
+        label: up to repo list
+        verb: list
+        noun: repository
 
   - noun: pr
     short_desc: A Harness Code pull request.
@@ -210,6 +215,17 @@ nouns:
         label: list checks
         verb: list
         noun: pr_check
+      - ui_command_type: up
+        key: "^"
+        label: up to repo
+        noun: repository
+        up_id_expr: ctx.idParts[0]
+      - ui_command_type: up
+        key: "<"
+        label: up to PR list
+        verb: list
+        noun: pr
+        up_id_expr: ctx.idParts[0]
 
   - noun: branch
     short_desc: A git branch in a Harness Code repository.
@@ -408,6 +424,11 @@ nouns:
         key: g
         label: get check logs
         noun: pr_check:log
+      - ui_command_type: up
+        key: "^"
+        label: up to PR
+        noun: pr
+        up_id_expr: ctx.idParts[0] + "/" + ctx.idParts[1]
 
   - noun: pr_check_log
     short_desc: A snapshot of a PR check's backing pipeline stage logs.
