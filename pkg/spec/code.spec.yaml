@@ -429,6 +429,11 @@ nouns:
         label: up to PR
         noun: pr
         up_id_expr: ctx.idParts[0] + "/" + ctx.idParts[1]
+      - ui_command_type: up
+        key: "e"
+        label: view execution
+        noun: execution
+        up_id_expr: it.check.payload.data.pipeline_identifier + "/" + it.check.payload.data.execution_id
 
   - noun: pr_check_log
     short_desc: A snapshot of a PR check's backing pipeline stage logs.
