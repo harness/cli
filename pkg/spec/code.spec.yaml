@@ -276,7 +276,7 @@ nouns:
       - id: identifier
         expr: it.identifier
       - id: status
-        expr: it.status
+        expr: spaceAfter(statusIcon(it.status)) + it.status
       - id: summary
         expr: it.summary
         width_max: 60
@@ -314,7 +314,7 @@ nouns:
       - id: identifier
         expr: it.check.identifier
       - id: status
-        expr: it.check.status
+        expr: spaceAfter(statusIcon(it.check.status)) + it.check.status
       - id: required
         expr: it.required
       - id: summary
