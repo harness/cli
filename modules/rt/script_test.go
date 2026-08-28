@@ -148,8 +148,8 @@ func TestResolveScriptRevisionByNumber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "rev-two" {
-		t.Errorf("got %q, want the identity of revision 2", got)
+	if got.Value != "rev-two" {
+		t.Errorf("got %q, want the identity of revision 2", got.Value)
 	}
 	if _, ok := findCall(calls, "GET", api("/load-tests/checkout/script/revisions")); !ok {
 		t.Error("the revisions of the load test were never read")
@@ -164,8 +164,8 @@ func TestResolveScriptRevisionTrimsTheNumber(t *testing.T) {
 	})
 	ctx.Id = "checkout"
 
-	if got, err := resolveScriptRevision(ctx, " 2 "); err != nil || got != "rev-two" {
-		t.Errorf("got %q, %v; want rev-two", got, err)
+	if got, err := resolveScriptRevision(ctx, " 2 "); err != nil || got.Value != "rev-two" {
+		t.Errorf("got %v, %v; want rev-two", got, err)
 	}
 }
 
@@ -179,8 +179,8 @@ func TestResolveScriptRevisionReadsAPagedResponseToo(t *testing.T) {
 	})
 	ctx.Id = "checkout"
 
-	if got, err := resolveScriptRevision(ctx, "2"); err != nil || got != "rev-two" {
-		t.Errorf("got %q, %v; want rev-two", got, err)
+	if got, err := resolveScriptRevision(ctx, "2"); err != nil || got.Value != "rev-two" {
+		t.Errorf("got %v, %v; want rev-two", got, err)
 	}
 }
 
@@ -190,8 +190,8 @@ func TestResolveScriptRevisionPassesIdentifiersThrough(t *testing.T) {
 
 	for _, raw := range []string{"rev-two", "abc123", "2.0", "v2"} {
 		got, err := resolveScriptRevision(ctx, raw)
-		if err != nil || got != raw {
-			t.Errorf("resolveScriptRevision(%q) = %q, %v; want it passed through", raw, got, err)
+		if err != nil || got.Value != raw {
+			t.Errorf("resolveScriptRevision(%q) = %v, %v; want it passed through", raw, got, err)
 		}
 	}
 	if len(*calls) != 0 {

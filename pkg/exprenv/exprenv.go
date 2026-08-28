@@ -86,6 +86,7 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		"flags":                 flags,
 		"lastPart":              exprfuncs.LastPart,
 		"coalesce":              exprfuncs.Coalesce,
+		"isBlank":               exprfuncs.IsBlank,
 		"formatTags":            exprfuncs.FormatTags,
 		"formatTagDisplay":      exprfuncs.FormatTagDisplay,
 		"formatMetadata":        exprfuncs.FormatMetadata,

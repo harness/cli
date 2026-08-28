@@ -398,3 +398,12 @@ func Coalesce(vals ...any) any {
 	}
 	return nil
 }
+
+// IsBlank reports whether v is nil or an empty string.
+func IsBlank(v any) bool {
+	if v == nil {
+		return true
+	}
+	s, ok := v.(string)
+	return ok && s == ""
+}
