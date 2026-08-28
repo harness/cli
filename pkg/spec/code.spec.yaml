@@ -378,12 +378,13 @@ nouns:
       - id: stage_id
         label: Stage ID
         expr: it.check.payload.data.stage_identifier
-    ui_commands:
-      - ui_command_type: text
-        key: g
-        label: get check logs
-        verb: get
-        noun: pr_check_log
+
+  - noun: pr_check_log
+    short_desc: A snapshot of a PR check's backing pipeline stage logs.
+    fields:
+      - id: logs
+        expr: it.logs
+        field_type: multiline_text
 
   - noun: pr_insight
     short_desc: Risk summary for a pull request (Harness Code review insights).
@@ -1776,6 +1777,8 @@ commands:
       pipeline execution (external check, webhook-reported status, etc).
     handler_type: workflow
     workflow_id: get_pr_check_log
+    item_fn: get_pr_check_log_item
+    fields_noun: pr_check_log
     id_parts: 3
     id_label: "<repo_id>/<pr_number>/<check_identifier>"
     completion_seq:
