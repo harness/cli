@@ -1665,6 +1665,21 @@ commands:
         page_base: 1
       columns: [sha, title, author, authored]
 
+  - command: get pr_commit
+    verb: get
+    noun: pr_commit
+    fields_noun: commit
+    short: "Get a commit in a pull request: harness get pr_commit <repo_id>/<sha>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: commit
+        keep_order: true
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/commits/{{ctx.idParts[1]}}
+      item_expr: it
+
   # ── commit_check ─────────────────────────────────────────────────────────────
 
   - command: list commit_check
