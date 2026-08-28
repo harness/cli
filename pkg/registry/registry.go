@@ -896,7 +896,11 @@ func (r *Registry) RunUIHandler(ctx *cmdctx.Ctx, fnID string) error {
 func (r *Registry) FormatList(ctx *cmdctx.Ctx, rows []any, fields []spec.FieldDef, columnIDs []string) error {
 	tspec := buildTspec(columnIDs, fields)
 	exprEnv := exprenv.Make(ctx)
-	return format.FormatArrayOutput(ctx.FormatFlags, ctx.IsPty, rows, "it", tspec, fields, exprEnv, nil)
+	flags := ctx.FormatFlags
+	if flags.Columns == "" {
+		flags.Columns = format.EnvColumnsFor(ctx.Noun)
+	}
+	return format.FormatArrayOutput(flags, ctx.IsPty, rows, "it", tspec, fields, exprEnv, nil)
 }
 
 // FetchItems implements cmdctx.Resolver.
