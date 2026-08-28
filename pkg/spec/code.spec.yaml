@@ -76,6 +76,17 @@ nouns:
         expr: epochMs(it.updated)
       - id: created
         expr: epochMs(it.created)
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: repository
+        default: true
+      - ui_command_type: link
+        key: l
+        label: list pull requests
+        verb: list
+        noun: pr
 
   - noun: pr
     short_desc: A Harness Code pull request.
@@ -180,11 +191,20 @@ nouns:
         label: details
         noun: pr
         default: true
+      - ui_command_type: text
+        key: i
+        label: AI review
+        noun: pr:insight
       - ui_command_type: link
         key: c
         label: list commits
         verb: list
         noun: pr_commit
+      - ui_command_type: link
+        key: a
+        label: list activity
+        verb: list
+        noun: pr_activity
       - ui_command_type: link
         key: s
         label: list checks
@@ -378,6 +398,16 @@ nouns:
       - id: stage_id
         label: Stage ID
         expr: it.check.payload.data.stage_identifier
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: pr_check
+        default: true
+      - ui_command_type: text
+        key: g
+        label: get check logs
+        noun: pr_check:log
 
   - noun: pr_check_log
     short_desc: A snapshot of a PR check's backing pipeline stage logs.
@@ -1658,7 +1688,7 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/commits
       items_expr: it
-      get_id_expr: it.sha
+      get_id_expr: ctx.parentIdParts[0] + "/" + it.sha
       query_params:
         page: flags.page
         limit: flags.limit
