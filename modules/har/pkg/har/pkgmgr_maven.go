@@ -42,7 +42,7 @@ func (c *mavenClient) DetectRegistry(explicitRegistry string) (*pkgmgrRegistryIn
 	if explicitRegistry != "" {
 		return nil, fmt.Errorf("HAR registry %q not found in Maven settings.xml", explicitRegistry)
 	}
-	return nil, fmt.Errorf("no HAR registry found — run `harness configure registry --client maven` first")
+	return nil, fmt.Errorf("no HAR registry found — run `harness configure registry:maven` first")
 }
 
 func (c *mavenClient) RunCommand(subcommand string, args []string) (*pkgmgrInstallResult, error) {

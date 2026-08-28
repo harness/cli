@@ -1099,21 +1099,52 @@ commands:
         description: "Dry run — discover files without uploading, write report to ./dry-run-output/"
         is_bool: true
 
-  - command: configure registry
+  - command: configure registry:npm
     verb: configure
     noun: registry
-    short: Configure a local package manager client to use a Harness registry
+    noun_variant: npm
+    short: "Configure npm to use a Harness registry: harness configure registry:npm <registry>"
     id_label: "<registry>"
     completion_noun: registry
     handler_type: workflow
-    workflow_id: configure_registry
+    workflow_id: configure_registry_npm
     flags:
-      - name: client
-        description: "Package manager client to configure (npm, maven, pip, nuget)"
-        required: true
-        completion_values: [npm, maven, pip, nuget]
       - name: scope
         description: "npm scope, e.g. @myorg (optional; configures default registry if omitted)"
       - name: global
-        description: "Write config to the global/user-level config file instead of the local project directory (pip, npm)"
+        description: "Write config to the global/user-level .npmrc instead of the local project directory"
         is_bool: true
+
+  - command: configure registry:maven
+    verb: configure
+    noun: registry
+    noun_variant: maven
+    short: "Configure Maven to use a Harness registry: harness configure registry:maven <registry>"
+    id_label: "<registry>"
+    completion_noun: registry
+    handler_type: workflow
+    workflow_id: configure_registry_maven
+
+  - command: configure registry:pip
+    verb: configure
+    noun: registry
+    noun_variant: pip
+    short: "Configure pip to use a Harness registry: harness configure registry:pip <registry>"
+    id_label: "<registry>"
+    completion_noun: registry
+    handler_type: workflow
+    workflow_id: configure_registry_pip
+    flags:
+      - name: global
+        description: "Write config to the global/user-level pip.conf instead of the local project directory"
+        is_bool: true
+
+  - command: configure registry:nuget
+    verb: configure
+    noun: registry
+    noun_variant: nuget
+    short: "Configure NuGet to use a Harness registry: harness configure registry:nuget <registry>"
+    id_label: "<registry>"
+    completion_noun: registry
+    handler_type: workflow
+    workflow_id: configure_registry_nuget
