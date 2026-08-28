@@ -788,9 +788,6 @@ commands:
     short: List service accounts in the account
     flags_builtin:
     handler_type: endpoint
-    flags:
-      - name: search
-        description: Filter service accounts by name or keyword
     endpoint:
       path: /ng/api/serviceaccount
       items_expr: it.data
@@ -799,8 +796,6 @@ commands:
       completion:
         id_expr: it.identifier
         name_expr: it.name
-      query_params:
-        searchTerm: flags.search
       paging:
         paging_strategy: flat_list
 

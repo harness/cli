@@ -227,3 +227,43 @@ type Ctx struct {
 	//   - "profile", "org", "project" string when no_auth: true (the handler owns auth resolution)
 	FlagValues map[string]any
 }
+
+// ScopedAuth returns Auth adjusted for Level: "org" clears ProjectID, "account"
+// clears both OrgID and ProjectID. Callers making direct API requests outside
+// the endpoint framework (which applies this via CallEndpoint) must use this
+// instead of Auth directly, or a --level account/org request will still scope
+// to the profile's default org/project.
+func (c *Ctx) ScopedAuth() *auth.ResolvedAuth {
+	a := c.Auth
+	switch c.Level {
+	case "org":
+		scoped := *a
+		scoped.ProjectID = ""
+		a = &scoped
+	case "account":
+		scoped := *a
+		scoped.OrgID = ""
+		scoped.ProjectID = ""
+		a = &scoped
+	}
+	return a
+}
+
+// AccountAuth returns Auth with OrgID and ProjectID cleared, regardless of
+// Level. Use for lookups against entities that are almost always
+// account-scoped and don't inherit down to a narrower org/project lookup.
+func (c *Ctx) AccountAuth() *auth.ResolvedAuth {
+	scoped := *c.Auth
+	scoped.OrgID = ""
+	scoped.ProjectID = ""
+	return &scoped
+}
+
+// OrgAuth returns Auth with ProjectID cleared but OrgID preserved, regardless
+// of Level. Use to probe org-scoped entities while running at a narrower
+// project scope under that org.
+func (c *Ctx) OrgAuth() *auth.ResolvedAuth {
+	scoped := *c.Auth
+	scoped.ProjectID = ""
+	return &scoped
+}

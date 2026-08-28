@@ -33,22 +33,10 @@ func CallEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 // callEndpointFull is the internal implementation of CallEndpoint that also returns
 // the raw HTTP response headers. Used by fetchPage for page_header paging.
 func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams map[string]string) (any, http.Header, error) {
-	a := ctx.Auth
-	if a == nil {
+	if ctx.Auth == nil {
 		return nil, nil, fmt.Errorf("CallEndpoint requires auth; command verb does not resolve credentials")
 	}
-
-	switch ctx.Level {
-	case "org":
-		copy := *a
-		copy.ProjectID = ""
-		a = &copy
-	case "account":
-		copy := *a
-		copy.OrgID = ""
-		copy.ProjectID = ""
-		a = &copy
-	}
+	a := ctx.ScopedAuth()
 
 	hlog.Info("auth resolved",
 		"source", a.Source,
