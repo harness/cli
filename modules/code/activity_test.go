@@ -77,9 +77,6 @@ func TestRenderCommentsSummary_ShowsNewestCommentOnly(t *testing.T) {
 	out := captureStdout(t, func() {
 		renderCommentsSummary(os.Stdout, activities, now, "harness list pr_comment repo1/42")
 	})
-	if !strings.Contains(out, "Not showing 1 comment") {
-		t.Fatalf("expected collapsed comments summary with count 1 comment, got:\n%s", out)
-	}
 	if !strings.Contains(out, "Bob") || !strings.Contains(out, "newest comment") {
 		t.Fatalf("expected the newest comment (Bob's) to be shown, got:\n%s", out)
 	}

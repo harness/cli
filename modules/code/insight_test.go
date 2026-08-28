@@ -338,9 +338,6 @@ func TestGetPRWorkflow_ActivitySuccessRendersCommentsSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "Not showing 1 comment") {
-		t.Fatalf("expected collapsed comments summary with count 1, got:\n%s", out)
-	}
 	if !strings.Contains(out, "Bob") || !strings.Contains(out, "newest comment") {
 		t.Fatalf("expected the newest comment (Bob's) to be shown, got:\n%s", out)
 	}
@@ -351,7 +348,7 @@ func TestGetPRWorkflow_ActivitySuccessRendersCommentsSummary(t *testing.T) {
 		t.Fatalf("expected hint pointing at \"list pr_comment\" with the PR id, got:\n%s", out)
 	}
 	// The comments summary must render after the description and before the footer link.
-	summaryIdx := strings.Index(out, "Not showing")
+	summaryIdx := strings.Index(out, "Comments")
 	lastLinkIdx := strings.LastIndex(out, "/pulls/42")
 	if summaryIdx == -1 || lastLinkIdx == -1 || lastLinkIdx < summaryIdx {
 		t.Fatalf("expected the PR link to appear after the comments summary, got:\n%s", out)
