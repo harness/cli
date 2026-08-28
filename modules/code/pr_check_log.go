@@ -62,7 +62,13 @@ func getPRCheckLogHandler(ctx *cmdctx.Ctx) error {
 	stageID := data.GetString("it.check.payload.data.stage_identifier")
 
 	if pipelineID == "" || executionID == "" {
-		return fmt.Errorf("check %q has no associated pipeline execution (not a Harness pipeline check)", checkIdentifier)
+		summary := data.GetString("it.check.summary")
+		if summary == "" {
+			return fmt.Errorf("check %q has no associated pipeline execution (not a Harness pipeline check)", checkIdentifier)
+		}
+		fmt.Fprintf(os.Stderr, "check:      %s\n\n", checkIdentifier)
+		fmt.Println(summary)
+		return nil
 	}
 
 	fmt.Fprintf(os.Stderr, "check:      %s\n", checkIdentifier)
