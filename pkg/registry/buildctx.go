@@ -308,7 +308,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 // to "get", and injects the resolved id.
 func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx.Ctx {
 	goCtx, cancel := context.WithCancelCause(parent.Context)
-	return &cmdctx.Ctx{
+	ctx := &cmdctx.Ctx{
 		Context:     goCtx,
 		CancelFn:    cancel,
 		Auth:        parent.Auth,
@@ -323,6 +323,13 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 		FormatFlags: cmdctx.FormatFlags{Format: "text"},
 		FlagValues:  map[string]any{},
 	}
+	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
+	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
+	// id_parts target resolved via item_fn) need it populated here too.
+	if cs.IdParts > 1 {
+		ctx.IdParts = strings.SplitN(id, "/", cs.IdParts)
+	}
+	return ctx
 }
 
 // resolveFlagValues runs any flag_resolve_fn declared on spec flags, overwriting

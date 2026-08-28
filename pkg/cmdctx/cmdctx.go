@@ -93,6 +93,10 @@ type FetchFn func(ctx *Ctx, ep *spec.EndpointSpec, wantStart, wantCount int, cur
 // the row slice, the columns available on those rows, and optional paging summary info.
 type ListTransformFn func(ctx *Ctx, data any) (items []any, fields []spec.FieldDef, meta PageMeta, err error)
 
+// ItemFn resolves a workflow-backed "get" command's target item without rendering it —
+// used by the TUI detail-pane drilldown, which needs a value to render, not written text.
+type ItemFn func(ctx *Ctx) (any, error)
+
 // RawBody signals that the body should be sent as-is with the given ContentType,
 // bypassing JSON encoding. Return this from a CreateBodyFn when the API expects
 // a raw non-JSON body (e.g. application/yaml).
@@ -123,6 +127,7 @@ type Resolver interface {
 	ResolveFlagResolveFn(id string) FlagResolveFn
 	ResolveFetchFn(id string) (FetchFn, error)
 	ResolveListTransformFn(id string) ListTransformFn
+	ResolveItemFn(id string) ItemFn
 	ResolveEndpointValidator(id string) EndpointValidatorFn
 	GetSpec(verb, noun string) *spec.CommandSpec
 	GetNoun(noun string) *spec.NounDef
