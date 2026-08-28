@@ -382,10 +382,22 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 		return nil, nil
 	}
 
+	return result, RenderSingleItem(ctx, ep, result)
+}
+
+// RenderSingleItem renders a single "get"-shaped result according to ep's field/text-formatter
+// configuration. It is the tail end of RunEndpoint's rendering logic, factored out so handlers
+// that resolve an item via custom logic (rather than a direct CallEndpoint) can render it the
+// same way a plain endpoint-backed "get" command would. Unlike RunEndpoint, it does not handle
+// --list-fields — that branch runs before CallEndpoint and only applies to endpoint-backed
+// commands, so callers driving a workflow handler don't get --list-fields support for free.
+func RenderSingleItem(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, result any) error {
+	exprEnv := exprenv.Make(ctx)
+
 	if ctx.VerbHandler == VerbGet && ctx.FormatFlags.Fields != "" {
 		fieldIDs := splitFieldIDs(ctx.FormatFlags.Fields)
 		fields := resolveFieldsForCommand(ctx, ep)
-		return result, format.FormatFieldsOutput(ctx.FormatFlags, result, ep.ItemExpr, fields, fieldIDs, exprEnv)
+		return format.FormatFieldsOutput(ctx.FormatFlags, result, ep.ItemExpr, fields, fieldIDs, exprEnv)
 	}
 
 	var textFmt cmdctx.TextFormatterFn
@@ -398,7 +410,7 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 			textFmt = buildDeclTextFmt(fields, ep, exprEnv)
 		}
 	}
-	return result, format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, result, ep.ItemExpr, ep.YamlPickExpr, ep.YamlExclude, textFmt, exprEnv)
+	return format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, result, ep.ItemExpr, ep.YamlPickExpr, ep.YamlExclude, textFmt, exprEnv)
 }
 
 // RunListEndpoint calls CallEndpoint then renders the result as a list.

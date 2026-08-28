@@ -1740,6 +1740,20 @@ commands:
         name_expr: it.check.status
       columns: [identifier, status, required, summary, reported_by, duration]
 
+  - command: get pr_check
+    verb: get
+    noun: pr_check
+    short: "Get a status check on a pull request: harness get pr_check <repo_id>/<pr_number>/<check_identifier>"
+    handler_type: workflow
+    workflow_id: get_pr_check
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<check_identifier>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+      - completion_noun: pr_check
+
   - command: get pr_check:log
     verb: get
     noun: pr_check

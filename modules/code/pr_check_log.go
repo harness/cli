@@ -17,29 +17,27 @@ import (
 
 const getPRCheckLogWorkflowID = "get_pr_check_log"
 
-// getPRCheckLogHandler implements "get pr_check:log". It resolves a PR status check
-// to its backing pipeline execution and fetches that execution's stage logs, scoped
-// to the pipeline's own org/project (which may differ from the ambient auth scope).
-func getPRCheckLogHandler(ctx *cmdctx.Ctx) error {
+// resolvePRCheck resolves <repo_id>/<pr_number>/<check_identifier> to the matching item
+// from "list pr_check", by fetching the full list and matching identifier case-insensitively.
+func resolvePRCheck(ctx *cmdctx.Ctx) (repoID, prNumber, checkIdentifier string, match any, err error) {
 	if len(ctx.IdParts) != 3 || ctx.IdParts[0] == "" || ctx.IdParts[1] == "" || ctx.IdParts[2] == "" {
-		return fmt.Errorf("expected <repo_id>/<pr_number>/<check_identifier>")
+		return "", "", "", nil, fmt.Errorf("expected <repo_id>/<pr_number>/<check_identifier>")
 	}
-	repoID, prNumber, checkIdentifier := ctx.IdParts[0], ctx.IdParts[1], ctx.IdParts[2]
+	repoID, prNumber, checkIdentifier = ctx.IdParts[0], ctx.IdParts[1], ctx.IdParts[2]
 
 	listSpec := ctx.Resolver.GetSpec("list", "pr_check")
 	if listSpec == nil || listSpec.Endpoint == nil {
-		return fmt.Errorf("list pr_check command spec not found")
+		return "", "", "", nil, fmt.Errorf("list pr_check command spec not found")
 	}
 
 	listCtx := *ctx
 	listCtx.ParentId = repoID + "/" + prNumber
 	items, _, err := endpoint.FetchItems(&listCtx, listSpec.Endpoint, cmdctx.PagingFlags{All: true})
 	if err != nil {
-		return fmt.Errorf("fetching checks for %s/%s: %w", repoID, prNumber, err)
+		return "", "", "", nil, fmt.Errorf("fetching checks for %s/%s: %w", repoID, prNumber, err)
 	}
 
 	exprEnv := exprenv.Make(ctx)
-	var match any
 	var available []string
 	for _, item := range items {
 		data := extractutil.MakeDataAccessor(exprEnv, item)
@@ -51,9 +49,21 @@ func getPRCheckLogHandler(ctx *cmdctx.Ctx) error {
 		}
 	}
 	if match == nil {
-		return fmt.Errorf("no check %q found on %s/%s (available: %s)", checkIdentifier, repoID, prNumber, strings.Join(available, ", "))
+		return "", "", "", nil, fmt.Errorf("no check %q found on %s/%s (available: %s)", checkIdentifier, repoID, prNumber, strings.Join(available, ", "))
+	}
+	return repoID, prNumber, checkIdentifier, match, nil
+}
+
+// getPRCheckLogHandler implements "get pr_check:log". It resolves a PR status check
+// to its backing pipeline execution and fetches that execution's stage logs, scoped
+// to the pipeline's own org/project (which may differ from the ambient auth scope).
+func getPRCheckLogHandler(ctx *cmdctx.Ctx) error {
+	_, _, checkIdentifier, match, err := resolvePRCheck(ctx)
+	if err != nil {
+		return err
 	}
 
+	exprEnv := exprenv.Make(ctx)
 	data := extractutil.MakeDataAccessor(exprEnv, match)
 	pipelineOrg := data.GetString("it.check.payload.data.org_identifier")
 	pipelineProject := data.GetString("it.check.payload.data.project_identifier")
