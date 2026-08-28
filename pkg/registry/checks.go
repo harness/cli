@@ -80,6 +80,21 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 			if _, ok := r.workflows[uc.UIHandlerFn]; !ok {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands view entry %q: ui_handler_fn %q not registered", noun, uc.Key, uc.UIHandlerFn))
 			}
+		case spec.UICommandUp:
+			if uc.Default {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: default is only allowed on text entries", noun, uc.Key))
+			}
+			verb := uc.Verb
+			if verb == "" {
+				verb = VerbGet
+			}
+			if verb != VerbList && verb != VerbGet {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: verb must be %q or %q", noun, uc.Key, VerbList, VerbGet))
+			} else if targetCs := r.GetSpec(verb, uc.Noun); targetCs == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: %s %q does not resolve", noun, uc.Key, verb, uc.Noun))
+			} else if uc.UpIdExpr == "" && upTargetRequiresId(verb, targetCs) {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: up_id_expr is required (%s %q requires an id)", noun, uc.Key, verb, uc.Noun))
+			}
 		default:
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry %q: invalid ui_command_type %q", noun, uc.Key, uc.UICommandType))
 		}
@@ -88,6 +103,20 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 		errs = append(errs, fmt.Sprintf("noun %q: ui_commands requires exactly one default text entry, found %d", noun, defaultCount))
 	}
 	return errs
+}
+
+// upTargetRequiresId reports whether an up entry's resolved target command
+// actually needs an id to run: get commands need ctx.Id unless opted out via
+// NoId, list commands only need ctx.ParentId when requires_parentid is set.
+func upTargetRequiresId(verb string, cs *spec.CommandSpec) bool {
+	switch verb {
+	case VerbGet:
+		return verbRegistry[VerbGet].RequiresId && !cs.NoId
+	case VerbList:
+		return cs.RequiresParentId
+	default:
+		return false
+	}
 }
 
 func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {

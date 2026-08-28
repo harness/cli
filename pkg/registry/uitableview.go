@@ -32,6 +32,10 @@ type uiDetailModel struct {
 	err     string
 	lines   []string
 	scroll  int
+	// upIds maps an "up" ui_commands entry's key to its up_id_expr result,
+	// evaluated against this detail's item once when it's fetched (see
+	// fetchDetail) since that's the only place the raw item data is available.
+	upIds map[string]string
 }
 
 // uiLinkTarget carries a resolved link-type ui_commands entry to follow once
@@ -45,6 +49,7 @@ type uiLinkTarget struct {
 // uiDetailMsg is sent when a background detail fetch completes.
 type uiDetailMsg struct {
 	content string
+	upIds   map[string]string
 	err     error
 }
 
@@ -513,6 +518,20 @@ func (m uiTableModel) dispatchUICommandKey(key string) (uiTableModel, tea.Cmd, b
 		case spec.UICommandLink:
 			m.linkTarget = &uiLinkTarget{verb: uc.Verb, noun: uc.Noun, id: m.detail.id}
 			return m, tea.Quit, true
+		case spec.UICommandUp:
+			id := m.detail.upIds[uc.Key]
+			if id == "" && uc.UpIdExpr != "" {
+				// up_id_expr was declared but the current item had nothing at
+				// that path (e.g. an externally-reported check) — nothing to
+				// jump to.
+				return m, nil, true
+			}
+			verb := uc.Verb
+			if verb == "" {
+				verb = VerbGet
+			}
+			m.linkTarget = &uiLinkTarget{verb: verb, noun: uc.Noun, id: id}
+			return m, tea.Quit, true
 		}
 	}
 	return m, nil, false
@@ -552,7 +571,17 @@ func (m uiTableModel) fetchDetail(id string) tea.Cmd {
 		if err := textFmt(&buf, extractutil.MakeDataAccessor(exprEnv, payload)); err != nil {
 			return uiDetailMsg{err: err}
 		}
-		return uiDetailMsg{content: buf.String()}
+		var upIds map[string]string
+		itEnv := exprenv.WithIt(exprEnv, payload)
+		for _, uc := range m.uiCommands {
+			if uc.UICommandType == spec.UICommandUp {
+				if upIds == nil {
+					upIds = make(map[string]string)
+				}
+				upIds[uc.Key] = exprenv.EvalExpr(itEnv, uc.UpIdExpr)
+			}
+		}
+		return uiDetailMsg{content: buf.String(), upIds: upIds}
 	}
 }
 
@@ -615,6 +644,8 @@ func uiCommandHintLabel(uc spec.UICommand) string {
 		return uc.Verb + " " + strings.ReplaceAll(uc.Noun, "_", " ")
 	case spec.UICommandView:
 		return "view"
+	case spec.UICommandUp:
+		return "up " + strings.ReplaceAll(uc.Noun, "_", " ")
 	default:
 		return ""
 	}
@@ -683,6 +714,7 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.detail.lines = strings.Split(strings.TrimRight(msg.content, "\n"), "\n")
 			m.detail.scroll = 0
+			m.detail.upIds = msg.upIds
 		}
 		return m, nil
 

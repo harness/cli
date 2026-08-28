@@ -238,10 +238,15 @@ const (
 	UICommandText = "text"
 	UICommandLink = "link"
 	UICommandView = "view"
+	// UICommandUp jumps to another noun's get detail using an id derived from
+	// fields on the current item's own data (via UpIdExpr), not the current
+	// item's id or its ParentId. Must be declared explicitly per noun — there
+	// is no implicit "go up" navigation stack.
+	UICommandUp = "up"
 )
 
 // UICommand is a single hotkey offered by a noun's --ui detail overlay. One flat
-// struct for all three ui_command_types, matching how CommandSpec/EndpointSpec
+// struct for all ui_command_types, matching how CommandSpec/EndpointSpec
 // already mix fields that only apply to some verbs/shapes — checks.go enforces
 // which fields are required/forbidden for which type.
 type UICommand struct {
@@ -254,12 +259,17 @@ type UICommand struct {
 	// Only valid on text entries; exactly one text entry per noun must set it.
 	Default bool `yaml:"default,omitempty"`
 	// Noun is a full "noun[:variant]" string resolved via GetSpec(VerbGet, ...)
-	// for text entries, or GetSpec(Verb, ...) for link entries.
+	// for text entries, or GetSpec(Verb, ...) for link/up entries.
 	Noun string `yaml:"noun,omitempty"`
-	// Verb is the link target's verb: "list" or "get". Link only.
+	// Verb is the link target's verb: "list" or "get". Required for link;
+	// for up it's optional and defaults to "get".
 	Verb string `yaml:"verb,omitempty"`
 	// UIHandlerFn is the registered workflow id to hand off to. View only.
 	UIHandlerFn string `yaml:"ui_handler_fn,omitempty"`
+	// UpIdExpr is an expr-lang expression evaluated against the current
+	// item ("it") to derive the target id for an "up" jump, e.g.
+	// "it.check.payload.data.execution_id". Up only, required.
+	UpIdExpr string `yaml:"up_id_expr,omitempty"`
 }
 
 // FieldDef defines a named, reusable field for a noun. Fields declared here can be
