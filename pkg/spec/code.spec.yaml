@@ -1704,7 +1704,33 @@ commands:
       get_id_expr: it.check.identifier
       paging:
         paging_strategy: flat_list
+      completion:
+        id_expr: it.check.identifier
+        name_expr: it.check.status
       columns: [identifier, status, required, summary, reported_by, duration]
+
+  - command: get pr_check:log
+    verb: get
+    noun: pr_check
+    noun_variant: log
+    short: "Fetch pipeline logs for a PR check: harness get pr_check:log <repo_id>/<pr_number>/<check_identifier>"
+    long: |
+      Resolves a pull request status check to its backing Harness pipeline execution
+      and dumps the logs of every step under that execution's stage, in order
+      (excluding the stage's own top-level log), scoped to the pipeline's own
+      org/project (which may differ from the current --profile/--org/--project).
+      If the stage is still running, streams live and exits when it reaches a
+      terminal state. Fails with a clear error if the check has no associated
+      pipeline execution (external check, webhook-reported status, etc).
+    handler_type: workflow
+    workflow_id: get_pr_check_log
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<check_identifier>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+      - completion_noun: pr_check
 
   # ── pr_comment ───────────────────────────────────────────────────────────────
 
