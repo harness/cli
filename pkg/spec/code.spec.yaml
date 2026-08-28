@@ -880,6 +880,7 @@ commands:
       item_expr: it
       yaml_pick_expr: it
       text_footer: "\n{{url(it)}}\n"
+      text_formatter: pr_text
 
   - command: create pr
     verb: create

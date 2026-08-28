@@ -31,4 +31,5 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterItemFn(getPRCheckLogItemFnID, getPRCheckLogItemFn)
 	reg.RegisterTextFormatter(reviewGroupTextFormatterID, reviewGroupTextFormatter)
 	reg.RegisterTextFormatter(insightTextFormatterID, insightTextFormatter)
+	reg.RegisterTextFormatter(prTextFormatterID, prTextFormatter)
 }

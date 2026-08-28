@@ -20,6 +20,7 @@ import (
 )
 
 const getPRWorkflowID = "get_pr"
+const prTextFormatterID = "pr_text"
 
 // isMachineFormat mirrors exprenv.isMachineFormat (unexported): these formats are
 // meant for structured consumption, so the insight section (extra, ad hoc text) is skipped.
@@ -102,11 +103,7 @@ func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *
 		}
 	}
 
-	pad := strings.Repeat("─", 25)
-	fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" Description "+pad))
-	if desc := strings.TrimSpace(data.GetString("it.description")); desc != "" {
-		fmt.Fprintf(w, "\n%s\n", console.RenderMarkdown(desc))
-	}
+	renderPRDescription(w, data)
 
 	if activities, ok := activityData.([]any); ok {
 		fmt.Fprintln(w)
@@ -169,6 +166,26 @@ func renderPRHeader(w io.Writer, d cmdctx.DataAccessor) {
 	}
 
 	fmt.Fprintln(w)
+}
+
+// renderPRDescription prints the PR's description as a heading-delimited markdown block.
+func renderPRDescription(w io.Writer, d cmdctx.DataAccessor) {
+	pad := strings.Repeat("─", 25)
+	fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" Description "+pad))
+	if desc := strings.TrimSpace(d.GetString("it.description")); desc != "" {
+		fmt.Fprintf(w, "\n%s\n", console.RenderMarkdown(desc))
+	}
+}
+
+// prTextFormatter renders the header and description shared by "get pr"'s full CLI
+// output and the --ui detail pane. It's registered as the "pr" endpoint's
+// text_formatter so both paths render consistently — the --ui pane only ever fetches
+// the base pr payload (a TextFormatterFn has no access to ctx.Resolver to also pull
+// in the insight/activity sections GetPRWorkflow composes separately).
+func prTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
+	renderPRHeader(w, d)
+	renderPRDescription(w, d)
+	return nil
 }
 
 // relativeTime renders an epoch-ms timestamp as a coarse "N units ago" string,
