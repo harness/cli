@@ -581,6 +581,7 @@ type CommandSpec struct {
 	VerbHandler      string              `yaml:"verb_handler,omitempty"`    // overrides verb for behavioral dispatch (flag binding, ctx.Verb); leave unset to use verb
 	ConfirmMode      string              `yaml:"confirm_mode,omitempty"`    // not allowed on list or get; see ConfirmNone/ConfirmPrompt/ConfirmID
 	WorkflowID       string              `yaml:"workflow_id,omitempty"`     // set when HandlerType == HandlerWorkflow
+	ItemFn           string              `yaml:"item_fn,omitempty"`         // optional: workflow-backed get's item resolver, used for TUI drilldown rendering
 	FollowFn         string              `yaml:"follow_fn,omitempty"`       // optional: called after a successful endpoint command when --follow is set
 	Flags            []Flag              `yaml:"flags,omitempty"`           // custom flags for workflow commands
 	Endpoint         *EndpointSpec       `yaml:"endpoint,omitempty"`        // set when HandlerType == HandlerEndpoint

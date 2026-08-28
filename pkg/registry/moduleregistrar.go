@@ -32,6 +32,7 @@ type ModuleRegistrar interface {
 	RegisterFollowFn(shortID string, fn cmdctx.FollowFn)
 	RegisterFetchFn(shortID string, fn cmdctx.FetchFn)
 	RegisterListTransformFn(shortID string, fn cmdctx.ListTransformFn)
+	RegisterItemFn(shortID string, fn cmdctx.ItemFn)
 	RegisterFlagCompletionFn(shortID string, fn FlagCompletionFn)
 	RegisterFlagResolveFn(shortID string, fn cmdctx.FlagResolveFn)
 	RegisterEndpointValidatorFn(shortID string, fn cmdctx.EndpointValidatorFn)
@@ -76,6 +77,9 @@ func (m *moduleRegistrar) Register(cs *spec.CommandSpec) error {
 	cmd := fmt.Sprintf("command %q", cs.Command)
 	if cs.WorkflowID != "" {
 		cs.WorkflowID = m.qualify(cs.WorkflowID, cmd+" workflow_id", true)
+	}
+	if cs.ItemFn != "" {
+		cs.ItemFn = m.qualify(cs.ItemFn, cmd+" item_fn", true)
 	}
 	if cs.Endpoint != nil && cs.Endpoint.TextFormatter != "" {
 		cs.Endpoint.TextFormatter = m.qualify(cs.Endpoint.TextFormatter, cmd+" text_formatter", true)
@@ -159,6 +163,12 @@ func (m *moduleRegistrar) RegisterFetchFn(shortID string, fn cmdctx.FetchFn) {
 func (m *moduleRegistrar) RegisterListTransformFn(shortID string, fn cmdctx.ListTransformFn) {
 	if q := m.qualify(shortID, fmt.Sprintf("list_transform_fn %q", shortID), false); q != "" {
 		m.reg.RegisterListTransformFn(q, fn)
+	}
+}
+
+func (m *moduleRegistrar) RegisterItemFn(shortID string, fn cmdctx.ItemFn) {
+	if q := m.qualify(shortID, fmt.Sprintf("item_fn %q", shortID), false); q != "" {
+		m.reg.RegisterItemFn(q, fn)
 	}
 }
 

@@ -378,6 +378,12 @@ nouns:
       - id: stage_id
         label: Stage ID
         expr: it.check.payload.data.stage_identifier
+    ui_commands:
+      - ui_command_type: text
+        key: g
+        label: get check logs
+        verb: get
+        noun: pr_check_log
 
   - noun: pr_insight
     short_desc: Risk summary for a pull request (Harness Code review insights).
@@ -1732,7 +1738,7 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/checks
       items_expr: it.checks
-      get_id_expr: it.check.identifier
+      get_id_expr: ctx.parentId + "/" + it.check.identifier
       paging:
         paging_strategy: flat_list
       completion:
@@ -1746,6 +1752,7 @@ commands:
     short: "Get a status check on a pull request: harness get pr_check <repo_id>/<pr_number>/<check_identifier>"
     handler_type: workflow
     workflow_id: get_pr_check
+    item_fn: get_pr_check_item
     id_parts: 3
     id_label: "<repo_id>/<pr_number>/<check_identifier>"
     completion_seq:

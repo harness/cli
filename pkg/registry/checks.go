@@ -129,6 +129,11 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 			errs = append(errs, fmt.Sprintf("command %q: workflow_id %q not registered", cs.Command, cs.WorkflowID))
 		}
 	}
+	if cs.ItemFn != "" {
+		if _, ok := r.itemFns[cs.ItemFn]; !ok {
+			errs = append(errs, fmt.Sprintf("command %q: item_fn %q not registered", cs.Command, cs.ItemFn))
+		}
+	}
 	if cs.Endpoint != nil {
 		if cs.Endpoint.TextFormatter != "" {
 			if _, ok := r.textFormatters[cs.Endpoint.TextFormatter]; !ok {

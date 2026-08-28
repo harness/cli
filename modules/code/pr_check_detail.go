@@ -10,12 +10,22 @@ import (
 )
 
 const getPRCheckWorkflowID = "get_pr_check"
+const getPRCheckItemFnID = "get_pr_check_item"
+
+// getPRCheckItemFn resolves "get pr_check"'s target item without rendering it. Registered
+// as the spec's item_fn so the TUI's list pr_check -> get pr_check detail-pane drilldown
+// (pkg/registry/uitableview.go's fetchDetail) can fetch the same item a plain CLI invocation
+// of getPRCheckHandler renders, since there is no HTTP endpoint to CallEndpoint against.
+func getPRCheckItemFn(ctx *cmdctx.Ctx) (any, error) {
+	_, _, _, match, err := resolvePRCheck(ctx)
+	return match, err
+}
 
 // getPRCheckHandler implements "get pr_check". There is no direct single-check detail
 // endpoint, so it resolves the check the same way "get pr_check:log" does — via list
 // pr_check plus an identifier match — and renders the matched item as a "get" result.
 func getPRCheckHandler(ctx *cmdctx.Ctx) error {
-	_, _, _, match, err := resolvePRCheck(ctx)
+	match, err := getPRCheckItemFn(ctx)
 	if err != nil {
 		return err
 	}

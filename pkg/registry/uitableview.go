@@ -537,7 +537,8 @@ func (m uiTableModel) dispatchUICommandKey(key string) (uiTableModel, tea.Cmd, b
 	return m, nil, false
 }
 
-// fetchDetail fetches the get endpoint for id and renders it to a string.
+// fetchDetail fetches the get endpoint (or, for a workflow-backed get, its registered
+// item_fn) for id and renders it to a string.
 func (m uiTableModel) fetchDetail(id string) tea.Cmd {
 	ctx := m.ctx
 	cs := m.activeDetailCs()
@@ -546,9 +547,27 @@ func (m uiTableModel) fetchDetail(id string) tea.Cmd {
 		detailCtx := buildDetailCtx(ctx, cs, id)
 		var buf strings.Builder
 		detailCtx.FormatFlags = cmdctx.FormatFlags{Format: "text"}
-		result, err := CallEndpoint(detailCtx, ep)
-		if err != nil {
-			return uiDetailMsg{err: err}
+
+		var result any
+		if ep != nil {
+			var err error
+			result, err = CallEndpoint(detailCtx, ep)
+			if err != nil {
+				return uiDetailMsg{err: err}
+			}
+		} else if cs.ItemFn != "" && ctx.Resolver != nil {
+			fn := ctx.Resolver.ResolveItemFn(cs.ItemFn)
+			if fn == nil {
+				return uiDetailMsg{err: fmt.Errorf("item_fn %q not registered", cs.ItemFn)}
+			}
+			item, err := fn(detailCtx)
+			if err != nil {
+				return uiDetailMsg{err: err}
+			}
+			result = item
+			ep = &spec.EndpointSpec{ItemExpr: "it"}
+		} else {
+			return uiDetailMsg{err: fmt.Errorf("get %s has no endpoint or item_fn; cannot render detail", cs.Noun)}
 		}
 		exprEnv := exprenv.Make(detailCtx)
 		fields := resolveFieldsForCommand(detailCtx, ep)
