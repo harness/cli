@@ -731,7 +731,12 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.detail.err = msg.err.Error()
 		} else {
-			m.detail.lines = strings.Split(strings.TrimRight(msg.content, "\n"), "\n")
+			wrapWidth := m.width - 1
+			if wrapWidth < 20 {
+				wrapWidth = 20
+			}
+			wrapped := lipgloss.Wrap(strings.TrimRight(msg.content, "\n"), wrapWidth, "")
+			m.detail.lines = strings.Split(wrapped, "\n")
 			m.detail.scroll = 0
 			m.detail.upIds = msg.upIds
 		}
