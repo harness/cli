@@ -43,7 +43,7 @@ func (c *pipClient) DetectRegistry(explicitRegistry string) (*pkgmgrRegistryInfo
 	if explicitRegistry != "" {
 		return nil, fmt.Errorf("HAR registry %q not found in pip configuration", explicitRegistry)
 	}
-	return nil, fmt.Errorf("no HAR registry found — run `harness configure registry --client pip` first")
+	return nil, fmt.Errorf("no HAR registry found — run `harness configure registry:pip` first")
 }
 
 func (c *pipClient) RunCommand(subcommand string, args []string) (*pkgmgrInstallResult, error) {
