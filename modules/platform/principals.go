@@ -6,6 +6,7 @@ package platform
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 
@@ -49,11 +50,11 @@ func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult,
 	}
 
 	hlog.Debug("resolvePrincipalID: raw is not an email or UID, probing service account and user group identifiers", "raw", raw)
-	isServiceAccount, err := serviceAccountExists(ctx, raw)
+	isServiceAccount, saScope, err := serviceAccountExists(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
-	isUserGroup, err := userGroupExists(ctx, raw)
+	isUserGroup, ugScope, err := userGroupExists(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -62,23 +63,52 @@ func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult,
 	case isServiceAccount && isUserGroup:
 		return nil, fmt.Errorf("%q matches both a service account and a user group; set --principal_type to disambiguate", raw)
 	case isServiceAccount:
+		warnIfBroaderScope(ctx, raw, "SERVICE_ACCOUNT", saScope)
 		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal_type": "SERVICE_ACCOUNT"}}, nil
 	case isUserGroup:
+		warnIfBroaderScope(ctx, raw, "USER_GROUP", ugScope)
 		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal_type": "USER_GROUP"}}, nil
 	default:
 		return nil, fmt.Errorf("no service account or user group found with identifier %q; set --principal_type to specify it explicitly", raw)
 	}
 }
 
+// warnIfBroaderScope prints a note to stderr when raw was only found at a
+// scope broader than the one this command will actually query. A principal
+// living at a broader scope than the command's scope is normal (e.g. an
+// account-level service account can hold project-level role assignments), so
+// this isn't an error — it just flags that the resolved identifier is real
+// and shows where it actually lives, since an empty/unexpected result at the
+// narrower scope can otherwise look like a typo.
+func warnIfBroaderScope(ctx *cmdctx.Ctx, raw, principalType, foundScope string) {
+	if foundScope == "" || foundScope == "command" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "note: %q resolved as a %s at %s scope; this command queries at %s\n",
+		raw, principalType, foundScope, scopeDescription(ctx.ScopedAuth()))
+}
+
+// scopeDescription renders a ResolvedAuth's org/project as a human-readable scope label.
+func scopeDescription(a *auth.ResolvedAuth) string {
+	switch {
+	case a.OrgID == "" && a.ProjectID == "":
+		return "account scope"
+	case a.ProjectID == "":
+		return fmt.Sprintf("org %q", a.OrgID)
+	default:
+		return fmt.Sprintf("org %q, project %q", a.OrgID, a.ProjectID)
+	}
+}
+
 // serviceAccountExists reports whether identifier names a service account in
-// the current scope.
-func serviceAccountExists(ctx *cmdctx.Ctx, identifier string) (bool, error) {
+// the current scope, and the scope ("account", "org", or "command") it was found at.
+func serviceAccountExists(ctx *cmdctx.Ctx, identifier string) (bool, string, error) {
 	return principalIdentifierExists(ctx, "/ng/api/serviceaccount/aggregate/"+url.PathEscape(identifier))
 }
 
 // userGroupExists reports whether identifier names a user group in the
-// current scope.
-func userGroupExists(ctx *cmdctx.Ctx, identifier string) (bool, error) {
+// current scope, and the scope ("account", "org", or "command") it was found at.
+func userGroupExists(ctx *cmdctx.Ctx, identifier string) (bool, string, error) {
 	return principalIdentifierExists(ctx, "/ng/api/user-groups/"+url.PathEscape(identifier))
 }
 
@@ -89,24 +119,34 @@ func userGroupExists(ctx *cmdctx.Ctx, identifier string) (bool, error) {
 // broader-scoped entity and vice versa (it 400s, it doesn't inherit) — so we
 // probe from broadest to narrowest: account scope, then org-only scope (if
 // the command has an org in play), then the command's actual --level scope,
-// stopping as soon as one probe finds it. Only the first (account) probe's
-// error is treated as authoritative; later probes are opportunistic — a
-// caller may lack permission to look up entities at a narrower scope, and
-// since a broader check already gave a "not found," an error from a later
-// probe shouldn't fail the command — it's treated as not found there either.
-func principalIdentifierExists(ctx *cmdctx.Ctx, path string) (bool, error) {
+// stopping as soon as one probe finds it, and reporting which scope that was.
+// Only the first (account) probe's error is treated as authoritative; later
+// probes are opportunistic — a caller may lack permission to look up
+// entities at a narrower scope, and since a broader check already gave a
+// "not found," an error from a later probe shouldn't fail the command —
+// it's treated as not found there either.
+func principalIdentifierExists(ctx *cmdctx.Ctx, path string) (bool, string, error) {
 	exists, err := principalIdentifierExistsAt(ctx, path, ctx.AccountAuth(), "account")
-	if err != nil || exists || ctx.Level == "account" {
-		return exists, err
+	if err != nil {
+		return false, "", err
+	}
+	if exists {
+		return true, "account", nil
+	}
+	if ctx.Level == "account" {
+		return false, "", nil
 	}
 	if ctx.Level != "org" && ctx.Auth.OrgID != "" {
 		exists, _ = principalIdentifierExistsAt(ctx, path, ctx.OrgAuth(), "org")
 		if exists {
-			return true, nil
+			return true, "org", nil
 		}
 	}
 	exists, _ = principalIdentifierExistsAt(ctx, path, ctx.ScopedAuth(), "command")
-	return exists, nil
+	if exists {
+		return true, "command", nil
+	}
+	return false, "", nil
 }
 
 func principalIdentifierExistsAt(ctx *cmdctx.Ctx, path string, a *auth.ResolvedAuth, probe string) (bool, error) {
