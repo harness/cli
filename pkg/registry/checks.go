@@ -29,6 +29,14 @@ func (r *Registry) CheckFunctions() error {
 	return nil
 }
 
+// reservedUIKeys are hardcoded to scroll/quit/print handling in the detail
+// overlay's key switch (see uitableview.go) and never reach ui_commands
+// dispatch, so a spec binding one of them would silently never fire.
+var reservedUIKeys = map[string]bool{
+	"p": true, "q": true, "ctrl+c": true, "esc": true, "backspace": true,
+	"up": true, "down": true, "k": true, "j": true, "pgup": true, "pgdown": true,
+}
+
 // checkUICommands validates a noun's ui_commands list: unique non-reserved keys,
 // exactly one default text entry, and that every text/link/view target resolves.
 func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
@@ -41,7 +49,7 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 	for _, uc := range nd.UICommands {
 		if uc.Key == "" {
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry missing key", noun))
-		} else if uc.Key == "p" || uc.Key == "q" {
+		} else if reservedUIKeys[uc.Key] {
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands key %q is reserved", noun, uc.Key))
 		} else if seenKeys[uc.Key] {
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands key %q is duplicated", noun, uc.Key))
