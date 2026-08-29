@@ -4,7 +4,7 @@ go 1.26.7
 
 require (
 	charm.land/bubbles/v2 v2.1.1
-	charm.land/bubbletea/v2 v2.0.8
+	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/expr-lang/expr v1.17.8
 	github.com/google/uuid v1.6.0
