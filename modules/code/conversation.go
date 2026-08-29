@@ -215,7 +215,7 @@ func needsBlankLine(prev, next string) bool {
 	if prev == "" {
 		return false
 	}
-	return !(prev == "line" && next == "line")
+	return prev != "line" || next != "line"
 }
 
 // renderOptions carries every flag-driven rendering choice, so adding one
