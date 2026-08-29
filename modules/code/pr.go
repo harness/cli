@@ -140,7 +140,7 @@ func renderPRHeader(w io.Writer, d cmdctx.DataAccessor) {
 	author := d.GetString("it.author.display_name")
 	source := d.GetString("it.source_branch")
 	target := d.GetString("it.target_branch")
-	fmt.Fprintf(w, "%s • %s wants to merge %s into %s\n\n",
+	fmt.Fprintf(w, "%s • %s wants to merge %s into %s\n",
 		console.WithColor(prStateColor(badge), strings.ToUpper(badge)), author, source, target)
 
 	files := d.GetInt64("it.stats.files_changed")
@@ -168,10 +168,19 @@ func renderPRHeader(w io.Writer, d cmdctx.DataAccessor) {
 	fmt.Fprintln(w)
 }
 
+// dividerPad is the dash count on each side of a printDivider label.
+const dividerPad = 8
+
+// printDivider prints a colorized "──── Label ────" section divider.
+func printDivider(w io.Writer, label string) {
+	pad := strings.Repeat("─", dividerPad)
+	fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" "+label+" "+pad))
+}
+
 // renderPRDescription prints the PR's description as a heading-delimited markdown block.
 func renderPRDescription(w io.Writer, d cmdctx.DataAccessor) {
-	pad := strings.Repeat("─", 25)
-	fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" Description "+pad))
+	fmt.Fprintln(w)
+	printDivider(w, "Description")
 	if desc := strings.TrimSpace(d.GetString("it.description")); desc != "" {
 		fmt.Fprintf(w, "\n%s\n", console.RenderMarkdown(desc))
 	}
@@ -186,34 +195,6 @@ func prTextFormatter(w io.Writer, d cmdctx.DataAccessor) error {
 	renderPRHeader(w, d)
 	renderPRDescription(w, d)
 	return nil
-}
-
-// relativeTime renders an epoch-ms timestamp as a coarse "N units ago" string,
-// gh pr view style. Returns "" for a zero/missing timestamp.
-func relativeTime(epochMs int64) string {
-	if epochMs <= 0 {
-		return ""
-	}
-	d := time.Since(time.UnixMilli(epochMs))
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		n := int64(d.Minutes())
-		return fmt.Sprintf("• %d min%s ago", n, plural(n))
-	case d < 24*time.Hour:
-		n := int64(d.Hours())
-		return fmt.Sprintf("• %d hr%s ago", n, plural(n))
-	case d < 30*24*time.Hour:
-		n := int64(d.Hours() / 24)
-		return fmt.Sprintf("• %d day%s ago", n, plural(n))
-	case d < 365*24*time.Hour:
-		n := int64(d.Hours() / 24 / 30)
-		return fmt.Sprintf("• %d mon%s ago", n, plural(n))
-	default:
-		n := int64(d.Hours() / 24 / 365)
-		return fmt.Sprintf("• %d yr%s ago", n, plural(n))
-	}
 }
 
 // checkStatusText renders a merge_check_status value as a colorized one-liner,

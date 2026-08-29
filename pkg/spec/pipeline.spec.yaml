@@ -75,7 +75,7 @@ nouns:
         noun: pipeline
       - ui_command_type: link
         key: e
-        label: list executions
+        label: executions
         verb: list
         noun: execution
 
@@ -119,8 +119,13 @@ nouns:
         default: true
       - ui_command_type: view
         key: v
-        label: view logs
+        label: logs
         ui_handler_fn: get_pipeline_log
+      - ui_command_type: up
+        key: "^"
+        label: pipeline
+        noun: pipeline
+        up_id_expr: it.pipelineIdentifier
 
   - noun: trigger
     short_desc: An event-based trigger that automatically starts a pipeline.

@@ -53,23 +53,6 @@ func toActivityItem(raw any) (activityItem, bool) {
 	return item, true
 }
 
-func asString(v any) string {
-	s, _ := v.(string)
-	return s
-}
-
-func asInt64(v any) int64 {
-	switch n := v.(type) {
-	case float64:
-		return int64(n)
-	case int64:
-		return n
-	case int:
-		return int64(n)
-	}
-	return 0
-}
-
 // isComment reports whether the activity is part of the comment/reply thread,
 // as opposed to a system/review timeline event.
 func isComment(kind string) bool {
@@ -101,8 +84,7 @@ func renderCommentsSummary(w io.Writer, activities []any, now time.Time, hintCmd
 	})
 	newest := comments[len(comments)-1]
 
-	pad := strings.Repeat("─", 8)
-	fmt.Fprintln(w, console.WithColor(console.ColorBrightBlack, pad+" Comments "+pad))
+	printDivider(w, "Comments")
 	fmt.Fprintln(w)
 
 	fmt.Fprintf(w, "%s • %s • %s\n\n", console.WithBold(newest.AuthorName), relativeTimeSince(time.UnixMilli(newest.Created), now), console.WithColor(console.ColorBrightBlue, "Newest comment"))

@@ -117,11 +117,17 @@ func TestShouldCollapseCodeThread(t *testing.T) {
 }
 
 func TestCommentedHeader_AICodeReviewGetsSparkles(t *testing.T) {
-	if got := commentedHeader(activity{author: "AI Code Review", createdMs: 1000}, nil); !strings.Contains(got, "✨") {
+	if got := commentedHeader(activity{author: "AI Code Review", createdMs: 1000}, nil, false); !strings.Contains(got, "✨") {
 		t.Errorf("expected the AI Code Review bot's header to use the sparkles icon, got %q", got)
 	}
-	if got := commentedHeader(activity{author: "Zhenyu Zhang", createdMs: 1000}, nil); strings.Contains(got, "✨") {
+	if got := commentedHeader(activity{author: "Zhenyu Zhang", createdMs: 1000}, nil, false); strings.Contains(got, "✨") {
 		t.Errorf("expected a regular commenter's header to keep the plain bullet, got %q", got)
+	}
+}
+
+func TestCommentedHeader_MutedDropsSparklesForPlainBullet(t *testing.T) {
+	if got := commentedHeader(activity{author: "AI Code Review", createdMs: 1000}, []string{"outdated"}, true); strings.Contains(got, "✨") {
+		t.Errorf("expected a muted (collapsed) header to drop the sparkles icon for the plain dim bullet, got %q", got)
 	}
 }
 

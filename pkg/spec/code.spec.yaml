@@ -84,12 +84,12 @@ nouns:
         default: true
       - ui_command_type: link
         key: l
-        label: list pull requests
+        label: pull-requests
         verb: list
         noun: pr
       - ui_command_type: up
         key: "<"
-        label: up to repo list
+        label: repo-list
         verb: list
         noun: repository
 
@@ -197,32 +197,31 @@ nouns:
         noun: pr
         default: true
       - ui_command_type: text
-        key: i
-        label: AI review
+        key: a
+        label: ai-review
         noun: pr:insight
       - ui_command_type: link
-        key: c
-        label: list commits
+        key: m
+        label: commits
         verb: list
         noun: pr_commit
-      - ui_command_type: link
-        key: a
-        label: list activity
-        verb: list
-        noun: pr_activity
+      - ui_command_type: text
+        key: c
+        label: conversation
+        noun: pr:conversation
       - ui_command_type: link
         key: s
-        label: list checks
+        label: checks
         verb: list
         noun: pr_check
       - ui_command_type: up
         key: "^"
-        label: up to repo
+        label: repo
         noun: repository
         up_id_expr: ctx.idParts[0]
       - ui_command_type: up
         key: "<"
-        label: up to PR list
+        label: pr-list
         verb: list
         noun: pr
         up_id_expr: ctx.idParts[0]
@@ -422,16 +421,16 @@ nouns:
         default: true
       - ui_command_type: text
         key: g
-        label: get check logs
+        label: check-logs
         noun: pr_check:log
       - ui_command_type: up
         key: "^"
-        label: up to PR
+        label: pull-request
         noun: pr
         up_id_expr: ctx.idParts[0] + "/" + ctx.idParts[1]
       - ui_command_type: up
         key: "e"
-        label: view execution
+        label: execution
         noun: execution
         up_id_expr: it.check.payload.data.pipeline_identifier + "/" + it.check.payload.data.execution_id
 

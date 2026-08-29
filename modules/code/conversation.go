@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/console"
@@ -84,41 +83,6 @@ func parseActivity(raw any) (activity, bool) {
 		a.resolved = asInt64(r) != 0
 	}
 	return a, true
-}
-
-func asMap(v any) map[string]any {
-	m, _ := v.(map[string]any)
-	return m
-}
-
-func asString(v any) string {
-	s, _ := v.(string)
-	return s
-}
-
-func asBool(v any) bool {
-	b, _ := v.(bool)
-	return b
-}
-
-func asSlice(v any) []any {
-	s, _ := v.([]any)
-	return s
-}
-
-func asInt64(v any) int64 {
-	switch n := v.(type) {
-	case float64:
-		return int64(n)
-	case int64:
-		return n
-	case int:
-		return int64(n)
-	case string:
-		i, _ := strconv.ParseInt(n, 10, 64)
-		return i
-	}
-	return 0
 }
 
 // activityGroup is one thread: a root activity plus its replies, sorted by
@@ -270,6 +234,8 @@ func renderConversation(w io.Writer, raw []any, opts renderOptions) error {
 			activities = append(activities, a)
 		}
 	}
+	fmt.Fprintln(w)
+
 	if len(activities) == 0 {
 		fmt.Fprintln(w, "No activity.")
 		return nil
@@ -282,15 +248,15 @@ func renderConversation(w io.Writer, raw []any, opts renderOptions) error {
 		}
 		lastKind = item.kind
 
+		if isCodeThread(item.group.root) {
+			writeCodeThread(w, item.group.root, item.group.replies, opts)
+			continue
+		}
 		if item.kind == "line" {
 			writeSystemLine(w, item.sysGlyph, item.sysMuted, item.sysAuthor, item.sysText, item.sysCreated)
 			continue
 		}
-		if isCodeThread(item.group.root) {
-			writeCodeThread(w, item.group.root, item.group.replies, opts)
-		} else {
-			writeCommentThread(w, item.group.root, item.group.replies)
-		}
+		writeCommentThread(w, item.group.root, item.group.replies)
 	}
 	return nil
 }
@@ -467,7 +433,7 @@ func labelModifyText(a activity) string {
 // ---------------------------------------------------------------------------
 
 func writeCommentThread(w io.Writer, root activity, replies []activity) {
-	fmt.Fprintln(w, commentedHeader(root, nil))
+	fmt.Fprintln(w, commentedHeader(root, nil, false))
 	if root.text != "" {
 		writeBody(w, root.text)
 	}
@@ -493,8 +459,23 @@ const aiCodeReviewAuthor = "AI Code Review"
 // commentedHeader renders the "● Author commented · 2h ago" line used for both
 // plain and code comment threads, matching the phrasing the Harness Code UI itself
 // uses for a comment activity (as opposed to a system event like "merged"). The
-// AI Code Review bot is a special case: it gets a "✨" icon instead of "●".
-func commentedHeader(a activity, tags []string) string {
+// AI Code Review bot is a special case: it gets a "✨" icon instead of "●". A
+// muted header (a collapsed outdated/resolved code thread) drops both special
+// icons for the same dim "▸" bullet every other collapsed line uses, and dims
+// the whole line — it's bookkeeping the reader has already opted out of
+// expanding, not a comment to read.
+func commentedHeader(a activity, tags []string, muted bool) string {
+	if muted {
+		text := "▸ " + a.author + " commented"
+		if len(tags) > 0 {
+			text += " " + strings.Join(tags, " · ")
+		}
+		text += " · " + relativeTime(a.createdMs)
+		if a.editedMs != 0 && a.editedMs != a.createdMs {
+			text += " (edited)"
+		}
+		return console.WithColor(console.ColorBrightBlack, text)
+	}
 	bullet := "●"
 	if a.author == aiCodeReviewAuthor {
 		bullet = "✨"
@@ -512,7 +493,7 @@ func commentedHeader(a activity, tags []string) string {
 }
 
 func writeReply(w io.Writer, a activity) {
-	fmt.Fprintln(w, "  "+commentedHeader(a, nil))
+	fmt.Fprintln(w, "  "+commentedHeader(a, nil, false))
 	for _, l := range renderMarkdownLines(a.text) {
 		if l == "" {
 			fmt.Fprintln(w)
@@ -562,9 +543,10 @@ func writeCodeThread(w io.Writer, root activity, replies []activity, opts render
 	if resolved {
 		tags = append(tags, "resolved")
 	}
-	fmt.Fprintln(w, commentedHeader(root, tags))
+	collapsed := shouldCollapseCodeThread(outdated, resolved, opts)
+	fmt.Fprintln(w, commentedHeader(root, tags, collapsed))
 
-	if shouldCollapseCodeThread(outdated, resolved, opts) {
+	if collapsed {
 		return
 	}
 
@@ -660,24 +642,3 @@ func renderMarkdownInline(s string) string {
 // ---------------------------------------------------------------------------
 // layout helpers
 // ---------------------------------------------------------------------------
-
-// relativeTime renders an epoch-ms timestamp as a short relative duration, matching
-// the "2h ago" style used throughout the conversation view.
-func relativeTime(ms int64) string {
-	if ms == 0 {
-		return ""
-	}
-	d := time.Since(time.UnixMilli(ms))
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	case d < 30*24*time.Hour:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-	default:
-		return time.UnixMilli(ms).UTC().Format("2006-01-02")
-	}
-}

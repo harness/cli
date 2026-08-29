@@ -823,6 +823,13 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.detail.scroll < 0 {
 					m.detail.scroll = 0
 				}
+			case "home":
+				m.detail.scroll = 0
+			case "end":
+				m.detail.scroll = len(m.detail.lines) - visRows
+				if m.detail.scroll < 0 {
+					m.detail.scroll = 0
+				}
 			default:
 				if !m.detail.loading && m.detail.err == "" {
 					if newM, cmd, handled := m.dispatchUICommandKey(msg.String()); handled {
