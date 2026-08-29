@@ -728,8 +728,8 @@ func TestBuildCtx_ResolveFlagValues_FnNotRegistered(t *testing.T) {
 
 func TestBuildCtx_ResolveFlagValues_FnReturnsError(t *testing.T) {
 	r := New()
-	r.RegisterFlagResolveFn("fail_fn", func(_ *cmdctx.Ctx, raw string) (string, error) {
-		return "", fmt.Errorf("resolve failed: %s", raw)
+	r.RegisterFlagResolveFn("fail_fn", func(_ *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult, error) {
+		return nil, fmt.Errorf("resolve failed: %s", raw)
 	})
 	registerWorkflowExecute(t, r, "resolveerr", &spec.CommandSpec{
 		Flags: []spec.Flag{
@@ -752,8 +752,8 @@ func TestBuildCtx_ResolveFlagValues_FnReturnsError(t *testing.T) {
 
 func TestBuildCtx_ResolveFlagValues_FnTransforms(t *testing.T) {
 	r := New()
-	r.RegisterFlagResolveFn("upper_fn", func(_ *cmdctx.Ctx, raw string) (string, error) {
-		return strings.ToUpper(raw), nil
+	r.RegisterFlagResolveFn("upper_fn", func(_ *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult, error) {
+		return &cmdctx.FlagResolveResult{Value: strings.ToUpper(raw)}, nil
 	})
 	registerWorkflowExecute(t, r, "resolveok", &spec.CommandSpec{
 		Flags: []spec.Flag{

@@ -62,6 +62,12 @@ const (
 	// EnvLogFile redirects all log output to the specified file path.
 	EnvLogFile = "HARNESS_CLI_LOGFILE"
 
+	// EnvColumns sets default --columns overrides per noun for list commands, so users
+	// don't have to pass --columns on every invocation (e.g. to keep demo terminals from
+	// wrapping columns). Format: semicolon-separated "noun=columns" entries, e.g.
+	// "pipeline=id,name,status;execution=id,status,started". See [format.EnvColumnsFor].
+	EnvColumns = "HARNESS_CLI_COLUMNS"
+
 	// EnvCLIHome overrides the harness home directory (default ~/.harness).
 	EnvCLIHome = "HARNESS_CLI_HOME"
 

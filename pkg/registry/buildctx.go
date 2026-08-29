@@ -168,6 +168,10 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		return nil, fmt.Errorf("unexpected argument %q%s", args[1], cs.UsageLine())
 	}
 	nd := r.GetNoun(cs.Noun)
+	// consumedIdArg tracks whether args[0] was actually assigned to ctx.Id
+	// below, so the HasArgs/Set stripping logic further down only strips it
+	// when it's truly a leftover id, not a native/passthrough arg.
+	consumedIdArg := false
 	if vspec.NounPair {
 		if len(args) > 0 {
 			return nil, fmt.Errorf("%s %s does not take a positional argument; use --from/--to%s", cs.Verb, cs.FullNoun(), cs.UsageLine())
@@ -186,13 +190,21 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 		if len(args) > 0 {
 			ctx.Id = args[0]
+			consumedIdArg = true
 		}
 	} else if vspec.AllowsId || cs.AllowsId {
-		if cs.RequiresId && len(args) == 0 && !skipIdCheck {
+		// The id is optional here, so args[0] is only really the id if it
+		// precedes a "--" (or there's no "--" at all) — cs.HasArgs commands
+		// pass native/passthrough tokens after "--", which can look like a
+		// flag (e.g. "-r") without being one. ArgsLenAtDash is 0 when "--" is
+		// the very first token (no id given) and -1 when there's no "--".
+		idGiven := len(args) > 0 && cmd.Flags().ArgsLenAtDash() != 0
+		if cs.RequiresId && !idGiven && !skipIdCheck {
 			return nil, fmt.Errorf("%s %s requires a positional %s argument%s", cs.Verb, cs.Noun, idLabel, cs.UsageLine())
 		}
-		if len(args) > 0 {
+		if idGiven {
 			ctx.Id = args[0]
+			consumedIdArg = true
 		}
 	} else if vspec.AllowsParentId {
 		if len(args) > 0 {
@@ -245,12 +257,8 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 	}
 	if cs.HasArgs {
 		extra := args
-		if vspec.RequiresId || vspec.AllowsId {
-			if len(args) > 0 {
-				extra = args[1:]
-			} else {
-				extra = nil
-			}
+		if consumedIdArg {
+			extra = args[1:]
 		}
 		ctx.Args = extra
 	}
@@ -258,12 +266,8 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		setVals, _ := cmd.Flags().GetStringArray("set")
 		// positional args after the id are also treated as key=value pairs
 		positional := args
-		if vspec.RequiresId || vspec.AllowsId {
-			if len(args) > 0 {
-				positional = args[1:]
-			} else {
-				positional = nil
-			}
+		if consumedIdArg {
+			positional = args[1:]
 		}
 		all := append(setVals, positional...)
 		if len(all) > 0 {
@@ -304,7 +308,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 // to "get", and injects the resolved id.
 func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx.Ctx {
 	goCtx, cancel := context.WithCancelCause(parent.Context)
-	return &cmdctx.Ctx{
+	ctx := &cmdctx.Ctx{
 		Context:     goCtx,
 		CancelFn:    cancel,
 		Auth:        parent.Auth,
@@ -319,11 +323,21 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 		FormatFlags: cmdctx.FormatFlags{Format: "text"},
 		FlagValues:  map[string]any{},
 	}
+	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
+	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
+	// id_parts target resolved via item_fn) need it populated here too.
+	if cs.IdParts > 1 {
+		ctx.IdParts = strings.SplitN(id, "/", cs.IdParts)
+	}
+	return ctx
 }
 
 // resolveFlagValues runs any flag_resolve_fn declared on spec flags, overwriting
 // the raw string value in ctx.FlagValues with the resolved result. Skips flags
 // whose value is empty. Called after buildFlagValues and auth resolution.
+//
+// A resolver may also return Defaults for sibling flags; each is applied only
+// if that flag is currently unset, so an explicitly-set flag always wins.
 func resolveFlagValues(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
 	for _, f := range cs.Flags {
 		if f.FlagResolveFn == "" {
@@ -337,11 +351,16 @@ func resolveFlagValues(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
 		if fn == nil {
 			return fmt.Errorf("flag_resolve_fn %q not registered", f.FlagResolveFn)
 		}
-		resolved, err := fn(ctx, raw)
+		result, err := fn(ctx, raw)
 		if err != nil {
 			return fmt.Errorf("--%s: %w", f.Name, err)
 		}
-		ctx.FlagValues[f.Name] = resolved
+		ctx.FlagValues[f.Name] = result.Value
+		for name, def := range result.Defaults {
+			if existing, _ := ctx.FlagValues[name].(string); existing == "" {
+				ctx.FlagValues[name] = def
+			}
+		}
 	}
 	return nil
 }

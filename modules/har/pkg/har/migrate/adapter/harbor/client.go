@@ -58,7 +58,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	return &client{
 		http: &http.Client{
 			Transport: &basicTransport{
-				base:     &http.Transport{TLSClientConfig: tlsCfg},
+				base:     &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: tlsCfg},
 				username: reg.Credentials.Username,
 				password: reg.Credentials.Password,
 			},

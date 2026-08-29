@@ -44,7 +44,7 @@ func (c *nugetClient) DetectRegistry(explicitRegistry string) (*pkgmgrRegistryIn
 	if explicitRegistry != "" {
 		return nil, fmt.Errorf("HAR registry %q not found in NuGet configuration", explicitRegistry)
 	}
-	return nil, fmt.Errorf("no HAR registry found — run `harness configure registry --client nuget` first")
+	return nil, fmt.Errorf("no HAR registry found — run `harness configure registry:nuget` first")
 }
 
 func (c *nugetClient) RunCommand(subcommand string, args []string) (*pkgmgrInstallResult, error) {

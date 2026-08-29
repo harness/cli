@@ -76,6 +76,22 @@ nouns:
         expr: epochMs(it.updated)
       - id: created
         expr: epochMs(it.created)
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: repository
+        default: true
+      - ui_command_type: link
+        key: l
+        label: list pull requests
+        verb: list
+        noun: pr
+      - ui_command_type: up
+        key: "<"
+        label: up to repo list
+        verb: list
+        noun: repository
 
   - noun: pr
     short_desc: A Harness Code pull request.
@@ -174,6 +190,42 @@ nouns:
         expr: epochMs(it.updated)
       - id: merged
         expr: epochMs(it.merged)
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: pr
+        default: true
+      - ui_command_type: text
+        key: i
+        label: AI review
+        noun: pr:insight
+      - ui_command_type: link
+        key: c
+        label: list commits
+        verb: list
+        noun: pr_commit
+      - ui_command_type: link
+        key: a
+        label: list activity
+        verb: list
+        noun: pr_activity
+      - ui_command_type: link
+        key: s
+        label: list checks
+        verb: list
+        noun: pr_check
+      - ui_command_type: up
+        key: "^"
+        label: up to repo
+        noun: repository
+        up_id_expr: ctx.idParts[0]
+      - ui_command_type: up
+        key: "<"
+        label: up to PR list
+        verb: list
+        noun: pr
+        up_id_expr: ctx.idParts[0]
 
   - noun: branch
     short_desc: A git branch in a Harness Code repository.
@@ -276,7 +328,7 @@ nouns:
       - id: identifier
         expr: it.identifier
       - id: status
-        expr: it.status
+        expr: spaceAfter(statusIcon(it.status)) + it.status
       - id: summary
         expr: it.summary
         width_max: 60
@@ -314,7 +366,7 @@ nouns:
       - id: identifier
         expr: it.check.identifier
       - id: status
-        expr: it.check.status
+        expr: spaceAfter(statusIcon(it.check.status)) + it.check.status
       - id: required
         expr: it.required
       - id: summary
@@ -362,6 +414,33 @@ nouns:
       - id: stage_id
         label: Stage ID
         expr: it.check.payload.data.stage_identifier
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: pr_check
+        default: true
+      - ui_command_type: text
+        key: g
+        label: get check logs
+        noun: pr_check:log
+      - ui_command_type: up
+        key: "^"
+        label: up to PR
+        noun: pr
+        up_id_expr: ctx.idParts[0] + "/" + ctx.idParts[1]
+      - ui_command_type: up
+        key: "e"
+        label: view execution
+        noun: execution
+        up_id_expr: it.check.payload.data.pipeline_identifier + "/" + it.check.payload.data.execution_id
+
+  - noun: pr_check_log
+    short_desc: A snapshot of a PR check's backing pipeline stage logs.
+    fields:
+      - id: logs
+        expr: it.logs
+        field_type: multiline_text
 
   - noun: pr_insight
     short_desc: Risk summary for a pull request (Harness Code review insights).
@@ -807,6 +886,7 @@ commands:
       item_expr: it
       yaml_pick_expr: it
       text_footer: "\n{{url(it)}}\n"
+      text_formatter: pr_text
 
   - command: create pr
     verb: create
@@ -1665,7 +1745,7 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/commits
       items_expr: it
-      get_id_expr: it.sha
+      get_id_expr: ctx.parentIdParts[0] + "/" + it.sha
       query_params:
         page: flags.page
         limit: flags.limit
@@ -1678,6 +1758,21 @@ commands:
         page_size_max: 100
         page_base: 1
       columns: [sha, title, author, authored]
+
+  - command: get pr_commit
+    verb: get
+    noun: pr_commit
+    fields_noun: commit
+    short: "Get a commit in a pull request: harness get pr_commit <repo_id>/<sha>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: commit
+        keep_order: true
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/commits/{{ctx.idParts[1]}}
+      item_expr: it
 
   # ── commit_check ─────────────────────────────────────────────────────────────
 
@@ -1731,10 +1826,53 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/checks
       items_expr: it.checks
-      get_id_expr: it.check.identifier
+      get_id_expr: ctx.parentId + "/" + it.check.identifier
       paging:
         paging_strategy: flat_list
+      completion:
+        id_expr: it.check.identifier
+        name_expr: it.check.status
       columns: [identifier, status, required, summary, reported_by, duration]
+
+  - command: get pr_check
+    verb: get
+    noun: pr_check
+    short: "Get a status check on a pull request: harness get pr_check <repo_id>/<pr_number>/<check_identifier>"
+    handler_type: workflow
+    workflow_id: get_pr_check
+    item_fn: get_pr_check_item
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<check_identifier>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+      - completion_noun: pr_check
+
+  - command: get pr_check:log
+    verb: get
+    noun: pr_check
+    noun_variant: log
+    short: "Fetch pipeline logs for a PR check: harness get pr_check:log <repo_id>/<pr_number>/<check_identifier>"
+    long: |
+      Resolves a pull request status check to its backing Harness pipeline execution
+      and dumps the logs of every step under that execution's stage, in order
+      (excluding the stage's own top-level log), scoped to the pipeline's own
+      org/project (which may differ from the current --profile/--org/--project).
+      If the stage is still running, streams live and exits when it reaches a
+      terminal state. Fails with a clear error if the check has no associated
+      pipeline execution (external check, webhook-reported status, etc).
+    handler_type: workflow
+    workflow_id: get_pr_check_log
+    item_fn: get_pr_check_log_item
+    fields_noun: pr_check_log
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<check_identifier>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+      - completion_noun: pr_check
 
   # ── pr_comment ───────────────────────────────────────────────────────────────
 

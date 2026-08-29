@@ -62,6 +62,7 @@ type Registry struct {
 	followFns            map[string]cmdctx.FollowFn
 	fetchFns             map[string]cmdctx.FetchFn
 	listTransformFns     map[string]cmdctx.ListTransformFn
+	itemFns              map[string]cmdctx.ItemFn
 	flagCompletionFns    map[string]FlagCompletionFn
 	flagResolveFns       map[string]cmdctx.FlagResolveFn
 	endpointValidatorFns map[string]cmdctx.EndpointValidatorFn
@@ -82,6 +83,7 @@ func New() *Registry {
 		followFns:            map[string]cmdctx.FollowFn{},
 		fetchFns:             map[string]cmdctx.FetchFn{},
 		listTransformFns:     map[string]cmdctx.ListTransformFn{},
+		itemFns:              map[string]cmdctx.ItemFn{},
 		flagCompletionFns:    map[string]FlagCompletionFn{},
 		flagResolveFns:       map[string]cmdctx.FlagResolveFn{},
 		endpointValidatorFns: map[string]cmdctx.EndpointValidatorFn{},
@@ -375,6 +377,19 @@ func (r *Registry) RegisterListTransformFn(id string, fn cmdctx.ListTransformFn)
 		panic(fmt.Sprintf("registry: duplicate list transform fn %q", id))
 	}
 	r.listTransformFns[id] = fn
+}
+
+// ResolveItemFn implements cmdctx.Resolver.
+func (r *Registry) ResolveItemFn(id string) cmdctx.ItemFn {
+	return r.itemFns[id]
+}
+
+// RegisterItemFn registers a fully-qualified item resolver function ID.
+func (r *Registry) RegisterItemFn(id string, fn cmdctx.ItemFn) {
+	if _, ok := r.itemFns[id]; ok {
+		panic(fmt.Sprintf("registry: duplicate item fn %q", id))
+	}
+	r.itemFns[id] = fn
 }
 
 // RegisterFlagCompletionFn registers a fully-qualified flag completion function.
@@ -896,7 +911,11 @@ func (r *Registry) RunUIHandler(ctx *cmdctx.Ctx, fnID string) error {
 func (r *Registry) FormatList(ctx *cmdctx.Ctx, rows []any, fields []spec.FieldDef, columnIDs []string) error {
 	tspec := buildTspec(columnIDs, fields)
 	exprEnv := exprenv.Make(ctx)
-	return format.FormatArrayOutput(ctx.FormatFlags, ctx.IsPty, rows, "it", tspec, fields, exprEnv, nil)
+	flags := ctx.FormatFlags
+	if flags.Columns == "" {
+		flags.Columns = format.EnvColumnsFor(ctx.Noun)
+	}
+	return format.FormatArrayOutput(flags, ctx.IsPty, rows, "it", tspec, fields, exprEnv, nil)
 }
 
 // FetchItems implements cmdctx.Resolver.

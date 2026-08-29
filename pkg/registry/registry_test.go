@@ -556,7 +556,7 @@ func TestRegisterFns_PanicOnDuplicate(t *testing.T) {
 			r.RegisterFlagCompletionFn("core:comp", func(*cmdctx.Ctx, []string, *pflag.FlagSet) ([]string, error) { return nil, nil })
 		}},
 		{"flag_resolve_fn", func(r *Registry) {
-			r.RegisterFlagResolveFn("core:rv", func(*cmdctx.Ctx, string) (string, error) { return "", nil })
+			r.RegisterFlagResolveFn("core:rv", func(*cmdctx.Ctx, string) (*cmdctx.FlagResolveResult, error) { return nil, nil })
 		}},
 		{"text_formatter", func(r *Registry) {
 			r.RegisterTextFormatter("core:tf", func(io.Writer, cmdctx.DataAccessor) error { return nil })
@@ -1141,7 +1141,7 @@ func TestModuleRegistrar_RegisterFlagCompletionFn(t *testing.T) {
 func TestModuleRegistrar_RegisterFlagResolveFn(t *testing.T) {
 	r := New()
 	m := r.Module("mymod")
-	m.RegisterFlagResolveFn("rv", func(*cmdctx.Ctx, string) (string, error) { return "", nil })
+	m.RegisterFlagResolveFn("rv", func(*cmdctx.Ctx, string) (*cmdctx.FlagResolveResult, error) { return nil, nil })
 	if r.ResolveFlagResolveFn("mymod:rv") == nil {
 		t.Fatal("flag_resolve_fn not found after registration")
 	}

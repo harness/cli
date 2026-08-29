@@ -25,7 +25,7 @@ var numericRe = regexp.MustCompile(`^[0-9]+$`)
 //   - Harness UID (22 base64url chars) → resolved via UID lookup
 //   - numeric string               → passed through as-is
 //   - anything else                → error
-func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (string, error) {
+func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult, error) {
 	var id int
 	var err error
 	switch {
@@ -34,14 +34,14 @@ func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (string, error) {
 	case harnessUIDRe.MatchString(raw):
 		id, err = PrincipalIDFromUID(ctx, raw)
 	case numericRe.MatchString(raw):
-		return raw, nil
+		return &cmdctx.FlagResolveResult{Value: raw}, nil
 	default:
-		return "", fmt.Errorf("%q is not a valid author: expected an email, a 22-char Harness UID, or a numeric principal ID", raw)
+		return nil, fmt.Errorf("%q is not a valid author: expected an email, a 22-char Harness UID, or a numeric principal ID", raw)
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return fmt.Sprintf("%d", id), nil
+	return &cmdctx.FlagResolveResult{Value: fmt.Sprintf("%d", id)}, nil
 }
 
 var (

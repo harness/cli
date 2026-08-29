@@ -70,21 +70,21 @@ func bundleKind(d cmdctx.DataAccessor) string {
 }
 
 // The console numbers revisions 1, 2, 3, but the route keys on the identity — look a bare number up.
-func resolveScriptRevision(ctx *cmdctx.Ctx, raw string) (string, error) {
+func resolveScriptRevision(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult, error) {
 	number, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil {
 		// Not a number, so it is already an identifier.
-		return raw, nil
+		return &cmdctx.FlagResolveResult{Value: raw}, nil
 	}
 	if ctx.Id == "" {
-		return "", errors.New("a load test id is needed to look up a revision by number")
+		return nil, errors.New("a load test id is needed to look up a revision by number")
 	}
 
 	qp := scopeParams(ctx)
 	qp["limit"] = strconv.Itoa(revisionScan)
 	resp, _, err := client.New(ctx).Get(basePath+"/load-tests/"+url.PathEscape(ctx.Id)+"/script/revisions", qp)
 	if err != nil {
-		return "", fmt.Errorf("reading the script revisions of load test %q: %w", ctx.Id, err)
+		return nil, fmt.Errorf("reading the script revisions of load test %q: %w", ctx.Id, err)
 	}
 
 	for _, item := range itemsOf(resp) {
@@ -93,9 +93,9 @@ func resolveScriptRevision(ctx *cmdctx.Ctx, raw string) (string, error) {
 			continue
 		}
 		if identity := stringField(m, "identity"); identity != "" {
-			return identity, nil
+			return &cmdctx.FlagResolveResult{Value: identity}, nil
 		}
 	}
-	return "", fmt.Errorf("load test %q has no script revision %d among its most recent %d; list them with: harness list loadtest_script:revisions %s",
+	return nil, fmt.Errorf("load test %q has no script revision %d among its most recent %d; list them with: harness list loadtest_script:revisions %s",
 		ctx.Id, number, revisionScan, ctx.Id)
 }

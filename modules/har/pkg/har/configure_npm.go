@@ -13,26 +13,12 @@ import (
 	"github.com/harness/cli/pkg/cmdctx"
 )
 
-const configureRegistryHandlerID = "configure_registry"
-
-func configureRegistryHandler(ctx *cmdctx.Ctx) error {
-	client := cmdctx.GetString(ctx.FlagValues, "client")
-	if client == "" {
-		return fmt.Errorf("--client is required (supported: npm, maven, pip, nuget)")
-	}
-	switch client {
-	case "npm":
-		return configureNpm(ctx)
-	case "maven":
-		return configureMaven(ctx)
-	case "pip":
-		return configurePip(ctx)
-	case "nuget":
-		return configureNuget(ctx)
-	default:
-		return fmt.Errorf("unsupported client %q (supported: npm, maven, pip, nuget)", client)
-	}
-}
+const (
+	configureRegistryNpmHandlerID   = "configure_registry_npm"
+	configureRegistryMavenHandlerID = "configure_registry_maven"
+	configureRegistryPipHandlerID   = "configure_registry_pip"
+	configureRegistryNugetHandlerID = "configure_registry_nuget"
+)
 
 func configureNpm(ctx *cmdctx.Ctx) error {
 	a := ctx.Auth
