@@ -84,12 +84,12 @@ nouns:
         default: true
       - ui_command_type: link
         key: l
-        label: list pull requests
+        label: pull-requests
         verb: list
         noun: pr
       - ui_command_type: up
         key: "<"
-        label: up to repo list
+        label: repo-list
         verb: list
         noun: repository
 
@@ -197,32 +197,31 @@ nouns:
         noun: pr
         default: true
       - ui_command_type: text
-        key: i
-        label: AI review
+        key: a
+        label: ai-review
         noun: pr:insight
       - ui_command_type: link
-        key: c
-        label: list commits
+        key: m
+        label: commits
         verb: list
         noun: pr_commit
-      - ui_command_type: link
-        key: a
-        label: list activity
-        verb: list
-        noun: pr_activity
+      - ui_command_type: text
+        key: c
+        label: conversation
+        noun: pr:conversation
       - ui_command_type: link
         key: s
-        label: list checks
+        label: checks
         verb: list
         noun: pr_check
       - ui_command_type: up
         key: "^"
-        label: up to repo
+        label: repo
         noun: repository
         up_id_expr: ctx.idParts[0]
       - ui_command_type: up
         key: "<"
-        label: up to PR list
+        label: pr-list
         verb: list
         noun: pr
         up_id_expr: ctx.idParts[0]
@@ -422,16 +421,16 @@ nouns:
         default: true
       - ui_command_type: text
         key: g
-        label: get check logs
+        label: check-logs
         noun: pr_check:log
       - ui_command_type: up
         key: "^"
-        label: up to PR
+        label: pull-request
         noun: pr
         up_id_expr: ctx.idParts[0] + "/" + ctx.idParts[1]
       - ui_command_type: up
         key: "e"
-        label: view execution
+        label: execution
         noun: execution
         up_id_expr: it.check.payload.data.pipeline_identifier + "/" + it.check.payload.data.execution_id
 
@@ -613,6 +612,7 @@ nouns:
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
     multi_level: true
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
     fields:
       - id: id
         label: ID
@@ -1115,6 +1115,35 @@ commands:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.idParts[0]}}/+/pullreq/{{ctx.idParts[1]}}/view
       item_expr: it
       text_formatter: pr_review_group_text
+
+  # ── pr conversation (threaded activity timeline as prose) ──────────────────────
+
+  - command: get pr:conversation
+    verb: get
+    noun: pr
+    noun_variant: conversation
+    fields_noun: pr_activity
+    short: "Show a pull request's conversation timeline: harness get pr:conversation <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: show-resolved
+        is_bool: true
+        description: Show the full body/diff/replies of resolved code-comment threads instead of collapsing them to one line
+      - name: show-outdated
+        is_bool: true
+        description: Show the full body/diff/replies of outdated code-comment threads instead of collapsing them to one line
+      - name: no-diffs
+        is_bool: true
+        description: Hide diff hunks on code-comment threads
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/activities
+      item_expr: it
+      text_formatter: pr_conversation_text
 
   # ── principal ────────────────────────────────────────────────────────────────
 

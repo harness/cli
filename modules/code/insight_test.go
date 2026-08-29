@@ -446,16 +446,24 @@ func TestRelativeTime(t *testing.T) {
 		epochMs int64
 		want    string
 	}{
-		{"zero timestamp", 0, ""},
-		{"negative timestamp", -5, ""},
+		{"zero timestamp", 0, "unknown"},
+		{"negative timestamp", -5, "unknown"},
 		{"just now", now.Add(-10 * time.Second).UnixMilli(), "just now"},
-		{"minutes ago", now.Add(-5 * time.Minute).UnixMilli(), "• 5 mins ago"},
-		{"one minute ago (singular)", now.Add(-1 * time.Minute).UnixMilli(), "• 1 min ago"},
-		{"hours ago", now.Add(-3 * time.Hour).UnixMilli(), "• 3 hrs ago"},
-		{"days ago", now.Add(-13 * 24 * time.Hour).UnixMilli(), "• 13 days ago"},
-		{"one day ago (singular)", now.Add(-1 * 24 * time.Hour).UnixMilli(), "• 1 day ago"},
-		{"months ago", now.Add(-60 * 24 * time.Hour).UnixMilli(), "• 2 mons ago"},
-		{"years ago", now.Add(-400 * 24 * time.Hour).UnixMilli(), "• 1 yr ago"},
+		{"minutes ago", now.Add(-5 * time.Minute).UnixMilli(), "5m ago"},
+		{"one minute ago", now.Add(-1 * time.Minute).UnixMilli(), "1m ago"},
+		{"hours ago", now.Add(-3 * time.Hour).UnixMilli(), "3h ago"},
+		{"days ago", now.Add(-13 * 24 * time.Hour).UnixMilli(), "13d ago"},
+		{"one day ago", now.Add(-1 * 24 * time.Hour).UnixMilli(), "1d ago"},
+		{
+			"months ago",
+			now.Add(-60 * 24 * time.Hour).UnixMilli(),
+			now.Add(-60 * 24 * time.Hour).UTC().Format("2006-01-02"),
+		},
+		{
+			"years ago",
+			now.Add(-400 * 24 * time.Hour).UnixMilli(),
+			now.Add(-400 * 24 * time.Hour).UTC().Format("2006-01-02"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
