@@ -257,7 +257,12 @@ func OpenBrowser(url string) error {
 	case "darwin":
 		cmd = exec.Command("open", url)
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		// Avoid "cmd /c start <url>": cmd.exe re-parses its own command line and
+		// treats an unescaped "&" as a command separator, silently truncating any
+		// URL with multiple query params (e.g. dropping redirect_uri from the SSO
+		// auth URL). rundll32 receives the URL as a single argument with no shell
+		// re-parsing in between.
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
