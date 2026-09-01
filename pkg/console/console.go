@@ -10,14 +10,14 @@ package console
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
-	"os/exec"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 
+	"github.com/pkg/browser"
 	"golang.org/x/term"
 )
 
@@ -248,23 +248,33 @@ func PromptYesNo(question string) bool {
 	return false
 }
 
-// OpenBrowser attempts to open url in the default system browser.
-// Returns an error if the browser cannot be launched; callers should fall back
-// to printing the URL for the user to open manually.
-func OpenBrowser(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		// Avoid "cmd /c start <url>": cmd.exe re-parses its own command line and
-		// treats an unescaped "&" as a command separator, silently truncating any
-		// URL with multiple query params (e.g. dropping redirect_uri from the SSO
-		// auth URL). rundll32 receives the URL as a single argument with no shell
-		// re-parsing in between.
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
+// OpenBrowser attempts to open rawURL in the default system browser.
+// Returns an error if rawURL is not a well-formed http(s) URL, or if the
+// browser cannot be launched; callers should fall back to printing the URL
+// for the user to open manually.
+//
+// Delegates to pkg/browser rather than shelling out via "cmd /c start <url>"
+// on Windows: cmd.exe re-parses its own command line and treats an unescaped
+// "&" as a command separator, silently truncating any URL with multiple query
+// params (e.g. dropping redirect_uri from the SSO auth URL). pkg/browser uses
+// ShellExecute directly on Windows, with no such parsing involved.
+//
+// rawURL is validated before being handed to pkg/browser: ShellExecute (Windows)
+// and "open"/"xdg-open" (macOS/Linux) all treat their argument as "the thing to
+// open," not strictly a web URL — an unvalidated string could resolve to a local
+// file, a UNC path, a registered custom URL-scheme handler, or (on macOS) get
+// parsed as flags to "open" if it starts with "-". Restricting to http(s) with a
+// host closes off those paths.
+func OpenBrowser(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("refusing to open malformed URL: %w", err)
 	}
-	return cmd.Start()
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("refusing to open URL with scheme %q (only http/https allowed)", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("refusing to open URL with no host")
+	}
+	return browser.OpenURL(rawURL)
 }
