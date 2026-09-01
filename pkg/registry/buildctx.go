@@ -240,7 +240,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 			ctx.Level = levelFlag
 		}
 	}
-	if err := validateIdParts(cs, vspec, ctx); err != nil {
+	if err := r.validateIdParts(cs, vspec, ctx); err != nil {
 		return nil, err
 	}
 	if !cs.NoAuth {
@@ -365,9 +365,10 @@ func resolveFlagValues(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
 	return nil
 }
 
-func validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) error {
+func (r *Registry) validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) error {
 	val, label := ctx.Id, cs.IdLabel
-	if vspec.AllowsParentId {
+	isParent := vspec.AllowsParentId
+	if isParent {
 		val = ctx.ParentId
 		if cs.ParentIdLabel != "" {
 			label = "<" + cs.ParentIdLabel + ">"
@@ -376,18 +377,69 @@ func validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) erro
 	if label == "" {
 		label = "<id>"
 	}
+	setVal := func(v string) {
+		if isParent {
+			ctx.ParentId = v
+		} else {
+			ctx.Id = v
+		}
+	}
+
+	// Whole id/parentid (id_parts <= 1): the default fn fires on omission or the
+	// explicit sentinel. "" only reaches here for commands that already treat a
+	// missing id/parentid as legal — RequiresId commands error before this point.
+	if cs.IdPartDefaultFn != "" && cs.IdParts <= 1 && (val == "" || val == spec.IdPartSentinel) {
+		resolved, err := r.resolveIdPartDefault(cs, ctx)
+		if err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		val = resolved
+		setVal(val)
+	}
+
 	if val == "" || cs.IdAllowSlash {
 		return nil
 	}
-	allowed := max(cs.IdParts-1, 0)
-	if got := strings.Count(val, "/"); got > allowed {
-		if cs.IdParts > 1 {
-			return fmt.Errorf("expected %s with exactly %d parts separated by '/', got %q", label, cs.IdParts, val)
+
+	if cs.IdParts <= 1 {
+		if strings.Contains(val, "/") {
+			return fmt.Errorf("%s %s: %s must not contain '/' (got %q)", cs.Verb, cs.Noun, label, val)
 		}
-		return fmt.Errorf("%s %s: %s must not contain '/' (got %q)", cs.Verb, cs.Noun, label, val)
+		return nil
 	}
-	if cs.IdParts > 1 {
-		ctx.IdParts = strings.SplitN(val, "/", cs.IdParts)
+
+	// Split id (id_parts > 1): the leading part defaults on an explicit sentinel
+	// ("./42") or on a bare, slash-free value ("42" instead of "<repo>/42").
+	allowed := cs.IdParts - 1
+	got := strings.Count(val, "/")
+	switch {
+	case got == allowed-1 && cs.IdPartDefaultFn != "":
+		resolved, err := r.resolveIdPartDefault(cs, ctx)
+		if err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		ctx.IdParts = append([]string{resolved}, strings.Split(val, "/")...)
+	case got == allowed:
+		parts := strings.SplitN(val, "/", cs.IdParts)
+		if cs.IdPartDefaultFn != "" && parts[0] == spec.IdPartSentinel {
+			resolved, err := r.resolveIdPartDefault(cs, ctx)
+			if err != nil {
+				return fmt.Errorf("%s: %w", label, err)
+			}
+			parts[0] = resolved
+		}
+		ctx.IdParts = parts
+	default:
+		return fmt.Errorf("expected %s with exactly %d parts separated by '/', got %q", label, cs.IdParts, val)
 	}
 	return nil
+}
+
+// resolveIdPartDefault invokes the command's registered id_part_default_fn.
+func (r *Registry) resolveIdPartDefault(cs *spec.CommandSpec, ctx *cmdctx.Ctx) (string, error) {
+	fn := r.ResolveIdPartDefaultFn(cs.IdPartDefaultFn)
+	if fn == nil {
+		return "", fmt.Errorf("id_part_default_fn %q not registered", cs.IdPartDefaultFn)
+	}
+	return fn(ctx)
 }

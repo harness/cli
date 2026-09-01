@@ -65,6 +65,7 @@ type Registry struct {
 	itemFns              map[string]cmdctx.ItemFn
 	flagCompletionFns    map[string]FlagCompletionFn
 	flagResolveFns       map[string]cmdctx.FlagResolveFn
+	idPartDefaultFns     map[string]cmdctx.IdPartDefaultFn
 	endpointValidatorFns map[string]cmdctx.EndpointValidatorFn
 	initErrs             []string
 }
@@ -86,6 +87,7 @@ func New() *Registry {
 		itemFns:              map[string]cmdctx.ItemFn{},
 		flagCompletionFns:    map[string]FlagCompletionFn{},
 		flagResolveFns:       map[string]cmdctx.FlagResolveFn{},
+		idPartDefaultFns:     map[string]cmdctx.IdPartDefaultFn{},
 		endpointValidatorFns: map[string]cmdctx.EndpointValidatorFn{},
 	}
 	r.registerCoreFormatters()
@@ -411,6 +413,19 @@ func (r *Registry) RegisterFlagResolveFn(id string, fn cmdctx.FlagResolveFn) {
 		panic(fmt.Sprintf("registry: duplicate flag_resolve_fn %q", id))
 	}
 	r.flagResolveFns[id] = fn
+}
+
+// ResolveIdPartDefaultFn implements cmdctx.Resolver.
+func (r *Registry) ResolveIdPartDefaultFn(id string) cmdctx.IdPartDefaultFn {
+	return r.idPartDefaultFns[id]
+}
+
+// RegisterIdPartDefaultFn registers a fully-qualified id_part_default_fn ID.
+func (r *Registry) RegisterIdPartDefaultFn(id string, fn cmdctx.IdPartDefaultFn) {
+	if _, ok := r.idPartDefaultFns[id]; ok {
+		panic(fmt.Sprintf("registry: duplicate id_part_default_fn %q", id))
+	}
+	r.idPartDefaultFns[id] = fn
 }
 
 // RegisterBodyFn registers a fully-qualified body constructor ID.

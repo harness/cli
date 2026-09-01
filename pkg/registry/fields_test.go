@@ -101,6 +101,7 @@ func (tr *testResolver) ResolveFetchFn(id string) (cmdctx.FetchFn, error)       
 func (tr *testResolver) ResolveListTransformFn(id string) cmdctx.ListTransformFn { return nil }
 func (tr *testResolver) ResolveItemFn(id string) cmdctx.ItemFn                   { return nil }
 func (tr *testResolver) ResolveFlagResolveFn(id string) cmdctx.FlagResolveFn     { return nil }
+func (tr *testResolver) ResolveIdPartDefaultFn(id string) cmdctx.IdPartDefaultFn { return nil }
 func (tr *testResolver) ResolveEndpointValidator(id string) cmdctx.EndpointValidatorFn {
 	return nil
 }

@@ -88,6 +88,10 @@ const (
 	PagingStrategyOffsetLimit = "offset_limit" // API accepts offset (items to skip) + limit; response has totalCount
 )
 
+// IdPartSentinel ("." — shell-style "current") opts a fully-specified id/parentid
+// into id_part_default_fn, e.g. "." alone or "./42" for a 2-part id.
+const IdPartSentinel = "."
+
 // Valid presence values for MigrateFlag.
 const (
 	MigratePresenceRequired = "required" // flag is registered and must be provided
@@ -570,6 +574,7 @@ type CommandSpec struct {
 	ArgsLabel        string              `yaml:"args_label,omitempty"`        // appended to Usage after the id label (e.g. "<local-file>"); only used when has_args is true
 	IdParts          int                 `yaml:"id_parts,omitempty"`          // when > 1, id must contain exactly (id_parts-1) "/" separators; parts available as {ctx:id_part:0}, {ctx:id_part:1}, ...
 	IdAllowSlash     bool                `yaml:"id_allow_slash,omitempty"`    // skip the slash-count validation on id (use when the id format has variable segments)
+	IdPartDefaultFn  string              `yaml:"id_part_default_fn,omitempty"` // registered IdPartDefaultFn name; supplies the leading id_part (or the whole id/parentid, for id_parts<=1) when it is omitted or given as IdPartSentinel ("."). See IdPartSentinel.
 	RequiresParentId bool                `yaml:"requires_parentid,omitempty"` // list commands only: makes the [parentid] arg mandatory
 	ParentIdLabel    string              `yaml:"parentid_label,omitempty"`    // overrides "[parentid]" in the Usage line for list commands (e.g. "<registry/name>")
 	Hidden           bool                `yaml:"hidden,omitempty"`
