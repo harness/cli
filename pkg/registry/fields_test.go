@@ -330,7 +330,7 @@ func TestResolveCommandFields_FieldsNounOverride(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestMutableFields_NilNoun(t *testing.T) {
-	if got := MutableFields(nil); got != nil {
+	if got := MutableFields(nil, nil); got != nil {
 		t.Fatalf("expected nil for nil noun, got %v", got)
 	}
 }
@@ -340,9 +340,31 @@ func TestMutableFields_FiltersNonMutable(t *testing.T) {
 		{ID: "name", Expr: "it.name", MutablePath: "name"},
 		{ID: "status", Expr: "it.status"}, // not mutable
 	}}
-	got := MutableFields(nd)
+	got := MutableFields(nd, nil)
 	if len(got) != 1 || got[0].ID != "name" {
 		t.Fatalf("MutableFields = %v, want only 'name'", got)
+	}
+}
+
+func TestMutableFields_IncludesFieldsExtra(t *testing.T) {
+	nd := &spec.NounDef{Fields: []spec.FieldDef{
+		{ID: "name", Expr: "it.name", MutablePath: "name"},
+		{ID: "status", Expr: "it.status"},
+	}}
+	extra := []spec.FieldDef{
+		{ID: "traffic_allocation", Expr: "string(it.trafficAllocation)", MutablePath: "trafficAllocation"},
+		{ID: "environment", Expr: "it.environment.name"}, // display-only extra
+	}
+	got := MutableFields(nd, extra)
+	if len(got) != 2 {
+		t.Fatalf("MutableFields = %v, want name + traffic_allocation", got)
+	}
+	ids := map[string]string{}
+	for _, f := range got {
+		ids[f.ID] = f.MutablePath
+	}
+	if ids["name"] != "name" || ids["traffic_allocation"] != "trafficAllocation" {
+		t.Fatalf("MutableFields paths = %v", ids)
 	}
 }
 

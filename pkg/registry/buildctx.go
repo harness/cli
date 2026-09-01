@@ -293,7 +293,17 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		return nil, err
 	}
 	for _, f := range cs.Flags {
-		if f.Required && cmdctx.GetString(ctx.FlagValues, f.Name) == "" {
+		if !f.Required {
+			continue
+		}
+		var missing bool
+		switch {
+		case f.IsArray || f.IsMulti:
+			missing = len(cmdctx.GetStringSlice(ctx.FlagValues, f.Name)) == 0
+		default:
+			missing = cmdctx.GetString(ctx.FlagValues, f.Name) == ""
+		}
+		if missing {
 			if len(f.CompletionValues) > 0 {
 				return nil, fmt.Errorf("flag --%s is required (%s)", f.Name, strings.Join(f.CompletionValues, ", "))
 			}
