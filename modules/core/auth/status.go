@@ -362,7 +362,7 @@ func persistResolvedIdentity(resolved *auth.ResolvedAuth, identity tokenIdentity
 		changed = true
 	}
 	if changed {
-		config.SaveConfig(cfg) //nolint:errcheck — best-effort
+		config.SaveConfig(cfg) //nolint:errcheck // best-effort
 	}
 }
 
