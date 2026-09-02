@@ -18,7 +18,7 @@ import (
 // ctx.Id      = "<registry>/<name>" (only registry portion is used for the URL)
 // ctx.Args[0] = local .zip file path
 //
-// Upload endpoint: PUT {registryURL}/pkg/{accountID}/{registry}/composer/packages/upload
+// Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/composer/upload
 func pushComposerArtifact(ctx *cmdctx.Ctx) error {
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push composer artifact requires a local file path: push artifact <registry/name> <local-file>")
@@ -42,7 +42,7 @@ func pushComposerArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("%q is a directory; composer push requires a .zip file", localFile)
 	}
 
-	subpath := fmt.Sprintf("%s/composer/packages/upload", registry)
+	subpath := fmt.Sprintf("%s/composer/upload", registry)
 	uploadURL, err := buildPkgURL(ctx.Auth.RegistryURL, ctx.Auth.AccountID, subpath)
 	if err != nil {
 		return err
@@ -54,9 +54,9 @@ func pushComposerArtifact(ctx *cmdctx.Ctx) error {
 	}
 	defer f.Close()
 
-	fmt.Fprintf(os.Stderr, "Uploading %s → %s/composer/packages/upload ...\n", filepath.Base(localFile), registry)
+	fmt.Fprintf(os.Stderr, "Uploading %s → %s/composer/upload ...\n", filepath.Base(localFile), registry)
 
-	req, err := http.NewRequest("PUT", uploadURL, f)
+	req, err := http.NewRequest("POST", uploadURL, f)
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}

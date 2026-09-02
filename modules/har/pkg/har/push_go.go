@@ -29,7 +29,7 @@ import (
 // Required flag: --version  (e.g. "v1.2.3")
 // Optional flags: --mod-file, --info-file, --zip-file  (pre-built files; skips local generation)
 //
-// Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/go/upload
+// Upload endpoint: PUT {registryURL}/pkg/{accountID}/{registry}/go/upload
 // Multipart fields: mod, info, zip
 func pushGoArtifact(ctx *cmdctx.Ctx) error {
 	registry, _, err := parseRegistryAndName(ctx.Id)
@@ -115,7 +115,7 @@ func pushGoArtifact(ctx *cmdctx.Ctx) error {
 
 	fmt.Fprintf(os.Stderr, "Uploading Go module %s to %s ...\n", version, registry)
 
-	req, err := http.NewRequest("POST", uploadURL, &body)
+	req, err := http.NewRequest("PUT", uploadURL, &body)
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}

@@ -235,6 +235,16 @@ Do not hardcode into source files, comments, or documentation:
 
 Use placeholder text like `<accountId>`, `<token>`, `<email>` in examples.
 
+## Comments
+
+Write a comment only for a non-obvious WHY: a hidden constraint, an invariant, a gotcha ("if you change X, also update Y"), or a workaround. Don't write a comment that:
+- Restates what the code already says — in its name, its type, or (for a function that rejects/validates specific cases) the error message it returns. A comment that duplicates a value found elsewhere in the function drifts the moment one side is edited and the other isn't, leaving a reader to reconcile two sources instead of trusting one.
+- Explains a design decision or naming choice ("we did X instead of Y because...").
+- Recounts history ("this used to be Z", "added for the W feature", "changed after bug #123").
+- Walks through what the code does step by step — a good name already carries that.
+
+Default to zero comments; most functions need none. If one is warranted, keep it to 1-2 lines — reaching for 4-5 lines above a small function is a sign it needs a clearer name or shape, not a bigger comment.
+
 ## Common pitfalls
 
 - **Binary not updated**: `task build` alone isn't enough — must `cp` to `~/.local/bin/harness`.
@@ -242,3 +252,4 @@ Use placeholder text like `<accountId>`, `<token>`, `<email>` in examples.
 - **Code API paths**: Use bare repo identifier in path (e.g. `/code/api/v1/repos/{{ctx.parentId}}/branches`). org/project go as query params automatically — do NOT prefix paths with `{{auth.account}}/{{auth.org}}/{{auth.project}}`.
 - **`columns` on `get`**: Ignored. Use `fields_subset` on the endpoint to filter `get` output.
 - **gRPC oneof fields**: Include all variants in `??` chain (entity_type, event_type, metric_type, view_type, relationship_type, config_type).
+- **Adding a core flag** (a root flag or a built-in flag wired per verb/endpoint, not a per-command spec flag): also add it to `coreFlagTable` in `pkg/registry/flag.go`, marking `Bool: true` if it takes no value argument. That table is the single source of truth for recognizing core flags and their shape when scanning raw args (e.g. `SuggestRootCommand`).

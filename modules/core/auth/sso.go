@@ -55,7 +55,9 @@ func runSSOLogin(ctx *cmdctx.Ctx, cfg *config.Config, profileName string) error 
 		existingProjectID = existingProfile.ProjectID
 	}
 
-	meta, err := auth.FetchAuthServerMeta(&http.Client{Timeout: 10 * time.Second}, auth.SSOAuthServerURL())
+	ssoAuthServerURL := auth.SSOAuthServerURL()
+	console.Infof("Discovering SSO configuration at %s…", ssoAuthServerURL)
+	meta, err := auth.FetchAuthServerMeta(&http.Client{Timeout: 10 * time.Second}, ssoAuthServerURL)
 	if err != nil {
 		return fmt.Errorf("SSO discovery failed: %w", err)
 	}

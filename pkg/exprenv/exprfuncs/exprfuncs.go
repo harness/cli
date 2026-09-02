@@ -71,6 +71,40 @@ func NewStatusIcon(enabled bool) func(string) string {
 	}
 }
 
+// labelColorMap maps a Harness Code label color (EnumLabelColor) to the nearest
+// basic ANSI color, since terminals only give us 8 basic colors for the API's 13.
+var pr_labelColorMap = map[string]console.Color{
+	"blue":   console.ColorBlue,
+	"brown":  console.ColorYellow,
+	"cyan":   console.ColorCyan,
+	"green":  console.ColorGreen,
+	"indigo": console.ColorBlue,
+	"lime":   console.ColorGreen,
+	"mint":   console.ColorCyan,
+	"orange": console.ColorYellow,
+	"pink":   console.ColorMagenta,
+	"purple": console.ColorMagenta,
+	"red":    console.ColorRed,
+	"violet": console.ColorMagenta,
+	"yellow": console.ColorYellow,
+}
+
+// NewLabelColor returns a function that colorizes text using the nearest basic ANSI
+// color for a Harness Code label color. When enabled is false (non-PTY or machine
+// format), the returned function always returns text unchanged.
+func NewPrLabelColor(enabled bool) func(color, text string) string {
+	return func(color, text string) string {
+		if !enabled {
+			return text
+		}
+		c, ok := pr_labelColorMap[color]
+		if !ok {
+			return text
+		}
+		return console.WithColor(c, text)
+	}
+}
+
 // Duration formats the elapsed time between two epoch-millisecond timestamps as
 // a human-readable string ("5m20s" or "42s"). Returns "" when either value is zero.
 // Accepts any numeric type since JSON numbers arrive as float64 in untyped maps.
@@ -214,6 +248,9 @@ func EpochMs(v any) string {
 // Accepts: YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, epoch ms (passthrough), or
 // relative durations like "30d" (30 days ago), "2w" (2 weeks ago), "1m" (1 month ago).
 // Returns "" for empty or unrecognized input.
+//
+// Zoneless dates and times are read in the local zone, so "2026-06-01" means
+// midnight where the user is. Epoch millis and relative spans are absolute.
 func ParseDateMs(v any) string {
 	s, ok := v.(string)
 	if !ok || s == "" {
@@ -222,10 +259,10 @@ func ParseDateMs(v any) string {
 	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return s
 	}
-	if t, err := time.Parse("2006-01-02", s); err == nil {
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
 		return strconv.FormatInt(t.UnixMilli(), 10)
 	}
-	if t, err := time.Parse("2006-01-02T15:04:05", s); err == nil {
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05", s, time.Local); err == nil {
 		return strconv.FormatInt(t.UnixMilli(), 10)
 	}
 	if len(s) >= 2 {
@@ -360,4 +397,13 @@ func Coalesce(vals ...any) any {
 		}
 	}
 	return nil
+}
+
+// IsBlank reports whether v is nil or an empty string.
+func IsBlank(v any) bool {
+	if v == nil {
+		return true
+	}
+	s, ok := v.(string)
+	return ok && s == ""
 }

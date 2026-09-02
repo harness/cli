@@ -93,6 +93,10 @@ type FetchFn func(ctx *Ctx, ep *spec.EndpointSpec, wantStart, wantCount int, cur
 // the row slice, the columns available on those rows, and optional paging summary info.
 type ListTransformFn func(ctx *Ctx, data any) (items []any, fields []spec.FieldDef, meta PageMeta, err error)
 
+// ItemFn resolves a workflow-backed "get" command's target item without rendering it —
+// used by the TUI detail-pane drilldown, which needs a value to render, not written text.
+type ItemFn func(ctx *Ctx) (any, error)
+
 // RawBody signals that the body should be sent as-is with the given ContentType,
 // bypassing JSON encoding. Return this from a CreateBodyFn when the API expects
 // a raw non-JSON body (e.g. application/yaml).
@@ -101,10 +105,18 @@ type RawBody struct {
 	Content     string
 }
 
+// FlagResolveResult is the result of resolving a flag's raw value. Value is
+// the resolved value for the flag itself. Defaults, if non-nil, supplies
+// values for OTHER flags — applied only if that flag is still unset; an
+// already-set flag is never overridden.
+type FlagResolveResult struct {
+	Value    string
+	Defaults map[string]string
+}
+
 // FlagResolveFn transforms a raw flag string value before it is placed into
-// the CEL expression environment. Returning ("", nil) is valid and leaves the
-// flag value as an empty string. Returning an error aborts the command.
-type FlagResolveFn func(ctx *Ctx, raw string) (string, error)
+// the CEL expression environment. Returning an error aborts the command.
+type FlagResolveFn func(ctx *Ctx, raw string) (*FlagResolveResult, error)
 
 // Resolver looks up registered handler functions by their fully-qualified ID.
 // The registry implements this; commands receive it via Ctx.Resolver.
@@ -115,6 +127,7 @@ type Resolver interface {
 	ResolveFlagResolveFn(id string) FlagResolveFn
 	ResolveFetchFn(id string) (FetchFn, error)
 	ResolveListTransformFn(id string) ListTransformFn
+	ResolveItemFn(id string) ItemFn
 	ResolveEndpointValidator(id string) EndpointValidatorFn
 	GetSpec(verb, noun string) *spec.CommandSpec
 	GetNoun(noun string) *spec.NounDef
@@ -196,6 +209,8 @@ type Ctx struct {
 	FieldsNoun   string // overrides Noun for field lookup when set (from spec fields_noun)
 	Id           string
 	ParentId     string            // optional parent-id arg for list commands (e.g. pipeline ID on "list execution")
+	MigrateFrom  string            // --from flag value (pair verbs, e.g. migrate: identifies the source endpoint)
+	MigrateTo    string            // --to flag value (pair verbs, e.g. migrate: identifies the destination endpoint)
 	SetArgs      map[string]string // --set key=value pairs for update verb (when HasSetArg set on spec)
 	DelArgs      []string          // --del key targets for update verb (when HasSetArg set on spec)
 	Args         []string          // extra positional args beyond [id] (when HasArgs set on spec)
@@ -216,4 +231,44 @@ type Ctx struct {
 	//   - "list-fields"  bool   when the flag exists (get/update commands)
 	//   - "profile", "org", "project" string when no_auth: true (the handler owns auth resolution)
 	FlagValues map[string]any
+}
+
+// ScopedAuth returns Auth adjusted for Level: "org" clears ProjectID, "account"
+// clears both OrgID and ProjectID. Callers making direct API requests outside
+// the endpoint framework (which applies this via CallEndpoint) must use this
+// instead of Auth directly, or a --level account/org request will still scope
+// to the profile's default org/project.
+func (c *Ctx) ScopedAuth() *auth.ResolvedAuth {
+	a := c.Auth
+	switch c.Level {
+	case "org":
+		scoped := *a
+		scoped.ProjectID = ""
+		a = &scoped
+	case "account":
+		scoped := *a
+		scoped.OrgID = ""
+		scoped.ProjectID = ""
+		a = &scoped
+	}
+	return a
+}
+
+// AccountAuth returns Auth with OrgID and ProjectID cleared, regardless of
+// Level. Use for lookups against entities that are almost always
+// account-scoped and don't inherit down to a narrower org/project lookup.
+func (c *Ctx) AccountAuth() *auth.ResolvedAuth {
+	scoped := *c.Auth
+	scoped.OrgID = ""
+	scoped.ProjectID = ""
+	return &scoped
+}
+
+// OrgAuth returns Auth with ProjectID cleared but OrgID preserved, regardless
+// of Level. Use to probe org-scoped entities while running at a narrower
+// project scope under that org.
+func (c *Ctx) OrgAuth() *auth.ResolvedAuth {
+	scoped := *c.Auth
+	scoped.ProjectID = ""
+	return &scoped
 }

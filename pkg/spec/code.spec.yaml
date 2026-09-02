@@ -13,6 +13,14 @@ help_text: |
   repository. A pull request targets a repository branch and has an activity timeline
   (comments, reviews, state changes) and threaded comments associated with it.
 
+  ### Migrating from another SCM
+
+  To bring existing repositories, pull requests, and pipelines into Harness Code
+  from GitHub, GitLab, Bitbucket, or Bitbucket Server, use the `migrate` plugin
+  module rather than the commands below:
+
+      harness get module migrate
+
   ### Nouns
 
   {{nouns}}
@@ -68,6 +76,22 @@ nouns:
         expr: epochMs(it.updated)
       - id: created
         expr: epochMs(it.created)
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: repository
+        default: true
+      - ui_command_type: link
+        key: l
+        label: pull-requests
+        verb: list
+        noun: pr
+      - ui_command_type: up
+        key: "<"
+        label: repo-list
+        verb: list
+        noun: repository
 
   - noun: pr
     short_desc: A Harness Code pull request.
@@ -166,6 +190,41 @@ nouns:
         expr: epochMs(it.updated)
       - id: merged
         expr: epochMs(it.merged)
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: pr
+        default: true
+      - ui_command_type: text
+        key: a
+        label: ai-review
+        noun: pr:insight
+      - ui_command_type: link
+        key: m
+        label: commits
+        verb: list
+        noun: pr_commit
+      - ui_command_type: text
+        key: c
+        label: conversation
+        noun: pr:conversation
+      - ui_command_type: link
+        key: s
+        label: checks
+        verb: list
+        noun: pr_check
+      - ui_command_type: up
+        key: "^"
+        label: repo
+        noun: repository
+        up_id_expr: ctx.idParts[0]
+      - ui_command_type: up
+        key: "<"
+        label: pr-list
+        verb: list
+        noun: pr
+        up_id_expr: ctx.idParts[0]
 
   - noun: branch
     short_desc: A git branch in a Harness Code repository.
@@ -268,7 +327,7 @@ nouns:
       - id: identifier
         expr: it.identifier
       - id: status
-        expr: it.status
+        expr: spaceAfter(statusIcon(it.status)) + it.status
       - id: summary
         expr: it.summary
         width_max: 60
@@ -306,7 +365,7 @@ nouns:
       - id: identifier
         expr: it.check.identifier
       - id: status
-        expr: it.check.status
+        expr: spaceAfter(statusIcon(it.check.status)) + it.check.status
       - id: required
         expr: it.required
       - id: summary
@@ -354,6 +413,33 @@ nouns:
       - id: stage_id
         label: Stage ID
         expr: it.check.payload.data.stage_identifier
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: pr_check
+        default: true
+      - ui_command_type: text
+        key: g
+        label: check-logs
+        noun: pr_check:log
+      - ui_command_type: up
+        key: "^"
+        label: pull-request
+        noun: pr
+        up_id_expr: ctx.idParts[0] + "/" + ctx.idParts[1]
+      - ui_command_type: up
+        key: "e"
+        label: execution
+        noun: execution
+        up_id_expr: it.check.payload.data.pipeline_identifier + "/" + it.check.payload.data.execution_id
+
+  - noun: pr_check_log
+    short_desc: A snapshot of a PR check's backing pipeline stage logs.
+    fields:
+      - id: logs
+        expr: it.logs
+        field_type: multiline_text
 
   - noun: pr_insight
     short_desc: Risk summary for a pull request (Harness Code review insights).
@@ -414,6 +500,46 @@ nouns:
         expr: it.group_name
       - id: decision
         expr: it.review_decision
+
+  - noun: pr_label
+    short_desc: A label assignable to a pull request (Harness Code).
+    noun_aliases: [pr_labels]
+    fields:
+      - id: id
+        expr: it.id
+      - id: key
+        expr: prLabelColor(it.color, it.key)
+      - id: type
+        expr: it.type
+      - id: assigned
+        expr: it.assigned
+      - id: color
+        expr: it.color
+
+  - noun: repo_label
+    short_desc: A label defined at the repo level, assignable to pull requests (Harness Code).
+    noun_aliases: [repo_labels]
+    fields:
+      - id: id
+        expr: it.id
+      - id: key
+        expr: prLabelColor(it.color, it.key)
+      - id: type
+        expr: it.type
+      - id: description
+        expr: it.description
+      - id: value_count
+        label: Values
+        expr: it.value_count
+        align: right
+      - id: pullreq_count
+        label: PRs Using
+        expr: it.pullreq_count
+        align: right
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
 
   - noun: code_principal
     short_desc: A person or service account in the current account/org/project scope (Harness Code).
@@ -486,6 +612,7 @@ nouns:
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
     multi_level: true
+    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
     fields:
       - id: id
         label: ID
@@ -583,16 +710,16 @@ commands:
       no_fields: true
       text_header: "\nUpdated repository {{ctx.id}}\n"
 
-  - command: delete repository
-    verb: delete
+  - command: pull repository
+    verb: pull
     noun: repository
-    confirm_mode: confirm_id
-    short: Delete a repository
-    handler_type: endpoint
-    endpoint:
-      method: DELETE
-      path: /code/api/v1/repos/{{ctx.id}}
-      item_expr: it
+    short: "Clone a repository: harness pull repository <repo_id> [<dest-dir>]"
+    handler_type: workflow
+    workflow_id: pull_repository
+    has_args: true
+    args_label: "[<dest-dir>]"
+    completion_seq:
+      - completion_noun: repository
 
   # ── pr ──────────────────────────────────────────────────────────────────────
 
@@ -608,15 +735,15 @@ commands:
         default: open
         completion_values: [open, closed, merged, all]
       - name: created-after
-        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: created-before
-        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
     endpoint:
       path: /code/api/v1/pullreq
       query_params_fn: list_mine_pr_query_params
       fetch_fn: list_mine_pr_fetch
       items_expr: it
-      get_id_expr: string(it.number)
+      get_id_expr: it.repository.identifier + "/" + string(it.number)
       query_params:
         state: 'flags.state == "all" ? "" : flags.state'
         created_gt: 'parseDateMs(flags["created-after"])'
@@ -652,15 +779,15 @@ commands:
         default: open
         completion_values: [open, closed, merged, all]
       - name: created-after
-        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: created-before
-        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
     endpoint:
       path: /code/api/v1/pullreq
       query_params_fn: review_pending_pr_query_params
       fetch_fn: list_mine_pr_fetch
       items_expr: it
-      get_id_expr: string(it.number)
+      get_id_expr: it.repository.identifier + "/" + string(it.number)
       query_params:
         state: 'flags.state == "all" ? "" : flags.state'
         created_gt: 'parseDateMs(flags["created-after"])'
@@ -703,9 +830,9 @@ commands:
         description: "Filter by author (email, UUID, or numeric principal ID)"
         flag_resolve_fn: resolve_principal_id
       - name: created-after
-        description: "Show PRs created after this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created after this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: created-before
-        description: "Show PRs created before this date (YYYY-MM-DD, relative like 30d/2w/1m (m=month), or epoch ms)"
+        description: "Show PRs created before this date (YYYY-MM-DD in local time, relative like 30d/2w/1m (m=month), or epoch ms)"
       - name: sort
         description: "Sort field: number, created, updated, edited, merged"
         default: number
@@ -717,7 +844,7 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentId}}/pullreq
       items_expr: it
-      get_id_expr: string(it.number)
+      get_id_expr: ctx.parentId + "/" + string(it.number)
       query_params:
         state: 'flags.state == "all" ? "" : flags.state'
         query: flags.search
@@ -758,6 +885,7 @@ commands:
       item_expr: it
       yaml_pick_expr: it
       text_footer: "\n{{url(it)}}\n"
+      text_formatter: pr_text
 
   - command: create pr
     verb: create
@@ -795,6 +923,23 @@ commands:
       update_body_pick: it
       no_fields: true
       text_header: "\nUpdated PR #{{ctx.idParts[1]}}\n"
+
+  - command: pull pr
+    verb: pull
+    noun: pr
+    short: "Fetch and check out a pull request's source branch (run inside an existing clone): harness pull pr [<repo_id>/]<pr_number>"
+    handler_type: workflow
+    workflow_id: pull_pr
+    id_label: "[<repo_id>/]<pr_number>"
+    id_allow_slash: true
+    flags:
+      - name: remote
+        description: "Local git remote to resolve the repo from and fetch through"
+        default: origin
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
 
   - command: execute pr:merge
     verb: execute
@@ -843,6 +988,69 @@ commands:
         state: '"closed"'
       no_fields: true
       text_header: "\nClosed PR #{{ctx.idParts[1]}}\n"
+
+  - command: execute pr:reopen
+    verb: execute
+    noun: pr
+    noun_variant: reopen
+    short: "Reopen a closed pull request: harness execute pr:reopen <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/state
+      body_params:
+        state: '"open"'
+      no_fields: true
+      text_header: "\nReopened PR #{{ctx.idParts[1]}}\n"
+
+  - command: execute pr:ready
+    verb: execute
+    noun: pr
+    noun_variant: ready
+    short: "Mark a draft pull request as ready for review: harness execute pr:ready <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/state
+      body_params:
+        is_draft: "false"
+      no_fields: true
+      text_header: "\nMarked PR #{{ctx.idParts[1]}} as ready for review\n"
+
+  - command: execute pr:edit
+    verb: execute
+    noun: pr
+    noun_variant: edit
+    short: "Edit a pull request's title/description: harness execute pr:edit <repo_id>/<pr_number> [--title <text>] [--description <text>]"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: title
+        description: New PR title
+      - name: description
+        description: New PR description
+    endpoint:
+      method: PATCH
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}
+      body_params:
+        title: flags.title
+        description: flags.description
+      no_fields: true
+      text_header: "\nUpdated PR #{{ctx.idParts[1]}}\n"
 
   - command: execute pr:review
     verb: execute
@@ -907,6 +1115,35 @@ commands:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.idParts[0]}}/+/pullreq/{{ctx.idParts[1]}}/view
       item_expr: it
       text_formatter: pr_review_group_text
+
+  # ── pr conversation (threaded activity timeline as prose) ──────────────────────
+
+  - command: get pr:conversation
+    verb: get
+    noun: pr
+    noun_variant: conversation
+    fields_noun: pr_activity
+    short: "Show a pull request's conversation timeline: harness get pr:conversation <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: show-resolved
+        is_bool: true
+        description: Show the full body/diff/replies of resolved code-comment threads instead of collapsing them to one line
+      - name: show-outdated
+        is_bool: true
+        description: Show the full body/diff/replies of outdated code-comment threads instead of collapsing them to one line
+      - name: no-diffs
+        is_bool: true
+        description: Hide diff hunks on code-comment threads
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/activities
+      item_expr: it
+      text_formatter: pr_conversation_text
 
   # ── principal ────────────────────────────────────────────────────────────────
 
@@ -1021,6 +1258,199 @@ commands:
       paging:
         paging_strategy: flat_list
       columns: [pattern, owner_type, display_name, email, group_name, decision]
+
+  # ── pr_label ─────────────────────────────────────────────────────────────────────
+
+  - command: list pr_label
+    verb: list
+    noun: pr_label
+    short: "List labels assignable to a pull request: harness list pr_label <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: assignable
+        description: "Only show labels assignable to this PR (default true); set --assignable=false to see all repo/space labels"
+        default: "true"
+      - name: search
+        description: Filter by substring match on label key
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/labels
+      items_expr: it.label_data
+      query_params:
+        assignable: flags.assignable
+        query: flags.search
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, key, type, assigned]
+
+  - command: list repo_label
+    verb: list
+    noun: repo_label
+    short: "List labels defined for a repo: harness list repo_label <repo_id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>"
+    id_parts: 1
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: search
+        description: Filter by substring match on label key
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/labels
+      items_expr: it
+      query_params:
+        query: flags.search
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_header
+        countable: false
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 30
+        page_size_max: 100
+        page_base: 1
+      columns: [id, key, type, description, value_count, pullreq_count, created, updated]
+
+  - command: create repo_label
+    verb: create
+    noun: repo_label
+    short: "Define a new label at the repo level: harness create repo_label <repo_id> --key <key> [--color <color>] [--type static|dynamic] [--description <text>]"
+    handler_type: endpoint
+    requires_id: true
+    id_parts: 1
+    id_label: "<repo_id>"
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: key
+        description: Label key/name
+        required: true
+      - name: color
+        description: "Label color"
+        default: blue
+        completion_values: [blue, brown, cyan, green, indigo, lime, mint, orange, pink, purple, red, violet, yellow]
+      - name: type
+        description: "Label type: static or dynamic"
+        default: static
+        completion_values: [static, dynamic]
+      - name: description
+        description: Label description
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels
+      body_params:
+        key: flags.key
+        color: flags.color
+        type: flags.type
+        description: flags.description
+      no_fields: true
+      text_header: "\nCreated label {{flags.key}} on repo {{ctx.idParts[0]}}\n"
+
+  - command: update repo_label
+    verb: update
+    noun: repo_label
+    short: "Update a repo-level label: harness update repo_label <repo_id>/<key> [--new-key <key>] [--color <color>] [--type static|dynamic] [--description <text>]"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<repo_id>/<key>"
+    completion_seq:
+      - completion_noun: repository
+    flags:
+      - name: new-key
+        description: New label key/name (renames the label)
+      - name: color
+        description: "Label color"
+        completion_values: [blue, brown, cyan, green, indigo, lime, mint, orange, pink, purple, red, violet, yellow]
+      - name: type
+        description: "Label type: static or dynamic"
+        completion_values: [static, dynamic]
+      - name: description
+        description: Label description
+    endpoint:
+      method: PATCH
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels/{{ctx.idParts[1]}}
+      body_params:
+        key: flags.new-key
+        color: flags.color
+        type: flags.type
+        description: flags.description
+      no_fields: true
+      text_header: "\nUpdated label {{ctx.idParts[1]}} on repo {{ctx.idParts[0]}}\n"
+
+  - command: delete repo_label
+    verb: delete
+    noun: repo_label
+    confirm_mode: prompt
+    short: "Delete a label from a repo: harness delete repo_label <repo_id>/<key>"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<repo_id>/<key>"
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/labels/{{ctx.idParts[1]}}
+      item_expr: it
+
+  - command: execute pr:label
+    verb: execute
+    noun: pr
+    noun_variant: label
+    short: "Assign a label to a pull request: harness execute pr:label <repo_id>/<pr_number> --label <label_id>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: label
+        description: "Numeric label ID to assign (see list pr_label / list repo_label)"
+        required: true
+    endpoint:
+      method: PUT
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/labels
+      body_params:
+        label_id: int(flags.label)
+      no_fields: true
+      text_header: "\nAssigned label to PR #{{ctx.idParts[1]}}\n"
+
+  - command: execute pr:unlabel
+    verb: execute
+    noun: pr
+    noun_variant: unlabel
+    short: "Remove a label from a pull request: harness execute pr:unlabel <repo_id>/<pr_number> --label <label_id>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: label
+        description: "Numeric label ID to remove"
+        required: true
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/labels/{{flags.label}}
+      no_fields: true
+      text_header: "\nRemoved label from PR #{{ctx.idParts[1]}}\n"
 
   # ── pr_suggested_reviewer (Harness Code review insights) ───────────────────────
 
@@ -1314,7 +1744,7 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/commits
       items_expr: it
-      get_id_expr: it.sha
+      get_id_expr: ctx.parentIdParts[0] + "/" + it.sha
       query_params:
         page: flags.page
         limit: flags.limit
@@ -1327,6 +1757,21 @@ commands:
         page_size_max: 100
         page_base: 1
       columns: [sha, title, author, authored]
+
+  - command: get pr_commit
+    verb: get
+    noun: pr_commit
+    fields_noun: commit
+    short: "Get a commit in a pull request: harness get pr_commit <repo_id>/<sha>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: commit
+        keep_order: true
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/commits/{{ctx.idParts[1]}}
+      item_expr: it
 
   # ── commit_check ─────────────────────────────────────────────────────────────
 
@@ -1380,10 +1825,53 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/checks
       items_expr: it.checks
-      get_id_expr: it.check.identifier
+      get_id_expr: ctx.parentId + "/" + it.check.identifier
       paging:
         paging_strategy: flat_list
+      completion:
+        id_expr: it.check.identifier
+        name_expr: it.check.status
       columns: [identifier, status, required, summary, reported_by, duration]
+
+  - command: get pr_check
+    verb: get
+    noun: pr_check
+    short: "Get a status check on a pull request: harness get pr_check <repo_id>/<pr_number>/<check_identifier>"
+    handler_type: workflow
+    workflow_id: get_pr_check
+    item_fn: get_pr_check_item
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<check_identifier>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+      - completion_noun: pr_check
+
+  - command: get pr_check:log
+    verb: get
+    noun: pr_check
+    noun_variant: log
+    short: "Fetch pipeline logs for a PR check: harness get pr_check:log <repo_id>/<pr_number>/<check_identifier>"
+    long: |
+      Resolves a pull request status check to its backing Harness pipeline execution
+      and dumps the logs of every step under that execution's stage, in order
+      (excluding the stage's own top-level log), scoped to the pipeline's own
+      org/project (which may differ from the current --profile/--org/--project).
+      If the stage is still running, streams live and exits when it reaches a
+      terminal state. Fails with a clear error if the check has no associated
+      pipeline execution (external check, webhook-reported status, etc).
+    handler_type: workflow
+    workflow_id: get_pr_check_log
+    item_fn: get_pr_check_log_item
+    fields_noun: pr_check_log
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<check_identifier>"
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+      - completion_noun: pr_check
 
   # ── pr_comment ───────────────────────────────────────────────────────────────
 

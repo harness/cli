@@ -16,20 +16,25 @@ const (
 )
 
 // ClassifyExecutionStatus maps a Harness execution status string (PascalCase or
-// legacy SCREAMING_SNAKE_CASE) to one of the five display buckets.
+// legacy SCREAMING_SNAKE_CASE) to one of the five display buckets. Also accepts
+// the lowercase Harness Code check-status vocabulary (pending, running, success,
+// failure, failure_ignored, error).
 func ClassifyExecutionStatus(status string) ExecutionStatusBucket {
 	switch status {
 	case "Success", "IgnoreFailed",
-		"IGNORE_FAILED":
+		"IGNORE_FAILED",
+		"success", "failure_ignored":
 		return StatusSuccess
 	case "Skipped", "SKIPPED":
 		return StatusSkipped
 	case "Failed", "Errored", "Aborted", "AbortedByFreeze", "Expired",
 		"ApprovalRejected", "RollbackFailed",
-		"APPROVAL_REJECTED", "ROLLBACK_FAILED":
+		"APPROVAL_REJECTED", "ROLLBACK_FAILED",
+		"failure", "error":
 		return StatusFailed
 	case "Running", "Pausing", "Discontinuing",
-		"AsyncWaiting", "TaskWaiting", "TimedWaiting", "WaitStepRunning", "UploadWaiting":
+		"AsyncWaiting", "TaskWaiting", "TimedWaiting", "WaitStepRunning", "UploadWaiting",
+		"running":
 		return StatusRunning
 	case "ResourceWaiting",
 		"InterventionWaiting", "ApprovalWaiting",
@@ -38,7 +43,8 @@ func ClassifyExecutionStatus(status string) ExecutionStatusBucket {
 		"QueuedExecutionConcurrencyReached", "QueuedGlobalInfraCapacityReached",
 		"Suspended", "NotStarted",
 		"ASYNC_WAITING", "TASK_WAITING", "TIMED_WAITING",
-		"INTERVENTION_WAITING", "APPROVAL_WAITING", "NOT_STARTED":
+		"INTERVENTION_WAITING", "APPROVAL_WAITING", "NOT_STARTED",
+		"pending":
 		return StatusWaiting
 	default:
 		return StatusNoData

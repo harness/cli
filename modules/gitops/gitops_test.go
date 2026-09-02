@@ -31,6 +31,7 @@ func (noopResolver) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn        
 func (noopResolver) ResolveFlagResolveFn(id string) cmdctx.FlagResolveFn             { return nil }
 func (noopResolver) ResolveFetchFn(id string) (cmdctx.FetchFn, error)                { return nil, nil }
 func (noopResolver) ResolveListTransformFn(id string) cmdctx.ListTransformFn         { return nil }
+func (noopResolver) ResolveItemFn(id string) cmdctx.ItemFn                           { return nil }
 func (noopResolver) ResolveEndpointValidator(id string) cmdctx.EndpointValidatorFn   { return nil }
 func (noopResolver) GetSpec(verb, noun string) *spec.CommandSpec                     { return nil }
 func (noopResolver) GetNoun(noun string) *spec.NounDef                               { return nil }
@@ -380,6 +381,7 @@ func (s *moduleInitSpy) RegisterQueryParamsFn(string, cmdctx.QueryParamsFn)     
 func (s *moduleInitSpy) RegisterFollowFn(string, cmdctx.FollowFn)                       {}
 func (s *moduleInitSpy) RegisterFetchFn(string, cmdctx.FetchFn)                         {}
 func (s *moduleInitSpy) RegisterListTransformFn(string, cmdctx.ListTransformFn)         {}
+func (s *moduleInitSpy) RegisterItemFn(string, cmdctx.ItemFn)                           {}
 func (s *moduleInitSpy) RegisterFlagCompletionFn(string, registry.FlagCompletionFn)     {}
 func (s *moduleInitSpy) RegisterFlagResolveFn(string, cmdctx.FlagResolveFn)             {}
 func (s *moduleInitSpy) RegisterEndpointValidatorFn(string, cmdctx.EndpointValidatorFn) {}

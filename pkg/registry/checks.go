@@ -29,6 +29,15 @@ func (r *Registry) CheckFunctions() error {
 	return nil
 }
 
+// reservedUIKeys are hardcoded to scroll/quit/print handling in the detail
+// overlay's key switch (see uitableview.go) and never reach ui_commands
+// dispatch, so a spec binding one of them would silently never fire.
+var reservedUIKeys = map[string]bool{
+	"p": true, "q": true, "ctrl+c": true, "esc": true, "backspace": true,
+	"up": true, "down": true, "k": true, "j": true, "pgup": true, "pgdown": true,
+	"home": true, "end": true,
+}
+
 // checkUICommands validates a noun's ui_commands list: unique non-reserved keys,
 // exactly one default text entry, and that every text/link/view target resolves.
 func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
@@ -41,7 +50,7 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 	for _, uc := range nd.UICommands {
 		if uc.Key == "" {
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry missing key", noun))
-		} else if uc.Key == "p" || uc.Key == "q" {
+		} else if reservedUIKeys[uc.Key] {
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands key %q is reserved", noun, uc.Key))
 		} else if seenKeys[uc.Key] {
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands key %q is duplicated", noun, uc.Key))
@@ -72,6 +81,21 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 			if _, ok := r.workflows[uc.UIHandlerFn]; !ok {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands view entry %q: ui_handler_fn %q not registered", noun, uc.Key, uc.UIHandlerFn))
 			}
+		case spec.UICommandUp:
+			if uc.Default {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: default is only allowed on text entries", noun, uc.Key))
+			}
+			verb := uc.Verb
+			if verb == "" {
+				verb = VerbGet
+			}
+			if verb != VerbList && verb != VerbGet {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: verb must be %q or %q", noun, uc.Key, VerbList, VerbGet))
+			} else if targetCs := r.GetSpec(verb, uc.Noun); targetCs == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: %s %q does not resolve", noun, uc.Key, verb, uc.Noun))
+			} else if uc.UpIdExpr == "" && upTargetRequiresId(verb, targetCs) {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: up_id_expr is required (%s %q requires an id)", noun, uc.Key, verb, uc.Noun))
+			}
 		default:
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry %q: invalid ui_command_type %q", noun, uc.Key, uc.UICommandType))
 		}
@@ -82,6 +106,20 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 	return errs
 }
 
+// upTargetRequiresId reports whether an up entry's resolved target command
+// actually needs an id to run: get commands need ctx.Id unless opted out via
+// NoId, list commands only need ctx.ParentId when requires_parentid is set.
+func upTargetRequiresId(verb string, cs *spec.CommandSpec) bool {
+	switch verb {
+	case VerbGet:
+		return verbRegistry[VerbGet].RequiresId && !cs.NoId
+	case VerbList:
+		return cs.RequiresParentId
+	default:
+		return false
+	}
+}
+
 func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 	if cs.DevOnly || cs.External {
 		return nil
@@ -90,6 +128,11 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 	if cs.WorkflowID != "" {
 		if _, ok := r.workflows[cs.WorkflowID]; !ok {
 			errs = append(errs, fmt.Sprintf("command %q: workflow_id %q not registered", cs.Command, cs.WorkflowID))
+		}
+	}
+	if cs.ItemFn != "" {
+		if _, ok := r.itemFns[cs.ItemFn]; !ok {
+			errs = append(errs, fmt.Sprintf("command %q: item_fn %q not registered", cs.Command, cs.ItemFn))
 		}
 	}
 	if cs.Endpoint != nil {
@@ -180,6 +223,49 @@ func validateSpec(cs *spec.CommandSpec, vs VerbSpec) error {
 	}
 	if err := validateEndpointConstraints(cs); err != nil {
 		return err
+	}
+	if err := validateNounPairConstraints(cs, vs); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateNounPairConstraints enforces the pair-verb shape (see VerbSpec.NounPair):
+// the command must declare noun_to (not noun_variant — there is no base+variant here,
+// just two distinct nouns), and dispatch must be a workflow — a pair verb has no single
+// endpoint to bind to.
+func validateNounPairConstraints(cs *spec.CommandSpec, vs VerbSpec) error {
+	if !vs.NounPair {
+		if cs.MigrateFrom != nil || cs.MigrateTo != nil {
+			return fmt.Errorf("command %q: migrate_from/migrate_to are only valid on pair verbs (%s is not)", cs.Command, cs.Verb)
+		}
+		return nil
+	}
+	for _, mf := range []struct {
+		name string
+		spec *spec.MigrateFlag
+	}{{"migrate_from", cs.MigrateFrom}, {"migrate_to", cs.MigrateTo}} {
+		switch mf.spec.EffectivePresence() {
+		case spec.MigratePresenceRequired, spec.MigratePresenceOptional:
+		case spec.MigratePresenceNone:
+			if mf.spec.Label != "" || mf.spec.IdLabel != "" {
+				return fmt.Errorf("command %q: %s declares label/id_label with presence: none (the flag is not registered)", cs.Command, mf.name)
+			}
+		default:
+			return fmt.Errorf("command %q: %s presence %q must be one of required, optional, none", cs.Command, mf.name, mf.spec.Presence)
+		}
+	}
+	if cs.NounTo == "" {
+		return fmt.Errorf("command %q: %s command must declare noun_to (noun2 in \"noun1:noun2\")", cs.Command, cs.Verb)
+	}
+	if cs.NounVariant != "" {
+		return fmt.Errorf("command %q: %s command must not declare noun_variant (use noun_to)", cs.Command, cs.Verb)
+	}
+	if cs.HandlerType != spec.HandlerWorkflow {
+		return fmt.Errorf("command %q: %s command must use handler_type: workflow (no endpoint)", cs.Command, cs.Verb)
+	}
+	if cs.Endpoint != nil {
+		return fmt.Errorf("command %q: %s command must not declare an endpoint", cs.Command, cs.Verb)
 	}
 	return nil
 }

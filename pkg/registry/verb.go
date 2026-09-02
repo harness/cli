@@ -37,6 +37,12 @@ const (
 	VerbInstall = "install"
 )
 
+// Pair verbs — take a noun pair ("<from>:<to>") instead of a single noun.
+// Always module-approved workflows: no endpoint may back a pair-verb command.
+const (
+	VerbMigrate = "migrate"
+)
+
 // VerbKind classifies how a verb behaves in the command tree.
 type VerbKind int
 
@@ -59,12 +65,15 @@ type VerbSpec struct {
 	RequiresId     bool   // a positional <id> arg is mandatory; sets ctx.Id
 	AllowsId       bool   // a positional <id> arg is optional; sets ctx.Id when present
 	AllowsParentId bool   // an optional positional parentid arg is accepted; sets ctx.ParentId
+	// NounPair marks a verb whose noun slot is a "<from>:<to>" pair, exempt from
+	// single-module noun ownership. Workflow-backed only; framework adds --from/--to flags.
+	NounPair bool
 }
 
 // VerbOrder is the canonical display order for verbs in tables and help output.
 var VerbOrder = []string{
 	VerbList, VerbGet, VerbCreate, VerbUpdate, VerbDelete, VerbExecute,
-	VerbInstall, VerbPush, VerbPull, VerbConfigure,
+	VerbInstall, VerbPush, VerbPull, VerbConfigure, VerbMigrate,
 }
 
 // verbRegistry is the authoritative table of every allowed verb.
@@ -75,6 +84,9 @@ var verbRegistry = map[string]VerbSpec{
 	VerbPull:      {Kind: VerbKindCore, Gerund: "pulling", ShortDesc: "Pull an artifact from a Harness registry", RequiresId: true},
 	VerbInstall:   {Kind: VerbKindCore, Gerund: "installing", ShortDesc: "Install a Harness component", AllowsId: true},
 	VerbConfigure: {Kind: VerbKindCore, Gerund: "configuring", ShortDesc: "Configure a local package manager client for a Harness registry", RequiresId: true},
+
+	// Pair verbs
+	VerbMigrate: {Kind: VerbKindCore, Gerund: "migrating", ShortDesc: "Migrate a resource between two endpoints", NounPair: true},
 
 	// Core verbs
 	VerbList:    {Kind: VerbKindCore, Gerund: "listing", ShortDesc: "List Harness resources", AllowsParentId: true},

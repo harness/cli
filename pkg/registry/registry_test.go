@@ -310,6 +310,91 @@ func TestRegister_VerbHandlerDefaultsToVerb(t *testing.T) {
 	}
 }
 
+func TestRegister_NounPair(t *testing.T) {
+	r := registryWithNoop(t)
+	cs := &spec.CommandSpec{
+		Command:     "migrate github_organization:repository",
+		Verb:        VerbMigrate,
+		Noun:        "github_organization",
+		NounTo:      "repository",
+		Module:      "migrate",
+		HandlerType: spec.HandlerWorkflow,
+		WorkflowID:  "test:noop",
+	}
+	if err := r.Register(cs); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if r.GetSpec(VerbMigrate, "github_organization:repository") == nil {
+		t.Fatal("GetSpec did not find registered migrate pair command")
+	}
+}
+
+func TestRegister_NounPairErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		cs      *spec.CommandSpec
+		wantErr string
+	}{
+		{
+			name: "missing_noun_to",
+			cs: &spec.CommandSpec{
+				Command: "migrate github_organization", Verb: VerbMigrate, Noun: "github_organization",
+				Module: "migrate", HandlerType: spec.HandlerWorkflow, WorkflowID: "test:noop",
+			},
+			wantErr: "must declare noun_to",
+		},
+		{
+			name: "noun_variant_rejected",
+			cs: &spec.CommandSpec{
+				Command: "migrate github_organization:repository", Verb: VerbMigrate,
+				Noun: "github_organization", NounVariant: "repository", NounTo: "repository", Module: "migrate",
+				HandlerType: spec.HandlerWorkflow, WorkflowID: "test:noop",
+			},
+			wantErr: "must not declare noun_variant",
+		},
+		{
+			name: "endpoint_backed_rejected",
+			cs: &spec.CommandSpec{
+				Command: "migrate github_organization:repository", Verb: VerbMigrate,
+				Noun: "github_organization", NounTo: "repository", Module: "migrate",
+				HandlerType: spec.HandlerEndpoint, Endpoint: &spec.EndpointSpec{Path: "/x"},
+			},
+			wantErr: "must use handler_type: workflow",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := registryWithNoop(t)
+			if err := r.Register(tc.cs); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Register() err = %v, want to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestRegister_NounPairIgnoresOwnership documents that pair verbs are exempt from
+// single-module noun ownership: two different modules may each register a migrate
+// command referencing the same noun token, as long as the exact pair differs.
+func TestRegister_NounPairIgnoresOwnership(t *testing.T) {
+	r := registryWithNoop(t)
+	cs1 := &spec.CommandSpec{
+		Command: "migrate github_organization:repository", Verb: VerbMigrate,
+		Noun: "github_organization", NounTo: "repository", Module: "github_plugin",
+		HandlerType: spec.HandlerWorkflow, WorkflowID: "test:noop",
+	}
+	cs2 := &spec.CommandSpec{
+		Command: "migrate github_organization:scm_bundle", Verb: VerbMigrate,
+		Noun: "github_organization", NounTo: "scm_bundle", Module: "other_plugin",
+		HandlerType: spec.HandlerWorkflow, WorkflowID: "test:noop",
+	}
+	if err := r.Register(cs1); err != nil {
+		t.Fatalf("Register cs1: %v", err)
+	}
+	if err := r.Register(cs2); err != nil {
+		t.Fatalf("Register cs2 from a different module against the same \"from\" noun: %v", err)
+	}
+}
+
 func TestRegister_IsMainBinarySetsExternal(t *testing.T) {
 	r := registryWithNoop(t)
 	r.IsMainBinary = true
@@ -471,7 +556,7 @@ func TestRegisterFns_PanicOnDuplicate(t *testing.T) {
 			r.RegisterFlagCompletionFn("core:comp", func(*cmdctx.Ctx, []string, *pflag.FlagSet) ([]string, error) { return nil, nil })
 		}},
 		{"flag_resolve_fn", func(r *Registry) {
-			r.RegisterFlagResolveFn("core:rv", func(*cmdctx.Ctx, string) (string, error) { return "", nil })
+			r.RegisterFlagResolveFn("core:rv", func(*cmdctx.Ctx, string) (*cmdctx.FlagResolveResult, error) { return nil, nil })
 		}},
 		{"text_formatter", func(r *Registry) {
 			r.RegisterTextFormatter("core:tf", func(io.Writer, cmdctx.DataAccessor) error { return nil })
@@ -547,6 +632,24 @@ func TestUnknownNounError(t *testing.T) {
 			},
 			verb: VerbCreate, noun: "pipelines",
 			wantContain: "not supported for",
+		},
+		{
+			name: "migrate_pair_noun_typo_suggests_full_pair",
+			setup: func(r *Registry) {
+				r.RegisterNoun(spec.NounDef{Noun: "scm_bundle"})
+				r.RegisterNoun(spec.NounDef{Noun: "repository", NounAliases: []string{"repo"}})
+				r.Register(&spec.CommandSpec{
+					Command:     "migrate scm_bundle:repository",
+					Verb:        VerbMigrate,
+					Noun:        "scm_bundle",
+					NounTo:      "repository",
+					Module:      "migrate",
+					HandlerType: spec.HandlerWorkflow,
+					WorkflowID:  "test:noop",
+				})
+			},
+			verb: VerbMigrate, noun: "scm_bundle:repox",
+			wantContain: "Did you mean: scm_bundle:repository",
 		},
 		{
 			name: "plugin_owned_noun_not_installed",
@@ -1038,7 +1141,7 @@ func TestModuleRegistrar_RegisterFlagCompletionFn(t *testing.T) {
 func TestModuleRegistrar_RegisterFlagResolveFn(t *testing.T) {
 	r := New()
 	m := r.Module("mymod")
-	m.RegisterFlagResolveFn("rv", func(*cmdctx.Ctx, string) (string, error) { return "", nil })
+	m.RegisterFlagResolveFn("rv", func(*cmdctx.Ctx, string) (*cmdctx.FlagResolveResult, error) { return nil, nil })
 	if r.ResolveFlagResolveFn("mymod:rv") == nil {
 		t.Fatal("flag_resolve_fn not found after registration")
 	}

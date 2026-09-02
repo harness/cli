@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -169,8 +170,24 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	}
 	installDir = hbase.ExpandHomeDir(installDir)
 
-	if err := checkRunningFromInstallDir(installDir); err != nil {
-		return err
+	// --check only reports versions, so it stays useful on a brew install.
+	if !force && !check {
+		if path, ok := hbase.BrewManagedBinary(); ok {
+			return fmt.Errorf(
+				"harness was installed by Homebrew (%s)\n"+
+					"Upgrade it with: brew upgrade --cask %s\n"+
+					"Pass --force to install a separate copy anyway",
+				path, hbase.BrewCaskRef,
+			)
+		}
+	}
+
+	// --force means the caller wants a copy in installDir regardless of where
+	// the running binary lives, which is the only way off a brew install.
+	if !force {
+		if err := checkRunningFromInstallDir(installDir); err != nil {
+			return err
+		}
 	}
 
 	platform, err := detectPlatform()
@@ -214,6 +231,8 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		}
 	}
 
+	installedBinPath := filepath.Join(installDir, installedBinaryName(installBinaryName))
+
 	if installCore {
 		if err := os.MkdirAll(installDir, 0755); err != nil {
 			return fmt.Errorf("creating install directory %s: %w", installDir, err)
@@ -222,22 +241,40 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 		if err := downloadAndInstallBinary(rel, installBundleName, version, platform, installDir, installBinaryName, ""); err != nil {
 			return err
 		}
-		fmt.Printf("Installed harness %s to %s\n", version, filepath.Join(installDir, installedBinaryName(installBinaryName)))
+		fmt.Printf("Installed harness %s to %s\n", version, installedBinPath)
 	}
 
 	if coreOnly {
 		return nil
 	}
 
-	// Bring any installed plugins up to their own latest — each module releases
-	// independently of core, so this must not force-pin them to core's version.
-	for _, name := range installedRegistryPlugins() {
-		if err := installRegistryPlugin(name, "", "", false, force, false); err != nil {
-			fmt.Printf("warning: could not update plugin %q: %v\n", name, err)
-		}
+	// Bring any installed plugins up to their own latest by shelling out to the
+	// binary that was just installed, not this process's own code — a change to
+	// how plugin installs work ships with the release that carries it instead
+	// of lagging one core upgrade behind.
+	if err := runInstalledBinary(installedBinPath, "install", "plugin", "all"); err != nil {
+		fmt.Printf("warning: could not update plugins: %v\n", err)
+	}
+
+	// Let the binary just installed finish its own upgrade — a hook for
+	// whatever migration or cleanup work a future release needs that only its
+	// own code can know how to do. Runs after plugins so that work can assume
+	// plugins are already at their final state.
+	if err := runInstalledBinary(installedBinPath, hbase.PostUpgradeFlag); err != nil {
+		fmt.Printf("warning: post-upgrade hook failed: %v\n", err)
 	}
 
 	return nil
+}
+
+// runInstalledBinary execs binPath, passing args through and connecting its
+// stdout/stderr directly to this process's — the invocation should look to
+// the user like harness ran the command itself.
+func runInstalledBinary(binPath string, args ...string) error {
+	cmd := exec.Command(binPath, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // InstallModuleHandler installs a module that ships as a plugin. "module" is the

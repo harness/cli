@@ -788,9 +788,6 @@ commands:
     short: List service accounts in the account
     flags_builtin:
     handler_type: endpoint
-    flags:
-      - name: search
-        description: Filter service accounts by name or keyword
     endpoint:
       path: /ng/api/serviceaccount
       items_expr: it.data
@@ -799,8 +796,6 @@ commands:
       completion:
         id_expr: it.identifier
         name_expr: it.name
-      query_params:
-        searchTerm: flags.search
       paging:
         paging_strategy: flat_list
 
@@ -877,6 +872,9 @@ commands:
     flags_builtin:
     handler_type: endpoint
     flags:
+      - name: principal
+        description: "Filter by principal (email, service account/user group identifier, or Harness UID)"
+        flag_resolve_fn: resolve_principal_id
       - name: principal_type
         description: "Filter by principal type: USER, USER_GROUP, SERVICE_ACCOUNT"
         completion_values: [USER, USER_GROUP, SERVICE_ACCOUNT]
@@ -894,9 +892,10 @@ commands:
         id_expr: it.roleAssignment.identifier
         name_expr: it.roleAssignment.identifier
       body_params:
-        principalTypeFilter: "flags.principal_type != nil && flags.principal_type != '' ? [flags.principal_type] : nil"
-        roleFilter: "flags.role != nil && flags.role != '' ? [flags.role] : nil"
-        resourceGroupFilter: "flags.resource_group != nil && flags.resource_group != '' ? [flags.resource_group] : nil"
+        principalFilter: "!isBlank(flags.principal) ? [{identifier: flags.principal, type: flags.principal_type}] : nil"
+        principalTypeFilter: "isBlank(flags.principal) && !isBlank(flags.principal_type) ? [flags.principal_type] : nil"
+        roleFilter: "!isBlank(flags.role) ? [flags.role] : nil"
+        resourceGroupFilter: "!isBlank(flags.resource_group) ? [flags.resource_group] : nil"
       paging:
         paging_strategy: page_index
         countable: true

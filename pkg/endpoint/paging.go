@@ -112,6 +112,15 @@ func HTTPFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount in
 	if err != nil {
 		return nil, err
 	}
+	if err := runValidators(ctx, ep, cmdctx.EndpointRequest{
+		Method:      req.Method,
+		Path:        req.Path,
+		QueryParams: req.QueryParams,
+		Body:        req.Body,
+		ContentType: req.BodyContentType,
+	}); err != nil {
+		return nil, err
+	}
 	pagingData := strategy.InjectPaging(req, pg, wantStart, wantCount)
 	raw, headers, err := client.New(ctx).DoRequest(*req)
 	if err != nil {
@@ -121,6 +130,24 @@ func HTTPFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount in
 	items := ExtractItems(ctx, ep, raw)
 	hlog.Debug("HTTPFetchFn", "noun", ctx.Noun, "strategy", pg.PagingStrategy, "items", len(items))
 	return strategy.ExtractPaging(ctx, ep, raw, items, headers, pagingData)
+}
+
+// runValidators runs each of ep.ValidatorsEndpoint against req, returning the
+// first error encountered.
+func runValidators(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, req cmdctx.EndpointRequest) error {
+	if len(ep.ValidatorsEndpoint) == 0 || ctx.Resolver == nil {
+		return nil
+	}
+	for _, id := range ep.ValidatorsEndpoint {
+		fn := ctx.Resolver.ResolveEndpointValidator(id)
+		if fn == nil {
+			return fmt.Errorf("validators_endpoint %q not registered", id)
+		}
+		if err := fn(ctx, req); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func evalRequestHeaders(ep *spec.EndpointSpec, exprEnv map[string]any) map[string]string {

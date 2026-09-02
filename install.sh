@@ -131,12 +131,15 @@ download_and_install() {
 
     # A failure here still leaves a working core, so warn instead of aborting.
     if [ -z "$CORE_ONLY" ]; then
-        info "Installing har module..."
-        if "$dest/harness" install module har >/dev/null 2>&1; then
-            success "Installed har module to ~/.harness/bin"
-        else
-            warn "Could not install the har module — run 'harness install module har' to retry"
-        fi
+        local module
+        for module in har migrate; do
+            info "Installing $module module..."
+            if "$dest/harness" install module "$module" >/dev/null 2>&1; then
+                success "Installed $module module to ~/.harness/bin"
+            else
+                warn "Could not install the $module module — run 'harness install module $module' to retry"
+            fi
+        done
     fi
 
     rm -rf "$tmp"

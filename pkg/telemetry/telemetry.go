@@ -168,7 +168,7 @@ type CommandError struct {
 	Env Env
 }
 
-// InstallEvent is emitted once by install.sh, via the hidden --post-install
+// InstallEvent is emitted once by an installer, via the hidden --post-install
 // flag, right after a fresh binary is placed on disk.
 type InstallEvent struct {
 	RunID string
@@ -180,23 +180,24 @@ type InstallEvent struct {
 	Env Env
 }
 
-// InstallType values. Add new install methods (e.g. "brew") here as they're
-// wired up, and have the installer set [hbase.EnvInstallType] accordingly.
+// InstallType values. Add new install methods here as they're wired up, and
+// have the installer set [hbase.EnvInstallType] accordingly.
 const (
 	InstallTypeScript  = "script"
+	InstallTypeBrew    = "brew"
 	InstallTypeUnknown = "unknown"
 )
 
 // installTypeWhitelist is every value ResolveInstallType may return.
 var installTypeWhitelist = map[string]bool{
 	InstallTypeScript:  true,
+	InstallTypeBrew:    true,
 	InstallTypeUnknown: true,
 }
 
 // ResolveInstallType reads [hbase.EnvInstallType], defaulting to
-// [InstallTypeScript] when unset (install.sh is currently the only caller of
-// --post-install) and falling back to [InstallTypeUnknown] for any value
-// outside the whitelist.
+// [InstallTypeScript] when unset and falling back to [InstallTypeUnknown] for
+// any value outside the whitelist.
 func ResolveInstallType() string {
 	v := os.Getenv(hbase.EnvInstallType)
 	if v == "" {

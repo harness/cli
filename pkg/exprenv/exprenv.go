@@ -14,6 +14,7 @@ import (
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/exprenv/exprfuncs"
 	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/strutil"
 )
 
 func isMachineFormat(flags map[string]any) bool {
@@ -85,11 +86,13 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		"flags":                 flags,
 		"lastPart":              exprfuncs.LastPart,
 		"coalesce":              exprfuncs.Coalesce,
+		"isBlank":               exprfuncs.IsBlank,
 		"formatTags":            exprfuncs.FormatTags,
 		"formatTagDisplay":      exprfuncs.FormatTagDisplay,
 		"formatMetadata":        exprfuncs.FormatMetadata,
 		"pipelineSparkline":     exprfuncs.NewPipelineSparkline(ctx.IsPty && !isMachineFormat(flags)),
 		"statusIcon":            exprfuncs.NewStatusIcon(ctx.IsPty && !isMachineFormat(flags)),
+		"prLabelColor":          exprfuncs.NewPrLabelColor(ctx.IsPty && !isMachineFormat(flags)),
 		"spaceAfter":            exprfuncs.SpaceAfter,
 		"duration":              exprfuncs.Duration,
 		"harScopeUrl":           exprfuncs.HarScopeUrl,
@@ -154,7 +157,7 @@ func EvalExpr(env map[string]any, s string) string {
 	if !ok {
 		return ""
 	}
-	s2 := fmt.Sprint(out)
+	s2 := strutil.Stringify(out)
 	if s2 == "<nil>" || s2 == "map[]" {
 		return ""
 	}

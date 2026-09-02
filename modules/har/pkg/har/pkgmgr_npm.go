@@ -45,7 +45,7 @@ func (c *npmClient) DetectRegistry(explicitRegistry string) (*pkgmgrRegistryInfo
 	if explicitRegistry != "" {
 		return nil, fmt.Errorf("HAR registry %q not found in .npmrc", explicitRegistry)
 	}
-	return nil, fmt.Errorf("no HAR registry found — run `harness configure registry --client npm` first")
+	return nil, fmt.Errorf("no HAR registry found — run `harness configure registry:npm` first")
 }
 
 func (c *npmClient) RunCommand(subcommand string, args []string) (*pkgmgrInstallResult, error) {

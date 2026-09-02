@@ -33,22 +33,10 @@ func CallEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 // callEndpointFull is the internal implementation of CallEndpoint that also returns
 // the raw HTTP response headers. Used by fetchPage for page_header paging.
 func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams map[string]string) (any, http.Header, error) {
-	a := ctx.Auth
-	if a == nil {
+	if ctx.Auth == nil {
 		return nil, nil, fmt.Errorf("CallEndpoint requires auth; command verb does not resolve credentials")
 	}
-
-	switch ctx.Level {
-	case "org":
-		copy := *a
-		copy.ProjectID = ""
-		a = &copy
-	case "account":
-		copy := *a
-		copy.OrgID = ""
-		copy.ProjectID = ""
-		a = &copy
-	}
+	a := ctx.ScopedAuth()
 
 	hlog.Info("auth resolved",
 		"source", a.Source,
@@ -222,6 +210,14 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 		if err != nil {
 			return nil, nil, err
 		}
+		if err := runEndpointValidators(ctx, ep, cmdctx.EndpointRequest{
+			Method:      method,
+			Path:        path,
+			QueryParams: qp,
+			Body:        body,
+		}); err != nil {
+			return nil, nil, err
+		}
 		if rb, ok := body.(*cmdctx.RawBody); ok {
 			hlog.Debug("raw body", "content_type", rb.ContentType, "size", len(rb.Content))
 			if len(extraHeaders) > 0 {
@@ -386,10 +382,22 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 		return nil, nil
 	}
 
+	return result, RenderSingleItem(ctx, ep, result)
+}
+
+// RenderSingleItem renders a single "get"-shaped result according to ep's field/text-formatter
+// configuration. It is the tail end of RunEndpoint's rendering logic, factored out so handlers
+// that resolve an item via custom logic (rather than a direct CallEndpoint) can render it the
+// same way a plain endpoint-backed "get" command would. Unlike RunEndpoint, it does not handle
+// --list-fields — that branch runs before CallEndpoint and only applies to endpoint-backed
+// commands, so callers driving a workflow handler don't get --list-fields support for free.
+func RenderSingleItem(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, result any) error {
+	exprEnv := exprenv.Make(ctx)
+
 	if ctx.VerbHandler == VerbGet && ctx.FormatFlags.Fields != "" {
 		fieldIDs := splitFieldIDs(ctx.FormatFlags.Fields)
 		fields := resolveFieldsForCommand(ctx, ep)
-		return result, format.FormatFieldsOutput(ctx.FormatFlags, result, ep.ItemExpr, fields, fieldIDs, exprEnv)
+		return format.FormatFieldsOutput(ctx.FormatFlags, result, ep.ItemExpr, fields, fieldIDs, exprEnv)
 	}
 
 	var textFmt cmdctx.TextFormatterFn
@@ -402,7 +410,7 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 			textFmt = buildDeclTextFmt(fields, ep, exprEnv)
 		}
 	}
-	return result, format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, result, ep.ItemExpr, ep.YamlPickExpr, ep.YamlExclude, textFmt, exprEnv)
+	return format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, result, ep.ItemExpr, ep.YamlPickExpr, ep.YamlExclude, textFmt, exprEnv)
 }
 
 // RunListEndpoint calls CallEndpoint then renders the result as a list.
@@ -513,7 +521,11 @@ func renderListWithFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, items []any, f
 		}
 		listResult = unwrapped
 	}
-	return format.FormatArrayOutput(ctx.FormatFlags, ctx.IsPty, listResult, listItemsExpr, tspec, fields, exprEnv, meta)
+	flags := ctx.FormatFlags
+	if flags.Columns == "" {
+		flags.Columns = format.EnvColumnsFor(ctx.Noun)
+	}
+	return format.FormatArrayOutput(flags, ctx.IsPty, listResult, listItemsExpr, tspec, fields, exprEnv, meta)
 }
 
 // runEndpointValidators runs all validators_endpoint declared on ep, in order.

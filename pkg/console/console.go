@@ -10,14 +10,14 @@ package console
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
-	"os/exec"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 
+	"github.com/pkg/browser"
 	"golang.org/x/term"
 )
 
@@ -111,6 +111,23 @@ func WithBold(text string) string {
 		return text
 	}
 	return fmt.Sprintf("\x1b[1m%s\x1b[0m", text)
+}
+
+// WithItalic wraps text in an italic ANSI code (no color) when stdout is a TTY.
+func WithItalic(text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	return fmt.Sprintf("\x1b[3m%s\x1b[0m", text)
+}
+
+// WithHighlight renders text in red on a dark grey background when stdout is
+// a TTY, used for inline code spans.
+func WithHighlight(text string) string {
+	if !ensureStdoutTTY() {
+		return text
+	}
+	return fmt.Sprintf("\x1b[91;48;5;236m%s\x1b[0m", text)
 }
 
 // ReadSecret prints prompt to stderr and reads a masked line from the terminal.
@@ -231,18 +248,20 @@ func PromptYesNo(question string) bool {
 	return false
 }
 
-// OpenBrowser attempts to open url in the default system browser.
-// Returns an error if the browser cannot be launched; callers should fall back
-// to printing the URL for the user to open manually.
-func OpenBrowser(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
+// OpenBrowser attempts to open rawURL in the default system browser.
+// Returns an error if rawURL is not a well-formed http(s) URL, or if the
+// browser cannot be launched; callers should fall back to printing the URL
+// for the user to open manually.
+func OpenBrowser(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("refusing to open malformed URL: %w", err)
 	}
-	return cmd.Start()
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("refusing to open URL with scheme %q (only http/https allowed)", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("refusing to open URL with no host")
+	}
+	return browser.OpenURL(rawURL)
 }

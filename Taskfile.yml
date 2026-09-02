@@ -59,7 +59,7 @@ tasks:
       # Use the real installer path: `install plugin` runs the identity gate,
       # captures --spec, and stamps provenance into devhome/spec. Exactly what a
       # user gets from `harness install plugin <binary>`.
-      - HARNESS_CLI_HOME={{.DEVHOME}} ./bin/{{.BINARY}} install plugin {{.DEVHOME}}/bin/harness-har
+      - HARNESS_CLI_HOME={{.DEVHOME}} ./bin/{{.BINARY}} install plugin ./{{.DEVHOME}}/bin/harness-har
       - echo "Run with HARNESS_CLI_HOME={{.DEVHOME}} ./bin/harness ..."
 
   build:windows:
@@ -109,7 +109,7 @@ tasks:
     deps: [build:har, install]
     cmds:
       - mkdir -p ~/.local/bin
-      - cp ./bin/harness-har ~/.local/bin/harness-har
+      - cp ./devhome/bin/harness-har ~/.local/bin/harness-har
       - echo "Installed ~/.local/bin/harness-har"
 
   dev:

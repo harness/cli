@@ -84,6 +84,7 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 	if err != nil {
 		return err
 	}
+	entries = logstream.StageSubtreeEntries(entries, stageFlag)
 
 	type result struct {
 		name string
@@ -93,9 +94,6 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 	var results []result
 	for _, e := range entries {
 		if prefixFlag != "" && !strings.HasPrefix(e.LogKey, prefixFlag) {
-			continue
-		}
-		if stageFlag != "" && !strings.EqualFold(e.ParentName, stageFlag) && !strings.EqualFold(e.Name, stageFlag) {
 			continue
 		}
 		if stepFlag != "" && !strings.EqualFold(e.Name, stepFlag) {

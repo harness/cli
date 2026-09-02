@@ -4,7 +4,7 @@
 
 **A unified, spec-driven CLI for the entire Harness platform. Built for Humans and Agents, supercharging the Developer Experience across Harness ecosystem.**
 
-Manage pipelines, artifacts, code, infrastructure, feature flags, governance, and platform resources
+Manage pipelines, artifacts, code, GitOps, load testing, infrastructure, feature flags, governance, and platform resources
 with a single consistent grammar.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -49,12 +49,16 @@ with a single consistent grammar.
 
 ## ✨ Why Harness CLI?
 
-- **One grammar, every resource** — `harness <verb> <noun>` works identically across pipelines, code, artifacts, IaC, feature flags, governance, and platform.
+- **One grammar, every resource** — `harness <verb> <noun>` works identically across pipelines, code, artifacts, GitOps, load testing, IaC, feature flags, governance, and platform.
 - **Spec-driven** — commands are declared in YAML specs and wired at startup, so new resources arrive without waiting on custom code paths.
 - **Self-describing** — every module, noun, field, and verb is queryable at runtime with `list module`, `get module`, `list noun --matrix`, and `get noun`.
 - **Human and machine friendly** — the same command outputs a colored table for you, or JSON / JSONL / YAML / CSV / TSV / Markdown for scripts and agents.
 - **Interactive when you want, headless when you don't** — TUI wizards for onboarding and picking, non-interactive flags for CI, and `HARNESS_API_KEY` for zero-config env-var auth.
-- **Live log streaming** — follow pipeline executions with real-time SSE-based log tailing.
+- **Live log streaming** — follow pipeline executions with real-time SSE-based log tailing; `get execution_log --ui` opens an interactive log viewer with step navigation.
+- **Interactive TUI (`--ui`)** — browse paginated lists, drill into PRs (details → AI review → conversation → checks → logs), and pick resources without memorizing IDs.
+- **Harness Code, end to end** — clone repos (`pull repository`), review PRs (`list pr:review_pending`, `execute pr:review`), merge/label/comment, and read AI review insights (`get pr:insight`, `get pr:conversation`).
+- **GitOps & load testing** — manage Argo CD agents, applications, clusters, and ApplicationSets; run JMeter/Locust/k6 load tests with `--follow` streaming.
+- **SSO login** — `harness auth login --sso` (or the in-wizard "Login with SSO" option) drives a browser-based OAuth2 PKCE flow, no PAT/SAT required.
 - **Tab completion that talks to the API** — completions for IDs return live `id<tab>Name` suggestions.
 - **Multi-account, multi-profile** — named profiles let you jump between accounts, orgs, and projects on the same shell.
 - **Agent-friendly** — detects and reports the coding agent (Claude Code, Cursor, Gemini CLI, Codex, Cline, and more) so operators know how the CLI is being driven.
@@ -120,6 +124,14 @@ irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
 $env:HARNESS_NONINTERACTIVE=1; $env:HARNESS_CORE_ONLY=1; irm https://raw.githubusercontent.com/harness/cli/main/install.ps1 | iex
 ```
 
+### Homebrew (macOS)
+
+```sh
+brew install --cask harness/tap/harness-cli
+```
+
+Installs the core `harness` binary only. Modules/Plugins are managed by the CLI, not by Homebrew.
+
 ### Manual install
 
 Prefer to install by hand? Download an archive from [GitHub Releases](https://github.com/harness/cli/releases), place `harness` on your `PATH`, and register the bundled `har` plugin with `harness install plugin`. Unix bundles are `tar.gz`; Windows bundles are `zip`. Published for `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64`, `windows_amd64`, and `windows_arm64`.
@@ -148,6 +160,9 @@ harness install cli --core-only      # skip module updates
 | `--check`              | Print the resolved version without installing; exits 1 if not found  |
 | `--core-only`          | Only install the core binary, skip module updates                    |
 
+> [!NOTE]
+> If you installed with Homebrew, upgrade with Homebrew: `brew upgrade --cask harness/tap/harness-cli`.
+
 External modules are managed the same way:
 
 ```sh
@@ -161,8 +176,10 @@ path for plugins that aren't Harness modules:
 
 ```sh
 harness install plugin har                             # by name (same as install module har)
+harness install plugin harness/cli                     # from a GitHub release (owner/repo)
 harness install plugin https://example.com/foo.tar.gz  # from a tarball URL
 harness install plugin ./foo.tar.gz                    # from a local tarball
+harness install plugin all                             # upgrade every installed plugin
 ```
 
 ---
@@ -223,7 +240,7 @@ harness <verb> <noun> [identifier] [flags]
 | `update`       | Update a resource — `--set key=value`, `--del key`.                  |
 | `delete`       | Delete a resource by ID.                                             |
 | `execute`      | Run, trigger, or invoke a resource (pipelines, scans, HQL, etc.).    |
-| `push` / `pull`| Move package content in the Artifact Registry.                       |
+| `push` / `pull`| Push/pull artifacts in HAR; clone a Code repo (`pull repository`).   |
 | `configure`    | Configure a local client to use a Harness resource (e.g. a registry).|
 | `install`      | Install or upgrade the CLI and its modules.                          |
 | `auth`         | Manage authentication profiles.                                      |
@@ -238,8 +255,15 @@ harness get pipeline:summary <id>
 harness execute pipeline:input_set <id>
 harness execute pipeline:dynamic <id>
 harness list pr:mine
+harness list pr:review_pending
+harness get pr:conversation <repo>/<pr>
+harness execute pr:review <repo>/<pr> --decision approve
 harness execute pr:merge <repo>/<pr>
 harness execute pr:close <repo>/<pr>
+harness pull repository <repo_id> [<dest-dir>]
+harness execute loadtest my-test --follow
+harness execute gitops_application:sync <agent>/<app>
+harness get execution_log <pipeline>/<exec-id> --ui
 harness push artifact:docker my-image:1.0
 harness push artifact:npm ./my-package.tgz
 harness execute artifact_version:firewall_scan <ver>
@@ -272,7 +296,15 @@ Credentials resolve in this order:
 harness auth login
 ```
 
-Launches a TUI wizard that walks through the API URL, PAT/SAT token, and default org/project. Requires a TTY.
+Launches a TUI wizard that walks through the API URL, PAT/SAT token, and default org/project. Requires a TTY. "Login with SSO" is offered right in the URL picker, so SSO is reachable from plain `harness auth login` — no extra flag needed.
+
+### SSO login
+
+```sh
+harness auth login --sso
+```
+
+Routes straight to the browser-based OAuth2 PKCE flow instead of prompting for a PAT/SAT token. `--org` / `--project` passed on the command line are respected and won't be overwritten by the picker.
 
 ### Non-interactive login (CI, scripting)
 
@@ -309,6 +341,8 @@ harness auth setscope --org my-org --project my-project
 harness auth env                   # print env vars for the current auth context
 harness auth env --export          # prefixed with "export "
 harness auth token                 # print the active API token
+harness auth sso_status            # show SSO token expiry (SSO profiles)
+harness auth sso_refresh           # refresh an SSO access token
 harness auth logout                # remove a profile
 ```
 
@@ -354,6 +388,8 @@ Legend used in the tables below:
 | Command              | Purpose                                                     |
 | -------------------- | ----------------------------------------------------------- |
 | `auth login`         | Interactive or non-interactive login to a profile           |
+| `auth sso_status`    | Show SSO token expiry for the active profile                |
+| `auth sso_refresh`   | Refresh an SSO access token                                 |
 | `auth logout`        | Remove a profile                                            |
 | `auth status`        | Show resolved profile and validate credentials              |
 | `auth setscope`      | Set default org / project on a profile                      |
@@ -363,7 +399,9 @@ Legend used in the tables below:
 | `version`            | Print the CLI version                                       |
 | `install cli`        | Install or upgrade the Harness CLI and installed modules    |
 | `install module`     | Install a Harness CLI module (e.g. `har`)                   |
-| `install plugin`     | Install a plugin by name, tarball URL, or local path        |
+| `install plugin`     | Install a plugin by name, GitHub ref, tarball URL, or path  |
+| `list plugin`        | List installed external plugin binaries                     |
+| `get plugin <name>`  | Show metadata for an installed plugin                       |
 | `list module`        | Show all available modules                                  |
 | `get module <name>`  | Domain model, nouns, and guides for a module                |
 | `list noun`          | Show all registered nouns (supports `--matrix`)             |
@@ -425,6 +463,8 @@ Legend used in the tables below:
 
 `execute pipeline` supports `--branch`, `--input-set`, `--input key=value` (repeatable), `--input-file`, and `--follow` (live log streaming that exits when the execution reaches a terminal state and inherits the execution's exit status).
 
+`get execution_log <pipeline>/<exec-id> --ui` opens a live log viewer with step navigation, graph, and save-to-file. `create template` / `update template_version` round-trip YAML bodies with `-f`.
+
 `execute approval_instance:approve` / `:reject` action a manual approval; `execute execution:abort` / `:retry` control a running execution; `update template_version:set-stable` promotes a template version.
 
 </details>
@@ -444,21 +484,63 @@ Legend used in the tables below:
 <details open>
 <summary><b>Code (Repositories & Pull Requests)</b></summary>
 
-| Noun          | list | get | create | update | delete | execute |
-| ------------- | :--: | :-: | :----: | :----: | :----: | :-----: |
-| `repository`  |  ✓   |  ✓  |   S    |  GTP   |   ✓    |         |
-| `pr`          |  ✓   |  ✓  |   S    |  GTP   |        |         |
-| `pr:mine`     |  ✓   |     |        |        |        |         |
-| `pr:merge`    |      |     |        |        |        |    ✓    |
-| `pr:close`    |      |     |        |        |        |    ✓    |
-| `branch`      |  ✓   |  ✓  |   S    |        |   ✓    |         |
-| `commit`      |  ✓   |  ✓  |        |        |        |         |
-| `tag`         |  ✓   |     |   S    |        |   ✓    |         |
-| `pr_activity` |  ✓   |     |        |        |        |         |
-| `pr_commit`   |  ✓   |     |        |        |        |         |
-| `pr_check`    |  ✓   |     |        |        |        |         |
-| `pr_comment`  |  ✓   |     |   S    |  GTP   |   ✓    |         |
-| `commit_check`|  ✓   |     |        |        |        |         |
+| Noun                    | list | get | create | update | delete | execute | pull |
+| ----------------------- | :--: | :-: | :----: | :----: | :----: | :-----: | :--: |
+| `repository`            |  ✓   |  ✓  |   S    |  GTP   |   ✓    |         |  ✓   |
+| `pr`                    |  ✓   |  ✓  |   S    |  GTP   |        |         |  ✓   |
+| `pr:mine`               |  ✓   |     |        |        |        |         |      |
+| `pr:review_pending`     |  ✓   |     |        |        |        |         |      |
+| `pr:merge`              |      |     |        |        |        |    ✓    |      |
+| `pr:close`              |      |     |        |        |        |    ✓    |      |
+| `pr:reopen`             |      |     |        |        |        |    ✓    |      |
+| `pr:ready`              |      |     |        |        |        |    ✓    |      |
+| `pr:edit`               |      |     |        |        |        |    ✓    |      |
+| `pr:review`             |      |     |        |        |        |    ✓    |      |
+| `pr:label`              |      |     |        |        |        |    ✓    |      |
+| `pr:unlabel`            |      |     |        |        |        |    ✓    |      |
+| `pr:insight`            |      |  ✓  |        |        |        |         |      |
+| `pr:review_group`       |      |  ✓  |        |        |        |         |      |
+| `pr:conversation`       |      |  ✓  |        |        |        |         |      |
+| `branch`                |  ✓   |  ✓  |   S    |        |   ✓    |         |      |
+| `commit`                |  ✓   |  ✓  |        |        |        |         |      |
+| `tag`                   |  ✓   |     |   S    |        |   ✓    |         |      |
+| `pr_activity`           |  ✓   |     |        |        |        |         |      |
+| `pr_commit`             |  ✓   |  ✓  |        |        |        |         |      |
+| `pr_check`              |  ✓   |  ✓  |        |        |        |         |      |
+| `pr_check:log`          |      |  ✓  |        |        |        |         |      |
+| `pr_comment`            |  ✓   |     |   S    |  GTP   |   ✓    |         |      |
+| `commit_check`          |  ✓   |     |        |        |        |         |      |
+| `pr_reviewer`           |  ✓   |     |   S    |        |   ✓    |         |      |
+| `pr_codeowner`          |  ✓   |     |        |        |        |         |      |
+| `code_principal`        |  ✓   |     |        |        |        |         |      |
+| `repo_label`            |  ✓   |     |   S    |  GTP   |   ✓    |         |      |
+| `pr_label`              |  ✓   |     |        |        |        |         |      |
+| `pr_suggested_reviewer` |  ✓   |     |        |        |        |         |      |
+| `pr_suggested_label`    |  ✓   |     |        |        |        |         |      |
+| `pr_success_criterion`  |  ✓   |     |        |        |        |         |      |
+
+`get pr` renders a rich PR summary; add `--ui` to browse details, AI review, conversation, checks, and logs interactively.
+
+**Review workflow** — list PRs awaiting your review, submit a decision, and inspect CI checks:
+
+```sh
+harness list pr:review_pending
+harness execute pr:review <repo>/<pr> --decision approve
+harness list pr_check <repo>/<pr>
+harness get pr_check:log <repo>/<pr>/<check-id>
+harness pull repository <repo_id> [<dest-dir>]   # clone to a local directory
+```
+
+**AI review insights** — surface Harness Code's AI code-review output for a PR without leaving the terminal:
+
+```sh
+harness get pr:insight <repo>/<pr>              # risk summary for the PR
+harness get pr:review_group <repo>/<pr>         # findings bucketed by risk group
+harness get pr:conversation <repo>/<pr>         # full conversation thread view
+harness list pr_suggested_reviewer <repo>/<pr>  # AI-suggested reviewers
+harness list pr_suggested_label <repo>/<pr>     # AI-suggested labels
+harness list pr_success_criterion <repo>/<pr>   # AI review success-criteria checks
+```
 
 </details>
 
@@ -490,7 +572,7 @@ push artifact:maven       push artifact:cargo       push artifact:swift
 push artifact:npm         push artifact:go          push artifact:puppet
 push artifact:python      push artifact:conda       push artifact:helm
 push artifact:nuget       push artifact:dart        push artifact:docker
-push artifact:rpm         push artifact:composer
+push artifact:rpm         push artifact:composer    push artifact:ruby
 ```
 
 </details>
@@ -508,6 +590,61 @@ push artifact:rpm         push artifact:composer
 | `provider`        |  ✓   |  ✓  |         |
 
 `execute workspace` runs plans/applies/destroys against a Terraform/OpenTofu workspace.
+
+</details>
+
+<details open>
+<summary><b>GitOps (<code>gitops</code>)</b></summary>
+
+Argo CD–backed GitOps: agents, applications, destination clusters, source repositories, and ApplicationSets. Compound IDs use `<agent>/<name>` or `<agent>/<uuid>` for ApplicationSets.
+
+| Noun                      | list | get | create | update | delete | execute |
+| ------------------------- | :--: | :-: | :----: | :----: | :----: | :-----: |
+| `gitops_agent`            |  ✓   |  ✓  |   S    |        |   ✓    |         |
+| `gitops_agent:install`    |      |     |        |        |        |    ✓    |
+| `gitops_application`      |  ✓   |  ✓  |   Y    |   Y    |   ✓    |         |
+| `gitops_application:sync` |      |     |        |        |        |    ✓    |
+| `gitops_application:refresh` |   |     |        |        |        |    ✓    |
+| `gitops_cluster`          |  ✓   |  ✓  |   Y    |   Y    |   ✓    |         |
+| `gitops_repository`       |  ✓   |  ✓  |   Y    |   Y    |   ✓    |         |
+| `gitops_application_set`  |  ✓   |  ✓  |   Y    |   Y    |   ✓    |         |
+
+`create gitops_agent` registers the agent in Harness only — run `execute gitops_agent:install <id>` afterward to fetch Helm values or a kubectl manifest (the CLI does not install into your cluster). `execute gitops_application:sync` / `:refresh` reconcile application state from Git.
+
+</details>
+
+<details open>
+<summary><b>Resilience Testing (<code>rt</code>)</b></summary>
+
+Run JMeter, Locust, and k6 load tests against your services. A **loadtest** is a reusable definition; `execute loadtest <id> --follow` starts a run and streams until it finishes.
+
+| Noun                         | list | get | create | update | delete | execute |
+| ---------------------------- | :--: | :-: | :----: | :----: | :----: | :-----: |
+| `loadtest`                   |  ✓   |  ✓  |   Y    |   Y    |   ✓    |    ✓    |
+| `loadtest:from_json`         |      |     |   Y    |        |        |         |
+| `loadtest:from_template`     |      |     |   Y    |        |        |         |
+| `loadtest:variables`         |  ✓   |     |        |        |        |         |
+| `loadtest:sync`              |      |     |        |        |        |    ✓    |
+| `loadtest_run`               |  ✓   |  ✓  |        |  GTP   |        |         |
+| `loadtest_run:stop`          |      |     |        |        |        |    ✓    |
+| `loadtest_run:rerun`         |      |     |        |        |        |    ✓    |
+| `loadtest_run:summary`       |      |  ✓  |        |        |        |         |
+| `loadtest_run:metrics`       |  ✓   |     |        |        |        |         |
+| `loadtest_run:graph`         |  ✓   |     |        |        |        |         |
+| `loadtest_run:requests`      |  ✓   |     |        |        |        |         |
+| `loadtest_run:endpoints`     |  ✓   |     |        |        |        |         |
+| `loadtest_script`            |      |  ✓  |        |  GTP   |        |         |
+| `loadtest_script:revisions`  |  ✓   |     |        |        |        |         |
+| `loadtest_script:revision`   |      |  ✓  |        |        |        |         |
+| `loadtest_template`          |  ✓   |  ✓  |   Y    |   Y    |   ✓    |         |
+| `loadtest_template:variables`|  ✓   |     |        |        |        |         |
+| `loadtest_template:yaml`     |      |  ✓  |        |        |        |         |
+| `loadtest_template_revision` |  ✓   |  ✓  |   Y    |        |   ✓    |         |
+| `composite_loadtest`         |  ✓   |     |   S    |        |        |         |
+| `loadtest_usage`             |  ✓   |  ✓  |        |        |        |         |
+| `loadtest_usage:report`      |      |  ✓  |        |        |        |         |
+
+`create loadtest <id> -f test.yaml` is the usual path — every tool type requires a `toolConfig` block. Override runtime variables per run with `--set targetUsers=50` on `execute loadtest`.
 
 </details>
 
@@ -530,38 +667,6 @@ push artifact:rpm         push artifact:composer
 | `audit_event` |  ✓   |  ✓  |
 
 Filter with `--from` and `--to` for a specific time window.
-
-</details>
-
-<details>
-<summary><b>Feature Management & Experimentation (<code>fme</code>)</b></summary>
-
-| Noun                        | list | get | create | update | delete | execute |
-| --------------------------- | :--: | :-: | :----: | :----: | :----: | :-----: |
-| `feature_flag`              |  ✓   |  ✓  |   S    |  GTP   |   ✓    |         |
-| `feature_flag:archive`      |      |     |        |        |        |    ✓    |
-| `feature_flag:unarchive`    |      |     |        |        |        |    ✓    |
-| `feature_flag:definition`   |  ✓   |  ✓  |   S    |  GTP   |   ✓    |         |
-| `feature_flag:kill`         |      |     |        |        |        |    ✓    |
-| `feature_flag:restore`      |      |     |        |        |        |    ✓    |
-| `feature_flag:reallocate`   |      |     |        |        |        |    ✓    |
-
-</details>
-
-<details>
-<summary><b>AI Evals</b></summary>
-
-| Noun              | list | get | create | delete | execute |
-| ----------------- | :--: | :-: | :----: | :----: | :-----: |
-| `eval_dataset`    |  ✓   |  ✓  |   S    |   ✓    |         |
-| `evaluation`      |  ✓   |  ✓  |   S    |   ✓    |         |
-| `evaluation:run`  |      |     |        |        |    ✓    |
-| `eval_run`        |  ✓   |  ✓  |        |        |         |
-| `eval_metric`     |  ✓   |  ✓  |   S    |   ✓    |         |
-| `eval_metric_set` |  ✓   |  ✓  |   S    |   ✓    |         |
-| `eval_target`     |  ✓   |  ✓  |   S    |   ✓    |         |
-| `eval_suite`      |  ✓   |  ✓  |        |   ✓    |         |
-| `eval_suite:run`  |      |     |        |        |    ✓    |
 
 </details>
 
@@ -616,6 +721,9 @@ harness list pipeline --list-columns                       # show available colu
 harness list pipeline --columns name,tags
 harness list pipeline --columns "+lastRun"                 # add to defaults
 harness list pipeline --columns "Owner:it.metadata.owner"  # rename with an expression
+
+# Per-noun default columns (semicolon-separated noun=cols pairs)
+export HARNESS_CLI_COLUMNS="pipeline=id,name,status;execution=id,status,started"
 
 harness get  pipeline my-pipeline --list-fields
 harness get  pipeline my-pipeline --fields name,git_url    # tab-separated for `read` / `$( ... )`
@@ -677,6 +785,7 @@ harness list pipeline --count       # just the total count
 | `HARNESS_API_URL`         | Override the API URL (advanced; typically only needed for self-hosted Harness). |
 | `HARNESS_DEBUG`           | Set to `1` to enable debug logging without passing `--debug`.                   |
 | `HARNESS_NO_COLOR`        | Set to `1` to disable ANSI colors. `NO_COLOR` is also respected.                |
+| `HARNESS_CLI_COLUMNS`     | Per-noun default `--columns` overrides (`pipeline=id,name;execution=id,status`). |
 | `HARNESS_CONFIG_HOME`     | Override the location of `~/.harness/`.                                         |
 
 Common CI runner env vars are auto-detected. `HARNESS_API_KEY` always wins.
@@ -707,7 +816,7 @@ Flags below work on every command.
 | ----------------------- | ---------------------------------------------------------------------------------------------- |
 | `--debug`               | Enable debug logging                                                                            |
 | `--timeout <seconds>`   | Abort after N seconds; accepts decimals (`1.5`); `0` = no timeout; exits `124` on timeout      |
-| `--ui`                  | Launch an interactive TUI (requires a TTY; supported on selected commands)                     |
+| `--ui`                  | Launch an interactive TUI — browse lists, pick resources, or open the live execution log viewer (requires a TTY) |
 | `-h`, `--help`          | Help for the current command                                                                    |
 
 ---
@@ -751,7 +860,7 @@ Add the built binaries to your `PATH` for the duration of the session:
 source local-setup.zsh
 ```
 
-For details on the release process and Homebrew publishing, see [`BUILD.md`](BUILD.md) and [`docs/publishing-to-homebrew.md`](docs/publishing-to-homebrew.md).
+For details on the release process, see [`BUILD.md`](BUILD.md).
 
 ---
 

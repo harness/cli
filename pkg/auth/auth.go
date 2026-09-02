@@ -85,6 +85,7 @@ func Load(profileFlag string) (*ResolvedAuth, error) {
 		}
 		return &ResolvedAuth{
 			Source:      SourceEnv,
+			AuthType:    AuthTypePAT,
 			PATToken:    key,
 			AccountID:   acct,
 			OrgID:       os.Getenv(hbase.EnvOrg),

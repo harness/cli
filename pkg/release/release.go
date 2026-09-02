@@ -57,9 +57,6 @@ type Release struct {
 }
 
 const (
-	// FlagName is the hidden flag that triggers the background subprocess behavior.
-	FlagName = "--background-update-check"
-
 	cacheFile = "update-check.json"
 	// Repo is the GitHub repo for Harness CLI releases.
 	Repo          = "harness/cli"
@@ -109,7 +106,7 @@ func MaybeSpawn() {
 		return
 	}
 	hlog.Debug("spawning background update check", "exe", exe)
-	cmd := exec.Command(exe, FlagName)
+	cmd := exec.Command(exe, hbase.BackgroundUpdateCheckFlag)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
@@ -163,7 +160,11 @@ func NagIfDue(currentVersion string) {
 	if err := writeCache(c); err != nil {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "\nA new version of the Harness CLI is available: %s → %s\nRun: harness install cli\n\n", currentVersion, c.LatestVersion)
+	upgradeCmd := "harness install cli"
+	if _, ok := hbase.BrewManagedBinary(); ok {
+		upgradeCmd = "brew upgrade --cask " + hbase.BrewCaskRef
+	}
+	fmt.Fprintf(os.Stderr, "\nA new version of the Harness CLI is available: %s → %s\nRun: %s\n\n", currentVersion, c.LatestVersion, upgradeCmd)
 }
 
 // shouldUpdateCheck returns false for all gating conditions that mean we skip entirely.

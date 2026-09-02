@@ -54,6 +54,7 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 	// dry-run defaults to true unless explicitly set to "false".
 	dryRun := cmdctx.GetString(ctx.FlagValues, "dry-run") != "false"
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
+	yes := cmdctx.GetBool(ctx.FlagValues, "yes")
 
 	// Gap 2 fix: determine impactType from input flag, not from response.
 	impactType := "Packages"
@@ -83,7 +84,9 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 	a := ctx.Auth
 	apiURL := buildBulkDeleteURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
 
-	body, err := callBulkDelete(apiURL, ctx, newBulkDeleteRequest(pattern, version, registry, dryRun, force))
+	// Always preview first so the impact is known before anything destructive
+	// happens, regardless of the caller's --dry-run value.
+	body, err := callBulkDelete(apiURL, ctx, newBulkDeleteRequest(pattern, version, registry, true, force))
 	if err != nil {
 		return fmt.Errorf("bulk delete failed: %w", err)
 	}
@@ -101,24 +104,29 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 		return nil
 	}
 
-	// Two-phase: if the first call was a dry-run, prompt then execute for real.
-	if parsed.DryRun {
+	// --dry-run (the default) stops here: preview only, nothing deleted, no prompt.
+	if dryRun {
+		return nil
+	}
+
+	// --dry-run=false: confirm (unless --yes was passed), then execute for real.
+	if !yes {
 		prompt := fmt.Sprintf("Above %s will be soft deleted. Do you want to proceed? (y/N): ", impactType)
 		if err := confirmPrompt(prompt); err != nil {
 			return err
 		}
-
-		body, err = callBulkDelete(apiURL, ctx, newBulkDeleteRequest(pattern, version, registry, false, force))
-		if err != nil {
-			return fmt.Errorf("bulk delete execution failed: %w", err)
-		}
-
-		var final bulkDeleteResponse
-		if err := json.Unmarshal(body, &final); err != nil {
-			return fmt.Errorf("failed to parse actual bulk delete response: %w", err)
-		}
-		printRealRunSummary(final, impactType)
 	}
+
+	body, err = callBulkDelete(apiURL, ctx, newBulkDeleteRequest(pattern, version, registry, false, force))
+	if err != nil {
+		return fmt.Errorf("bulk delete execution failed: %w", err)
+	}
+
+	var final bulkDeleteResponse
+	if err := json.Unmarshal(body, &final); err != nil {
+		return fmt.Errorf("failed to parse actual bulk delete response: %w", err)
+	}
+	printRealRunSummary(final, impactType)
 
 	return nil
 }

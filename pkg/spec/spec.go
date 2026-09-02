@@ -88,6 +88,65 @@ const (
 	PagingStrategyOffsetLimit = "offset_limit" // API accepts offset (items to skip) + limit; response has totalCount
 )
 
+// Valid presence values for MigrateFlag.
+const (
+	MigratePresenceRequired = "required" // flag is registered and must be provided
+	MigratePresenceOptional = "optional" // flag is registered; may be omitted (default)
+	MigratePresenceNone     = "none"     // flag is not registered at all
+)
+
+// MigrateFlag customizes the --from / --to flag of a pair verb (migrate) command.
+// Both fields are optional: an absent block behaves as presence: optional with the
+// generic label.
+type MigrateFlag struct {
+	// Label overrides the flag's --help text (e.g. "GitHub organization to migrate").
+	Label string `yaml:"label,omitempty"`
+	// IdLabel overrides the "<id>" value placeholder shown after the flag in usage
+	// lines (e.g. "<bundle-folder-or-zip>", "<folder>").
+	IdLabel string `yaml:"id_label,omitempty"`
+	// Presence controls flag registration. See MigratePresence* consts.
+	Presence string `yaml:"presence,omitempty"`
+}
+
+// EffectivePresence returns the declared presence, defaulting to optional for an
+// absent block or an empty field.
+func (m *MigrateFlag) EffectivePresence() string {
+	if m == nil || m.Presence == "" {
+		return MigratePresenceOptional
+	}
+	return m.Presence
+}
+
+// EffectiveLabel returns the declared label, or fallback when none is declared.
+func (m *MigrateFlag) EffectiveLabel(fallback string) string {
+	if m == nil || m.Label == "" {
+		return fallback
+	}
+	return m.Label
+}
+
+// EffectiveIdLabel returns the declared value placeholder, defaulting to "<id>".
+func (m *MigrateFlag) EffectiveIdLabel() string {
+	if m == nil || m.IdLabel == "" {
+		return "<id>"
+	}
+	return m.IdLabel
+}
+
+// UsageFragment renders this flag for a usage line: " --name <label>" when required,
+// " [--name <label>]" when optional, "" when the flag is not registered. name is the
+// flag name ("from" or "to").
+func (m *MigrateFlag) UsageFragment(name string) string {
+	switch m.EffectivePresence() {
+	case MigratePresenceNone:
+		return ""
+	case MigratePresenceRequired:
+		return " --" + name + " " + m.EffectiveIdLabel()
+	default:
+		return " [--" + name + " " + m.EffectiveIdLabel() + "]"
+	}
+}
+
 // BuiltinFlags enables predefined system flags that have fixed registration and dispatch behavior.
 type BuiltinFlags struct {
 	Page bool `yaml:"page,omitempty"` // --page N (1-indexed); exposed in expr as integer flags.page = N-1
@@ -179,10 +238,15 @@ const (
 	UICommandText = "text"
 	UICommandLink = "link"
 	UICommandView = "view"
+	// UICommandUp jumps to another noun's get detail using an id derived from
+	// fields on the current item's own data (via UpIdExpr), not the current
+	// item's id or its ParentId. Must be declared explicitly per noun — there
+	// is no implicit "go up" navigation stack.
+	UICommandUp = "up"
 )
 
 // UICommand is a single hotkey offered by a noun's --ui detail overlay. One flat
-// struct for all three ui_command_types, matching how CommandSpec/EndpointSpec
+// struct for all ui_command_types, matching how CommandSpec/EndpointSpec
 // already mix fields that only apply to some verbs/shapes — checks.go enforces
 // which fields are required/forbidden for which type.
 type UICommand struct {
@@ -195,12 +259,17 @@ type UICommand struct {
 	// Only valid on text entries; exactly one text entry per noun must set it.
 	Default bool `yaml:"default,omitempty"`
 	// Noun is a full "noun[:variant]" string resolved via GetSpec(VerbGet, ...)
-	// for text entries, or GetSpec(Verb, ...) for link entries.
+	// for text entries, or GetSpec(Verb, ...) for link/up entries.
 	Noun string `yaml:"noun,omitempty"`
-	// Verb is the link target's verb: "list" or "get". Link only.
+	// Verb is the link target's verb: "list" or "get". Required for link;
+	// for up it's optional and defaults to "get".
 	Verb string `yaml:"verb,omitempty"`
 	// UIHandlerFn is the registered workflow id to hand off to. View only.
 	UIHandlerFn string `yaml:"ui_handler_fn,omitempty"`
+	// UpIdExpr is an expr-lang expression evaluated against the current
+	// item ("it") to derive the target id for an "up" jump, e.g.
+	// "it.check.payload.data.execution_id". Up only, required.
+	UpIdExpr string `yaml:"up_id_expr,omitempty"`
 }
 
 // FieldDef defines a named, reusable field for a noun. Fields declared here can be
@@ -489,6 +558,9 @@ type CommandSpec struct {
 	Verb             string              `yaml:"verb"`
 	Noun             string              `yaml:"noun,omitempty"`         // base noun; empty for management exceptions
 	NounVariant      string              `yaml:"noun_variant,omitempty"` // optional variant suffix; produces "noun:variant" cobra subcommand
+	NounTo           string              `yaml:"noun_to,omitempty"`      // second noun of a pair verb (migrate/convert); mutually exclusive with NounVariant
+	MigrateFrom      *MigrateFlag        `yaml:"migrate_from,omitempty"` // pair verbs only: customizes --from
+	MigrateTo        *MigrateFlag        `yaml:"migrate_to,omitempty"`   // pair verbs only: customizes --to
 	Short            string              `yaml:"short,omitempty"`
 	Long             string              `yaml:"long,omitempty"`
 	RequiresId       bool                `yaml:"requires_id,omitempty"`       // positional [id] is mandatory for this command
@@ -509,6 +581,7 @@ type CommandSpec struct {
 	VerbHandler      string              `yaml:"verb_handler,omitempty"`    // overrides verb for behavioral dispatch (flag binding, ctx.Verb); leave unset to use verb
 	ConfirmMode      string              `yaml:"confirm_mode,omitempty"`    // not allowed on list or get; see ConfirmNone/ConfirmPrompt/ConfirmID
 	WorkflowID       string              `yaml:"workflow_id,omitempty"`     // set when HandlerType == HandlerWorkflow
+	ItemFn           string              `yaml:"item_fn,omitempty"`         // optional: workflow-backed get's item resolver, used for TUI drilldown rendering
 	FollowFn         string              `yaml:"follow_fn,omitempty"`       // optional: called after a successful endpoint command when --follow is set
 	Flags            []Flag              `yaml:"flags,omitempty"`           // custom flags for workflow commands
 	Endpoint         *EndpointSpec       `yaml:"endpoint,omitempty"`        // set when HandlerType == HandlerEndpoint
@@ -520,12 +593,15 @@ type CommandSpec struct {
 	External         bool                `yaml:"-"`                         // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
 }
 
-// FullNoun returns "noun:variant" when NounVariant is set, otherwise just Noun.
-// Use this wherever the cobra subcommand name or command identity is needed.
-// Use Noun directly when looking up field definitions or completion sources (base noun only).
+// FullNoun returns "noun:variant" when NounVariant is set, "noun:noun_to" when NounTo is
+// set, otherwise just Noun. Use this wherever the cobra subcommand name or command identity
+// is needed. Use Noun directly when looking up field definitions or completion sources (base noun only).
 func (cs *CommandSpec) FullNoun() string {
 	if cs.NounVariant != "" {
 		return cs.Noun + ":" + cs.NounVariant
+	}
+	if cs.NounTo != "" {
+		return cs.Noun + ":" + cs.NounTo
 	}
 	return cs.Noun
 }

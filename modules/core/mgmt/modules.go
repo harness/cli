@@ -49,6 +49,9 @@ func getModuleOrPluginHandler(ctx *cmdctx.Ctx, kind string, match func(spec.Modu
 			// name exists but isn't a plugin — the caller almost certainly meant `get module`.
 			return fmt.Errorf("%s %q not found (it's a builtin module — did you mean %q?)", kind, ctx.Id, "harness get module "+ctx.Id)
 		}
+		if _, ok := pluginRegistry[strings.ToLower(ctx.Id)]; ok {
+			return fmt.Errorf("%s %q is not installed — to install run %q", kind, ctx.Id, "harness install plugin "+ctx.Id)
+		}
 		return fmt.Errorf("%s %q not found", kind, ctx.Id)
 	}
 
@@ -298,7 +301,9 @@ func ListPluginsFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*cmdctx.PageResult, error) {
 	typeFilter := cmdctx.GetString(ctx.FlagValues, "module-type")
 	var items []any
+	seen := map[string]bool{}
 	for _, m := range ctx.Resolver.GetModuleMetas() {
+		seen[m.Name] = true
 		if typeFilter != "" && !strings.EqualFold(m.Type, typeFilter) {
 			continue
 		}
@@ -323,6 +328,17 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 			"version":   version,
 			"desc":      m.Desc,
 		})
+	}
+	if typeFilter == "" || strings.EqualFold(typeFilter, "plugin") {
+		for _, m := range UninstalledRegistryPlugins(seen) {
+			items = append(items, map[string]any{
+				"module":    m.Name,
+				"type":      m.Type,
+				"installed": "no",
+				"version":   "-",
+				"desc":      m.Desc,
+			})
+		}
 	}
 	return &cmdctx.PageResult{
 		Items:       items,

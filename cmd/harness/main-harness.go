@@ -14,9 +14,12 @@ import (
 
 	"github.com/harness/cli/modules/code"
 	"github.com/harness/cli/modules/core"
+	"github.com/harness/cli/modules/core/mgmt"
 	"github.com/harness/cli/modules/gitops"
 	"github.com/harness/cli/modules/iacm"
 	"github.com/harness/cli/modules/pipeline"
+	"github.com/harness/cli/modules/platform"
+	"github.com/harness/cli/modules/rt"
 	"github.com/harness/cli/pkg/console"
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/registry"
@@ -31,6 +34,7 @@ var noargsText string
 func main() {
 	rootcmd.MaybeRunBackgroundUpdateCheck()
 	rootcmd.MaybeRunPostInstall()
+	rootcmd.MaybeRunPostUpgrade()
 
 	if !semver.IsValid("v" + hbase.Version) {
 		console.PrintError(fmt.Sprintf("invalid version %q: must be a valid semver (e.g. 1.2.3)", hbase.Version))
@@ -47,8 +51,10 @@ func main() {
 	core.ModuleInit(reg.Module("core"))
 	gitops.ModuleInit(reg.Module("gitops"))
 	pipeline.ModuleInit(reg.Module("pipeline"))
+	platform.ModuleInit(reg.Module("platform"))
 	// har is an external module (external_binary: harness-har) — ModuleInit is not loaded here.
 	iacm.ModuleInit(reg.Module("iacm"))
+	rt.ModuleInit(reg.Module("rt"))
 	rootcmd.MaybeCheckSpecs(reg)
 
 	root := &cobra.Command{
@@ -71,12 +77,15 @@ func main() {
 }
 
 func renderModules(metas []spec.ModuleMeta) string {
+	seen := map[string]bool{}
 	var visible []spec.ModuleMeta
 	for _, m := range metas {
+		seen[m.Name] = true
 		if !m.Core {
 			visible = append(visible, m)
 		}
 	}
+	visible = append(visible, mgmt.UninstalledRegistryPlugins(seen)...)
 
 	// find longest name for alignment
 	maxLen := 0

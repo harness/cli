@@ -157,6 +157,27 @@ func doHAR(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, url, meth
 	return nil
 }
 
+// applyLevelScope returns a copy of cmdCtx.Auth with OrgID/ProjectID stripped per
+// cmdCtx.Level ("org" clears ProjectID, "account" clears OrgID and ProjectID),
+// mirroring the scope-handling in pkg/registry/endpoint.go's callEndpointFull.
+// firewall_scan is a workflow-handler command, so it never goes through that
+// endpoint layer and must apply --level itself.
+func applyLevelScope(cmdCtx *cmdctx.Ctx) *auth.ResolvedAuth {
+	a := cmdCtx.Auth
+	switch cmdCtx.Level {
+	case "org":
+		copy := *a
+		copy.ProjectID = ""
+		a = &copy
+	case "account":
+		copy := *a
+		copy.OrgID = ""
+		copy.ProjectID = ""
+		a = &copy
+	}
+	return a
+}
+
 // getRegistryUUID fetches the registry via the HAR v1 API and returns its UUID.
 func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryID string) (string, error) {
 	apiUrl, accountID, orgID, projectID := a.APIUrl, a.AccountID, a.OrgID, a.ProjectID
@@ -171,6 +192,9 @@ func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth,
 	if err != nil {
 		return "", err
 	}
+	q := u.Query()
+	q.Set("accountIdentifier", accountID)
+	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
 		return "", err
@@ -204,7 +228,7 @@ func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth,
 // ---- handler ----
 
 func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
-	a := cmdCtx.Auth
+	a := applyLevelScope(cmdCtx)
 
 	if len(cmdCtx.IdParts) < 3 {
 		return fmt.Errorf("artifact:firewall_scan requires <registry/name/version>, got %q", cmdCtx.Id)
@@ -226,7 +250,10 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 
 	// 2. Initiate bulk scan evaluation.
 	fmt.Printf("Initiating evaluation for %s@%s\n", packageName, version)
-	evalURL := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
+	evalURL, err := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
+	if err != nil {
+		return fmt.Errorf("building evaluation URL: %w", err)
+	}
 	var initResp bulkEvalAcceptedResp
 	if err := doHAR(ctx, hc, a, evalURL, "POST", bulkEvalRequest{
 		RegistryId: registryUUID,
@@ -242,7 +269,10 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 
 	// 3. Poll for completion.
 	fmt.Println("Waiting for evaluation to complete...")
-	statusURL := buildEvalStatusURL(a.APIUrl, evaluationID, a.AccountID, a.OrgID, a.ProjectID)
+	statusURL, err := buildEvalStatusURL(a.APIUrl, evaluationID, a.AccountID, a.OrgID, a.ProjectID)
+	if err != nil {
+		return fmt.Errorf("building status URL: %w", err)
+	}
 	var statusData *bulkEvalStatusData
 	for i := 0; i < 120; i++ {
 		var statusResp bulkEvalStatusResp
@@ -306,7 +336,11 @@ done:
 	}
 	fmt.Println()
 	fmt.Println("Fetching detailed scan information...")
-	detailURL := buildScanDetailsURL(a.APIUrl, scanID, a.AccountID)
+	detailURL, err := buildScanDetailsURL(a.APIUrl, scanID, a.AccountID)
+	if err != nil {
+		fmt.Printf("  (could not fetch scan details: %v)\n", err)
+		return nil
+	}
 	var detailResp scanDetailsResp
 	if err := doHAR(ctx, hc, a, detailURL, "GET", nil, &detailResp); err != nil {
 		fmt.Printf("  (could not fetch scan details: %v)\n", err)
@@ -320,8 +354,12 @@ done:
 
 // ---- URL builders ----
 
-func buildEvalURL(apiUrl, accountID, orgID, projectID string) string {
-	u, _ := url.Parse(harV3URL(apiUrl, "/scans/bulk-evaluate"))
+func buildEvalURL(apiUrl, accountID, orgID, projectID string) (string, error) {
+	base := harV3URL(apiUrl, "/scans/bulk-evaluate")
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("malformed API URL %q: %w", apiUrl, err)
+	}
 	q := u.Query()
 	q.Set("account_identifier", accountID)
 	if orgID != "" {
@@ -331,11 +369,15 @@ func buildEvalURL(apiUrl, accountID, orgID, projectID string) string {
 		q.Set("project_identifier", projectID)
 	}
 	u.RawQuery = q.Encode()
-	return u.String()
+	return u.String(), nil
 }
 
-func buildEvalStatusURL(apiUrl, evaluationID, accountID, orgID, projectID string) string {
-	u, _ := url.Parse(harV3URL(apiUrl, "/scans/bulk-evaluate/"+url.PathEscape(evaluationID)))
+func buildEvalStatusURL(apiUrl, evaluationID, accountID, orgID, projectID string) (string, error) {
+	base := harV3URL(apiUrl, "/scans/bulk-evaluate/"+url.PathEscape(evaluationID))
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("malformed API URL %q: %w", apiUrl, err)
+	}
 	q := u.Query()
 	q.Set("account_identifier", accountID)
 	if orgID != "" {
@@ -345,15 +387,19 @@ func buildEvalStatusURL(apiUrl, evaluationID, accountID, orgID, projectID string
 		q.Set("project_identifier", projectID)
 	}
 	u.RawQuery = q.Encode()
-	return u.String()
+	return u.String(), nil
 }
 
-func buildScanDetailsURL(apiUrl, scanID, accountID string) string {
-	u, _ := url.Parse(harV3URL(apiUrl, "/scans/"+url.PathEscape(scanID)+"/details"))
+func buildScanDetailsURL(apiUrl, scanID, accountID string) (string, error) {
+	base := harV3URL(apiUrl, "/scans/"+url.PathEscape(scanID)+"/details")
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("malformed API URL %q: %w", apiUrl, err)
+	}
 	q := u.Query()
 	q.Set("account_identifier", accountID)
 	u.RawQuery = q.Encode()
-	return u.String()
+	return u.String(), nil
 }
 
 // ---- output helpers ----
@@ -473,7 +519,7 @@ type auditScanResult struct {
 }
 
 func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
-	a := cmdCtx.Auth
+	a := applyLevelScope(cmdCtx)
 	registryID := cmdCtx.Id
 	filePath := cmdctx.GetString(cmdCtx.FlagValues, "lockfile")
 
@@ -520,7 +566,10 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 			artifacts = append(artifacts, artifactScanInput{PackageName: d.Name, Version: d.Version})
 		}
 
-		evalURL := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
+		evalURL, err := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
+		if err != nil {
+			return fmt.Errorf("batch %d: building evaluation URL: %w", i+1, err)
+		}
 		var initResp bulkEvalAcceptedResp
 		if err := doHAR(ctx, hc, a, evalURL, "POST", bulkEvalRequest{
 			RegistryId: registryUUID,
@@ -534,7 +583,10 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		evaluationID := *initResp.Data.EvaluationId
 
 		// Poll.
-		statusURL := buildEvalStatusURL(a.APIUrl, evaluationID, a.AccountID, a.OrgID, a.ProjectID)
+		statusURL, err := buildEvalStatusURL(a.APIUrl, evaluationID, a.AccountID, a.OrgID, a.ProjectID)
+		if err != nil {
+			return fmt.Errorf("batch %d: building status URL: %w", i+1, err)
+		}
 		var statusData *bulkEvalStatusData
 		for poll := 0; poll < 120; poll++ {
 			var statusResp bulkEvalStatusResp
@@ -666,8 +718,10 @@ func parseLockFile(filePath string) ([]dependency, error) {
 		return parsePomXml(data)
 	case strings.HasSuffix(name, "build.gradle"), strings.HasSuffix(name, "build.gradle.kts"):
 		return parseBuildGradle(data)
+	case name == "packages.lock.json":
+		return nugetParseLockFile(filePath)
 	default:
-		return nil, fmt.Errorf("unsupported file %q (supported: package.json, package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle)", name)
+		return nil, fmt.Errorf("unsupported file %q (supported: package.json, package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle, packages.lock.json)", name)
 	}
 }
 
