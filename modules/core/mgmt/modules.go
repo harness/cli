@@ -88,7 +88,7 @@ func getModuleOrPluginHandler(ctx *cmdctx.Ctx, kind string, match func(spec.Modu
 	helpText := meta.HelpText
 	if helpText != "" {
 		nounBlock := RenderNounBlock(meta.Name, nouns, ctx.Resolver)
-		fmt.Print(strings.ReplaceAll(helpText, "{{nouns}}", nounBlock))
+		fmt.Print(colorizeHeadings(strings.ReplaceAll(helpText, "{{nouns}}", nounBlock)))
 		fmt.Println()
 	} else {
 		fmt.Printf("Module: %s — %s\n\n", meta.Name, meta.Desc)
@@ -109,6 +109,21 @@ func getModuleOrPluginHandler(ctx *cmdctx.Ctx, kind string, match func(spec.Modu
 	}
 
 	return nil
+}
+
+// colorizeHeadings bolds and blues markdown "## " / "### " heading lines, left
+// untouched (and un-colored) when stdout isn't a TTY.
+func colorizeHeadings(s string) string {
+	if !console.IsStdoutTTY() {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "### ") {
+			lines[i] = console.WithBoldColor(console.ColorBlue, line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderMatrix(ctx *cmdctx.Ctx, meta *spec.ModuleMeta, nouns []string) {
@@ -252,21 +267,42 @@ func RenderNounBlock(module string, nouns []string, r cmdctx.Resolver) string {
 		}
 	}
 
+	// // descStart is the column at which each noun's description begins — "  " +
+	// // the noun column (padded to maxLen) + a 4-space gap. Wrapped continuation
+	// // lines are indented to this column so they align under the description's
+	// // first word rather than back under the noun name.
+	descStart := 2 + maxLen + 4
+	wrapWidth := 100 - descStart 				// just hardcode for now because the normal thing looks ugly in this case.
+	if wrapWidth < 20 {
+		wrapWidth = 20
+	}
+	contIndent := strings.Repeat(" ", descStart)
+
 	var sb strings.Builder
 	for _, n := range nouns {
 		nd := r.GetNoun(n)
 		padding := strings.Repeat(" ", maxLen-len(n))
+		coloredNoun := console.WithColor(console.ColorMagenta, n)
 		verbs := verbTokens(n)
 		desc := ""
 		if nd != nil {
 			desc = nd.ShortDesc
 		}
-		if desc != "" && verbs != "" {
-			fmt.Fprintf(&sb, "  %s%s    %s [%s]\n", n, padding, desc, verbs)
-		} else if desc != "" {
-			fmt.Fprintf(&sb, "  %s%s    %s\n", n, padding, desc)
-		} else {
-			fmt.Fprintf(&sb, "  %s\n", n)
+
+		if desc == "" {
+			fmt.Fprintf(&sb, "  %s\n", coloredNoun)
+			continue
+		}
+
+		content := desc
+		if verbs != "" {
+			content = desc + " [" + verbs + "]"
+		}
+		lines := strings.Split(text.WrapSoft(content, wrapWidth), "\n")
+
+		fmt.Fprintf(&sb, "  %s%s    %s\n", coloredNoun, padding, lines[0])
+		for _, line := range lines[1:] {
+			fmt.Fprintf(&sb, "%s%s\n", contIndent, line)
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
