@@ -72,6 +72,8 @@ type Env struct {
 	AIAgent string
 
 	Locale string // from LANG/LC_ALL/LC_CTYPE, e.g. "en_US.UTF-8"
+
+	TermProgram string // TERM_PROGRAM env var, e.g. "vscode", "iTerm.app"
 }
 
 // NewEnv captures the current runtime environment. Call once at startup.
@@ -87,6 +89,7 @@ func NewEnv() Env {
 		PipelineID:          pipelineID,
 		AIAgent:             DetectAgent(),
 		Locale:              locale(),
+		TermProgram:         os.Getenv("TERM_PROGRAM"),
 	}
 }
 
@@ -272,6 +275,7 @@ func RecordIntent(e CommandIntent) {
 		"version", e.Env.Version, "is_tty", e.Env.IsTTY,
 		"is_pipeline", e.Env.IsPipelineExecution,
 		"aiagent", e.Env.AIAgent, "locale", e.Env.Locale,
+		"term_program", e.Env.TermProgram,
 		"backend", activeBackend != nil)
 	if activeBackend == nil {
 		return
