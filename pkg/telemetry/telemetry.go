@@ -137,6 +137,12 @@ type CommandIntent struct {
 	// Never the full email address.
 	UserDomain string
 
+	// UserID is the Harness user uuid from the resolved profile, or "" if unset.
+	UserID string
+
+	// UserType is config.UserTypeUser or config.UserTypeServiceAccount, or "" if unset.
+	UserType string
+
 	// TokenKind is the type of credential in use: "pat", "sat", "jwt", or "".
 	TokenKind string
 
@@ -158,6 +164,8 @@ type CommandError struct {
 	Module     string
 	AccountID  string
 	UserDomain string
+	UserID     string
+	UserType   string
 	TokenKind  string
 	AuthSource string
 	RunID      string
@@ -259,7 +267,7 @@ func RecordIntent(e CommandIntent) {
 	hlog.Debug("telemetry: intent",
 		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
 		"flags", e.FlagsSet, "account", e.AccountID, "domain", e.UserDomain,
-		"token_kind", e.TokenKind, "auth_source", e.AuthSource,
+		"user_id", e.UserID, "user_type", e.UserType, "token_kind", e.TokenKind, "auth_source", e.AuthSource,
 		"run_id", e.RunID, "os", e.Env.OS, "arch", e.Env.Arch,
 		"version", e.Env.Version, "is_tty", e.Env.IsTTY,
 		"is_pipeline", e.Env.IsPipelineExecution,
@@ -279,7 +287,7 @@ func RecordError(e CommandError) {
 	hlog.Debug("telemetry: error",
 		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
 		"category", e.Category, "duration_ms", e.DurationMs,
-		"account", e.AccountID, "token_kind", e.TokenKind,
+		"account", e.AccountID, "user_id", e.UserID, "user_type", e.UserType, "token_kind", e.TokenKind,
 		"auth_source", e.AuthSource, "run_id", e.RunID,
 		"backend", activeBackend != nil)
 	if activeBackend == nil {
