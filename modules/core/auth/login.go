@@ -191,15 +191,18 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 		}
 	}
 
-	email := fetchTokenEmail(apiURL, token, accountID)
+	identity := fetchTokenIdentity(apiURL, token, accountID)
 
 	cfg.Profiles[profileName] = &config.Profile{
-		APIUrl:      apiURL,
-		AccountID:   accountID,
-		OrgID:       orgID,
-		ProjectID:   projectID,
-		RegistryURL: registryURL,
-		Email:       email,
+		APIUrl:           apiURL,
+		AccountID:        accountID,
+		OrgID:            orgID,
+		ProjectID:        projectID,
+		RegistryURL:      registryURL,
+		Email:            identity.Email,
+		UserType:         identity.UserType,
+		UserID:           identity.UserID,
+		ServiceAccountID: identity.ServiceAccountID,
 	}
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving profile: %w", err)

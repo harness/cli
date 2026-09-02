@@ -21,6 +21,7 @@ import (
 	"github.com/harness/cli/pkg/console"
 	"github.com/harness/cli/pkg/format"
 	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 type checkResult struct {
@@ -195,7 +196,7 @@ func runStatusChecks(profileFlag string) statusResult {
 	}
 
 	isSAT := auth.TokenType(resolved.PATToken) == auth.TokenKindSAT
-	var resolvedEmail string // email discovered during user check
+	var resolvedIdentity tokenIdentity // identity discovered during user check
 	if isSAT {
 		identity, validTo, err := validateSATToken(resolved)
 		if err != nil {
@@ -208,15 +209,24 @@ func runStatusChecks(profileFlag string) statusResult {
 		r.SATIdentity = identity
 		r.TokenValidTo = validTo
 		r.Status.User = checkResult{OK: true}
-		// Extract email from the SAT identity response for profile update below.
-		resolvedEmail = fetchTokenEmail(resolved.APIUrl, resolved.PATToken, resolved.AccountID)
+		// Resolve the service account's identity for profile update below.
+		resolvedIdentity = fetchTokenIdentity(resolved.APIUrl, resolved.PATToken, resolved.AccountID)
 	} else if resolved.AuthType == auth.AuthTypeSSO {
 		// For SSO, email comes from JWT claims — parse it from the stored token.
 		if claims, cerr := parseJWT(resolved.SSOToken); cerr == nil {
-			resolvedEmail = claims.Email
+			resolvedIdentity.Email = claims.Email
 			r.UserEmail = claims.Email
 		}
 		r.Status.User = checkResult{OK: true}
+		// The JWT's sub claim is a Keycloak uuid, not the Harness one, so the user
+		// uuid needs its own lookup. Best-effort — a failure here must not affect
+		// the already-OK auth status.
+		if currentUser, cerr := fetchCurrentUser(resolved); cerr != nil {
+			hlog.Debug("fetching current user for SSO status failed", "error", cerr)
+		} else if _, uuid := currentUserFields(currentUser); uuid != "" {
+			resolvedIdentity.UserType = config.UserTypeUser
+			resolvedIdentity.UserID = uuid
+		}
 	} else {
 		// Validate the PAT token first — this is authoritative for auth failure.
 		validTo, err := fetchTokenValidTo(resolved)
@@ -230,23 +240,16 @@ func runStatusChecks(profileFlag string) statusResult {
 		r.TokenValidTo = validTo
 		r.Status.User = checkResult{OK: true}
 		// Fetch user details for display (best-effort, not auth-critical).
-		if currentUser, cerr := fetchCurrentUser(resolved); cerr == nil {
+		if currentUser, cerr := fetchCurrentUser(resolved); cerr != nil {
+			hlog.Debug("fetching current user for status failed", "error", cerr)
+		} else {
 			r.CurrentUser = currentUser
-			email, _ := currentUserFields(currentUser)
-			resolvedEmail = email
+			email, uuid := currentUserFields(currentUser)
+			resolvedIdentity = tokenIdentity{Email: email, UserType: config.UserTypeUser, UserID: uuid}
 		}
 	}
 
-	// Persist email back to the profile if it is new or changed.
-	if resolvedEmail != "" && resolved.Source != auth.SourceEnv {
-		pName := profileName(resolved.Source)
-		if cfg, cerr := config.LoadConfig(); cerr == nil {
-			if p, ok := cfg.Profiles[pName]; ok && p.Email != resolvedEmail {
-				p.Email = resolvedEmail
-				config.SaveConfig(cfg) //nolint:errcheck — best-effort
-			}
-		}
-	}
+	persistResolvedIdentity(resolved, resolvedIdentity)
 
 	// softErr wraps a 403 as a warning for SAT tokens — the SA may lack enumeration
 	// permissions but still have resource-level access.
@@ -323,6 +326,44 @@ func runStatusChecks(profileFlag string) statusResult {
 		uiBase, resolved.AccountID, resolved.OrgID, resolved.ProjectID)
 
 	return r
+}
+
+// persistResolvedIdentity writes identity fields discovered during a status/login check
+// back to the profile on disk, if any of them are new or changed. No-op for env-var auth,
+// which has no profile to update.
+func persistResolvedIdentity(resolved *auth.ResolvedAuth, identity tokenIdentity) {
+	if identity.Email == "" || resolved.Source == auth.SourceEnv {
+		return
+	}
+	pName := profileName(resolved.Source)
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return
+	}
+	p, ok := cfg.Profiles[pName]
+	if !ok {
+		return
+	}
+	changed := false
+	if p.Email != identity.Email {
+		p.Email = identity.Email
+		changed = true
+	}
+	if identity.UserType != "" && p.UserType != identity.UserType {
+		p.UserType = identity.UserType
+		changed = true
+	}
+	if identity.UserID != "" && p.UserID != identity.UserID {
+		p.UserID = identity.UserID
+		changed = true
+	}
+	if identity.ServiceAccountID != "" && p.ServiceAccountID != identity.ServiceAccountID {
+		p.ServiceAccountID = identity.ServiceAccountID
+		changed = true
+	}
+	if changed {
+		config.SaveConfig(cfg) //nolint:errcheck — best-effort
+	}
 }
 
 // populateKnownProfileFields fills in whatever profile fields we already know from
@@ -602,10 +643,22 @@ func fetchTokenValidTo(a *auth.ResolvedAuth) (int64, error) {
 	return jsonInt64At(result, "data", "validTo"), nil
 }
 
-// fetchTokenEmail returns the email associated with a PAT or SAT token.
-// For SAT it calls the token/validate endpoint; for PAT it calls currentUser.
-// Returns empty string on any error — callers treat this as best-effort.
-func fetchTokenEmail(apiURL, token, accountID string) string {
+// tokenIdentity is the principal resolved for a token during login/status — either a
+// Harness USER (PAT/SSO), identified by user uuid, or a SERVICE_ACCOUNT (SAT), which
+// has no uuid and is identified by its own identifier instead.
+type tokenIdentity struct {
+	Email            string
+	UserType         string // config.UserTypeUser or config.UserTypeServiceAccount
+	UserID           string // set when UserType == config.UserTypeUser
+	ServiceAccountID string // set when UserType == config.UserTypeServiceAccount
+}
+
+// fetchTokenIdentity resolves the identity behind a PAT or SAT token.
+// SAT: calls token/validate — service accounts have no uuid, so ServiceAccountID
+// comes from parentIdentifier (the SA's own identifier) instead.
+// PAT: calls currentUser to get the real Harness user uuid.
+// Returns a zero-value tokenIdentity on any error — callers treat this as best-effort.
+func fetchTokenIdentity(apiURL, token, accountID string) tokenIdentity {
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
 	a := &auth.ResolvedAuth{APIUrl: apiURL, AccountID: accountID, PATToken: token}
@@ -613,16 +666,22 @@ func fetchTokenEmail(apiURL, token, accountID string) string {
 	if auth.TokenType(token) == auth.TokenKindSAT {
 		result, _, err := cl.PostRaw("/ng/api/token/validate", nil, token, "text/plain")
 		if err != nil {
-			return ""
+			hlog.Debug("fetching token identity for SAT failed", "error", err)
+			return tokenIdentity{}
 		}
-		return jsonAnyAt(result, "data", "email")
+		return tokenIdentity{
+			Email:            jsonAnyAt(result, "data", "email"),
+			UserType:         config.UserTypeServiceAccount,
+			ServiceAccountID: jsonAnyAt(result, "data", "parentIdentifier"),
+		}
 	}
 	result, _, err := cl.Get("/ng/api/user/currentUser", nil)
 	if err != nil {
-		return ""
+		hlog.Debug("fetching token identity for PAT failed", "error", err)
+		return tokenIdentity{}
 	}
-	email, _ := currentUserFields(result)
-	return email
+	email, uuid := currentUserFields(result)
+	return tokenIdentity{Email: email, UserType: config.UserTypeUser, UserID: uuid}
 }
 
 func fetchCurrentUser(a *auth.ResolvedAuth) (any, error) {
