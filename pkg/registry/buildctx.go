@@ -318,6 +318,7 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 		Resolver:    parent.Resolver,
 		FormatFlags: cmdctx.FormatFlags{Format: "text"},
 		FlagValues:  map[string]any{},
+		UIHistory:   parent.UIHistory,
 	}
 	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
 	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
@@ -360,6 +361,7 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 		Resolver:    ctx.Resolver,
 		FormatFlags: cmdctx.FormatFlags{Format: "text"},
 		FlagValues:  fv,
+		UIHistory:   ctx.UIHistory,
 	}
 	if link.Screen == cmdctx.ScreenDetailForGet {
 		newCtx.Id = link.Id
