@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/harness/cli/modules/har/pkg/har"
+
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/registry"
 	"github.com/harness/cli/v3/pkg/rootcmd"

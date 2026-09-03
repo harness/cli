@@ -10,11 +10,12 @@ import (
 	"os"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/hlog"
 	"github.com/harness/cli/v3/pkg/logstream"
-	"go.yaml.in/yaml/v3"
 )
 
 const executePipelineBodyFnID = "execute_body"
