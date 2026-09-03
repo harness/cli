@@ -272,7 +272,7 @@ func RenderNounBlock(module string, nouns []string, r cmdctx.Resolver) string {
 	// // lines are indented to this column so they align under the description's
 	// // first word rather than back under the noun name.
 	descStart := 2 + maxLen + 4
-	wrapWidth := 100 - descStart 				// just hardcode for now because the normal thing looks ugly in this case.
+	wrapWidth := 100 - descStart // just hardcode for now because the normal thing looks ugly in this case.
 	if wrapWidth < 20 {
 		wrapWidth = 20
 	}
