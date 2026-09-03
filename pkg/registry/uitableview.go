@@ -100,6 +100,7 @@ type uiTableModel struct {
 	launchUIId        string
 	launchUIHandlerFn string         // view entry's ui_handler_fn, set on quit
 	linkTarget        *cmdctx.UILink // link entry to follow, set on quit
+	wantBack          bool           // "b" was pressed with a non-empty UIHistory, set on quit
 
 	// picker mode — set via newUIPickerModel; enter selects and quits
 	pickerMode       bool
@@ -825,6 +826,11 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Quit
 				}
 				m.detailMode = false
+			case "b":
+				if len(m.ctx.UIHistory) > 0 {
+					m.wantBack = true
+					return m, tea.Quit
+				}
 			case "up", "k":
 				if m.detail.scroll > 0 {
 					m.detail.scroll--
@@ -904,6 +910,12 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+
+		case "b":
+			if len(m.ctx.UIHistory) > 0 {
+				m.wantBack = true
+				return m, tea.Quit
+			}
 
 		case "enter":
 			if m.pickerMode && !m.loading && len(m.rawItems) > 0 {
@@ -1222,6 +1234,30 @@ func RunUITableForGet(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, getCs *spec.Comman
 	return finishUIExit(ctx, fm)
 }
 
+// currentScreenLink describes the screen fm is about to leave — for pushing onto
+// ctx.UIHistory right before a Hop fires, so a later "b" can redraw it. id is
+// ctx.Id for a detail-only overlay (Case 4) or ctx.ParentId for a browse table.
+func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
+	profile, org, project := scopeFromCtx(ctx)
+	screen := cmdctx.ScreenTable
+	id := ctx.ParentId
+	if fm.detailOnly {
+		screen = cmdctx.ScreenDetailForGet
+		id = ctx.Id
+	}
+	return cmdctx.UILink{
+		Verb:       ctx.Verb,
+		Noun:       ctx.Noun,
+		Id:         id,
+		Level:      ctx.Level,
+		Profile:    profile,
+		Org:        org,
+		Project:    project,
+		FlagValues: ctx.FlagValues,
+		Screen:     screen,
+	}
+}
+
 // finishUIExit handles common post-Run() actions for the detail overlay: printing
 // content queued via "p", following a link entry to a different noun's screen, or
 // handing off to a view entry's ui_handler_fn.
@@ -1230,9 +1266,11 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 		fmt.Println(strings.Join(fm.printOnExit, "\n"))
 	}
 	if fm.linkTarget != nil {
+		ctx.PushUILink(currentScreenLink(ctx, fm))
 		return dispatchLink(ctx, fm.linkTarget)
 	}
 	if fm.launchUIId != "" && fm.launchUIHandlerFn != "" {
+		ctx.PushUILink(currentScreenLink(ctx, fm))
 		ctx.Id = fm.launchUIId
 		// The handler (e.g. getPipelineLogHandler) branches on --ui itself; this ctx may be
 		// a picker-scoped ctx built for the "list" side that never had --ui set on it.
@@ -1241,6 +1279,11 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 		}
 		ctx.FlagValues["ui"] = true
 		return ctx.Resolver.RunUIHandler(ctx, fm.launchUIHandlerFn)
+	}
+	if fm.wantBack {
+		if link, ok := ctx.PopUILink(); ok {
+			return dispatchLink(ctx, &link)
+		}
 	}
 	return nil
 }
