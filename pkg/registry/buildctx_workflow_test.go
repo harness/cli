@@ -257,6 +257,37 @@ func TestBuildCtx_WorkflowRequiredFlag(t *testing.T) {
 	}
 }
 
+func TestBuildCtx_WorkflowRequiredArrayFlag(t *testing.T) {
+	r := New()
+	registerWorkflowExecute(t, r, "reqarrayflag", &spec.CommandSpec{
+		Flags: []spec.Flag{
+			{Name: "keys", Required: true, IsArray: true, Description: "keys to remove"},
+		},
+	})
+	cs := r.GetSpec(VerbExecute, "reqarrayflag")
+
+	t.Run("missing", func(t *testing.T) {
+		cmd := buildWorkflowTestCmd(t, r, cs)
+		_, err := buildCtx(cmd, cs, []string{"my-id"}, r)
+		if err == nil {
+			t.Fatal("buildCtx() = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "flag --keys is required") {
+			t.Fatalf("buildCtx() error %q missing expected substring", err)
+		}
+	})
+
+	t.Run("provided", func(t *testing.T) {
+		cmd := buildWorkflowTestCmd(t, r, cs)
+		if err := cmd.ParseFlags([]string{"--keys", "key-one,key-two"}); err != nil {
+			t.Fatalf("ParseFlags: %v", err)
+		}
+		if _, err := buildCtx(cmd, cs, []string{"my-id"}, r); err != nil {
+			t.Fatalf("buildCtx() = %v, want no error", err)
+		}
+	})
+}
+
 func TestBuildCtx_WorkflowIdPartsTooMany(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "cluster", &spec.CommandSpec{
