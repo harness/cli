@@ -117,6 +117,11 @@ tasks:
     cmds:
       - go run {{.MAIN}} {{.CLI_ARGS}}
 
+  testexpr:
+    desc: 'Evaluate an expr-lang expression against a JSON env: task testexpr -- ''<expr>'' [envJSON|@file|-]'
+    cmds:
+      - go run ./cmd/testexpr/main-testexpr.go {{.CLI_ARGS}}
+
   check:specs:
     desc: Validate all *.spec.yaml files
     deps: [build:main, build:har]
