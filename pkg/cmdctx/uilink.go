@@ -31,3 +31,21 @@ type UILink struct {
 	Screen  UIScreenKind
 	ListPos int
 }
+
+// PushUILink appends link to the back-navigation stack (LIFO — PopUILink pops
+// from the end).
+func (c *Ctx) PushUILink(link UILink) {
+	c.UIHistory = append(c.UIHistory, link)
+}
+
+// PopUILink removes and returns the most recently pushed UILink. ok is false
+// when the stack is empty, in which case link is the zero value.
+func (c *Ctx) PopUILink() (link UILink, ok bool) {
+	n := len(c.UIHistory)
+	if n == 0 {
+		return UILink{}, false
+	}
+	link = c.UIHistory[n-1]
+	c.UIHistory = c.UIHistory[:n-1]
+	return link, true
+}
