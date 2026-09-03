@@ -187,6 +187,7 @@ commands:
         paging_strategy: flat_list
       columns:
         [
+          id,
           name,
           status,
           latest_deployment_status,
@@ -475,6 +476,7 @@ commands:
         paging_strategy: flat_list
       columns:
         [
+          id,
           app_name,
           gate,
           status,
