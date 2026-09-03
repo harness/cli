@@ -38,14 +38,6 @@ type uiDetailModel struct {
 	upIds map[string]string
 }
 
-// uiLinkTarget carries a resolved link-type ui_commands entry to follow once
-// the bubbletea program exits.
-type uiLinkTarget struct {
-	verb string
-	noun string
-	id   string
-}
-
 // uiDetailMsg is sent when a background detail fetch completes.
 type uiDetailMsg struct {
 	content string
@@ -1238,7 +1230,7 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 		fmt.Println(strings.Join(fm.printOnExit, "\n"))
 	}
 	if fm.linkTarget != nil {
-		return dispatchUILink(ctx, fm.linkTarget)
+		return dispatchLink(ctx, fm.linkTarget)
 	}
 	if fm.launchUIId != "" && fm.launchUIHandlerFn != "" {
 		ctx.Id = fm.launchUIId
@@ -1287,26 +1279,24 @@ func RunUIDetailForGet(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
 	return finishUIExit(ctx, fm)
 }
 
-// dispatchUILink follows a link-type ui_commands entry once the overlay quits:
-// a "list" target opens that noun's browse overlay scoped to the current id as
-// parent; a "get" target opens Case 4's detail-only overlay directly on the id.
-func dispatchUILink(ctx *cmdctx.Ctx, lt *cmdctx.UILink) error {
-	targetCs := ctx.Resolver.GetSpec(lt.Verb, lt.Noun)
+// dispatchLink follows a Link once the overlay quits: builds a fresh Ctx via
+// buildLinkCtx and redraws the target according to its Screen — ScreenDetailForGet
+// opens Case 4's detail-only overlay directly on the id; anything else opens that
+// noun's browse overlay scoped to the link's id as parent.
+func dispatchLink(ctx *cmdctx.Ctx, link *cmdctx.UILink) error {
+	targetCs := ctx.Resolver.GetSpec(link.Verb, link.Noun)
 	if targetCs == nil {
-		return fmt.Errorf("ui_commands link target %s %q not found", lt.Verb, lt.Noun)
+		return fmt.Errorf("ui_commands link target %s %q not found", link.Verb, link.Noun)
 	}
-	switch lt.Verb {
-	case VerbList:
-		if targetCs.Endpoint == nil {
-			return fmt.Errorf("ui_commands link target %s %q has no endpoint", lt.Verb, lt.Noun)
-		}
-		listCtx := buildPickerCtx(ctx, targetCs)
-		listCtx.ParentId = lt.Id
-		return RunUITable(listCtx, targetCs.Endpoint)
-	case VerbGet:
-		getCtx := buildDetailCtx(ctx, targetCs, lt.Id)
-		return RunUIDetailForGet(getCtx, targetCs)
-	default:
-		return fmt.Errorf("ui_commands link target %s %q: unsupported verb", lt.Verb, lt.Noun)
+	if link.Screen != cmdctx.ScreenDetailForGet && targetCs.Endpoint == nil {
+		return fmt.Errorf("ui_commands link target %s %q has no endpoint", link.Verb, link.Noun)
 	}
+	linkCtx, err := buildLinkCtx(ctx, link, targetCs)
+	if err != nil {
+		return err
+	}
+	if link.Screen == cmdctx.ScreenDetailForGet {
+		return RunUIDetailForGet(linkCtx, targetCs)
+	}
+	return RunUITable(linkCtx, targetCs.Endpoint)
 }

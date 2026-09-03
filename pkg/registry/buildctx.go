@@ -328,6 +328,50 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 	return ctx
 }
 
+// buildLinkCtx constructs the Ctx for a replayed UILink — either a forward hop
+// (link/up/view) or a popped History entry. Unlike buildDetailCtx/buildPickerCtx, which
+// inherit the caller's already-resolved Auth verbatim, this re-resolves auth from the
+// Link's raw profile/org/project strings, so a Link that captured a different scope
+// replays with that scope instead of whatever happens to be live in the caller's ctx.
+func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSpec) (*cmdctx.Ctx, error) {
+	var resolved *auth.ResolvedAuth
+	if !targetCs.NoAuth {
+		var err error
+		resolved, err = auth.ResolveWithOverrides(link.Profile, link.Org, link.Project)
+		if err != nil {
+			return nil, err
+		}
+	}
+	fv := link.FlagValues
+	if fv == nil {
+		fv = map[string]any{}
+	}
+	goCtx, cancel := context.WithCancelCause(ctx.Context)
+	newCtx := &cmdctx.Ctx{
+		Context:     goCtx,
+		CancelFn:    cancel,
+		Auth:        resolved,
+		Verb:        targetCs.Verb,
+		VerbHandler: targetCs.VerbHandler,
+		Noun:        targetCs.Noun,
+		FieldsNoun:  targetCs.FieldsNoun,
+		Level:       link.Level,
+		IsPty:       ctx.IsPty,
+		Resolver:    ctx.Resolver,
+		FormatFlags: cmdctx.FormatFlags{Format: "text"},
+		FlagValues:  fv,
+	}
+	if link.Screen == cmdctx.ScreenDetailForGet {
+		newCtx.Id = link.Id
+		if targetCs.IdParts > 1 {
+			newCtx.IdParts = strings.SplitN(link.Id, "/", targetCs.IdParts)
+		}
+	} else {
+		newCtx.ParentId = link.Id
+	}
+	return newCtx, nil
+}
+
 // resolveFlagValues runs any flag_resolve_fn declared on spec flags, overwriting
 // the raw string value in ctx.FlagValues with the resolved result. Skips flags
 // whose value is empty. Called after buildFlagValues and auth resolution.
