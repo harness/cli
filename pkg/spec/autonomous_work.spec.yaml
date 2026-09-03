@@ -1,0 +1,1130 @@
+spec_version: 1
+module_type: builtin
+module_desc: "Development Harness (ADLC) — autonomous AI-driven software work: work items, work classes, budgets, teams, members, triggers, and agent dispatch"
+help_text: |
+  ## Development Harness (autonomous_work)
+
+  Development Harness is the execution plane for autonomous AI-driven software
+  work. A `work_item` progresses through a lifecycle
+  `plan → design → implement → review → merged` (terminal `failed`), governed
+  by a `work_class`, budgets, risk evaluators, teams/members, triggers, and
+  human gates.
+
+  ### Domain Model
+
+  - `work_item` — the core entity. List/get only; work items are created via
+    Slack or the agent-execution flow, not a public POST. Resume a blocked item
+    with `execute work_item:resume <id>`; approve a gate with
+    `execute work_item:approve <id> --decision approve`.
+  - `work_class` — the runtime model for a category of autonomous work.
+  - `budget` — cost/approval budgets; grant an increment with
+    `execute budget:grant <id>`; see usage with `get budget:usage <id>`.
+  - `team`, `member`, `member_template` — the AI team configuration.
+  - `software_component` — a component a team owns.
+  - `trigger`, `capability`, `risk_evaluator` — work-config definitions.
+  - `content_source_connector` — default content sources; set with
+    `execute content_source_connector:set_default`.
+  - `agent_execution` — launch an autonomous agent pipeline execution:
+    `execute agent_execution --org <org> --project <project>`.
+
+  All resources are project-scoped. Pass `--org` and `--project` on every
+  command (or set them on the auth profile with `harness auth setscope`).
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: work_item
+    short_desc: An autonomous software work unit (plan→design→implement→review→merged).
+    noun_aliases: [work_items]
+    url_path: /ng/account/{{auth.account}}/module/dh/orgs/{{auth.org}}/projects/{{auth.project}}/workitems/{{it.id}}
+    fields:
+      - id: id
+        expr: it.id
+      - id: title
+        expr: it.title
+        width_max: 50
+      - id: state
+        expr: it.state
+      - id: work_class
+        expr: it.workClassRef.id
+      - id: trigger_type
+        expr: it.trigger.type
+      - id: jira_key
+        expr: it.trigger.jiraKey
+      - id: version
+        expr: it.version
+        align: right
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: work_class
+    short_desc: A WorkClass definition — the runtime model for a category of autonomous work.
+    noun_aliases: [work_classes]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: team
+        expr: it.teamId.id
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: work_trigger
+    short_desc: A work trigger (manual / scheduled / webhook).
+    noun_aliases: [work_triggers]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: capability
+    short_desc: A capability grant for work classes.
+    noun_aliases: [capabilities]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: risk_evaluator
+    short_desc: A risk evaluator definition.
+    noun_aliases: [risk_evaluators]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: budget
+    short_desc: A cost/approval budget for autonomous work.
+    noun_aliases: [budgets]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: team
+    short_desc: A team configuration.
+    noun_aliases: [teams]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: member
+    short_desc: An AI team member.
+    noun_aliases: [members]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: member_template
+    short_desc: A reusable member template.
+    noun_aliases: [member_templates]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: software_component
+    short_desc: A software component a team owns.
+    noun_aliases: [software_components]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
+  - noun: content_source_connector
+    short_desc: Default content-source connectors.
+    noun_aliases: [content_source_connectors]
+    fields:
+      - id: source_type
+        expr: it.sourceType
+      - id: connector_ref
+        expr: it.connectorRef
+      - id: updated
+        expr: epochMs(it.updatedAt)
+
+  - noun: agent_execution
+    short_desc: An autonomous agent pipeline execution launch result.
+    noun_aliases: [agent_executions]
+    fields:
+      - id: execution_id
+        expr: it.executionId
+      - id: status
+        expr: it.status
+
+commands:
+  # ── work_item ──────────────────────────────────────────────────────────────────
+
+  - command: list work_item
+    verb: list
+    noun: work_item
+    short: List work items in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/workitems
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+        offset: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: flat_list
+      columns: [id, title, state, work_class, trigger_type, updated]
+
+  - command: get work_item
+    verb: get
+    noun: work_item
+    short: Get a single work item by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/workitems/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  # ── work_item sub-resources ────────────────────────────────────────────────────
+
+  - command: get work_item:timeline
+    verb: get
+    noun: work_item
+    noun_variant: timeline
+    short: Get the timeline rail for a work item
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/workitems/{{ctx.id}}/timeline
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: get work_item:budgets
+    verb: get
+    noun: work_item
+    noun_variant: budgets
+    short: Get budgets applying to a work item with current usage
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/workitems/{{ctx.id}}/budgets
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: get work_item:phase
+    verb: get
+    noun: work_item
+    noun_variant: phase
+    id_parts: 2
+    short: Get phase detail (workItemId/phaseId)
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/workitems/{{ctx.idParts[0]}}/phases/{{ctx.idParts[1]}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: list work_item:phase_artifacts
+    verb: list
+    noun: work_item
+    noun_variant: phase_artifacts
+    id_parts: 2
+    short: List artifacts for a phase of a work item (workItemId/phaseId)
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/workitems/{{ctx.idParts[0]}}/phases/{{ctx.idParts[1]}}/artifacts
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+
+  - command: get work_item:artifact
+    verb: get
+    noun: work_item
+    noun_variant: artifact
+    id_parts: 3
+    short: Get artifact content (workItemId/phaseId/artifactId)
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/workitems/{{ctx.idParts[0]}}/phases/{{ctx.idParts[1]}}/artifacts/{{ctx.idParts[2]}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  # ── work_item lifecycle actions ─────────────────────────────────────────────────
+
+  - command: execute work_item:resume
+    verb: execute
+    noun: work_item
+    noun_variant: resume
+    short: Resume a budget-blocked or gated work item
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /adlc/api/workitems/{{ctx.id}}/resume
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  - command: execute work_item:approve
+    verb: execute
+    noun: work_item
+    noun_variant: approve
+    short: Approve or reject a pending gate (--decision approve|reject)
+    handler_type: endpoint
+    flags:
+      - name: decision
+        description: "Approval decision (e.g. approve, reject)"
+        required: true
+      - name: reason
+        description: Optional reason for the decision
+    endpoint:
+      method: POST
+      path: /adlc/api/workitems/{{ctx.id}}/approve
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_params:
+        decision: flags.decision
+        reason: 'flags.reason != "" ? flags.reason : nil'
+      item_expr: it
+
+  # ── budget ────────────────────────────────────────────────────────────────────
+
+  - command: list budget
+    verb: list
+    noun: budget
+    short: List budgets in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/budgets
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, updated]
+
+  - command: get budget
+    verb: get
+    noun: budget
+    short: Get a single budget by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/budgets/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: get budget:usage
+    verb: get
+    noun: budget
+    noun_variant: usage
+    short: Get current-period usage for a budget
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/budgets/{{ctx.id}}/usage
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: execute budget:grant
+    verb: execute
+    noun: budget
+    noun_variant: grant
+    short: Apply one approval increment to a budget
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /adlc/api/budgets/{{ctx.id}}/grant
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── work_class CRUD ────────────────────────────────────────────────────────────
+
+  - command: list work_class
+    verb: list
+    noun: work_class
+    short: List work classes in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/work-classes
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+        offset: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, team, updated]
+
+  - command: get work_class
+    verb: get
+    noun: work_class
+    short: Get a single work class by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/work-classes/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create work_class
+    verb: create
+    noun: work_class
+    short: Create a work class from a YAML ask-body (--file workclass.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a WorkClass YAML ask-body
+        required: true
+    endpoint:
+      method: POST
+      path: /adlc/api/work-classes
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: update work_class
+    verb: update
+    noun: work_class
+    short: Update a work class from a YAML ask-body (--file workclass.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a WorkClass YAML ask-body
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/work-classes/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: delete work_class
+    verb: delete
+    noun: work_class
+    short: Delete a work class
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /adlc/api/work-classes/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── work_trigger CRUD ──────────────────────────────────────────────────────────
+
+  - command: list work_trigger
+    verb: list
+    noun: work_trigger
+    short: List triggers in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/triggers
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, updated]
+
+  - command: get work_trigger
+    verb: get
+    noun: work_trigger
+    short: Get a single trigger by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/triggers/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create work_trigger
+    verb: create
+    noun: work_trigger
+    short: Create a trigger from a YAML ask-body (--file trigger.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a Trigger YAML ask-body
+        required: true
+    endpoint:
+      method: POST
+      path: /adlc/api/triggers
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: update work_trigger
+    verb: update
+    noun: work_trigger
+    short: Update a trigger from a YAML ask-body (--file trigger.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a Trigger YAML ask-body
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/triggers/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: delete work_trigger
+    verb: delete
+    noun: work_trigger
+    short: Delete a trigger
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /adlc/api/triggers/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── capability CRUD ────────────────────────────────────────────────────────────
+
+  - command: list capability
+    verb: list
+    noun: capability
+    short: List capabilities in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/capabilities
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, updated]
+
+  - command: get capability
+    verb: get
+    noun: capability
+    short: Get a single capability by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/capabilities/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create capability
+    verb: create
+    noun: capability
+    short: Create a capability from a YAML ask-body (--file capability.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a Capability YAML ask-body
+        required: true
+    endpoint:
+      method: POST
+      path: /adlc/api/capabilities
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: update capability
+    verb: update
+    noun: capability
+    short: Update a capability from a YAML ask-body (--file capability.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a Capability YAML ask-body
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/capabilities/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: delete capability
+    verb: delete
+    noun: capability
+    short: Delete a capability
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /adlc/api/capabilities/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── risk_evaluator CRUD ────────────────────────────────────────────────────────
+
+  - command: list risk_evaluator
+    verb: list
+    noun: risk_evaluator
+    short: List risk evaluators in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/risk-evaluators
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, updated]
+
+  - command: get risk_evaluator
+    verb: get
+    noun: risk_evaluator
+    short: Get a single risk evaluator by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/risk-evaluators/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create risk_evaluator
+    verb: create
+    noun: risk_evaluator
+    short: Create a risk evaluator from a YAML ask-body (--file risk-evaluator.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a RiskEvaluator YAML ask-body
+        required: true
+    endpoint:
+      method: POST
+      path: /adlc/api/risk-evaluators
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: update risk_evaluator
+    verb: update
+    noun: risk_evaluator
+    short: Update a risk evaluator from a YAML ask-body (--file risk-evaluator.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a RiskEvaluator YAML ask-body
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/risk-evaluators/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: delete risk_evaluator
+    verb: delete
+    noun: risk_evaluator
+    short: Delete a risk evaluator
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /adlc/api/risk-evaluators/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── team CRUD ──────────────────────────────────────────────────────────────────
+
+  - command: list team
+    verb: list
+    noun: team
+    short: List teams in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/teams
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, updated]
+
+  - command: get team
+    verb: get
+    noun: team
+    short: Get a single team by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/teams/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create team
+    verb: create
+    noun: team
+    short: Create a team from a YAML ask-body (--file team.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a Team YAML ask-body
+        required: true
+    endpoint:
+      method: POST
+      path: /adlc/api/teams
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: update team
+    verb: update
+    noun: team
+    short: Update a team from a YAML ask-body (--file team.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a Team YAML ask-body
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/teams/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: delete team
+    verb: delete
+    noun: team
+    short: Delete a team
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /adlc/api/teams/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── member CRUD ─────────────────────────────────────────────────────────────────
+
+  - command: list member
+    verb: list
+    noun: member
+    short: List members in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/members
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, updated]
+
+  - command: get member
+    verb: get
+    noun: member
+    short: Get a single member by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/members/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create member
+    verb: create
+    noun: member
+    short: Create a member from a YAML ask-body (--file member.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a Member YAML ask-body
+        required: true
+    endpoint:
+      method: POST
+      path: /adlc/api/members
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: update member
+    verb: update
+    noun: member
+    short: Update a member from a YAML ask-body (--file member.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a Member YAML ask-body
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/members/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: delete member
+    verb: delete
+    noun: member
+    short: Delete a member
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /adlc/api/members/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── member_template CRUD ───────────────────────────────────────────────────────
+
+  - command: list member_template
+    verb: list
+    noun: member_template
+    short: List member templates in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/member-templates
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, updated]
+
+  - command: get member_template
+    verb: get
+    noun: member_template
+    short: Get a single member template by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/member-templates/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create member_template
+    verb: create
+    noun: member_template
+    short: Create a member template from a YAML ask-body (--file member-template.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a MemberTemplate YAML ask-body
+        required: true
+    endpoint:
+      method: POST
+      path: /adlc/api/member-templates
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: update member_template
+    verb: update
+    noun: member_template
+    short: Update a member template from a YAML ask-body (--file member-template.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a MemberTemplate YAML ask-body
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/member-templates/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: delete member_template
+    verb: delete
+    noun: member_template
+    short: Delete a member template
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /adlc/api/member-templates/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── software_component CRUD ─────────────────────────────────────────────────────
+
+  - command: list software_component
+    verb: list
+    noun: software_component
+    short: List software components in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/software-components
+      items_expr: it.items
+      get_id_expr: it.id
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [id, name, updated]
+
+  - command: get software_component
+    verb: get
+    noun: software_component
+    short: Get a single software component by ID
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/software-components/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: create software_component
+    verb: create
+    noun: software_component
+    short: Create a software component from a YAML ask-body (--file software-component.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a SoftwareComponent YAML ask-body
+        required: true
+    endpoint:
+      method: POST
+      path: /adlc/api/software-components
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: update software_component
+    verb: update
+    noun: software_component
+    short: Update a software component from a YAML ask-body (--file software-component.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a SoftwareComponent YAML ask-body
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/software-components/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  - command: delete software_component
+    verb: delete
+    noun: software_component
+    short: Delete a software component
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /adlc/api/software-components/{{ctx.id}}
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+
+  # ── content_source_connector ───────────────────────────────────────────────────
+
+  - command: list content_source_connector
+    verb: list
+    noun: content_source_connector
+    short: List content-source connectors in a project
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/content-source-connectors
+      items_expr: it.items
+      get_id_expr: it.sourceType
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      paging:
+        paging_strategy: flat_list
+      columns: [source_type, connector_ref, updated]
+
+  - command: get content_source_connector
+    verb: get
+    noun: content_source_connector
+    short: Get a single content-source connector by source type
+    handler_type: endpoint
+    endpoint:
+      path: /adlc/api/content-source-connectors/{{ctx.id}}
+      item_expr: it
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: execute content_source_connector:set_default
+    verb: execute
+    noun: content_source_connector
+    noun_variant: set_default
+    no_id: true
+    short: Set default content-source connectors from a YAML body (--file connectors.yaml)
+    handler_type: endpoint
+    flags:
+      - name: file
+        short: f
+        description: Path to a content-source connector mapping YAML
+        required: true
+    endpoint:
+      method: PUT
+      path: /adlc/api/content-source-connectors
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      body_file: flags.file
+      item_expr: it
+
+  # ── agent_execution ─────────────────────────────────────────────────────────────
+
+  - command: execute agent_execution
+    verb: execute
+    noun: agent_execution
+    no_id: true
+    short: Launch an autonomous agent pipeline execution
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /adlc/api/agent/executions
+      query_params:
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+      item_expr: it
+      columns: [execution_id, status]
