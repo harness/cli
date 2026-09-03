@@ -106,8 +106,8 @@ type uiTableModel struct {
 	activeTextKey     string // key of the ui_commands text entry currently rendered in detail
 	printOnExit       []string
 	launchUIId        string
-	launchUIHandlerFn string        // view entry's ui_handler_fn, set on quit
-	linkTarget        *uiLinkTarget // link entry to follow, set on quit
+	launchUIHandlerFn string         // view entry's ui_handler_fn, set on quit
+	linkTarget        *cmdctx.UILink // link entry to follow, set on quit
 
 	// picker mode — set via newUIPickerModel; enter selects and quits
 	pickerMode       bool
@@ -494,6 +494,37 @@ func (m uiTableModel) activeDetailCs() *spec.CommandSpec {
 	return m.getCs
 }
 
+// scopeFromCtx extracts the raw profile/org/project scope in effect on ctx, for
+// stashing on a UILink so replay can re-resolve auth instead of inheriting whatever
+// Auth pointer happens to be live in memory. Safe when ctx.Auth is nil (NoAuth).
+func scopeFromCtx(ctx *cmdctx.Ctx) (profile, org, project string) {
+	if ctx.Auth == nil {
+		return "", "", ""
+	}
+	return ctx.Auth.ExplicitProfile, ctx.Auth.OrgID, ctx.Auth.ProjectID
+}
+
+// buildUILink assembles a UILink for a link/up ui_commands hop: captures the scope in
+// effect on m.ctx and picks which screen fn will redraw it based on the target verb.
+func (m uiTableModel) buildUILink(verb, noun, id string) *cmdctx.UILink {
+	profile, org, project := scopeFromCtx(m.ctx)
+	screen := cmdctx.ScreenDetailForGet
+	if verb == VerbList {
+		screen = cmdctx.ScreenTable
+	}
+	return &cmdctx.UILink{
+		Verb:       verb,
+		Noun:       noun,
+		Id:         id,
+		Level:      m.ctx.Level,
+		Profile:    profile,
+		Org:        org,
+		Project:    project,
+		FlagValues: m.ctx.FlagValues,
+		Screen:     screen,
+	}
+}
+
 // dispatchUICommandKey handles a hotkey press against the active noun's
 // ui_commands list: re-renders in place for a text entry, or queues a view/link
 // hand-off and quits for view/link entries. handled=false means key isn't bound.
@@ -516,7 +547,7 @@ func (m uiTableModel) dispatchUICommandKey(key string) (uiTableModel, tea.Cmd, b
 			m.launchUIHandlerFn = uc.UIHandlerFn
 			return m, tea.Quit, true
 		case spec.UICommandLink:
-			m.linkTarget = &uiLinkTarget{verb: uc.Verb, noun: uc.Noun, id: m.detail.id}
+			m.linkTarget = m.buildUILink(uc.Verb, uc.Noun, m.detail.id)
 			return m, tea.Quit, true
 		case spec.UICommandUp:
 			id := m.detail.upIds[uc.Key]
@@ -530,7 +561,7 @@ func (m uiTableModel) dispatchUICommandKey(key string) (uiTableModel, tea.Cmd, b
 			if verb == "" {
 				verb = VerbGet
 			}
-			m.linkTarget = &uiLinkTarget{verb: verb, noun: uc.Noun, id: id}
+			m.linkTarget = m.buildUILink(verb, uc.Noun, id)
 			return m, tea.Quit, true
 		}
 	}
@@ -1259,23 +1290,23 @@ func RunUIDetailForGet(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
 // dispatchUILink follows a link-type ui_commands entry once the overlay quits:
 // a "list" target opens that noun's browse overlay scoped to the current id as
 // parent; a "get" target opens Case 4's detail-only overlay directly on the id.
-func dispatchUILink(ctx *cmdctx.Ctx, lt *uiLinkTarget) error {
-	targetCs := ctx.Resolver.GetSpec(lt.verb, lt.noun)
+func dispatchUILink(ctx *cmdctx.Ctx, lt *cmdctx.UILink) error {
+	targetCs := ctx.Resolver.GetSpec(lt.Verb, lt.Noun)
 	if targetCs == nil {
-		return fmt.Errorf("ui_commands link target %s %q not found", lt.verb, lt.noun)
+		return fmt.Errorf("ui_commands link target %s %q not found", lt.Verb, lt.Noun)
 	}
-	switch lt.verb {
+	switch lt.Verb {
 	case VerbList:
 		if targetCs.Endpoint == nil {
-			return fmt.Errorf("ui_commands link target %s %q has no endpoint", lt.verb, lt.noun)
+			return fmt.Errorf("ui_commands link target %s %q has no endpoint", lt.Verb, lt.Noun)
 		}
 		listCtx := buildPickerCtx(ctx, targetCs)
-		listCtx.ParentId = lt.id
+		listCtx.ParentId = lt.Id
 		return RunUITable(listCtx, targetCs.Endpoint)
 	case VerbGet:
-		getCtx := buildDetailCtx(ctx, targetCs, lt.id)
+		getCtx := buildDetailCtx(ctx, targetCs, lt.Id)
 		return RunUIDetailForGet(getCtx, targetCs)
 	default:
-		return fmt.Errorf("ui_commands link target %s %q: unsupported verb", lt.verb, lt.noun)
+		return fmt.Errorf("ui_commands link target %s %q: unsupported verb", lt.Verb, lt.Noun)
 	}
 }
