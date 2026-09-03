@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 // segmentWriteKey is injected at build time via ldflags:
@@ -86,18 +87,23 @@ func (s *SegmentBackend) Close() {
 }
 
 // send POSTs a single Segment track event on its own goroutine and returns
-// immediately; errors are dropped since telemetry is best-effort.
-func (s *SegmentBackend) send(event string, properties map[string]any) {
+// immediately; errors are dropped since telemetry is best-effort. Uses
+// userID as Segment's userId when set, else falls back to anonymousId.
+func (s *SegmentBackend) send(event string, userID string, properties map[string]any) {
 	if s.disabled.Load() {
 		return
 	}
 
-	body, err := json.Marshal(map[string]any{
-		"writeKey":    s.writeKey,
-		"anonymousId": s.anonymousID,
-		"event":       event,
-		"properties":  properties,
-		"messageId":   uuid.NewString(),
+	identity := map[string]any{"anonymousId": s.anonymousID}
+	if userID != "" {
+		identity = map[string]any{"userId": userID}
+	}
+
+	fields := map[string]any{
+		"writeKey":   s.writeKey,
+		"event":      event,
+		"properties": properties,
+		"messageId":  uuid.NewString(),
 		"context": map[string]any{
 			"channel": "server",
 			"ip":      "0.0.0.0", // Explicit opt-out to prevent auto-population
@@ -106,7 +112,11 @@ func (s *SegmentBackend) send(event string, properties map[string]any) {
 				"version": hbase.Version,
 			},
 		},
-	})
+	}
+	for k, v := range identity {
+		fields[k] = v
+	}
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return
 	}
@@ -114,6 +124,11 @@ func (s *SegmentBackend) send(event string, properties map[string]any) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				hlog.Debug("telemetry: recovered panic", "err", r)
+			}
+		}()
 
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 		defer cancel()
@@ -135,30 +150,32 @@ func (s *SegmentBackend) send(event string, properties map[string]any) {
 
 // RecordIntent sends a "Command Run" track event.
 func (s *SegmentBackend) RecordIntent(e CommandIntent) {
-	s.send(eventCommandExecuted, map[string]any{
-		"verb":        e.Verb,
-		"noun":        e.Noun,
-		"module":      e.Module,
-		"flags_set":   e.FlagsSet,
-		"account_id":  e.AccountID,
-		"user_domain": e.UserDomain,
-		"token_kind":  e.TokenKind,
-		"auth_source": e.AuthSource,
-		"run_id":      e.RunID,
-		"os":          e.Env.OS,
-		"arch":        e.Env.Arch,
-		"version":     e.Env.Version,
-		"is_tty":      e.Env.IsTTY,
-		"is_pipeline": e.Env.IsPipelineExecution,
-		"is_dev":      e.Env.IsDev,
-		"aiagent":     e.Env.AIAgent,
-		"locale":      e.Env.Locale,
+	s.send(eventCommandExecuted, e.UserID, map[string]any{
+		"verb":         e.Verb,
+		"noun":         e.Noun,
+		"module":       e.Module,
+		"flags_set":    e.FlagsSet,
+		"account_id":   e.AccountID,
+		"user_domain":  e.UserDomain,
+		"user_type":    e.UserType,
+		"token_kind":   e.TokenKind,
+		"auth_source":  e.AuthSource,
+		"run_id":       e.RunID,
+		"os":           e.Env.OS,
+		"arch":         e.Env.Arch,
+		"version":      e.Env.Version,
+		"is_tty":       e.Env.IsTTY,
+		"is_pipeline":  e.Env.IsPipelineExecution,
+		"is_dev":       e.Env.IsDev,
+		"aiagent":      e.Env.AIAgent,
+		"locale":       e.Env.Locale,
+		"term_program": e.Env.TermProgram,
 	})
 }
 
 // RecordInstall sends a "CLI Installed" track event.
 func (s *SegmentBackend) RecordInstall(e InstallEvent) {
-	s.send(eventInstalled, map[string]any{
+	s.send(eventInstalled, "", map[string]any{
 		"run_id":       e.RunID,
 		"install_type": e.InstallType,
 		"os":           e.Env.OS,
@@ -167,27 +184,30 @@ func (s *SegmentBackend) RecordInstall(e InstallEvent) {
 		"is_dev":       e.Env.IsDev,
 		"aiagent":      e.Env.AIAgent,
 		"locale":       e.Env.Locale,
+		"term_program": e.Env.TermProgram,
 	})
 }
 
 // RecordError sends a "Command Error" track event.
 func (s *SegmentBackend) RecordError(e CommandError) {
-	s.send(eventCommandFailed, map[string]any{
-		"verb":        e.Verb,
-		"noun":        e.Noun,
-		"module":      e.Module,
-		"account_id":  e.AccountID,
-		"user_domain": e.UserDomain,
-		"token_kind":  e.TokenKind,
-		"auth_source": e.AuthSource,
-		"run_id":      e.RunID,
-		"category":    string(e.Category),
-		"duration_ms": e.DurationMs,
-		"os":          e.Env.OS,
-		"arch":        e.Env.Arch,
-		"version":     e.Env.Version,
-		"is_dev":      e.Env.IsDev,
-		"aiagent":     e.Env.AIAgent,
-		"locale":      e.Env.Locale,
+	s.send(eventCommandFailed, e.UserID, map[string]any{
+		"verb":         e.Verb,
+		"noun":         e.Noun,
+		"module":       e.Module,
+		"account_id":   e.AccountID,
+		"user_domain":  e.UserDomain,
+		"user_type":    e.UserType,
+		"token_kind":   e.TokenKind,
+		"auth_source":  e.AuthSource,
+		"run_id":       e.RunID,
+		"category":     string(e.Category),
+		"duration_ms":  e.DurationMs,
+		"os":           e.Env.OS,
+		"arch":         e.Env.Arch,
+		"version":      e.Env.Version,
+		"is_dev":       e.Env.IsDev,
+		"aiagent":      e.Env.AIAgent,
+		"locale":       e.Env.Locale,
+		"term_program": e.Env.TermProgram,
 	})
 }

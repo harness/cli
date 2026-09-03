@@ -72,6 +72,8 @@ type Env struct {
 	AIAgent string
 
 	Locale string // from LANG/LC_ALL/LC_CTYPE, e.g. "en_US.UTF-8"
+
+	TermProgram string // TERM_PROGRAM env var, e.g. "vscode", "iTerm.app"
 }
 
 // NewEnv captures the current runtime environment. Call once at startup.
@@ -87,6 +89,7 @@ func NewEnv() Env {
 		PipelineID:          pipelineID,
 		AIAgent:             DetectAgent(),
 		Locale:              locale(),
+		TermProgram:         os.Getenv("TERM_PROGRAM"),
 	}
 }
 
@@ -137,6 +140,12 @@ type CommandIntent struct {
 	// Never the full email address.
 	UserDomain string
 
+	// UserID is the Harness user uuid from the resolved profile, or "" if unset.
+	UserID string
+
+	// UserType is config.UserTypeUser or config.UserTypeServiceAccount, or "" if unset.
+	UserType string
+
 	// TokenKind is the type of credential in use: "pat", "sat", "jwt", or "".
 	TokenKind string
 
@@ -158,6 +167,8 @@ type CommandError struct {
 	Module     string
 	AccountID  string
 	UserDomain string
+	UserID     string
+	UserType   string
 	TokenKind  string
 	AuthSource string
 	RunID      string
@@ -256,14 +267,20 @@ func RecordIntent(e CommandIntent) {
 	if Disabled() {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			hlog.Debug("telemetry: recovered panic", "err", r)
+		}
+	}()
 	hlog.Debug("telemetry: intent",
 		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
 		"flags", e.FlagsSet, "account", e.AccountID, "domain", e.UserDomain,
-		"token_kind", e.TokenKind, "auth_source", e.AuthSource,
+		"user_id", e.UserID, "user_type", e.UserType, "token_kind", e.TokenKind, "auth_source", e.AuthSource,
 		"run_id", e.RunID, "os", e.Env.OS, "arch", e.Env.Arch,
 		"version", e.Env.Version, "is_tty", e.Env.IsTTY,
 		"is_pipeline", e.Env.IsPipelineExecution,
 		"aiagent", e.Env.AIAgent, "locale", e.Env.Locale,
+		"term_program", e.Env.TermProgram,
 		"backend", activeBackend != nil)
 	if activeBackend == nil {
 		return
@@ -276,10 +293,15 @@ func RecordError(e CommandError) {
 	if Disabled() {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			hlog.Debug("telemetry: recovered panic", "err", r)
+		}
+	}()
 	hlog.Debug("telemetry: error",
 		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
 		"category", e.Category, "duration_ms", e.DurationMs,
-		"account", e.AccountID, "token_kind", e.TokenKind,
+		"account", e.AccountID, "user_id", e.UserID, "user_type", e.UserType, "token_kind", e.TokenKind,
 		"auth_source", e.AuthSource, "run_id", e.RunID,
 		"backend", activeBackend != nil)
 	if activeBackend == nil {
@@ -293,6 +315,11 @@ func RecordInstall(e InstallEvent) {
 	if Disabled() {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			hlog.Debug("telemetry: recovered panic", "err", r)
+		}
+	}()
 	hlog.Debug("telemetry: install",
 		"run_id", e.RunID, "install_type", e.InstallType,
 		"os", e.Env.OS, "arch", e.Env.Arch,

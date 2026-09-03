@@ -107,6 +107,23 @@ func runSSOLogin(ctx *cmdctx.Ctx, cfg *config.Config, profileName string) error 
 		}
 	}
 
+	// Look up the Harness user uuid via currentUser. The JWT's sub claim is a Keycloak
+	// uuid, not the Harness one, so this is the only way to get it. Best-effort — SSO
+	// already has everything else it needs (email, account) from the JWT, so a failure
+	// here must not fail login.
+	var userType, userID string
+	if currentUser, cerr := fetchCurrentUser(&auth.ResolvedAuth{
+		AuthType:  auth.AuthTypeSSO,
+		APIUrl:    apiURL,
+		AccountID: accountID,
+		SSOToken:  token,
+	}); cerr != nil {
+		hlog.Debug("fetching current user for SSO login failed", "error", cerr)
+	} else if _, uuid := currentUserFields(currentUser); uuid != "" {
+		userType = config.UserTypeUser
+		userID = uuid
+	}
+
 	cfg.Profiles[profileName] = &config.Profile{
 		APIUrl:    apiURL,
 		UIUrl:     resolveUIURL(subdomain),
@@ -115,6 +132,8 @@ func runSSOLogin(ctx *cmdctx.Ctx, cfg *config.Config, profileName string) error 
 		ProjectID: projectID,
 		AuthType:  auth.AuthTypeSSO,
 		Email:     email,
+		UserType:  userType,
+		UserID:    userID,
 	}
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving profile: %w", err)

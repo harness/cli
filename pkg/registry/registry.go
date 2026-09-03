@@ -1204,12 +1204,14 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	return nil
 }
 
-func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, tokenKind, authSource string) {
+func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, userType, tokenKind, authSource string) {
 	if a == nil {
 		return
 	}
 	accountID = a.AccountID
 	userDomain = telemetry.UserDomainFromEmail(a.Email)
+	userID = a.UserID
+	userType = a.UserType
 	tokenKind = string(a.TokenKind)
 	if a.Source == auth.SourceEnv {
 		authSource = "env"
@@ -1241,7 +1243,7 @@ func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmd
 	}
 	var flags []string
 	cmd.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
-	accountID, userDomain, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	accountID, userDomain, userID, userType, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordIntent(telemetry.CommandIntent{
 		Verb:       cs.Verb,
 		Noun:       cs.FullNoun(),
@@ -1249,6 +1251,8 @@ func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmd
 		FlagsSet:   flags,
 		AccountID:  accountID,
 		UserDomain: userDomain,
+		UserID:     userID,
+		UserType:   userType,
 		TokenKind:  tokenKind,
 		AuthSource: authSource,
 		RunID:      hbase.RunID,
@@ -1260,13 +1264,15 @@ func (r *Registry) emitError(cs *spec.CommandSpec, ctx *cmdctx.Ctx, err error, s
 	if telemetry.Disabled() {
 		return
 	}
-	accountID, userDomain, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	accountID, userDomain, userID, userType, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordError(telemetry.CommandError{
 		Verb:       cs.Verb,
 		Noun:       cs.FullNoun(),
 		Module:     cs.Module,
 		AccountID:  accountID,
 		UserDomain: userDomain,
+		UserID:     userID,
+		UserType:   userType,
 		TokenKind:  tokenKind,
 		AuthSource: authSource,
 		RunID:      hbase.RunID,

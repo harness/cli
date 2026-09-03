@@ -24,15 +24,24 @@ const (
 	AuthTypeSSO = "sso" // OAuth2 JWT obtained via browser login
 )
 
+// UserType identifies the kind of principal a profile's token belongs to.
+const (
+	UserTypeUser           = "USER"            // a PAT or SSO-authenticated human user
+	UserTypeServiceAccount = "SERVICE_ACCOUNT" // a SAT-authenticated service account
+)
+
 type Profile struct {
-	APIUrl      string   `yaml:"api_url"`
-	UIUrl       string   `yaml:"ui_url,omitempty"` // Harness UI base URL; set for SSO profiles from JWT subdomain
-	AccountID   string   `yaml:"account_id"`
-	OrgID       string   `yaml:"org_id,omitempty"`
-	ProjectID   string   `yaml:"project_id,omitempty"`
-	RegistryURL string   `yaml:"registry_url,omitempty"`
-	AuthType    AuthType `yaml:"auth_type,omitempty"` // omitted for existing PAT profiles
-	Email       string   `yaml:"email,omitempty"`     // user email; populated on login/status, empty for legacy profiles
+	APIUrl           string   `yaml:"api_url"`
+	UIUrl            string   `yaml:"ui_url,omitempty"` // Harness UI base URL; set for SSO profiles from JWT subdomain
+	AccountID        string   `yaml:"account_id"`
+	OrgID            string   `yaml:"org_id,omitempty"`
+	ProjectID        string   `yaml:"project_id,omitempty"`
+	RegistryURL      string   `yaml:"registry_url,omitempty"`
+	AuthType         AuthType `yaml:"auth_type,omitempty"`          // omitted for existing PAT profiles
+	Email            string   `yaml:"email,omitempty"`              // user email; populated on login/status, empty for legacy profiles
+	UserType         string   `yaml:"user_type,omitempty"`          // UserTypeUser or UserTypeServiceAccount; empty for legacy profiles or when undetermined (e.g. SSO)
+	UserID           string   `yaml:"user_id,omitempty"`            // Harness user uuid; set when UserType == UserTypeUser
+	ServiceAccountID string   `yaml:"service_account_id,omitempty"` // service account's own identifier (SATs have no uuid); set when UserType == UserTypeServiceAccount
 }
 
 type Config struct {
