@@ -267,6 +267,11 @@ func RecordIntent(e CommandIntent) {
 	if Disabled() {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			hlog.Debug("telemetry: recovered panic", "err", r)
+		}
+	}()
 	hlog.Debug("telemetry: intent",
 		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
 		"flags", e.FlagsSet, "account", e.AccountID, "domain", e.UserDomain,
@@ -288,6 +293,11 @@ func RecordError(e CommandError) {
 	if Disabled() {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			hlog.Debug("telemetry: recovered panic", "err", r)
+		}
+	}()
 	hlog.Debug("telemetry: error",
 		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
 		"category", e.Category, "duration_ms", e.DurationMs,
@@ -305,6 +315,11 @@ func RecordInstall(e InstallEvent) {
 	if Disabled() {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			hlog.Debug("telemetry: recovered panic", "err", r)
+		}
+	}()
 	hlog.Debug("telemetry: install",
 		"run_id", e.RunID, "install_type", e.InstallType,
 		"os", e.Env.OS, "arch", e.Env.Arch,

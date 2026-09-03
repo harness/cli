@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 // segmentWriteKey is injected at build time via ldflags:
@@ -123,6 +124,11 @@ func (s *SegmentBackend) send(event string, userID string, properties map[string
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				hlog.Debug("telemetry: recovered panic", "err", r)
+			}
+		}()
 
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 		defer cancel()
