@@ -10,8 +10,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/cli/pkg/registry"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/registry"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // TestLoadAllEmbeddedSpecs verifies that every bundled *.spec.yaml parses

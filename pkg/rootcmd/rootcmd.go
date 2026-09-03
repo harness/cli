@@ -11,14 +11,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/hlog"
-	"github.com/harness/cli/pkg/plugin"
-	"github.com/harness/cli/pkg/registry"
-	"github.com/harness/cli/pkg/release"
-	"github.com/harness/cli/pkg/telemetry"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/plugin"
+	"github.com/harness/cli/v3/pkg/registry"
+	"github.com/harness/cli/v3/pkg/release"
+	"github.com/harness/cli/v3/pkg/telemetry"
 )
 
 // firstArg returns os.Args[1], or "" if no argument was passed.

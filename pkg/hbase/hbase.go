@@ -18,10 +18,10 @@ import (
 // requests from a single CLI invocation.
 var RunID = uuid.New().String()
 
-// overridden at build time via ldflags: -X github.com/harness/cli/pkg/hbase.Version=x.y.z
+// overridden at build time via ldflags: -X github.com/harness/cli/v3/pkg/hbase.Version=x.y.z
 var Version = "0.1.0-dev"
 
-// overridden at build time via ldflags: -X github.com/harness/cli/pkg/hbase.BuildTime=yyyymmddhhmmZ
+// overridden at build time via ldflags: -X github.com/harness/cli/v3/pkg/hbase.BuildTime=yyyymmddhhmmZ
 var BuildTime = ""
 
 // TimeoutExitCode is the exit code used when a command is killed by --timeout.

@@ -13,9 +13,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/registry"
 )
 
 // The remaining handlers reach the API through client.New(ctx), so covering them

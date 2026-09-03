@@ -4,9 +4,9 @@
 package core
 
 import (
-	"github.com/harness/cli/modules/core/auth"
-	"github.com/harness/cli/modules/core/mgmt"
-	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/v3/modules/core/auth"
+	"github.com/harness/cli/v3/modules/core/mgmt"
+	"github.com/harness/cli/v3/pkg/registry"
 )
 
 const (

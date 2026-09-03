@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // TimeoutError is the cause set on the context when --timeout expires.

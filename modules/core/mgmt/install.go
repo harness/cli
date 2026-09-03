@@ -21,10 +21,10 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/hlog"
-	"github.com/harness/cli/pkg/release"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/release"
 )
 
 var reReleaseVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)

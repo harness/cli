@@ -30,11 +30,11 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/config"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hlog"
 )
 
 // ErrorCategory is a coarse, enum-safe classification of a command failure.

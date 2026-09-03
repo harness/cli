@@ -14,15 +14,15 @@ import (
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/endpoint"
-	"github.com/harness/cli/pkg/exprenv"
-	"github.com/harness/cli/pkg/extractutil"
-	"github.com/harness/cli/pkg/format"
-	"github.com/harness/cli/pkg/spec"
-	"github.com/harness/cli/pkg/strutil"
-	"github.com/harness/cli/pkg/tui"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/endpoint"
+	"github.com/harness/cli/v3/pkg/exprenv"
+	"github.com/harness/cli/v3/pkg/extractutil"
+	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/spec"
+	"github.com/harness/cli/v3/pkg/strutil"
+	"github.com/harness/cli/v3/pkg/tui"
 )
 
 // uiDetailModel holds the state for the drilldown detail overlay.

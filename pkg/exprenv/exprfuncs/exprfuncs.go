@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/format"
 )
 
 // HarScopeUrl returns the HAR UI URL path segment for the given auth map.

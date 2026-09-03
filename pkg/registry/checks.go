@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // CheckFunctions verifies that every function reference in all registered specs

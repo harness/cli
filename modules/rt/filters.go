@@ -6,7 +6,7 @@ package rt
 import (
 	"strings"
 
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 const loadTestFilterParamsID = "loadtest_filters"

@@ -12,11 +12,11 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/format"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 func GetModuleHandler(ctx *cmdctx.Ctx) error {

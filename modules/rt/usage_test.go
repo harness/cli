@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/exprenv"
-	"github.com/harness/cli/pkg/format"
-	"github.com/harness/cli/pkg/registry"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/exprenv"
+	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/registry"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // reportHeader is the header the service writes, as it arrives after JSON decoding.

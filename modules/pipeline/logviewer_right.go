@@ -12,9 +12,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/cli/pkg/execgraph"
-	"github.com/harness/cli/pkg/format"
-	"github.com/harness/cli/pkg/tui"
+	"github.com/harness/cli/v3/pkg/execgraph"
+	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/tui"
 )
 
 type rightTab int

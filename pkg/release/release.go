@@ -25,8 +25,8 @@ import (
 	"golang.org/x/mod/semver"
 	"golang.org/x/term"
 
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hlog"
 )
 
 // ErrReleaseNotFound is returned by FetchReleaseByTag when the GitHub API

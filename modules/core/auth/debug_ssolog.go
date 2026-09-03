@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/config"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/logstream"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/logstream"
 )
 
 // debugSSOLogBodyLimit caps how much of each response body we print inline.

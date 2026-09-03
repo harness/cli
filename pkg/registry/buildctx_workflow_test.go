@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 func buildWorkflowTestCmd(t *testing.T, r *Registry, cs *spec.CommandSpec) *cobra.Command {

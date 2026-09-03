@@ -13,7 +13,7 @@ import (
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 const executeRegistryMigrateHandlerID = "execute_registry_migrate"

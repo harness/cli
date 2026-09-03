@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 // pkgmgrExecute is the shared 4-phase flow for all package manager wrappers:

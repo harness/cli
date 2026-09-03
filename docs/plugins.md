@@ -109,7 +109,7 @@ If the plugin binary is not on `PATH`, `harness` prints a clear error with insta
 5. Add `./modules/<name>` to `go.work` for local development.
 6. Add the `replace` directive in the module's `go.mod` for local dev:
    ```
-   replace github.com/harness/cli => ../../
+   replace github.com/harness/cli/v3 => ../../
    ```
 7. Run `task check:specs` to validate.
 8. No change to `cmd/harness/main-harness.go` is needed — plugin dispatch is driven by the spec.
@@ -122,7 +122,7 @@ If the plugin binary is not on `PATH`, `harness` prints a clear error with insta
 |---|---|---|
 | `pkg/` | external libs | anything under `modules/` |
 | `modules/<name>/` (builtin) | `pkg/`, external libs | other modules |
-| `modules/<name>/` (plugin) | root module (`github.com/harness/cli`), external libs | other modules |
+| `modules/<name>/` (plugin) | root module (`github.com/harness/cli/v3`), external libs | other modules |
 | `cmd/harness/` | `pkg/`, builtin modules | plugin modules |
 
 Modules must not import each other.

@@ -19,13 +19,13 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/hlog"
-	"github.com/harness/cli/pkg/plugin"
-	"github.com/harness/cli/pkg/release"
-	"github.com/harness/cli/pkg/spec"
-	"github.com/harness/cli/pkg/specloader"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/plugin"
+	"github.com/harness/cli/v3/pkg/release"
+	"github.com/harness/cli/v3/pkg/spec"
+	"github.com/harness/cli/v3/pkg/specloader"
 )
 
 // GithubPluginRef identifies a plugin release on GitHub: the "owner/repo" it
