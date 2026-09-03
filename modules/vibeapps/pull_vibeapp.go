@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 
 	"github.com/harness/cli/pkg/client"
@@ -84,7 +85,11 @@ func appRepoURL(ctx *cmdctx.Ctx, appID string) (string, error) {
 	return repoURL, nil
 }
 
-// pullVibeappWorkflow implements "pull vibeapp <id> [<dest-dir>]" (git clone).
+// pullVibeappWorkflow implements "pull vibeapp <id> [<dest-dir>]" (git clone). A
+// manually cloned-then-edited checkout is unambiguously that app's directory, so it
+// writes the .harness/vibeapp.yaml link file on success — same as "execute
+// vibeapp:deploy" does on first deploy — so a later deploy from here updates this app
+// instead of creating a duplicate.
 func pullVibeappWorkflow(ctx *cmdctx.Ctx) error {
 	if err := requireGit(); err != nil {
 		return err
@@ -95,9 +100,21 @@ func pullVibeappWorkflow(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
+	destDir := repoDirFromURL(repoURL)
 	args := []string{"clone", repoURL}
 	if len(ctx.Args) > 0 {
-		args = append(args, ctx.Args[0])
+		destDir = ctx.Args[0]
+		args = append(args, destDir)
 	}
-	return runGitCommand(ctx, repoURL, args...)
+	if err := runGitCommand(ctx, repoURL, args...); err != nil {
+		return err
+	}
+	return writeVibeappLink(destDir, ctx.Id)
+}
+
+// repoDirFromURL mirrors git clone's own default destination-directory rule:
+// the URL's last path segment with a trailing ".git" stripped.
+func repoDirFromURL(repoURL string) string {
+	base := path.Base(repoURL)
+	return strings.TrimSuffix(base, ".git")
 }

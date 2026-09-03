@@ -9,6 +9,28 @@ help_text: |
   Launchpad. Each app is backed by a managed Git repo and gets a preview URL;
   approved apps can also be published to a production URL.
 
+  ### Deploying
+
+  Two commands trigger a deployment, for two different audiences:
+
+      harness execute vibeapp:deploy [<id>] [--force] [--no-follow] [--workflow <name>]
+      harness execute vibeapp:run <id> [--source-version <commit>] [--workflow <name>]
+
+  `deploy` is the one to reach for from a project directory: it zips the
+  current git working tree (respecting `.gitignore`), pushes it as a new
+  source, creates the app on first run or updates the one this directory is
+  already linked to, and streams the run's log to completion. It writes a
+  `.harness/vibeapp.yaml` link file (`app_id: <id>`) on the first successful
+  create/adopt so later `deploy` runs from the same directory know which app
+  to update instead of creating a duplicate — remove that file to unlink a
+  directory. `run` is the lower-level trigger for an app that already has a
+  ready source: it starts a deployment from the app's current (or a pinned
+  `--source-version`) commit without touching any local files or git state,
+  which is what CI/scripts/agents that already have an app id typically want.
+
+  See `harness execute vibeapp:deploy --help` / `harness execute vibeapp:run
+  --help` for the full flag reference.
+
   ### Nouns
 
   {{nouns}}
@@ -235,7 +257,7 @@ commands:
       create_body_wrap: ""
       item_expr: it
       text_header: "\nCreated Vibe App {{it.name}} ({{it.id}})\n"
-      text_footer: "\nTo deploy: harness execute vibeapp:deploy {{it.id}}\n"
+      text_footer: "\nTo deploy: harness execute vibeapp:run {{it.id}}\n"
 
   - command: update vibeapp
     verb: update
@@ -290,19 +312,22 @@ commands:
       item_expr: it
       text_header: "\nRestored Vibe App {{ctx.id}}\n"
 
-  - command: execute vibeapp:deploy
+  - command: execute vibeapp:run
     verb: execute
     noun: vibeapp
-    noun_variant: deploy
+    noun_variant: run
     fields_noun: vibeapp_deployment
-    short: "Trigger a deployment for a Vibe App: harness execute vibeapp:deploy <id> [--source-version <commit>] [--workflow <name>]"
+    short: "Trigger a deployment for a Vibe App: harness execute vibeapp:run <id> [--source-version <commit>] [--workflow <name>]"
     long: |
       Triggers a deployment (run/preview) for a Vibe App from its latest ready source
       commit, or a pinned commit via --source-version. Requires a token (PAT/SAT/SSO) —
       local dev with no credentials falls back to the server's own configured token, but
       real CLI calls must be authenticated.
+
+      For a Netlify/Vercel-style "zip my project dir and deploy it" flow, see
+      'harness execute vibeapp:deploy' instead.
     handler_type: endpoint
-    follow_fn: vibeapp_deploy_follow
+    follow_fn: vibeapp_run_follow
     flags:
       - name: source-version
         description: "Pin the deployment to a specific source commit (default: latest ready commit)"
@@ -324,6 +349,34 @@ commands:
         To follow:
         harness get vibeapp_deployment {{ctx.id}}/{{it.id}}
         harness get vibeapp_deployment:log {{ctx.id}}/{{it.id}} --follow
+
+  - command: execute vibeapp:deploy
+    verb: execute
+    noun: vibeapp
+    noun_variant: deploy
+    no_id: true
+    allows_id: true
+    short: "Zip the current project dir, push it as a new source, and run it: harness execute vibeapp:deploy [<id>] [--force] [--no-follow] [--workflow <name>]"
+    long: |
+      Netlify/Vercel-style deploy: zips the current git working tree (via 'git ls-files',
+      honoring .gitignore), pushes it as a new source, creates or updates the linked Vibe
+      App, and triggers a run — streaming its log by default.
+
+      Must be run inside a git repository. On first deploy from a directory, writes
+      .harness/vibeapp.yaml linking it to the app for subsequent deploys. See
+      'harness execute vibeapp:run' for triggering a run against an existing source
+      commit without zipping/pushing anything new.
+    handler_type: workflow
+    workflow_id: vibeapp_deploy
+    flags:
+      - name: force
+        is_bool: true
+        description: Skip the confirmation prompt when adopting an explicitly-passed existing app id
+      - name: no-follow
+        is_bool: true
+        description: Trigger the run and exit immediately instead of streaming its log
+      - name: workflow
+        description: 'Workflow name to run (default: "platform-default")'
 
   # ── vibeapp_deployment ──────────────────────────────────────────────────────────
 

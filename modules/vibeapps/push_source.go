@@ -58,23 +58,6 @@ func pushVibeappSourceWorkflow(ctx *cmdctx.Ctx) error {
 	}
 	localFile := ctx.Args[0]
 
-	f, err := os.Open(localFile)
-	if err != nil {
-		return fmt.Errorf("opening %q: %w", localFile, err)
-	}
-	defer f.Close()
-
-	fi, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat %q: %w", localFile, err)
-	}
-
-	sum := md5.New()
-	if _, err := io.Copy(sum, f); err != nil {
-		return fmt.Errorf("reading %q: %w", localFile, err)
-	}
-	md5Hex := hex.EncodeToString(sum.Sum(nil))
-
 	name := cmdctx.GetString(ctx.FlagValues, "name")
 	if name == "" {
 		base := filepath.Base(localFile)
@@ -82,6 +65,43 @@ func pushVibeappSourceWorkflow(ctx *cmdctx.Ctx) error {
 	}
 	appID := cmdctx.GetString(ctx.FlagValues, "app")
 	description := cmdctx.GetString(ctx.FlagValues, "description")
+
+	status, err := createAndUploadSource(ctx, localFile, name, appID, description)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\nSource ready: %s (%s)\n", status.ID, status.Status)
+	if appID != "" {
+		fmt.Printf("Intaken as a new version on app %s.\n", appID)
+	} else {
+		fmt.Printf("\nTo create an app from it:\nharness create vibeapp %s --source-id %s\n", name, status.ID)
+	}
+	return nil
+}
+
+// createAndUploadSource creates a source from localFile's bytes — bound directly to
+// appID's app if appID is non-empty, or space-scoped and unbound otherwise — uploads
+// the file to the returned target(s), and polls until it becomes ready. Shared by
+// "push vibeapp_source" and "execute vibeapp:deploy" (which zips the cwd into a temp
+// file and passes it here rather than duplicating the create/upload/poll sequence).
+func createAndUploadSource(ctx *cmdctx.Ctx, localFile, name, appID, description string) (*sourceStatusResponse, error) {
+	f, err := os.Open(localFile)
+	if err != nil {
+		return nil, fmt.Errorf("opening %q: %w", localFile, err)
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat %q: %w", localFile, err)
+	}
+
+	sum := md5.New()
+	if _, err := io.Copy(sum, f); err != nil {
+		return nil, fmt.Errorf("reading %q: %w", localFile, err)
+	}
+	md5Hex := hex.EncodeToString(sum.Sum(nil))
 
 	body := map[string]any{
 		"name": name,
@@ -109,36 +129,25 @@ func pushVibeappSourceWorkflow(ctx *cmdctx.Ctx) error {
 	fmt.Fprintf(os.Stderr, "Creating source %q (%s) ...\n", name, formatBytes(fi.Size()))
 	raw, _, err := client.New(ctx).Post(path, nil, body)
 	if err != nil {
-		return fmt.Errorf("creating source: %w", err)
+		return nil, fmt.Errorf("creating source: %w", err)
 	}
 	var created createSourceResponse
 	if err := decodeInto(raw, &created); err != nil {
-		return fmt.Errorf("parsing create-source response: %w", err)
+		return nil, fmt.Errorf("parsing create-source response: %w", err)
 	}
 	if created.Source.ID == "" {
-		return fmt.Errorf("create-source response had no source id")
+		return nil, fmt.Errorf("create-source response had no source id")
 	}
 
 	for _, target := range created.Upload.Files {
 		fmt.Fprintf(os.Stderr, "Uploading %s ...\n", target.Path)
 		if err := putUploadFile(ctx, target, localFile); err != nil {
-			return fmt.Errorf("uploading %s: %w", target.Path, err)
+			return nil, fmt.Errorf("uploading %s: %w", target.Path, err)
 		}
 	}
 
 	fmt.Fprintln(os.Stderr, "Waiting for source to become ready ...")
-	status, err := pollSourceReady(ctx, created.Source.ID)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("\nSource ready: %s (%s)\n", status.ID, status.Status)
-	if appID != "" {
-		fmt.Printf("Intaken as a new version on app %s.\n", appID)
-	} else {
-		fmt.Printf("\nTo create an app from it:\nharness create vibeapp %s --source-id %s\n", name, status.ID)
-	}
-	return nil
+	return pollSourceReady(ctx, created.Source.ID)
 }
 
 func putUploadFile(ctx *cmdctx.Ctx, target uploadFileTarget, localFile string) error {

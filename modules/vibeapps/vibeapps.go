@@ -9,5 +9,6 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(pushVibeappSourceWorkflowID, pushVibeappSourceWorkflow)
 	reg.RegisterWorkflow(pullVibeappWorkflowID, pullVibeappWorkflow)
 	reg.RegisterWorkflow(getVibeappDeploymentLogWorkflowID, getVibeappDeploymentLogWorkflow)
-	reg.RegisterFollowFn(vibeappDeployFollowFnID, vibeappDeployFollowFn)
+	reg.RegisterWorkflow(vibeappDeployWorkflowID, vibeappDeployWorkflow)
+	reg.RegisterFollowFn(vibeappRunFollowFnID, vibeappRunFollowFn)
 }

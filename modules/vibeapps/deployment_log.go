@@ -14,7 +14,7 @@ import (
 )
 
 const getVibeappDeploymentLogWorkflowID = "get_vibeapp_deployment_log"
-const vibeappDeployFollowFnID = "vibeapp_deploy_follow"
+const vibeappRunFollowFnID = "vibeapp_run_follow"
 
 const deploymentLogPollInterval = 3 * time.Second
 
@@ -126,16 +126,25 @@ func getVibeappDeploymentLogWorkflow(ctx *cmdctx.Ctx) error {
 	}
 
 	follow := cmdctx.GetBool(ctx.FlagValues, "follow")
+	_, err := streamDeploymentLog(ctx, deploymentID, follow)
+	return err
+}
 
+// streamDeploymentLog prints a deployment's log once, or (with follow) polls and streams
+// new events until the deployment reaches a terminal state, then prints the summary and
+// returns the final view. Callers decide what a terminal "failed" status means for their
+// own exit behavior; this never returns a non-nil error for a failed deployment itself,
+// only for transport/cancellation failures.
+func streamDeploymentLog(ctx *cmdctx.Ctx, deploymentID string, follow bool) (*deploymentLogView, error) {
 	view, err := fetchDeploymentLogView(ctx, deploymentID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	printed := printNewEvents(view.Events, 0)
 
 	if !follow || isTerminalDeploymentStatus(view.Status) {
 		printDeploymentSummary(view)
-		return nil
+		return view, nil
 	}
 
 	ticker := time.NewTicker(deploymentLogPollInterval)
@@ -143,25 +152,25 @@ func getVibeappDeploymentLogWorkflow(ctx *cmdctx.Ctx) error {
 	for {
 		select {
 		case <-ctx.Context.Done():
-			return fmt.Errorf("canceled while following deployment %s (last status: %s)", deploymentID, view.Status)
+			return nil, fmt.Errorf("canceled while following deployment %s (last status: %s)", deploymentID, view.Status)
 		case <-ticker.C:
 		}
 
 		view, err = fetchDeploymentLogView(ctx, deploymentID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		printed = printNewEvents(view.Events, printed)
 		if isTerminalDeploymentStatus(view.Status) {
 			printDeploymentSummary(view)
-			return nil
+			return view, nil
 		}
 	}
 }
 
-// vibeappDeployFollowFn is the follow_fn for "execute vibeapp:deploy --follow": it extracts
+// vibeappRunFollowFn is the follow_fn for "execute vibeapp:run --follow": it extracts
 // the newly-triggered deployment's id from the response and streams its log to completion.
-func vibeappDeployFollowFn(ctx *cmdctx.Ctx, result any) error {
+func vibeappRunFollowFn(ctx *cmdctx.Ctx, result any) error {
 	m := asMap(result)
 	deploymentID, _ := m["id"].(string)
 	if deploymentID == "" {
