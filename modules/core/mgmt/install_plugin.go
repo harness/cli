@@ -59,7 +59,7 @@ var pluginRegistry = map[string]GithubPluginRef{
 	"har": {GithubRepo: release.Repo, TagPrefix: "har", PkgName: "harness-plugin-har",
 		Desc: "Harness Artifact Registry (push and pull artifacts)"},
 	"migrate": {GithubRepo: release.Repo, TagPrefix: "migrate", PkgName: "harness-plugin-migrate",
-		Desc: "module_desc: Migrate repositories and their pull requests into Harness Code from another SCM"},
+		Desc: "Migrate repositories and their pull requests into Harness Code from another SCM"},
 }
 
 // UninstalledRegistryPlugins returns registry-known plugins that aren't in
