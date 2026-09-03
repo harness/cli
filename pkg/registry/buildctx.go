@@ -62,12 +62,10 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 	profileFlag, _ := cmd.Flags().GetString("profile")
 	orgFlag, _ := cmd.Flags().GetString("org")
 	projectFlag, _ := cmd.Flags().GetString("project")
-	resolved, err := auth.Resolve(profileFlag)
+	resolved, err := auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
 	if err != nil {
 		return nil, err
 	}
-	resolved.OrgID = firstNonEmpty(orgFlag, resolved.OrgID)
-	resolved.ProjectID = firstNonEmpty(projectFlag, resolved.ProjectID)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	go runTimeout(completionTimeout, cancel)
 
@@ -247,12 +245,10 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		profileFlag, _ := cmd.Flags().GetString("profile")
 		orgFlag, _ := cmd.Flags().GetString("org")
 		projectFlag, _ := cmd.Flags().GetString("project")
-		resolved, err := auth.Resolve(profileFlag)
+		resolved, err := auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
 		if err != nil {
 			return nil, err
 		}
-		resolved.OrgID = firstNonEmpty(orgFlag, resolved.OrgID)
-		resolved.ProjectID = firstNonEmpty(projectFlag, resolved.ProjectID)
 		ctx.Auth = resolved
 	}
 	if cs.HasArgs {
