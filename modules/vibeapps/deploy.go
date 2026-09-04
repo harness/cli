@@ -18,6 +18,7 @@ import (
 	"github.com/harness/cli/pkg/client"
 	"github.com/harness/cli/pkg/cmdctx"
 	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 const vibeappDeployWorkflowID = "vibeapp_deploy"
@@ -62,6 +63,7 @@ func writeVibeappLink(root, appID string) error {
 	if err := os.WriteFile(filepath.Join(dir, "vibeapp.yaml"), data, 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", vibeappLinkFile, err)
 	}
+	hlog.Debug("wrote vibeapp link file", "path", filepath.Join(root, vibeappLinkFile), "app_id", appID)
 	if err := ensureHarnessGitignored(root); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 	}
@@ -430,9 +432,14 @@ func vibeappDeployWorkflow(ctx *cmdctx.Ctx) error {
 				return err
 			}
 		}
+		fmt.Fprintf(os.Stderr, "Deploying to Vibe App %s\n", appID)
 		if _, err := createAndUploadSource(ctx, tmpPath, name, appID, ""); err != nil {
 			return err
 		}
+	}
+
+	if uiURL := vibeappUIURL(ctx, appID); uiURL != "" {
+		fmt.Fprintf(os.Stderr, "View in Launchpad: %s\n", uiURL)
 	}
 
 	deploymentID, err := triggerVibeappDeployment(ctx, appID, workflowName)

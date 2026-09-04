@@ -5,7 +5,7 @@ package vibeapps
 
 import (
 	"crypto/md5"
-	"encoding/hex"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 
 	"github.com/harness/cli/pkg/client"
 	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/hlog"
 )
 
 const pushVibeappSourceWorkflowID = "push_vibeapp_source"
@@ -101,7 +102,7 @@ func createAndUploadSource(ctx *cmdctx.Ctx, localFile, name, appID, description 
 	if _, err := io.Copy(sum, f); err != nil {
 		return nil, fmt.Errorf("reading %q: %w", localFile, err)
 	}
-	md5Hex := hex.EncodeToString(sum.Sum(nil))
+	md5Base64 := base64.StdEncoding.EncodeToString(sum.Sum(nil))
 
 	body := map[string]any{
 		"name": name,
@@ -112,7 +113,7 @@ func createAndUploadSource(ctx *cmdctx.Ctx, localFile, name, appID, description 
 					"path":        filepath.Base(localFile),
 					"sizeBytes":   fi.Size(),
 					"contentType": "application/zip",
-					"md5":         md5Hex,
+					"md5":         md5Base64,
 				},
 			},
 		},
@@ -146,7 +147,7 @@ func createAndUploadSource(ctx *cmdctx.Ctx, localFile, name, appID, description 
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "Waiting for source to become ready ...")
+	fmt.Fprintf(os.Stderr, "Waiting for source %s to become ready ...\n", created.Source.ID)
 	return pollSourceReady(ctx, created.Source.ID)
 }
 
@@ -165,6 +166,7 @@ func putUploadFile(ctx *cmdctx.Ctx, target uploadFileTarget, localFile string) e
 	if method == "" {
 		method = http.MethodPut
 	}
+	hlog.Debug("upload target", "method", method, "url", target.UploadURL, "headers", target.Headers)
 	req, err := http.NewRequestWithContext(ctx.Context, method, target.UploadURL, f)
 	if err != nil {
 		return fmt.Errorf("building upload request: %w", err)
@@ -190,6 +192,7 @@ func putUploadFile(ctx *cmdctx.Ctx, target uploadFileTarget, localFile string) e
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
+	hlog.Debug("upload target response", "status", resp.StatusCode)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
@@ -224,6 +227,7 @@ func pollSourceReady(ctx *cmdctx.Ctx, sourceID string) (*sourceStatusResponse, e
 		if err := decodeInto(raw, &status); err != nil {
 			return nil, fmt.Errorf("parsing source status: %w", err)
 		}
+		hlog.Debug("source status", "id", sourceID, "status", status.Status, "detail", status.StatusDetail)
 		if status.Status != previous {
 			fmt.Fprintf(os.Stderr, "  status: %s\n", status.Status)
 			previous = status.Status

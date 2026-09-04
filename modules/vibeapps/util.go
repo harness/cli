@@ -3,7 +3,12 @@
 
 package vibeapps
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/harness/cli/pkg/cmdctx"
+)
 
 // sentinelSpaceID is the single hardcoded default space UUID the vibe-orchestrator
 // API uses server-side today (no multi-space concept exists yet).
@@ -26,4 +31,19 @@ func decodeInto(raw any, out any) error {
 func asMap(v any) map[string]any {
 	m, _ := v.(map[string]any)
 	return m
+}
+
+// vibeappUIURL builds the Launchpad UI link for a Vibe App, e.g.
+// "https://<host>/ng/account/<account>/all/vibe-mode/rvc/apps/<app-id>". Not
+// org/project-scoped. Empty if ctx.Auth has no UI URL (e.g. PAT auth without an
+// SSO-derived subdomain).
+func vibeappUIURL(ctx *cmdctx.Ctx, appID string) string {
+	base := ctx.Auth.UIUrl
+	if base == "" {
+		base = ctx.Auth.APIUrl
+	}
+	if base == "" || ctx.Auth.AccountID == "" {
+		return ""
+	}
+	return strings.TrimSuffix(base, "/") + "/ng/account/" + ctx.Auth.AccountID + "/all/vibe-mode/rvc/apps/" + appID
 }
