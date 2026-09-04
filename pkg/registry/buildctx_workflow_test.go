@@ -817,6 +817,7 @@ func TestBuildDetailCtx(t *testing.T) {
 		t.Fatalf("setup buildCtx: %v", err)
 	}
 	parent.Level = "org"
+	parent.UIHistory = []cmdctx.UILink{{Verb: VerbGet, Noun: "detailnoun", Id: "grandparent-id"}}
 
 	detailCS := &spec.CommandSpec{
 		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun",
@@ -837,6 +838,9 @@ func TestBuildDetailCtx(t *testing.T) {
 	}
 	if detail.Context == nil {
 		t.Fatal("detail.Context is nil")
+	}
+	if len(detail.UIHistory) != 1 || detail.UIHistory[0].Id != "grandparent-id" {
+		t.Fatalf("detail.UIHistory = %+v, want parent's UIHistory carried forward", detail.UIHistory)
 	}
 }
 

@@ -231,6 +231,12 @@ type Ctx struct {
 	//   - "list-fields"  bool   when the flag exists (get/update commands)
 	//   - "profile", "org", "project" string when no_auth: true (the handler owns auth resolution)
 	FlagValues map[string]any
+	// UIHistory is the --ui back-navigation stack: one UILink pushed per Hop
+	// (link/up/view), popped by the "b" key. Session-lifetime only.
+	UIHistory []UILink
+	// RestoreListPos is the cursor row (within the first-loaded page) to seed a
+	// freshly built table with when replaying a popped UILink's ListPos.
+	RestoreListPos int
 }
 
 // ScopedAuth returns Auth adjusted for Level: "org" clears ProjectID, "account"

@@ -35,7 +35,7 @@ func (r *Registry) CheckFunctions() error {
 var reservedUIKeys = map[string]bool{
 	"p": true, "q": true, "ctrl+c": true, "esc": true, "backspace": true,
 	"up": true, "down": true, "k": true, "j": true, "pgup": true, "pgdown": true,
-	"home": true, "end": true,
+	"home": true, "end": true, "b": true,
 }
 
 // checkUICommands validates a noun's ui_commands list: unique non-reserved keys,
