@@ -133,6 +133,11 @@ type uiTableModel struct {
 
 	width  int
 	height int
+
+	// listpos restore — seeded from ctx.RestoreListPos, applied once on the
+	// first page load only (later page loads always GotoTop as before).
+	restoreCursor  int
+	restoreApplied bool
 }
 
 // tableHeight returns the number of data rows visible (excludes header row).
@@ -164,21 +169,22 @@ func newUITableModel(
 	}
 
 	return uiTableModel{
-		ctx:        ctx,
-		ep:         ep,
-		tspec:      tspec,
-		fields:     fields,
-		exprEnv:    exprEnv,
-		t:          t,
-		colDefs:    colDefs,
-		titleLine:  titleLine,
-		pageSize:   pageSize,
-		loading:    true,
-		width:      termWidth,
-		height:     termHeight,
-		hasSearch:  hasSearch,
-		getCs:      getCs,
-		uiCommands: uiCommands,
+		ctx:           ctx,
+		ep:            ep,
+		tspec:         tspec,
+		fields:        fields,
+		exprEnv:       exprEnv,
+		t:             t,
+		colDefs:       colDefs,
+		titleLine:     titleLine,
+		pageSize:      pageSize,
+		loading:       true,
+		width:         termWidth,
+		height:        termHeight,
+		hasSearch:     hasSearch,
+		getCs:         getCs,
+		uiCommands:    uiCommands,
+		restoreCursor: ctx.RestoreListPos,
 	}
 }
 
@@ -433,7 +439,14 @@ func (m *uiTableModel) applyPage(rawRows []tui.Row, rawItems []any) {
 	m.colDefs = cols
 	m.t.SetColumns(cols)
 	m.t.SetRows(rawRows)
-	m.t.GotoTop()
+	if !m.restoreApplied {
+		//write in a file
+		os.WriteFile("cursor.txt", []byte(fmt.Sprintf("%v", m.restoreCursor)), 0644)
+		m.t.SetCursor(m.restoreCursor)
+		m.restoreApplied = true
+	} else {
+		m.t.GotoTop()
+	}
 }
 
 // enterColPick initialises the column picker from the current tspec.
@@ -827,7 +840,11 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.detailMode = false
 			case "b":
-				if len(m.ctx.UIHistory) > 0 {
+				if !m.detailOnly {
+					// In-place detail flip (reached via "enter", not a Hop) — collapse
+					// back to the list underneath, same as esc, before touching History.
+					m.detailMode = false
+				} else if len(m.ctx.UIHistory) > 0 {
 					m.wantBack = true
 					return m, tea.Quit
 				}
@@ -1245,7 +1262,7 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		screen = cmdctx.ScreenDetailForGet
 		id = ctx.Id
 	}
-	return cmdctx.UILink{
+	link := cmdctx.UILink{
 		Verb:       ctx.Verb,
 		Noun:       ctx.Noun,
 		Id:         id,
@@ -1255,7 +1272,9 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		Project:    project,
 		FlagValues: ctx.FlagValues,
 		Screen:     screen,
+		ListPos:    fm.t.Cursor(),
 	}
+	return link
 }
 
 // finishUIExit handles common post-Run() actions for the detail overlay: printing
@@ -1278,7 +1297,13 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 			ctx.FlagValues = map[string]any{}
 		}
 		ctx.FlagValues["ui"] = true
-		return ctx.Resolver.RunUIHandler(ctx, fm.launchUIHandlerFn)
+		if err := ctx.Resolver.RunUIHandler(ctx, fm.launchUIHandlerFn); err != nil {
+			return err
+		}
+		if link, ok := ctx.PopUILink(); ok {
+			return dispatchLink(ctx, &link)
+		}
+		return nil
 	}
 	if fm.wantBack {
 		if link, ok := ctx.PopUILink(); ok {
