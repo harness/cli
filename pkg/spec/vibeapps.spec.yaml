@@ -1,7 +1,6 @@
 spec_version: 1
-module_type: builtin
+module_type: hidden
 module_desc: Harness Vibe Apps — AI-generated micro-apps built and deployed via the Launchpad
-harness_internal: true
 help_text: |
   ## Vibe Apps (vibeapps)
 

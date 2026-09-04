@@ -1,7 +1,6 @@
 spec_version: 1
-module_type: builtin
+module_type: hidden
 module_desc: "Development Harness (ADLC) — autonomous AI-driven software work: work items, work classes, budgets, teams, members, triggers, and agent dispatch"
-harness_internal: true
 help_text: |
   ## Development Harness (autonomous_work)
 

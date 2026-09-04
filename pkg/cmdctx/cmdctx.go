@@ -145,6 +145,9 @@ type Resolver interface {
 	FetchItems(ctx *Ctx, ep *spec.EndpointSpec, pf PagingFlags) ([]any, error)
 	// GetModuleMetas returns metadata for all loaded modules in load order.
 	GetModuleMetas() []spec.ModuleMeta
+	// GetHiddenModule returns the recorded stub for a module_type: hidden
+	// module by name (recorded regardless of enablement), or nil.
+	GetHiddenModule(name string) *spec.ModuleMeta
 	// GetSpecsForModule returns all registered CommandSpecs belonging to the given module.
 	GetSpecsForModule(module string) []*spec.CommandSpec
 	// GetAllSpecs returns every registered CommandSpec across all modules.

@@ -16,12 +16,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
 	"golang.org/x/mod/semver"
 
 	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/pkg/config"
 	"github.com/harness/cli/pkg/hbase"
 	"github.com/harness/cli/pkg/hlog"
 	"github.com/harness/cli/pkg/release"
@@ -277,7 +279,8 @@ func runInstalledBinary(binPath string, args ...string) error {
 	return cmd.Run()
 }
 
-// InstallModuleHandler installs a module that ships as a plugin. "module" is the
+// InstallModuleHandler installs a module that ships as a plugin, or enables a
+// module_type: hidden module that's already compiled in. "module" is the
 // feature-area axis and "plugin" is the deployment-type axis; a module that
 // isn't compiled in is installed exactly like any other plugin, so this hands
 // off to the one install path rather than duplicating it.
@@ -286,15 +289,44 @@ func InstallModuleHandler(ctx *cmdctx.Ctx) error {
 	if moduleName == "" {
 		return fmt.Errorf("module name is required (supported: %s)", registryNames())
 	}
+	force := cmdctx.GetBool(ctx.FlagValues, "force")
+	check := cmdctx.GetBool(ctx.FlagValues, "check")
+	if m := ctx.Resolver.GetHiddenModule(moduleName); m != nil {
+		return installHiddenModule(m.Name, check, force)
+	}
 	if _, ok := pluginRegistry[moduleName]; !ok {
 		return fmt.Errorf("unknown module %q — supported: %s", moduleName, registryNames())
 	}
 	version := cmdctx.GetString(ctx.FlagValues, "version")
-	force := cmdctx.GetBool(ctx.FlagValues, "force")
-	check := cmdctx.GetBool(ctx.FlagValues, "check")
 	githubToken := cmdctx.GetString(ctx.FlagValues, "github-token")
 	allowDrafts := cmdctx.GetBool(ctx.FlagValues, "allow-drafts")
 	return installRegistryPlugin(moduleName, version, githubToken, allowDrafts, force, check)
+}
+
+// installHiddenModule enables a module_type: hidden embedded module by
+// persisting its name into Config.EnabledModules — no network, no binary
+// download. Enabling is idempotent unless force is set.
+func installHiddenModule(name string, check, force bool) error {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+	if slices.Contains(cfg.EnabledModules, name) && !force {
+		fmt.Printf("module %q is already enabled\n", name)
+		return nil
+	}
+	if check {
+		fmt.Printf("would enable module %q\n", name)
+		return nil
+	}
+	if !slices.Contains(cfg.EnabledModules, name) {
+		cfg.EnabledModules = append(cfg.EnabledModules, name)
+	}
+	if err := config.SaveConfig(cfg); err != nil {
+		return err
+	}
+	fmt.Printf("module %q enabled\n", name)
+	return nil
 }
 
 func detectPlatform() (string, error) {

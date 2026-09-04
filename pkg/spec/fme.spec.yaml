@@ -1,7 +1,6 @@
 spec_version: 1
-module_type: builtin
+module_type: hidden
 module_desc: Harness FME — Feature flags and targeting definitions
-harness_internal: true
 help_text: |
   ## Feature Management & Experimentation (fme)
 
