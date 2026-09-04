@@ -440,8 +440,6 @@ func (m *uiTableModel) applyPage(rawRows []tui.Row, rawItems []any) {
 	m.t.SetColumns(cols)
 	m.t.SetRows(rawRows)
 	if !m.restoreApplied {
-		//write in a file
-		os.WriteFile("cursor.txt", []byte(fmt.Sprintf("%v", m.restoreCursor)), 0644)
 		m.t.SetCursor(m.restoreCursor)
 		m.restoreApplied = true
 	} else {
@@ -1262,6 +1260,15 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		screen = cmdctx.ScreenDetailForGet
 		id = ctx.Id
 	}
+	fv := ctx.FlagValues
+	if fm.hasSearch {
+		copied := make(map[string]any, len(ctx.FlagValues))
+		for k, v := range ctx.FlagValues {
+			copied[k] = v
+		}
+		copied["search"] = fm.searchTerm
+		fv = copied
+	}
 	link := cmdctx.UILink{
 		Verb:       ctx.Verb,
 		Noun:       ctx.Noun,
@@ -1270,9 +1277,12 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		Profile:    profile,
 		Org:        org,
 		Project:    project,
-		FlagValues: ctx.FlagValues,
+		FlagValues: fv,
 		Screen:     screen,
-		ListPos:    fm.t.Cursor(),
+		// ListPos is always captured from the underlying table, even mid detail-flip:
+		// "b" always resumes the list, never the detail overlay, and detailOnly
+		// screens (Case 4) never populate fm.t, so its Cursor() is a natural 0 there.
+		ListPos: fm.t.Cursor(),
 	}
 	return link
 }
