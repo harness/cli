@@ -1,6 +1,7 @@
 spec_version: 1
 module_type: builtin
 module_desc: "Development Harness (ADLC) — autonomous AI-driven software work: work items, work classes, budgets, teams, members, triggers, and agent dispatch"
+harness_internal: true
 help_text: |
   ## Development Harness (autonomous_work)
 
@@ -448,18 +449,13 @@ commands:
     noun: work_class
     short: Create a work class from a YAML ask-body (--file workclass.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a WorkClass YAML ask-body
-        required: true
     endpoint:
       method: POST
+      file_body: required
       path: /adlc/api/work-classes
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: update work_class
@@ -467,18 +463,13 @@ commands:
     noun: work_class
     short: Update a work class from a YAML ask-body (--file workclass.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a WorkClass YAML ask-body
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/work-classes/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: delete work_class
@@ -529,18 +520,13 @@ commands:
     noun: work_trigger
     short: Create a trigger from a YAML ask-body (--file trigger.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a Trigger YAML ask-body
-        required: true
     endpoint:
       method: POST
+      file_body: required
       path: /adlc/api/triggers
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: update work_trigger
@@ -548,18 +534,13 @@ commands:
     noun: work_trigger
     short: Update a trigger from a YAML ask-body (--file trigger.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a Trigger YAML ask-body
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/triggers/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: delete work_trigger
@@ -610,18 +591,13 @@ commands:
     noun: capability
     short: Create a capability from a YAML ask-body (--file capability.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a Capability YAML ask-body
-        required: true
     endpoint:
       method: POST
+      file_body: required
       path: /adlc/api/capabilities
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: update capability
@@ -629,18 +605,13 @@ commands:
     noun: capability
     short: Update a capability from a YAML ask-body (--file capability.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a Capability YAML ask-body
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/capabilities/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: delete capability
@@ -691,18 +662,13 @@ commands:
     noun: risk_evaluator
     short: Create a risk evaluator from a YAML ask-body (--file risk-evaluator.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a RiskEvaluator YAML ask-body
-        required: true
     endpoint:
       method: POST
+      file_body: required
       path: /adlc/api/risk-evaluators
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: update risk_evaluator
@@ -710,18 +676,13 @@ commands:
     noun: risk_evaluator
     short: Update a risk evaluator from a YAML ask-body (--file risk-evaluator.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a RiskEvaluator YAML ask-body
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/risk-evaluators/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: delete risk_evaluator
@@ -772,18 +733,13 @@ commands:
     noun: team
     short: Create a team from a YAML ask-body (--file team.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a Team YAML ask-body
-        required: true
     endpoint:
       method: POST
+      file_body: required
       path: /adlc/api/teams
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: update team
@@ -791,18 +747,13 @@ commands:
     noun: team
     short: Update a team from a YAML ask-body (--file team.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a Team YAML ask-body
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/teams/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: delete team
@@ -853,18 +804,13 @@ commands:
     noun: member
     short: Create a member from a YAML ask-body (--file member.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a Member YAML ask-body
-        required: true
     endpoint:
       method: POST
+      file_body: required
       path: /adlc/api/members
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: update member
@@ -872,18 +818,13 @@ commands:
     noun: member
     short: Update a member from a YAML ask-body (--file member.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a Member YAML ask-body
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/members/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: delete member
@@ -934,18 +875,13 @@ commands:
     noun: member_template
     short: Create a member template from a YAML ask-body (--file member-template.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a MemberTemplate YAML ask-body
-        required: true
     endpoint:
       method: POST
+      file_body: required
       path: /adlc/api/member-templates
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: update member_template
@@ -953,18 +889,13 @@ commands:
     noun: member_template
     short: Update a member template from a YAML ask-body (--file member-template.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a MemberTemplate YAML ask-body
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/member-templates/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: delete member_template
@@ -1015,18 +946,13 @@ commands:
     noun: software_component
     short: Create a software component from a YAML ask-body (--file software-component.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a SoftwareComponent YAML ask-body
-        required: true
     endpoint:
       method: POST
+      file_body: required
       path: /adlc/api/software-components
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: update software_component
@@ -1034,18 +960,13 @@ commands:
     noun: software_component
     short: Update a software component from a YAML ask-body (--file software-component.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a SoftwareComponent YAML ask-body
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/software-components/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   - command: delete software_component
@@ -1098,18 +1019,13 @@ commands:
     no_id: true
     short: Set default content-source connectors from a YAML body (--file connectors.yaml)
     handler_type: endpoint
-    flags:
-      - name: file
-        short: f
-        description: Path to a content-source connector mapping YAML
-        required: true
     endpoint:
       method: PUT
+      file_body: required
       path: /adlc/api/content-source-connectors
       query_params:
         orgIdentifier: auth.org
         projectIdentifier: auth.project
-      body_file: flags.file
       item_expr: it
 
   # ── agent_execution ─────────────────────────────────────────────────────────────
