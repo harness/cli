@@ -62,12 +62,10 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 	profileFlag, _ := cmd.Flags().GetString("profile")
 	orgFlag, _ := cmd.Flags().GetString("org")
 	projectFlag, _ := cmd.Flags().GetString("project")
-	resolved, err := auth.Resolve(profileFlag)
+	resolved, err := auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
 	if err != nil {
 		return nil, err
 	}
-	resolved.OrgID = firstNonEmpty(orgFlag, resolved.OrgID)
-	resolved.ProjectID = firstNonEmpty(projectFlag, resolved.ProjectID)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	go runTimeout(completionTimeout, cancel)
 
@@ -247,12 +245,10 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		profileFlag, _ := cmd.Flags().GetString("profile")
 		orgFlag, _ := cmd.Flags().GetString("org")
 		projectFlag, _ := cmd.Flags().GetString("project")
-		resolved, err := auth.Resolve(profileFlag)
+		resolved, err := auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
 		if err != nil {
 			return nil, err
 		}
-		resolved.OrgID = firstNonEmpty(orgFlag, resolved.OrgID)
-		resolved.ProjectID = firstNonEmpty(projectFlag, resolved.ProjectID)
 		ctx.Auth = resolved
 	}
 	if cs.HasArgs {
@@ -332,6 +328,7 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 		Resolver:    parent.Resolver,
 		FormatFlags: cmdctx.FormatFlags{Format: "text"},
 		FlagValues:  map[string]any{},
+		UIHistory:   parent.UIHistory,
 	}
 	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
 	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
@@ -340,6 +337,52 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 		ctx.IdParts = strings.SplitN(id, "/", cs.IdParts)
 	}
 	return ctx
+}
+
+// buildLinkCtx constructs the Ctx for a replayed UILink — either a forward hop
+// (link/up/view) or a popped History entry. Unlike buildDetailCtx/buildPickerCtx, which
+// inherit the caller's already-resolved Auth verbatim, this re-resolves auth from the
+// Link's raw profile/org/project strings, so a Link that captured a different scope
+// replays with that scope instead of whatever happens to be live in the caller's ctx.
+func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSpec) (*cmdctx.Ctx, error) {
+	var resolved *auth.ResolvedAuth
+	if !targetCs.NoAuth {
+		var err error
+		resolved, err = auth.ResolveWithOverrides(link.Profile, link.Org, link.Project)
+		if err != nil {
+			return nil, err
+		}
+	}
+	fv := link.FlagValues
+	if fv == nil {
+		fv = map[string]any{}
+	}
+	goCtx, cancel := context.WithCancelCause(ctx.Context)
+	newCtx := &cmdctx.Ctx{
+		Context:     goCtx,
+		CancelFn:    cancel,
+		Auth:        resolved,
+		Verb:        targetCs.Verb,
+		VerbHandler: targetCs.VerbHandler,
+		Noun:        targetCs.Noun,
+		FieldsNoun:  targetCs.FieldsNoun,
+		Level:       link.Level,
+		IsPty:       ctx.IsPty,
+		Resolver:    ctx.Resolver,
+		FormatFlags: cmdctx.FormatFlags{Format: "text"},
+		FlagValues:  fv,
+		UIHistory:   ctx.UIHistory,
+	}
+	if link.Screen == cmdctx.ScreenDetailForGet {
+		newCtx.Id = link.Id
+		if targetCs.IdParts > 1 {
+			newCtx.IdParts = strings.SplitN(link.Id, "/", targetCs.IdParts)
+		}
+	} else {
+		newCtx.ParentId = link.Id
+		newCtx.RestoreListPos = link.ListPos
+	}
+	return newCtx, nil
 }
 
 // resolveFlagValues runs any flag_resolve_fn declared on spec flags, overwriting

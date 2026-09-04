@@ -145,6 +145,9 @@ type Resolver interface {
 	FetchItems(ctx *Ctx, ep *spec.EndpointSpec, pf PagingFlags) ([]any, error)
 	// GetModuleMetas returns metadata for all loaded modules in load order.
 	GetModuleMetas() []spec.ModuleMeta
+	// GetHiddenModule returns the recorded stub for a module_type: hidden
+	// module by name (recorded regardless of enablement), or nil.
+	GetHiddenModule(name string) *spec.ModuleMeta
 	// GetSpecsForModule returns all registered CommandSpecs belonging to the given module.
 	GetSpecsForModule(module string) []*spec.CommandSpec
 	// GetAllSpecs returns every registered CommandSpec across all modules.
@@ -231,6 +234,12 @@ type Ctx struct {
 	//   - "list-fields"  bool   when the flag exists (get/update commands)
 	//   - "profile", "org", "project" string when no_auth: true (the handler owns auth resolution)
 	FlagValues map[string]any
+	// UIHistory is the --ui back-navigation stack: one UILink pushed per Hop
+	// (link/up/view), popped by the "b" key. Session-lifetime only.
+	UIHistory []UILink
+	// RestoreListPos is the cursor row (within the first-loaded page) to seed a
+	// freshly built table with when replaying a popped UILink's ListPos.
+	RestoreListPos int
 }
 
 // ScopedAuth returns Auth adjusted for Level: "org" clears ProjectID, "account"

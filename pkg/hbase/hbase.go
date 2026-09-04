@@ -71,6 +71,18 @@ const (
 	// EnvCLIHome overrides the harness home directory (default ~/.harness).
 	EnvCLIHome = "HARNESS_CLI_HOME"
 
+	// EnvEnableBetaModules is a tri-state env var consulted when resolving
+	// whether a module_type: hidden module is enabled. "1" enables every
+	// hidden module; "0" forces off the harness.io-employee auto-detect
+	// (falling through to the config file); unset defers to the auto-detect.
+	EnvEnableBetaModules = "HARNESS_ENABLE_BETA_MODULES"
+
+	// EnvEnabledModules, when set at all (including to ""), is a
+	// comma-separated allowlist of hidden module names to enable — a hard
+	// override of both EnvEnableBetaModules and the config file for this
+	// invocation.
+	EnvEnabledModules = "HARNESS_CLI_ENABLED_MODULES"
+
 	// Env var names for env-var auth mode.
 	EnvAPIKey      = "HARNESS_API_KEY"
 	EnvAPIJWT      = "HARNESS_API_JWT"

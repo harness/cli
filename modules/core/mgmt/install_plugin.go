@@ -77,7 +77,7 @@ func UninstalledRegistryPlugins(seen map[string]bool) []spec.ModuleMeta {
 	sort.Strings(names)
 	metas := make([]spec.ModuleMeta, 0, len(names))
 	for _, name := range names {
-		metas = append(metas, spec.ModuleMeta{Name: name, Type: "plugin", Desc: pluginRegistry[name].Desc})
+		metas = append(metas, spec.ModuleMeta{Name: name, Type: spec.ModuleTypePlugin, Desc: pluginRegistry[name].Desc})
 	}
 	return metas
 }

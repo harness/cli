@@ -48,6 +48,7 @@ type Config struct {
 	Profiles         map[string]*Profile `yaml:"profiles"`
 	DisableTelemetry bool                `yaml:"disable_telemetry,omitempty"`
 	TelemetryID      string              `yaml:"telemetry_id,omitempty"`
+	EnabledModules   []string            `yaml:"enabled_modules,omitempty"` // hidden modules enabled via `install module <name>`
 }
 
 func LoadConfig() (*Config, error) {

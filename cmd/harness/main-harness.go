@@ -20,6 +20,7 @@ import (
 	"github.com/harness/cli/v3/modules/pipeline"
 	"github.com/harness/cli/v3/modules/platform"
 	"github.com/harness/cli/v3/modules/rt"
+	"github.com/harness/cli/v3/modules/vibeapps"
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/registry"
@@ -55,6 +56,7 @@ func main() {
 	// har is an external module (external_binary: harness-har) — ModuleInit is not loaded here.
 	iacm.ModuleInit(reg.Module("iacm"))
 	rt.ModuleInit(reg.Module("rt"))
+	vibeapps.ModuleInit(reg.Module("vibeapps"))
 	rootcmd.MaybeCheckSpecs(reg)
 
 	root := &cobra.Command{

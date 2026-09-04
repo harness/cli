@@ -278,6 +278,11 @@ nouns:
       - id: committed
         expr: epochMs(it.committer.when)
 
+  - noun: pr_commit
+    short_desc: A commit included in a pull request (Harness Code).
+    noun_aliases: [pr_commits]
+    multi_level: true
+
   - noun: tag
     short_desc: A git tag in a Harness Code repository.
     noun_aliases: [tags]

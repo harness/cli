@@ -55,6 +55,7 @@ type Registry struct {
 	nounAliases          map[string]string // alias name → canonical noun name
 	pluginOwnedNouns     map[string]string // noun (or alias) → owning plugin module
 	moduleMetas          []spec.ModuleMeta
+	hiddenModules        []spec.ModuleMeta // module_type: hidden modules, recorded regardless of enablement
 	workflows            map[string]WorkflowFn
 	textFormatters       map[string]cmdctx.TextFormatterFn
 	bodyFns              map[string]cmdctx.CreateBodyFn
@@ -96,6 +97,25 @@ func New() *Registry {
 // SetModuleMeta stores metadata for a module loaded from a spec file.
 func (r *Registry) SetModuleMeta(m spec.ModuleMeta) {
 	r.moduleMetas = append(r.moduleMetas, m)
+}
+
+// RecordHiddenModule records a module declared module_type: hidden, regardless
+// of whether it is currently enabled. This is the only place `install module`
+// can recognize a hidden-but-disabled module by name — such a module is
+// otherwise fully absent from GetModuleMetas.
+func (r *Registry) RecordHiddenModule(m spec.ModuleMeta) {
+	r.hiddenModules = append(r.hiddenModules, m)
+}
+
+// GetHiddenModule returns the recorded hidden-module stub for name, or nil if
+// name isn't a known module_type: hidden module.
+func (r *Registry) GetHiddenModule(name string) *spec.ModuleMeta {
+	for i := range r.hiddenModules {
+		if r.hiddenModules[i].Name == name {
+			return &r.hiddenModules[i]
+		}
+	}
+	return nil
 }
 
 // RecordPluginOwnedNouns records module as the owner of nouns (and their
