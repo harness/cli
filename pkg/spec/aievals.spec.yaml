@@ -1,7 +1,6 @@
 spec_version: 1
-module_type: builtin
+module_type: hidden
 module_desc: Harness AI Evals — datasets, evaluations, runs, metrics, metric sets, suites, and targets
-harness_internal: true
 help_text: |
   ## AI Evals (aievals)
 

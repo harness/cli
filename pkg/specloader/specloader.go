@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/harness/cli/pkg/hlog"
 	"github.com/harness/cli/pkg/registry"
 	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/pkg/strutil"
 )
 
 const (
@@ -35,14 +37,13 @@ type specVersionOnly struct {
 }
 
 type specFile struct {
-	SpecVersion     int                 `yaml:"spec_version"`
-	ModuleType      string              `yaml:"module_type"`
-	ModuleDesc      string              `yaml:"module_desc"`
-	ModuleCore      bool                `yaml:"module_core"`
-	HelpText        string              `yaml:"help_text"`
-	HarnessInternal bool                `yaml:"harness_internal,omitempty"`
-	Nouns           []spec.NounDef      `yaml:"nouns"`
-	Commands        []*spec.CommandSpec `yaml:"commands"`
+	SpecVersion int                 `yaml:"spec_version"`
+	ModuleType  string              `yaml:"module_type"`
+	ModuleDesc  string              `yaml:"module_desc"`
+	ModuleCore  bool                `yaml:"module_core"`
+	HelpText    string              `yaml:"help_text"`
+	Nouns       []spec.NounDef      `yaml:"nouns"`
+	Commands    []*spec.CommandSpec `yaml:"commands"`
 	// Host-owned provenance, present only in ~/.harness/spec plugin specs.
 	Version     string `yaml:"version,omitempty"`
 	BinaryPath  string `yaml:"binary_path,omitempty"`
@@ -72,14 +73,18 @@ func specParseError(name string, data []byte, parseErr error) error {
 // instead of being masked by an embedded copy. Only their noun ownership is
 // recorded (best-effort, for "plugin not installed" error messages).
 func LoadSpecs(reg *registry.Registry) error {
-	isHarnessUser := os.Getenv("HARNESS_ENABLE_BETA_MODULES") == "1" ||
-		config.AnyProfileMatchesDomain("harness.io")
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("spec: load config: %w", err)
+	}
+	harnessDomainMatch := config.AnyProfileMatchesDomain("harness.io")
 	for _, name := range spec.Files() {
 		data, err := spec.Read(name)
 		if err != nil {
 			return fmt.Errorf("spec: read %s: %w", name, err)
 		}
-		if err := loadSpecData(reg, name, data, isHarnessUser, false); err != nil {
+		enabled := isModuleEnabled(moduleNameFromFile(name), cfg, harnessDomainMatch)
+		if err := loadSpecData(reg, name, data, enabled, false); err != nil {
 			return err
 		}
 	}
@@ -88,22 +93,48 @@ func LoadSpecs(reg *registry.Registry) error {
 		if err != nil {
 			return fmt.Errorf("spec: read %s: %w", name, err)
 		}
-		if err := recordPluginNouns(reg, name, data, isHarnessUser); err != nil {
+		enabled := isModuleEnabled(moduleNameFromFile(name), cfg, harnessDomainMatch)
+		if err := recordPluginNouns(reg, name, data, enabled); err != nil {
 			return err
 		}
 	}
-	return LoadHomeSpecs(reg, isHarnessUser)
+	return LoadHomeSpecs(reg, cfg, harnessDomainMatch)
+}
+
+// isModuleEnabled resolves, for a module_type: hidden module, whether it's
+// enabled for this invocation. Checked in order, first match wins:
+//  1. HARNESS_CLI_ENABLED_MODULES, if set at all (even to "") — a hard
+//     allowlist override of everything below.
+//  2. HARNESS_ENABLE_BETA_MODULES=1 enables everything; "0" forces off the
+//     harness.io auto-detect but still falls through to the config file.
+//  3. harnessDomainMatch (a saved profile's email is @harness.io).
+//  4. cfg.EnabledModules (persisted by `install module <name>`).
+func isModuleEnabled(name string, cfg *config.Config, harnessDomainMatch bool) bool {
+	if raw, ok := os.LookupEnv(hbase.EnvEnabledModules); ok {
+		return slices.Contains(strutil.SplitCSV(raw), name)
+	}
+	switch os.Getenv(hbase.EnvEnableBetaModules) {
+	case "1":
+		return true
+	case "0":
+		// explicit force-off of the harness.io auto-detect; still falls through to the config check below
+	default:
+		if harnessDomainMatch {
+			return true
+		}
+	}
+	return slices.Contains(cfg.EnabledModules, name)
 }
 
 // recordPluginNouns records which nouns an embedded plugin spec owns, without
-// registering any of its commands. A harness_internal plugin spec records
-// nothing for non-Harness users, matching how builtin specs are gated.
-func recordPluginNouns(reg *registry.Registry, name string, data []byte, isHarnessUser bool) error {
+// registering any of its commands. A module_type: hidden plugin spec records
+// nothing when not enabled, matching how builtin specs are gated.
+func recordPluginNouns(reg *registry.Registry, name string, data []byte, enabled bool) error {
 	f, err := parseSpecFile(reg, name, data)
 	if err != nil {
 		return err
 	}
-	if f.HarnessInternal && !isHarnessUser {
+	if f.ModuleType == spec.ModuleTypeHidden && !enabled {
 		return nil
 	}
 	reg.RecordPluginOwnedNouns(moduleNameFromFile(name), f.Nouns)
@@ -114,7 +145,7 @@ func recordPluginNouns(reg *registry.Registry, name string, data []byte, isHarne
 // of truth for dynamically-installed plugins). A missing directory is not an
 // error. Home specs whose module name collides with an already-registered
 // (embedded) module are skipped with a stderr warning — embedded always wins.
-func LoadHomeSpecs(reg *registry.Registry, isHarnessUser bool) error {
+func LoadHomeSpecs(reg *registry.Registry, cfg *config.Config, harnessDomainMatch bool) error {
 	dir := HomeSpecDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -166,7 +197,8 @@ func LoadHomeSpecs(reg *registry.Registry, isHarnessUser bool) error {
 			hlog.Warn("skipping unreadable plugin spec", "file", path, "err", readErr)
 			continue
 		}
-		if err := loadSpecData(reg, name, data, isHarnessUser, true); err != nil {
+		enabled := isModuleEnabled(module, cfg, harnessDomainMatch)
+		if err := loadSpecData(reg, name, data, enabled, true); err != nil {
 			// A single bad plugin spec must not take down the whole CLI.
 			hlog.Warn("skipping invalid plugin spec", "file", path, "err", err)
 			continue
@@ -247,19 +279,22 @@ func parseSpecFile(reg *registry.Registry, name string, data []byte) (*specFile,
 //
 // Embedded specs pass fromSpecDir=false: they are load-order-first and validated
 // by check:specs, so a duplicate there is a build bug we surface loudly.
-func loadSpecData(reg *registry.Registry, name string, data []byte, isHarnessUser, fromSpecDir bool) error {
+func loadSpecData(reg *registry.Registry, name string, data []byte, enabled, fromSpecDir bool) error {
 	module := moduleNameFromFile(name)
 	f, err := parseSpecFile(reg, name, data)
 	if err != nil {
 		return err
 	}
-	if f.HarnessInternal && !isHarnessUser {
-		return nil
+	if f.ModuleType == spec.ModuleTypeHidden {
+		reg.RecordHiddenModule(spec.ModuleMeta{Name: module, Type: f.ModuleType, Desc: f.ModuleDesc})
+		if !enabled {
+			return nil
+		}
 	}
 	if fromSpecDir {
 		// Top-level fields an installed plugin is not allowed to declare.
 		// module_core would hide the module from `list module` and mark it a
-		// CLI-internal namespace — reserved for builtins. harness_internal is
+		// CLI-internal namespace — reserved for builtins. module_type: hidden is
 		// deliberately still permitted for plugins.
 		if f.ModuleCore {
 			return fmt.Errorf("plugin spec %q may not set module_core", name)

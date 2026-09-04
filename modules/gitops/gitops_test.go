@@ -43,6 +43,7 @@ func (noopResolver) FetchItems(*cmdctx.Ctx, *spec.EndpointSpec, cmdctx.PagingFla
 	return nil, nil
 }
 func (noopResolver) GetModuleMetas() []spec.ModuleMeta                      { return nil }
+func (noopResolver) GetHiddenModule(string) *spec.ModuleMeta                { return nil }
 func (noopResolver) GetSpecsForModule(string) []*spec.CommandSpec           { return nil }
 func (noopResolver) GetAllSpecs() []*spec.CommandSpec                       { return nil }
 func (noopResolver) GetVerbInfos() []spec.VerbInfo                          { return nil }

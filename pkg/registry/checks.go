@@ -23,10 +23,39 @@ func (r *Registry) CheckFunctions() error {
 	for noun, nd := range r.nouns {
 		errs = append(errs, r.checkUICommands(noun, nd)...)
 	}
+	errs = append(errs, r.checkModuleTypes()...)
 	if len(errs) > 0 {
 		return errors.New("registry errors:\n  " + strings.Join(errs, "\n  "))
 	}
 	return nil
+}
+
+// validModuleTypes are the only accepted values for a spec file's top-level
+// module_type field.
+var validModuleTypes = map[string]bool{
+	spec.ModuleTypeBuiltin: true,
+	spec.ModuleTypePlugin:  true,
+	spec.ModuleTypeHidden:  true,
+}
+
+// checkModuleTypes validates that every loaded module — including module_type:
+// hidden modules recorded regardless of enablement — declares one of the
+// accepted module_type values.
+func (r *Registry) checkModuleTypes() []string {
+	var errs []string
+	check := func(m spec.ModuleMeta) {
+		if !validModuleTypes[m.Type] {
+			errs = append(errs, fmt.Sprintf("module %q: invalid module_type %q (must be %q, %q, or %q)",
+				m.Name, m.Type, spec.ModuleTypeBuiltin, spec.ModuleTypePlugin, spec.ModuleTypeHidden))
+		}
+	}
+	for _, m := range r.moduleMetas {
+		check(m)
+	}
+	for _, m := range r.hiddenModules {
+		check(m)
+	}
+	return errs
 }
 
 // reservedUIKeys are hardcoded to scroll/quit/print handling in the detail
