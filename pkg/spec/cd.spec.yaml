@@ -24,6 +24,7 @@ nouns:
   - noun: service
     short_desc: A Harness CD service definition.
     noun_aliases: [services, svc]
+    multi_level: true
     url_path: /ng/account/{{auth.account}}/module/cd/orgs/{{auth.org}}/projects/{{auth.project}}/services/{{it.service.identifier}}
     fields:
       - id: identifier
@@ -41,6 +42,7 @@ nouns:
   - noun: environment
     short_desc: A Harness CD environment (Production or PreProduction).
     noun_aliases: [environments, env, envs]
+    multi_level: true
     url_path: /ng/account/{{auth.account}}/module/cd/orgs/{{auth.org}}/projects/{{auth.project}}/environments/{{it.environment.identifier}}
     fields:
       - id: identifier
@@ -60,6 +62,7 @@ nouns:
   - noun: infrastructure
     short_desc: A Harness CD infrastructure definition scoped to an environment.
     noun_aliases: [infrastructures, infra]
+    multi_level: true
     fields:
       - id: identifier
         expr: it.infrastructure.identifier
@@ -80,6 +83,7 @@ nouns:
   - noun: service_override
     short_desc: An override for service configuration within an environment, infrastructure, or cluster.
     noun_aliases: [service_overrides, override, overrides]
+    multi_level: true
     url_path: /ng/account/{{auth.account}}/all/cd/orgs/{{auth.org}}/projects/{{auth.project}}/serviceOverrides
     fields:
       - id: identifier
