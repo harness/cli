@@ -6,6 +6,7 @@ package strutil
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Stringify renders a value for display, avoiding Go's default scientific
@@ -15,6 +16,18 @@ func Stringify(v any) string {
 		return strconv.FormatFloat(f, 'f', -1, 64)
 	}
 	return fmt.Sprint(v)
+}
+
+// SplitCSV splits a comma-separated value, trimming whitespace around each
+// entry and dropping empty ones (so both "foo,bar" and "foo, bar" work).
+func SplitCSV(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // Levenshtein returns the edit distance between two strings.

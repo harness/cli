@@ -347,6 +347,11 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 		// install state.
 		installed := "-"
 		version := "-"
+		if m.Type == spec.ModuleTypeHidden {
+			// A hidden module only ever appears here once enabled — a disabled
+			// one is absent from GetModuleMetas() entirely.
+			installed = "yes"
+		}
 		if m.BinaryPath != "" {
 			// Plugin: trust the spec's provenance, which install captured from
 			// --identity. Listing never execs a binary to read a version.

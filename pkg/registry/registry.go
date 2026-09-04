@@ -55,6 +55,7 @@ type Registry struct {
 	nounAliases          map[string]string // alias name → canonical noun name
 	pluginOwnedNouns     map[string]string // noun (or alias) → owning plugin module
 	moduleMetas          []spec.ModuleMeta
+	hiddenModules        []spec.ModuleMeta // module_type: hidden modules, recorded regardless of enablement
 	workflows            map[string]WorkflowFn
 	textFormatters       map[string]cmdctx.TextFormatterFn
 	bodyFns              map[string]cmdctx.CreateBodyFn
@@ -96,6 +97,25 @@ func New() *Registry {
 // SetModuleMeta stores metadata for a module loaded from a spec file.
 func (r *Registry) SetModuleMeta(m spec.ModuleMeta) {
 	r.moduleMetas = append(r.moduleMetas, m)
+}
+
+// RecordHiddenModule records a module declared module_type: hidden, regardless
+// of whether it is currently enabled. This is the only place `install module`
+// can recognize a hidden-but-disabled module by name — such a module is
+// otherwise fully absent from GetModuleMetas.
+func (r *Registry) RecordHiddenModule(m spec.ModuleMeta) {
+	r.hiddenModules = append(r.hiddenModules, m)
+}
+
+// GetHiddenModule returns the recorded hidden-module stub for name, or nil if
+// name isn't a known module_type: hidden module.
+func (r *Registry) GetHiddenModule(name string) *spec.ModuleMeta {
+	for i := range r.hiddenModules {
+		if r.hiddenModules[i].Name == name {
+			return &r.hiddenModules[i]
+		}
+	}
+	return nil
 }
 
 // RecordPluginOwnedNouns records module as the owner of nouns (and their
@@ -1204,12 +1224,14 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	return nil
 }
 
-func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, tokenKind, authSource string) {
+func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, userType, tokenKind, authSource string) {
 	if a == nil {
 		return
 	}
 	accountID = a.AccountID
 	userDomain = telemetry.UserDomainFromEmail(a.Email)
+	userID = a.UserID
+	userType = a.UserType
 	tokenKind = string(a.TokenKind)
 	if a.Source == auth.SourceEnv {
 		authSource = "env"
@@ -1241,7 +1263,7 @@ func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmd
 	}
 	var flags []string
 	cmd.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
-	accountID, userDomain, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	accountID, userDomain, userID, userType, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordIntent(telemetry.CommandIntent{
 		Verb:       cs.Verb,
 		Noun:       cs.FullNoun(),
@@ -1249,6 +1271,8 @@ func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmd
 		FlagsSet:   flags,
 		AccountID:  accountID,
 		UserDomain: userDomain,
+		UserID:     userID,
+		UserType:   userType,
 		TokenKind:  tokenKind,
 		AuthSource: authSource,
 		RunID:      hbase.RunID,
@@ -1260,13 +1284,15 @@ func (r *Registry) emitError(cs *spec.CommandSpec, ctx *cmdctx.Ctx, err error, s
 	if telemetry.Disabled() {
 		return
 	}
-	accountID, userDomain, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	accountID, userDomain, userID, userType, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordError(telemetry.CommandError{
 		Verb:       cs.Verb,
 		Noun:       cs.FullNoun(),
 		Module:     cs.Module,
 		AccountID:  accountID,
 		UserDomain: userDomain,
+		UserID:     userID,
+		UserType:   userType,
 		TokenKind:  tokenKind,
 		AuthSource: authSource,
 		RunID:      hbase.RunID,

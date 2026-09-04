@@ -39,6 +39,8 @@ type ResolvedAuth struct {
 	ProjectID       string
 	RegistryURL     string
 	Email           string    // user email from profile; empty for env-var auth or legacy profiles
+	UserType        string    // config.UserTypeUser or config.UserTypeServiceAccount; empty for env-var auth, legacy profiles, or SSO
+	UserID          string    // Harness user uuid from profile; empty for env-var auth, legacy profiles, or service accounts
 	TokenKind       TokenKind // pat, sat, jwt, or "" (unknown)
 
 	// Exactly one of these is set depending on AuthType.
@@ -162,6 +164,23 @@ func Resolve(profileFlag string) (*ResolvedAuth, error) {
 	return r, nil
 }
 
+// ResolveWithOverrides resolves credentials via Resolve, then applies orgOverride/
+// projectOverride on top of whatever the resolved profile/env already set. An empty
+// override leaves the resolved value untouched.
+func ResolveWithOverrides(profileFlag, orgOverride, projectOverride string) (*ResolvedAuth, error) {
+	r, err := Resolve(profileFlag)
+	if err != nil {
+		return nil, err
+	}
+	if orgOverride != "" {
+		r.OrgID = orgOverride
+	}
+	if projectOverride != "" {
+		r.ProjectID = projectOverride
+	}
+	return r, nil
+}
+
 func resolveProfile(name string) (*ResolvedAuth, error) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -212,6 +231,8 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		ProjectID:   p.ProjectID,
 		RegistryURL: registryURL,
 		Email:       p.Email,
+		UserType:    p.UserType,
+		UserID:      p.UserID,
 		TokenKind:   TokenType(activeToken),
 	}
 	if authType == AuthTypeSSO {

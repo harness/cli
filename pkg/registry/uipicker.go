@@ -161,5 +161,6 @@ func buildPickerCtx(getCtx *cmdctx.Ctx, listCs *spec.CommandSpec) *cmdctx.Ctx {
 		Resolver:    getCtx.Resolver,
 		FormatFlags: cmdctx.FormatFlags{},
 		FlagValues:  fv,
+		UIHistory:   getCtx.UIHistory,
 	}
 }

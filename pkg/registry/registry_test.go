@@ -1005,7 +1005,7 @@ func TestAuthTelemetryFields(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			accountID, _, tokenKind, authSource := authTelemetryFields(tc.input)
+			accountID, _, _, _, tokenKind, authSource := authTelemetryFields(tc.input)
 			if accountID != tc.wantAccountID {
 				t.Errorf("accountID = %q, want %q", accountID, tc.wantAccountID)
 			}

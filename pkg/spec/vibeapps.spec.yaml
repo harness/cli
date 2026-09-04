@@ -1,0 +1,597 @@
+spec_version: 1
+module_type: hidden
+module_desc: Harness Vibe Apps — AI-generated micro-apps built and deployed via the Launchpad
+help_text: |
+  ## Vibe Apps (vibeapps)
+
+  Vibe Apps are AI-generated micro-apps built and deployed through the Harness
+  Launchpad. Each app is backed by a managed Git repo and gets a preview URL;
+  approved apps can also be published to a production URL.
+
+  ### Deploying
+
+  Two commands trigger a deployment, for two different audiences:
+
+      harness execute vibeapp:deploy [<id>] [--check] [--force] [--no-follow] [--workflow <name>]
+      harness execute vibeapp:run <id> [--source-version <commit>] [--workflow <name>]
+
+  `deploy` is the one to reach for from a project directory: it zips the
+  current git working tree, pushes it as a new source, creates the app on
+  first run or updates the one this directory is already linked to (tracked
+  via a `.harness/vibeapp.yaml` link file — remove it to unlink), and
+  streams the run's log to completion. Use `--check` to preview what it
+  would do without deploying anything. `run` is the lower-level trigger for
+  an app that already has a ready source: it starts a deployment from the
+  app's current (or a pinned `--source-version`) commit without touching any
+  local files or git state, which is what CI/scripts/agents that already
+  have an app id typically want. Make sure the project has an appropriate
+  `.gitignore` before running `deploy` so build output, dependencies, and
+  secrets don't get swept into the uploaded source.
+
+  See `harness execute vibeapp:deploy --help` / `harness execute vibeapp:run
+  --help` for the full flag reference.
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: vibeapp
+    short_desc: A Harness Vibe App built and deployed via the Launchpad.
+    noun_aliases: [vibeapps]
+    fields:
+      - id: id
+        label: ID
+        expr: it.id
+      - id: name
+        expr: it.name
+        mutable_path: name
+      - id: slug
+        expr: it.slug
+      - id: description
+        expr: it.description ?? ""
+        mutable_path: description
+      - id: status
+        expr: it.status
+      - id: owner
+        expr: it.owner ?? ""
+        mutable_path: owner
+      - id: team
+        expr: it.team ?? ""
+        mutable_path: team
+      - id: access_level
+        label: Access
+        expr: it.accessLevel ?? ""
+        mutable_path: accessLevel
+      - id: latest_deployment_status
+        label: Latest Deployment
+        expr: it.latestDeploymentStatus ?? ""
+      - id: latest_deployment_id
+        label: Latest Deployment ID
+        expr: it.latestDeploymentId ?? ""
+      - id: approval_status
+        label: Approval
+        expr: it.latestDeployment.approvalStatus ?? ""
+      - id: approval_gate
+        label: Approval Gate
+        expr: it.latestDeployment.approvalGate ?? ""
+      - id: blocking_findings
+        label: Blocking Findings
+        expr: string(it.latestDeployment.blockingFindings ?? 0)
+        align: right
+      - id: live_url
+        label: Live URL
+        expr: it.liveUrl ?? ""
+      - id: preview_url
+        label: Preview URL
+        expr: it.latestDeployment.previewUrl ?? ""
+      - id: production_url
+        label: Production URL
+        expr: it.latestDeployment.productionUrl ?? ""
+      - id: repo_url
+        label: Repo URL
+        expr: it.repoUrl ?? ""
+      - id: preferred_url
+        label: Preferred URL
+        expr: it.preferredUrl ?? ""
+        mutable_path: preferredUrl
+      - id: policy_profile_id
+        label: Policy Profile
+        expr: it.policyProfileId ?? ""
+        mutable_path: policyProfileId
+      - id: error_message
+        label: Error
+        expr: it.latestDeployment.errorMessage ?? ""
+      - id: created
+        expr: it.createdAt
+      - id: updated
+        expr: it.updatedAt
+
+  - noun: vibeapp_deployment
+    short_desc: A single triggered run ("deployment") of a Vibe App against a pinned source commit.
+    noun_aliases: [vibeapp_deployments, vibedeploy]
+    fields:
+      - id: id
+        label: ID
+        expr: it.id
+      - id: app_id
+        label: App ID
+        expr: it.appId ?? ""
+      - id: status
+        expr: it.status
+      - id: source_version
+        label: Source Version
+        expr: it.sourceVersion ?? ""
+      - id: workflow_name
+        label: Workflow
+        expr: it.workflowName ?? ""
+      - id: preview_url
+        label: Preview URL
+        expr: it.links.previewUrl ?? ""
+      - id: production_url
+        label: Production URL
+        expr: it.links.productionUrl ?? ""
+      - id: approval_status
+        label: Approval
+        expr: it.approval.status ?? ""
+      - id: approval_gate
+        label: Approval Gate
+        expr: it.approval.gate ?? ""
+      - id: security_status
+        label: Security
+        expr: it.security.status ?? ""
+      - id: blocking_findings
+        label: Blocking Findings
+        expr: string(it.security.blockingCount ?? 0)
+        align: right
+      - id: error_message
+        label: Error
+        expr: it.errorMessage ?? ""
+      - id: created
+        expr: it.createdAt
+      - id: updated
+        expr: it.updatedAt
+
+  - noun: vibeapp_approval
+    short_desc: A human gate decision (production publish gate) tied to a Vibe App deployment.
+    noun_aliases: [vibeapp_approvals]
+    fields:
+      - id: id
+        label: ID
+        expr: it.id
+      - id: app_id
+        label: App ID
+        expr: it.appId ?? ""
+      - id: app_name
+        label: App
+        expr: it.appName ?? ""
+      - id: deployment_id
+        label: Deployment ID
+        expr: it.deploymentId ?? ""
+      - id: gate
+        expr: it.gate ?? ""
+      - id: status
+        expr: it.status
+      - id: note
+        expr: it.note ?? ""
+      - id: decided_by
+        label: Decided By
+        expr: it.decidedBy ?? ""
+      - id: preview_url
+        label: Preview URL
+        expr: it.previewUrl ?? ""
+      - id: production_url
+        label: Production URL
+        expr: it.productionUrl ?? ""
+      - id: created
+        expr: it.createdAt
+      - id: decided
+        expr: it.decidedAt ?? ""
+
+commands:
+  # ── vibeapp ───────────────────────────────────────────────────────────────────
+
+  - command: list vibeapp
+    verb: list
+    noun: vibeapp
+    short: List Vibe Apps
+    handler_type: endpoint
+    endpoint:
+      # space_id is a single hardcoded default UUID server-side today (no multi-space
+      # concept exists yet) — not exposed as a flag, per the vibe-orchestrator API doc.
+      path: /vibe-orchestrator/api/v1/spaces/00000000-0000-0000-0000-000000000001/apps
+      items_expr: it.apps
+      get_id_expr: it.id
+      completion:
+        id_expr: it.id
+        name_expr: it.name
+      paging:
+        paging_strategy: flat_list
+      columns:
+        [
+          id,
+          name,
+          status,
+          latest_deployment_status,
+          approval_status,
+          preview_url,
+          live_url,
+          created,
+        ]
+
+  - command: get vibeapp
+    verb: get
+    noun: vibeapp
+    short: Get a Vibe App by ID
+    handler_type: endpoint
+    endpoint:
+      path: /vibe-orchestrator/api/v1/apps/{{ctx.id}}
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: create vibeapp
+    verb: create
+    noun: vibeapp
+    requires_id: true
+    short: "Create a Vibe App from a ready source: harness create vibeapp <name> --source-id <source-id>"
+    long: |
+      Creates a Vibe App bound to an already-`ready` source (see 'harness push vibeapp_source'
+      to upload a zip and obtain a source ID first).
+
+        harness create vibeapp my-app --source-id <source-id>
+    handler_type: endpoint
+    flags:
+      - name: source-id
+        description: ID of the ready source to build the app from (see 'harness push vibeapp_source')
+        required: true
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      # space_id is a single hardcoded default UUID server-side today; see 'list vibeapp'.
+      path: /vibe-orchestrator/api/v1/spaces/00000000-0000-0000-0000-000000000001/apps
+      create_strategy: set-fields
+      create_body_init:
+        name: ctx.id
+        sourceId: flags["source-id"]
+      create_body_wrap: ""
+      item_expr: it
+      text_header: "\nCreated Vibe App {{it.name}} ({{it.id}})\n"
+      text_footer: "\nTo deploy: harness execute vibeapp:run {{it.id}}\n"
+
+  - command: update vibeapp
+    verb: update
+    noun: vibeapp
+    short: "Update a Vibe App: harness update vibeapp <id> --set description=... owner=..."
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /vibe-orchestrator/api/v1/apps/{{ctx.id}}
+      get_path: /vibe-orchestrator/api/v1/apps/{{ctx.id}}
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated Vibe App {{ctx.id}}\n"
+
+  - command: delete vibeapp
+    verb: delete
+    noun: vibeapp
+    confirm_mode: prompt
+    short: "Delete a Vibe App (cascades approvals, events, deployments, workloads, sources)"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /vibe-orchestrator/api/v1/apps/{{ctx.id}}
+      text_header: "\nDeleted Vibe App {{ctx.id}}\n"
+
+  - command: execute vibeapp:archive
+    verb: execute
+    noun: vibeapp
+    noun_variant: archive
+    short: Soft-archive a Vibe App
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /vibe-orchestrator/api/v1/apps/{{ctx.id}}/archive
+      item_expr: it
+      text_header: "\nArchived Vibe App {{ctx.id}}\n"
+
+  - command: execute vibeapp:restore
+    verb: execute
+    noun: vibeapp
+    noun_variant: restore
+    short: Un-archive a Vibe App
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /vibe-orchestrator/api/v1/apps/{{ctx.id}}/restore
+      item_expr: it
+      text_header: "\nRestored Vibe App {{ctx.id}}\n"
+
+  - command: execute vibeapp:run
+    verb: execute
+    noun: vibeapp
+    noun_variant: run
+    fields_noun: vibeapp_deployment
+    short: "Trigger a deployment for a Vibe App: harness execute vibeapp:run <id> [--source-version <commit>] [--workflow <name>]"
+    long: |
+      Triggers a deployment (run/preview) for a Vibe App from its latest ready source
+      commit, or a pinned commit via --source-version. Requires a token (PAT/SAT/SSO) —
+      local dev with no credentials falls back to the server's own configured token, but
+      real CLI calls must be authenticated.
+
+      For a Netlify/Vercel-style "zip my project dir and deploy it" flow, see
+      'harness execute vibeapp:deploy' instead.
+    handler_type: endpoint
+    follow_fn: vibeapp_run_follow
+    flags:
+      - name: source-version
+        description: "Pin the deployment to a specific source commit (default: latest ready commit)"
+      - name: workflow
+        description: 'Workflow name to run (default: "platform-default")'
+      - name: follow
+        is_bool: true
+        description: Stream deployment events live after triggering; exits when the deployment reaches a terminal state
+    endpoint:
+      method: POST
+      path: /vibe-orchestrator/api/v1/apps/{{ctx.id}}/deployments
+      body_params:
+        sourceVersion: flags["source-version"]
+        workflowName: flags.workflow
+      item_expr: it
+      text_header: "\nDeployment triggered for Vibe App {{ctx.id}}\n"
+      text_footer: |
+
+        To follow:
+        harness get vibeapp_deployment {{ctx.id}}/{{it.id}}
+        harness get vibeapp_deployment:log {{ctx.id}}/{{it.id}} --follow
+
+  - command: execute vibeapp:deploy
+    verb: execute
+    noun: vibeapp
+    noun_variant: deploy
+    no_id: true
+    allows_id: true
+    short: "Zip the current project dir, push it as a new source, and run it: harness execute vibeapp:deploy [<id>] [--check] [--force] [--no-follow] [--workflow <name>]"
+    long: |
+      Netlify/Vercel-style deploy: zips the current git working tree (via 'git ls-files',
+      honoring .gitignore), pushes it as a new source, creates or updates the linked Vibe
+      App, and triggers a run — streaming its log by default.
+
+      Must be run inside a git repository. On first deploy from a directory, writes
+      .harness/vibeapp.yaml linking it to the app for subsequent deploys. See
+      'harness execute vibeapp:run' for triggering a run against an existing source
+      commit without zipping/pushing anything new.
+
+      Always prints the resolved git project root and the file count/size that would be
+      zipped, before doing anything else. --check stops right after printing those plus
+      what it would do (create a new app, push a new version to the linked/adopted app,
+      etc.) and any error that would occur — without zipping, uploading, creating,
+      pushing a source, or triggering a run.
+    handler_type: workflow
+    workflow_id: vibeapp_deploy
+    flags:
+      - name: check
+        is_bool: true
+        description: Resolve and print what this deploy would do (project root, file count/size, create-vs-update plan) without making any API calls that mutate state
+      - name: force
+        is_bool: true
+        description: Skip the confirmation prompt when adopting an explicitly-passed existing app id
+      - name: no-follow
+        is_bool: true
+        description: Trigger the run and exit immediately instead of streaming its log
+      - name: workflow
+        description: 'Workflow name to run (default: "platform-default")'
+
+  # ── vibeapp_deployment ──────────────────────────────────────────────────────────
+
+  - command: list vibeapp_deployment
+    verb: list
+    noun: vibeapp_deployment
+    short: "List deployments for a Vibe App: harness list vibeapp_deployment <app-id>"
+    requires_parentid: true
+    parentid_label: "<app-id>"
+    completion_noun: vibeapp
+    handler_type: endpoint
+    endpoint:
+      path: /vibe-orchestrator/api/v1/apps/{{ctx.parentId}}/deployments
+      items_expr: it.deployments
+      get_id_expr: ctx.parentId + "/" + it.id
+      completion:
+        id_expr: it.id
+        name_expr: it.status + " " + (it.sourceVersion ?? "")
+      paging:
+        paging_strategy: flat_list
+      columns:
+        [
+          id,
+          status,
+          source_version,
+          approval_status,
+          preview_url,
+          production_url,
+          created,
+        ]
+
+  - command: get vibeapp_deployment
+    verb: get
+    noun: vibeapp_deployment
+    short: "Get a Vibe App deployment (full stage breakdown, events, security, approval): harness get vibeapp_deployment <app-id>/<deployment-id>"
+    id_allow_slash: true
+    id_label: "<app-id>/<deployment-id>"
+    completion_seq:
+      - completion_noun: vibeapp
+      - completion_noun: vibeapp_deployment
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      path: /vibe-orchestrator/api/v1/deployments/{{lastPart(ctx.id)}}
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: execute vibeapp_deployment:cancel
+    verb: execute
+    noun: vibeapp_deployment
+    noun_variant: cancel
+    short: "Cancel an in-flight Vibe App deployment: harness execute vibeapp_deployment:cancel <app-id>/<deployment-id>"
+    id_allow_slash: true
+    id_label: "<app-id>/<deployment-id>"
+    completion_seq:
+      - completion_noun: vibeapp
+      - completion_noun: vibeapp_deployment
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /vibe-orchestrator/api/v1/deployments/{{lastPart(ctx.id)}}/cancel
+      item_expr: it
+      text_header: "\nCanceled deployment {{lastPart(ctx.id)}}\n"
+
+  - command: execute vibeapp_deployment:redeploy
+    verb: execute
+    noun: vibeapp_deployment
+    noun_variant: redeploy
+    short: "Re-run a historical deployment's pinned source version as a new deployment (rollback): harness execute vibeapp_deployment:redeploy <app-id>/<deployment-id>"
+    id_allow_slash: true
+    id_label: "<app-id>/<deployment-id>"
+    completion_seq:
+      - completion_noun: vibeapp
+      - completion_noun: vibeapp_deployment
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /vibe-orchestrator/api/v1/deployments/{{lastPart(ctx.id)}}/redeploy
+      item_expr: it
+      text_header: "\nRedeployed from {{lastPart(ctx.id)}}\n"
+
+  - command: execute vibeapp_deployment:decision
+    verb: execute
+    noun: vibeapp_deployment
+    noun_variant: decision
+    short: "Approve, reject, or request changes on a pending publish gate: harness execute vibeapp_deployment:decision <app-id>/<deployment-id> --decision approved"
+    id_allow_slash: true
+    id_label: "<app-id>/<deployment-id>"
+    completion_seq:
+      - completion_noun: vibeapp
+      - completion_noun: vibeapp_deployment
+        keep_order: true
+    handler_type: endpoint
+    flags:
+      - name: decision
+        description: "One of: approved, rejected, changes_requested"
+        required: true
+        completion_values: [approved, rejected, changes_requested]
+      - name: note
+        description: Optional note explaining the decision
+      - name: decided-by
+        description: Optional name/identifier of the decider
+    endpoint:
+      method: POST
+      path: /vibe-orchestrator/api/v1/deployments/{{lastPart(ctx.id)}}/decision
+      body_params:
+        decision: flags.decision
+        note: flags.note
+        decidedBy: flags["decided-by"]
+      item_expr: it
+      text_header: "\nRecorded decision {{flags.decision}} for deployment {{lastPart(ctx.id)}}\n"
+
+  - command: get vibeapp_deployment:log
+    verb: get
+    noun: vibeapp_deployment
+    noun_variant: log
+    short: "Tail the step log (events) of a Vibe App deployment for debugging: harness get vibeapp_deployment:log <app-id>/<deployment-id> [--follow]"
+    long: |
+      Fetches (or, with --follow, polls and streams) the `events` step log, `errors[]`
+      remediation hints, and security findings for a deployment — the single payload
+      with everything needed to diagnose a failed or running run.
+    id_allow_slash: true
+    id_label: "<app-id>/<deployment-id>"
+    completion_seq:
+      - completion_noun: vibeapp
+      - completion_noun: vibeapp_deployment
+        keep_order: true
+    handler_type: workflow
+    workflow_id: get_vibeapp_deployment_log
+    flags:
+      - name: follow
+        is_bool: true
+        description: Poll and stream new events until the deployment reaches a terminal state
+
+  # ── vibeapp_approval ────────────────────────────────────────────────────────────
+
+  - command: list vibeapp_approval
+    verb: list
+    noun: vibeapp_approval
+    short: List every gate decision across the space, newest first
+    handler_type: endpoint
+    endpoint:
+      # space_id is a single hardcoded default UUID server-side today; see 'list vibeapp'.
+      path: /vibe-orchestrator/api/v1/spaces/00000000-0000-0000-0000-000000000001/approvals
+      items_expr: it.approvals
+      get_id_expr: it.id
+      paging:
+        paging_strategy: flat_list
+      columns:
+        [
+          id,
+          app_name,
+          gate,
+          status,
+          decided_by,
+          preview_url,
+          production_url,
+          created,
+        ]
+
+  # ── vibeapp_source ──────────────────────────────────────────────────────────────
+
+  - command: push vibeapp_source
+    verb: push
+    noun: vibeapp_source
+    no_id: true
+    short: "Upload a local zip as a new Vibe App source: harness push vibeapp_source <local.zip> [--name <name>] [--app <app-id>]"
+    long: |
+      Uploads a local zip file as a new source lineage: creates the source, PUTs the
+      zip's bytes to the returned upload target(s), then polls until the source status
+      is "ready". Prints the resulting source ID for use with 'harness create vibeapp
+      <name> --source-id <id>' (new app) or pass --app to intake it as a new version on
+      an existing app instead.
+    has_args: true
+    args_label: "<local.zip>"
+    handler_type: workflow
+    workflow_id: push_vibeapp_source
+    flags:
+      - name: name
+        description: "Source name (default: the zip's base filename without extension)"
+      - name: app
+        description: Intake as a new source version for this existing app ID, instead of creating a standalone source
+        completion_noun: vibeapp
+      - name: description
+        description: Optional description for the source
+
+  - command: get vibeapp_source
+    verb: get
+    noun: vibeapp_source
+    short: "Poll a source's intake/publish status: harness get vibeapp_source <source-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /vibe-orchestrator/api/v1/sources/{{ctx.id}}
+      item_expr: it
+      yaml_pick_expr: it
+
+  # ── vibeapp checkout ────────────────────────────────────────────────────────────
+
+  - command: pull vibeapp
+    verb: pull
+    noun: vibeapp
+    short: "Clone a Vibe App's backing repo: harness pull vibeapp <id> [<dest-dir>]"
+    handler_type: workflow
+    workflow_id: pull_vibeapp
+    has_args: true
+    args_label: "[<dest-dir>]"
+    completion_noun: vibeapp
