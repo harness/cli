@@ -138,8 +138,11 @@ func TestCurrentScreenLink_CapturesListPosOnTable(t *testing.T) {
 	}
 }
 
-func TestCurrentScreenLink_DetailModeDoesNotCaptureListPos(t *testing.T) {
-	ctx := &cmdctx.Ctx{Verb: VerbGet, Noun: "thing", Id: "child-1"}
+func TestCurrentScreenLink_CapturesListPosEvenMidDetailFlip(t *testing.T) {
+	// "b" always resumes the underlying list, never the detail overlay, so an
+	// in-place detail flip (detailMode true, detailOnly false) over a table must
+	// still capture that table's live cursor.
+	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1"}
 	table := tui.NewTable(nil, 5, 40)
 	rows := make([]tui.Row, 10)
 	for i := range rows {
@@ -147,11 +150,50 @@ func TestCurrentScreenLink_DetailModeDoesNotCaptureListPos(t *testing.T) {
 	}
 	table.SetRows(rows)
 	table.SetCursor(4)
-	fm := uiTableModel{t: table, detailMode: true, detailOnly: true}
+	fm := uiTableModel{t: table, detailMode: true, detailOnly: false}
+
+	link := currentScreenLink(ctx, fm)
+	if link.ListPos != 4 {
+		t.Fatalf("ListPos = %d, want 4 (mid-flip should still capture the list cursor)", link.ListPos)
+	}
+}
+
+func TestCurrentScreenLink_DetailOnlyScreenHasZeroListPos(t *testing.T) {
+	// Case 4 detail-only Hops never populate fm.t, so its Cursor() is naturally 0.
+	ctx := &cmdctx.Ctx{Verb: VerbGet, Noun: "thing", Id: "child-1"}
+	fm := uiTableModel{detailMode: true, detailOnly: true}
 
 	link := currentScreenLink(ctx, fm)
 	if link.ListPos != 0 {
-		t.Fatalf("ListPos = %d, want 0 (detail screens have no list cursor to capture)", link.ListPos)
+		t.Fatalf("ListPos = %d, want 0 (detail-only screens have no underlying table)", link.ListPos)
+	}
+}
+
+func TestCurrentScreenLink_CapturesSearchTermIntoFlagValues(t *testing.T) {
+	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1", FlagValues: map[string]any{"other": "x"}}
+	table := tui.NewTable(nil, 5, 40)
+	fm := uiTableModel{t: table, hasSearch: true, searchTerm: "foo"}
+
+	link := currentScreenLink(ctx, fm)
+	if got := link.FlagValues["search"]; got != "foo" {
+		t.Fatalf("FlagValues[search] = %v, want %q", got, "foo")
+	}
+	if got := link.FlagValues["other"]; got != "x" {
+		t.Fatalf("FlagValues[other] = %v, want %q (should carry other flags through)", got, "x")
+	}
+	if ctx.FlagValues["search"] != nil {
+		t.Fatalf("ctx.FlagValues mutated, want the copy left untouched")
+	}
+}
+
+func TestCurrentScreenLink_NoSearchLeavesFlagValuesUnchanged(t *testing.T) {
+	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1", FlagValues: map[string]any{"other": "x"}}
+	table := tui.NewTable(nil, 5, 40)
+	fm := uiTableModel{t: table, hasSearch: false}
+
+	link := currentScreenLink(ctx, fm)
+	if _, ok := link.FlagValues["search"]; ok {
+		t.Fatal("FlagValues[search] present, want no injected key when hasSearch is false")
 	}
 }
 
