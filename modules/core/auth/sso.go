@@ -17,13 +17,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/modules/core/auth/assets"
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/config"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/v3/modules/core/auth/assets"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hlog"
 )
 
 const (

@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 // custom "toml" parser for credentials fields

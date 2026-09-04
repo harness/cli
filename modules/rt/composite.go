@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 const compositeBodyFnID = "composite_body"

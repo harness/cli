@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 // AuthType identifies how the token in the credentials file was obtained.

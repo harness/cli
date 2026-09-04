@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 func TestSuggestTransposition(t *testing.T) {

@@ -16,11 +16,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/execgraph"
-	"github.com/harness/cli/pkg/format"
-	"github.com/harness/cli/pkg/logstream"
-	"github.com/harness/cli/pkg/tui"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/execgraph"
+	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/logstream"
+	"github.com/harness/cli/v3/pkg/tui"
 )
 
 const lvPollIntervalSecs = 2

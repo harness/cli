@@ -3,7 +3,7 @@
 
 package platform
 
-import "github.com/harness/cli/pkg/registry"
+import "github.com/harness/cli/v3/pkg/registry"
 
 const resolvePrincipalIDFnID = "resolve_principal_id"
 

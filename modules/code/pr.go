@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/exprenv"
-	"github.com/harness/cli/pkg/extractutil"
-	"github.com/harness/cli/pkg/format"
-	"github.com/harness/cli/pkg/hlog"
-	"github.com/harness/cli/pkg/registry"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/exprenv"
+	"github.com/harness/cli/v3/pkg/extractutil"
+	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/registry"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 const getPRWorkflowID = "get_pr"

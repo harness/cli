@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 // testCtx builds a bare Ctx with only FlagValues set.

@@ -16,7 +16,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 // Conan file-name constants (mirrors the conanutil package in the legacy CLI).

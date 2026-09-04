@@ -12,9 +12,9 @@ import (
 	"path"
 	"strings"
 
-	"github.com/harness/cli/pkg/client"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/client"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hlog"
 )
 
 const pullVibeappWorkflowID = "pull_vibeapp"

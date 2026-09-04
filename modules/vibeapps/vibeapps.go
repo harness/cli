@@ -3,7 +3,7 @@
 
 package vibeapps
 
-import "github.com/harness/cli/pkg/registry"
+import "github.com/harness/cli/v3/pkg/registry"
 
 func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(pushVibeappSourceWorkflowID, pushVibeappSourceWorkflow)

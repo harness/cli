@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/harness/cli/pkg/strutil"
+	"github.com/harness/cli/v3/pkg/strutil"
 )
 
 // SuggestRootCommand inspects raw CLI args and returns a user-friendly error

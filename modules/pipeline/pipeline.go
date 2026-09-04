@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/execgraph"
-	"github.com/harness/cli/pkg/format"
-	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/execgraph"
+	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/registry"
 )
 
 // ModuleInit registers pipeline workflows and formatters. Commands are declared in pipeline.spec.yaml.

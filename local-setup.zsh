@@ -1,4 +1,4 @@
-if [[ ! -f "$(pwd)/go.mod" ]] || ! grep -q '^module github.com/harness/cli$' "$(pwd)/go.mod"; then
+if [[ ! -f "$(pwd)/go.mod" ]] || ! grep -q '^module github.com/harness/cli/v3$' "$(pwd)/go.mod"; then
   echo "local-setup.zsh must be sourced from the root of the harness CLI repo" >&2
   return 1
 fi

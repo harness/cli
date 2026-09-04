@@ -11,10 +11,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // ---------------------------------------------------------------------------

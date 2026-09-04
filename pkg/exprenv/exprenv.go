@@ -11,10 +11,10 @@ import (
 
 	"github.com/expr-lang/expr"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/exprenv/exprfuncs"
-	"github.com/harness/cli/pkg/spec"
-	"github.com/harness/cli/pkg/strutil"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/exprenv/exprfuncs"
+	"github.com/harness/cli/v3/pkg/spec"
+	"github.com/harness/cli/v3/pkg/strutil"
 )
 
 func isMachineFormat(flags map[string]any) bool {

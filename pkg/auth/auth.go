@@ -12,8 +12,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/harness/cli/pkg/config"
-	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/config"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 // AuthType is re-exported from pkg/config for callers that only import pkg/auth.

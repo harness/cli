@@ -10,9 +10,9 @@ import (
 	"io"
 	"net/url"
 
-	"github.com/harness/cli/pkg/client"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/v3/pkg/client"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/format"
 )
 
 const exportTemplateYamlWorkflowID = "export_template_yaml"

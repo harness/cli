@@ -26,7 +26,7 @@ import (
 
 	"github.com/expr-lang/expr"
 
-	"github.com/harness/cli/pkg/exprenv"
+	"github.com/harness/cli/v3/pkg/exprenv"
 )
 
 func main() {

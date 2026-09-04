@@ -13,10 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // timeoutGracePeriod is the window given for in-flight work to finish after

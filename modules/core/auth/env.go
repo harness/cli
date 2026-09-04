@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 func EnvHandler(ctx *cmdctx.Ctx) error {
