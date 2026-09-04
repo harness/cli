@@ -13,20 +13,21 @@ help_text: |
 
   Two commands trigger a deployment, for two different audiences:
 
-      harness execute vibeapp:deploy [<id>] [--force] [--no-follow] [--workflow <name>]
+      harness execute vibeapp:deploy [<id>] [--check] [--force] [--no-follow] [--workflow <name>]
       harness execute vibeapp:run <id> [--source-version <commit>] [--workflow <name>]
 
   `deploy` is the one to reach for from a project directory: it zips the
-  current git working tree (respecting `.gitignore`), pushes it as a new
-  source, creates the app on first run or updates the one this directory is
-  already linked to, and streams the run's log to completion. It writes a
-  `.harness/vibeapp.yaml` link file (`app_id: <id>`) on the first successful
-  create/adopt so later `deploy` runs from the same directory know which app
-  to update instead of creating a duplicate — remove that file to unlink a
-  directory. `run` is the lower-level trigger for an app that already has a
-  ready source: it starts a deployment from the app's current (or a pinned
-  `--source-version`) commit without touching any local files or git state,
-  which is what CI/scripts/agents that already have an app id typically want.
+  current git working tree, pushes it as a new source, creates the app on
+  first run or updates the one this directory is already linked to (tracked
+  via a `.harness/vibeapp.yaml` link file — remove it to unlink), and
+  streams the run's log to completion. Use `--check` to preview what it
+  would do without deploying anything. `run` is the lower-level trigger for
+  an app that already has a ready source: it starts a deployment from the
+  app's current (or a pinned `--source-version`) commit without touching any
+  local files or git state, which is what CI/scripts/agents that already
+  have an app id typically want. Make sure the project has an appropriate
+  `.gitignore` before running `deploy` so build output, dependencies, and
+  secrets don't get swept into the uploaded source.
 
   See `harness execute vibeapp:deploy --help` / `harness execute vibeapp:run
   --help` for the full flag reference.
@@ -356,7 +357,7 @@ commands:
     noun_variant: deploy
     no_id: true
     allows_id: true
-    short: "Zip the current project dir, push it as a new source, and run it: harness execute vibeapp:deploy [<id>] [--force] [--no-follow] [--workflow <name>]"
+    short: "Zip the current project dir, push it as a new source, and run it: harness execute vibeapp:deploy [<id>] [--check] [--force] [--no-follow] [--workflow <name>]"
     long: |
       Netlify/Vercel-style deploy: zips the current git working tree (via 'git ls-files',
       honoring .gitignore), pushes it as a new source, creates or updates the linked Vibe
@@ -366,9 +367,18 @@ commands:
       .harness/vibeapp.yaml linking it to the app for subsequent deploys. See
       'harness execute vibeapp:run' for triggering a run against an existing source
       commit without zipping/pushing anything new.
+
+      Always prints the resolved git project root and the file count/size that would be
+      zipped, before doing anything else. --check stops right after printing those plus
+      what it would do (create a new app, push a new version to the linked/adopted app,
+      etc.) and any error that would occur — without zipping, uploading, creating,
+      pushing a source, or triggering a run.
     handler_type: workflow
     workflow_id: vibeapp_deploy
     flags:
+      - name: check
+        is_bool: true
+        description: Resolve and print what this deploy would do (project root, file count/size, create-vs-update plan) without making any API calls that mutate state
       - name: force
         is_bool: true
         description: Skip the confirmation prompt when adopting an explicitly-passed existing app id

@@ -140,8 +140,18 @@ func gitDeployFiles(root string) ([]string, error) {
 	return files, nil
 }
 
-// zipProjectDir zips root's deployable files (per gitDeployFiles) in memory.
-func zipProjectDir(root string) ([]byte, error) {
+// deployFileStats is the local, read-only "what would get zipped" summary printed
+// before every deploy (including --check) so a human/agent can sanity-check the file
+// count and size before anything is uploaded.
+type deployFileStats struct {
+	Files      []string
+	TotalBytes int64
+}
+
+// computeDeployFileStats runs gitDeployFiles and stats each entry (rather than
+// actually zipping) to report count/size cheaply and identically for --check and a
+// real deploy.
+func computeDeployFileStats(root string) (*deployFileStats, error) {
 	files, err := gitDeployFiles(root)
 	if err != nil {
 		return nil, err
@@ -149,7 +159,22 @@ func zipProjectDir(root string) ([]byte, error) {
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no files to deploy: 'git ls-files' returned nothing under %s (everything gitignored?)", root)
 	}
+	var total int64
+	for _, rel := range files {
+		fi, err := os.Lstat(filepath.Join(root, rel))
+		if err != nil {
+			return nil, fmt.Errorf("stat %q: %w", rel, err)
+		}
+		if fi.Mode().IsRegular() {
+			total += fi.Size()
+		}
+	}
+	return &deployFileStats{Files: files, TotalBytes: total}, nil
+}
 
+// zipProjectDirFiles zips root's already-resolved deployable files (per
+// computeDeployFileStats/gitDeployFiles) in memory.
+func zipProjectDirFiles(root string, files []string) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	for _, rel := range files {
@@ -244,60 +269,87 @@ func triggerVibeappDeployment(ctx *cmdctx.Ctx, appID, workflowName string) (stri
 	return deploymentID, nil
 }
 
-// resolveDeployTargetApp implements the id-vs-link-file overwrite-semantics table for
-// "execute vibeapp:deploy". Returns the app id to push a new source version to, or ""
-// if a brand-new app should be created (no id given and no live linked app found).
-// For the "adopt an explicitly-passed existing id" case, it also writes the link file
-// on confirmation — same as the create-new-app path, linking happens as soon as the
-// app's identity for this directory is settled, independent of what happens next.
-func resolveDeployTargetApp(ctx *cmdctx.Ctx, root, explicitID string, link *vibeappLink, force bool) (string, error) {
+// deployPlanKind is the action "execute vibeapp:deploy" will take against the
+// vibe-orchestrator, per the id-vs-link-file overwrite-semantics table.
+type deployPlanKind string
+
+const (
+	deployPlanCreate       deployPlanKind = "create"        // no id, no (live) link: create a brand-new app
+	deployPlanRecreateLink deployPlanKind = "recreate-link" // no id, link present but app is gone: create a new app, replacing the stale link
+	deployPlanReuse        deployPlanKind = "reuse"         // linked app (matches explicit id if one was given): push a new version to it, no prompt
+	deployPlanAdopt        deployPlanKind = "adopt"         // explicit id, no link file, app exists: prompt (unless --force), then link it
+)
+
+// deployPlan is the fully-resolved, side-effect-free description of what a deploy
+// will do to the app side of things — computed identically for a real deploy and for
+// --check, so --check can't drift from what actually happens.
+type deployPlan struct {
+	Kind    deployPlanKind
+	AppID   string // set for Reuse/Adopt; empty for Create/RecreateLink
+	AppName string // best-effort, from the GET; empty if not fetched (Create) or unknown
+}
+
+// resolveDeployPlan implements the id-vs-link-file overwrite-semantics table for
+// "execute vibeapp:deploy" as a pure read (only GETs, no writes/prompts), so it can
+// back both --check and the real deploy path. It errors exactly when a real deploy
+// would hard-error: an explicitly-passed id that doesn't exist, or one that conflicts
+// with an existing link file.
+func resolveDeployPlan(ctx *cmdctx.Ctx, explicitID string, link *vibeappLink) (*deployPlan, error) {
 	switch {
 	case explicitID != "" && link == nil:
 		app, err := getVibeappByID(ctx, explicitID)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if app == nil {
-			return "", fmt.Errorf("Vibe App %s not found", explicitID)
+			return nil, fmt.Errorf("Vibe App %s not found", explicitID)
 		}
-		if !force {
-			question := fmt.Sprintf("Vibe App %s (%s) already exists — deploying will push a new version and trigger a run. Continue?", app.ID, app.Name)
-			if !console.PromptYesNo(question) {
-				return "", fmt.Errorf("canceled")
-			}
-		}
-		if err := writeVibeappLink(root, app.ID); err != nil {
-			return "", err
-		}
-		return app.ID, nil
+		return &deployPlan{Kind: deployPlanAdopt, AppID: app.ID, AppName: app.Name}, nil
 
 	case explicitID != "" && link != nil:
 		if explicitID != link.AppID {
-			return "", fmt.Errorf("this directory is linked to Vibe App %s (%s), which differs from the id passed (%s); remove %s if you meant to switch apps", link.AppID, vibeappLinkFile, explicitID, vibeappLinkFile)
+			return nil, fmt.Errorf("this directory is linked to Vibe App %s (%s), which differs from the id passed (%s); remove %s if you meant to switch apps", link.AppID, vibeappLinkFile, explicitID, vibeappLinkFile)
 		}
-		return explicitID, nil
+		return &deployPlan{Kind: deployPlanReuse, AppID: explicitID}, nil
 
 	case explicitID == "" && link != nil:
 		app, err := getVibeappByID(ctx, link.AppID)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if app == nil {
 			// The linked app is gone server-side, but the link file is still the
 			// strongest signal this directory owns that app slot: create a new app
 			// rather than erroring, and the caller overwrites the link with its id.
-			return "", nil
+			return &deployPlan{Kind: deployPlanRecreateLink}, nil
 		}
-		return app.ID, nil
+		return &deployPlan{Kind: deployPlanReuse, AppID: app.ID, AppName: app.Name}, nil
 
 	default: // explicitID == "" && link == nil
-		return "", nil
+		return &deployPlan{Kind: deployPlanCreate}, nil
+	}
+}
+
+// describeDeployPlan renders plan as the human-readable line printed for both --check
+// and a real deploy, before anything happens.
+func describeDeployPlan(plan *deployPlan, link *vibeappLink) string {
+	switch plan.Kind {
+	case deployPlanCreate:
+		return "Plan: no linked app found — will create a new Vibe App"
+	case deployPlanRecreateLink:
+		return fmt.Sprintf("Plan: %s points at Vibe App %s, which no longer exists — will create a new Vibe App and replace the link", vibeappLinkFile, link.AppID)
+	case deployPlanReuse:
+		return fmt.Sprintf("Plan: will push a new source version to linked Vibe App %s (%s) and trigger a run", plan.AppID, plan.AppName)
+	case deployPlanAdopt:
+		return fmt.Sprintf("Plan: Vibe App %s (%s) already exists — will prompt to adopt it, link this directory to it, push a new source version, and trigger a run", plan.AppID, plan.AppName)
+	default:
+		return "Plan: unknown"
 	}
 }
 
 // vibeappDeployWorkflow implements "execute vibeapp:deploy [<id>] [--force] [--no-follow]
-// [--workflow <name>]": zips the current git working tree, pushes it as a new source,
-// creates or updates the linked Vibe App, and triggers a run.
+// [--check] [--workflow <name>]": zips the current git working tree, pushes it as a new
+// source, creates or updates the linked Vibe App, and triggers a run.
 func vibeappDeployWorkflow(ctx *cmdctx.Ctx) error {
 	if err := requireGit(); err != nil {
 		return err
@@ -306,7 +358,12 @@ func vibeappDeployWorkflow(ctx *cmdctx.Ctx) error {
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "Project root: %s\n", root)
+	if _, err := os.Stat(filepath.Join(root, ".gitignore")); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "warning: no .gitignore found at %s — everything under the project root not already tracked by git will be zipped and uploaded\n", root)
+	}
 
+	check := cmdctx.GetBool(ctx.FlagValues, "check")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	noFollow := cmdctx.GetBool(ctx.FlagValues, "no-follow")
 	workflowName := cmdctx.GetString(ctx.FlagValues, "workflow")
@@ -316,12 +373,30 @@ func vibeappDeployWorkflow(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	appID, err := resolveDeployTargetApp(ctx, root, ctx.Id, link, force)
+	stats, err := computeDeployFileStats(root)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "Files to deploy: %d (%s)\n", len(stats.Files), formatBytes(stats.TotalBytes))
 
-	zipData, err := zipProjectDir(root)
+	plan, err := resolveDeployPlan(ctx, ctx.Id, link)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, describeDeployPlan(plan, link))
+
+	if check {
+		return nil
+	}
+
+	if plan.Kind == deployPlanAdopt && !force {
+		question := fmt.Sprintf("Vibe App %s (%s) already exists — deploying will push a new version and trigger a run. Continue?", plan.AppID, plan.AppName)
+		if !console.PromptYesNo(question) {
+			return fmt.Errorf("canceled")
+		}
+	}
+
+	zipData, err := zipProjectDirFiles(root, stats.Files)
 	if err != nil {
 		return err
 	}
@@ -332,9 +407,10 @@ func vibeappDeployWorkflow(ctx *cmdctx.Ctx) error {
 	defer os.Remove(tmpPath)
 
 	name := filepath.Base(root)
+	appID := plan.AppID
 
-	if appID == "" {
-		fmt.Fprintln(os.Stderr, "No linked app found — creating a new Vibe App...")
+	if plan.Kind == deployPlanCreate || plan.Kind == deployPlanRecreateLink {
+		fmt.Fprintln(os.Stderr, "Creating a new Vibe App...")
 		status, err := createAndUploadSource(ctx, tmpPath, name, "", "")
 		if err != nil {
 			return err
@@ -349,6 +425,11 @@ func vibeappDeployWorkflow(ctx *cmdctx.Ctx) error {
 			return err
 		}
 	} else {
+		if plan.Kind == deployPlanAdopt {
+			if err := writeVibeappLink(root, appID); err != nil {
+				return err
+			}
+		}
 		if _, err := createAndUploadSource(ctx, tmpPath, name, appID, ""); err != nil {
 			return err
 		}
