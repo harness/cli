@@ -29,10 +29,6 @@ help_text: |
     harness list noun               # list all registered nouns
     harness get noun <noun>         # show fields and commands for a noun
 
-  ### Nouns
-
-  {{nouns}}
-
 nouns:
   - noun: profiles
     noun_aliases: [profile]

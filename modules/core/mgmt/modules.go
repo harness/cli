@@ -282,7 +282,7 @@ func RenderNounBlock(module string, nouns []string, r cmdctx.Resolver) string {
 	for _, n := range nouns {
 		nd := r.GetNoun(n)
 		padding := strings.Repeat(" ", maxLen-len(n))
-		coloredNoun := console.WithColor(console.ColorMagenta, n)
+		coloredNoun := console.WithBoldColor(console.ColorBrightWhite, n)
 		verbs := verbTokens(n)
 		desc := ""
 		if nd != nil {
