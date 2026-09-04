@@ -304,7 +304,7 @@ func resolveDeployPlan(ctx *cmdctx.Ctx, explicitID string, link *vibeappLink) (*
 			return nil, err
 		}
 		if app == nil {
-			return nil, fmt.Errorf("Vibe App %s not found", explicitID)
+			return nil, fmt.Errorf("vibe app %s not found", explicitID)
 		}
 		return &deployPlan{Kind: deployPlanAdopt, AppID: app.ID, AppName: app.Name}, nil
 
