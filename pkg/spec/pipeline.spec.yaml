@@ -139,6 +139,24 @@ nouns:
         expr: it.type
       - id: enabled
         expr: it.enabled
+      - id: description
+        expr: it.description
+      - id: pipeline
+        expr: coalesce(it.targetIdentifier, ctx.idParts[0])
+      - id: tags
+        expr: formatTagDisplay(it.tags)
+      - id: webhook_url
+        expr: it.webhookUrl
+      - id: last_execution_status
+        expr: it.lastTriggerExecutionDetails.lastExecutionStatus
+      - id: last_execution_time
+        expr: epochMs(it.lastTriggerExecutionDetails.lastExecutionTime)
+      - id: last_execution_message
+        expr: it.lastTriggerExecutionDetails.message
+        width_max: 60
+      - id: yaml
+        expr: it.yaml
+        field_type: yaml
 
   - noun: input_set
     short_desc: A reusable set of runtime inputs that can be applied when running a pipeline.
@@ -911,8 +929,8 @@ commands:
         keep_order: true
     handler_type: endpoint
     endpoint:
-      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
-      item_expr: it.data
+      path: /pipeline/api/triggers
+      item_expr: find(it.data.content, .identifier == lastPart(ctx.id))
       query_params:
         targetIdentifier: ctx.idParts[0]
 
