@@ -902,7 +902,7 @@ commands:
     endpoint:
       path: /pipeline/api/triggers
       items_expr: it.data.content
-      get_id_expr: it.identifier
+      get_id_expr: ctx.parentId + "/" + it.identifier
       completion:
         id_expr: it.identifier
         name_expr: it.name
