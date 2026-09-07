@@ -148,9 +148,11 @@ nouns:
       - id: webhook_url
         expr: it.webhookUrl
       - id: last_execution_status
-        expr: it.lastTriggerExecutionDetails.lastExecutionStatus
+        expr: '(it.lastTriggerExecutionDetails != nil && it.lastTriggerExecutionDetails.lastExecutionSuccessful == true) ? "Passed" : "Failed"'
       - id: last_execution_time
         expr: epochMs(it.lastTriggerExecutionDetails.lastExecutionTime)
+      - id: last_execution_id
+        expr: it.lastTriggerExecutionDetails.planExecutionId
       - id: last_execution_message
         expr: it.lastTriggerExecutionDetails.message
         width_max: 60
@@ -915,7 +917,7 @@ commands:
         page_size_default: 25
         page_size_max: 100
         total_expr: it.data.totalItems
-      columns: [identifier, name, type, enabled]
+      columns: [identifier, name, type, enabled, last_execution_status, tags]
 
   - command: get trigger
     verb: get
