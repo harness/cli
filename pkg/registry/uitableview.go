@@ -1310,8 +1310,12 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 		if err := ctx.Resolver.RunUIHandler(ctx, fm.launchUIHandlerFn); err != nil {
 			return err
 		}
-		if link, ok := ctx.PopUILink(); ok {
-			return dispatchLink(ctx, &link)
+		// UIWantBack defaults to false: unless the handler explicitly asked to go
+		// back (e.g. its own "b" key), quitting its screen quits outright.
+		if ctx.UIWantBack {
+			if link, ok := ctx.PopUILink(); ok {
+				return dispatchLink(ctx, &link)
+			}
 		}
 		return nil
 	}
