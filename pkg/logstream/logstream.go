@@ -13,7 +13,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +81,55 @@ var innerLogSkipKeys = map[string]bool{
 	"ts": true, "time": true, "timestamp": true,
 }
 
+// ANSI codes for our own synthesized log formatting. These are always
+// embedded in the rendered line; the non-pty path already strips all ANSI
+// via console.StripANSI, so there's no need to gate emission on isPty here.
+const (
+	ansiDim    = "\x1b[2m"
+	ansiBlue   = "\x1b[34m"
+	ansiResetC = "\x1b[0m"
+)
+
+// plainDecimalRE matches a bare decimal literal with a fractional part —
+// no exponent, no thousands separators. Used to find high-precision
+// measurements (CPU%, memory) worth rounding, without touching integers
+// (byte counts) or scientific notation, which look identical numerically
+// but shouldn't be reformatted as if they were.
+var plainDecimalRE = regexp.MustCompile(`^-?[0-9]+\.[0-9]+$`)
+
+// detectSmallFloat reports whether s is a plain decimal float (see
+// plainDecimalRE) with a magnitude under 1000, the shape of noisy
+// high-precision percentages/measurements as opposed to large exact byte
+// counts.
+func detectSmallFloat(s string) (float64, bool) {
+	if !plainDecimalRE.MatchString(s) {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f < -1000 || f > 1000 {
+		return 0, false
+	}
+	return f, true
+}
+
+// formatKVRaw renders a "key=value" pair with "key=" colored blue, matching
+// the style plugin binaries commonly use for their own structured-log KVs.
+// valStr is used verbatim, already formatted by the caller.
+func formatKVRaw(key, valStr string) string {
+	return fmt.Sprintf("%s%s=%s%s", ansiBlue, key, ansiResetC, valStr)
+}
+
+// formatKV renders key/val as a colored "key=value" pair. Values that look
+// like noisy high-precision floats (see detectSmallFloat) are rounded to 2
+// decimal places for readability.
+func formatKV(key string, val any) string {
+	s := fmt.Sprintf("%v", val)
+	if f, ok := detectSmallFloat(s); ok {
+		s = fmt.Sprintf("%.2f", f)
+	}
+	return formatKVRaw(key, s)
+}
+
 // unwrapInnerJSON detects a structured-log JSON object nested inside an
 // already-unwrapped log line (e.g. an app logging its own JSON to stdout,
 // which the execution log envelope then wraps a second time). If out is
@@ -114,9 +165,23 @@ func unwrapInnerJSON(out string) (msg string, kvs []string, ok bool) {
 	sort.Strings(keys)
 	kvs = make([]string, 0, len(keys))
 	for _, k := range keys {
-		kvs = append(kvs, fmt.Sprintf("%s=%v", k, m[k]))
+		kvs = append(kvs, formatKV(k, m[k]))
 	}
 	return msg, kvs, true
+}
+
+// metricsFloatFields are the delegate resource-sample fields that are
+// always floating-point measurements (% or GB) even when the current
+// sample happens to be a whole number — Go's JSON encoder drops the
+// fractional part for exact float64 values (e.g. 100.0 marshals as "100"),
+// so avalCPU can read "100" on one line and "97.11417816813044" on the
+// next. detectSmallFloat can't tell that apart from a genuinely integer
+// field like diskReadBytesSec from the literal text alone, so these known
+// fields are always formatted as floats regardless of their current shape.
+var metricsFloatFields = map[string]bool{
+	"avaMemory":   true,
+	"avalCPU":     true,
+	"totalMemory": true,
 }
 
 // unwrapTimestampedMetrics detects a common delegate-log shape where the
@@ -158,7 +223,13 @@ func unwrapTimestampedMetrics(out string) (ts time.Time, kvs []string, ok bool) 
 	sort.Strings(keys)
 	kvs = make([]string, 0, len(keys))
 	for _, k := range keys {
-		kvs = append(kvs, fmt.Sprintf("%s=%v", k, vals[k]))
+		if metricsFloatFields[k] {
+			if f, err := strconv.ParseFloat(fmt.Sprintf("%v", vals[k]), 64); err == nil {
+				kvs = append(kvs, formatKVRaw(k, fmt.Sprintf("%.2f", f)))
+				continue
+			}
+		}
+		kvs = append(kvs, formatKV(k, vals[k]))
 	}
 	return t, kvs, true
 }
@@ -227,7 +298,8 @@ func formatLogLine(line string, isPty bool) string {
 		out = console.StripANSI(out)
 		return fmt.Sprintf("%s [%s] %s", ts, level, out)
 	}
-	return fmt.Sprintf("%s [%s] %s\033[0m", ts, level, out)
+	dimTs := ansiDim + ts + ansiResetC
+	return fmt.Sprintf("%s [%s] %s\033[0m", dimTs, level, out)
 }
 
 // FetchAndPrintLog fetches a log blob and writes it to out.
