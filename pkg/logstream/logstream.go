@@ -5,6 +5,7 @@ package logstream
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -69,16 +71,102 @@ type LogKeyEntry struct {
 	Outputs    string   // raw JSON from outcomes
 }
 
+// innerLogSkipKeys are fields already reflected in the outer envelope
+// (timestamp/level/message) and shouldn't be repeated as trailing KVs.
+var innerLogSkipKeys = map[string]bool{
+	"message": true, "msg": true,
+	"severity": true, "level": true,
+	"ts": true, "time": true, "timestamp": true,
+}
+
+// unwrapInnerJSON detects a structured-log JSON object nested inside an
+// already-unwrapped log line (e.g. an app logging its own JSON to stdout,
+// which the execution log envelope then wraps a second time). If out is
+// such a JSON object with a "message"/"msg" string field, it returns that
+// message plus the remaining fields rendered as "key=value" KVs. ok is
+// false when out is not a recognizable inner JSON log line.
+func unwrapInnerJSON(out string) (msg string, kvs []string, ok bool) {
+	trimmed := strings.TrimSpace(out)
+	if !strings.HasPrefix(trimmed, "{") {
+		return "", nil, false
+	}
+	var m map[string]any
+	dec := json.NewDecoder(strings.NewReader(trimmed))
+	dec.UseNumber()
+	if err := dec.Decode(&m); err != nil {
+		return "", nil, false
+	}
+	msgVal, hasMsg := m["message"]
+	if !hasMsg {
+		msgVal, hasMsg = m["msg"]
+	}
+	msg, isStr := msgVal.(string)
+	if !hasMsg || !isStr {
+		return "", nil, false
+	}
+
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		if !innerLogSkipKeys[k] {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	kvs = make([]string, 0, len(keys))
+	for _, k := range keys {
+		kvs = append(kvs, fmt.Sprintf("%s=%v", k, m[k]))
+	}
+	return msg, kvs, true
+}
+
+// unwrapTimestampedMetrics detects a common delegate-log shape where the
+// entire line is a single-key JSON object whose key is itself an
+// RFC3339Nano timestamp and whose value is a metrics object, e.g. delegate
+// resource-usage samples like {"<ts>":{"totalMemory":...,"totalCPU":...}}.
+// Returns the parsed timestamp and the metrics rendered as sorted
+// "key=value" KVs.
+func unwrapTimestampedMetrics(out string) (ts time.Time, kvs []string, ok bool) {
+	trimmed := strings.TrimSpace(out)
+	if !strings.HasPrefix(trimmed, "{") {
+		return time.Time{}, nil, false
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &m); err != nil || len(m) != 1 {
+		return time.Time{}, nil, false
+	}
+	var key string
+	var raw json.RawMessage
+	for k, v := range m {
+		key, raw = k, v
+	}
+	t, err := time.Parse(time.RFC3339Nano, key)
+	if err != nil {
+		return time.Time{}, nil, false
+	}
+
+	var vals map[string]any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&vals); err != nil || len(vals) == 0 {
+		return time.Time{}, nil, false
+	}
+
+	keys := make([]string, 0, len(vals))
+	for k := range vals {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	kvs = make([]string, 0, len(keys))
+	for _, k := range keys {
+		kvs = append(kvs, fmt.Sprintf("%s=%v", k, vals[k]))
+	}
+	return t, kvs, true
+}
+
 func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error {
 	if fmtFlag == "json" || fmtFlag == "jsonl" {
 		_, err := fmt.Fprint(w, text)
 		return err
-	}
-
-	type logLine struct {
-		Level string `json:"level"`
-		Out   string `json:"out"`
-		Time  string `json:"time"`
 	}
 
 	// bufio.Reader.ReadString grows its buffer as needed instead of erroring on
@@ -88,23 +176,7 @@ func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error
 		raw, rerr := r.ReadString('\n')
 		line := strings.TrimRight(raw, "\r\n")
 		if line != "" {
-			var ll logLine
-			if err := json.Unmarshal([]byte(line), &ll); err != nil {
-				fmt.Fprintln(w, line)
-			} else {
-				ts := ll.Time
-				if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-					ts = t.UTC().Format("2006-01-02 15:04:05")
-				}
-				out := strings.TrimRight(ll.Out, "\n")
-				out = strings.ReplaceAll(out, "\r", "")
-				if !isPty {
-					out = console.StripANSI(out)
-					fmt.Fprintf(w, "%s [%s] %s\n", ts, ll.Level, out)
-				} else {
-					fmt.Fprintf(w, "%s [%s] %s\033[0m\n", ts, ll.Level, out)
-				}
-			}
+			fmt.Fprintln(w, formatLogLine(line, isPty))
 		}
 		if rerr != nil {
 			if rerr == io.EOF {
@@ -113,6 +185,49 @@ func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error
 			return rerr
 		}
 	}
+}
+
+// formatLogLine formats a single raw execution log line. Lines are JSON
+// envelopes of the form {"level":..,"time":..,"out":..}; lines that aren't
+// valid envelopes (e.g. plain text) are returned unchanged. The envelope's
+// "out" field may itself be a nested structured-log JSON object (an app
+// logging its own JSON to stdout, wrapped a second time by the execution
+// log envelope) — unwrapInnerJSON detects that case and folds it into
+// "message  key=value ..." instead of printing the raw nested JSON.
+func formatLogLine(line string, isPty bool) string {
+	type logLine struct {
+		Level string `json:"level"`
+		Out   string `json:"out"`
+		Time  string `json:"time"`
+	}
+	var ll logLine
+	if err := json.Unmarshal([]byte(line), &ll); err != nil {
+		return line
+	}
+
+	ts := ll.Time
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		ts = t.UTC().Format("2006-01-02 15:04:05")
+	}
+	level := ll.Level
+	out := strings.TrimRight(ll.Out, "\n")
+	out = strings.ReplaceAll(out, "\r", "")
+	if msg, kvs, ok := unwrapInnerJSON(out); ok {
+		if len(kvs) > 0 {
+			out = msg + "  " + strings.Join(kvs, " ")
+		} else {
+			out = msg
+		}
+	} else if metricsTs, kvs, ok := unwrapTimestampedMetrics(out); ok {
+		ts = metricsTs.UTC().Format("2006-01-02 15:04:05")
+		level = "perf"
+		out = strings.Join(kvs, ", ")
+	}
+	if !isPty {
+		out = console.StripANSI(out)
+		return fmt.Sprintf("%s [%s] %s", ts, level, out)
+	}
+	return fmt.Sprintf("%s [%s] %s\033[0m", ts, level, out)
 }
 
 // FetchAndPrintLog fetches a log blob and writes it to out.
