@@ -294,6 +294,13 @@ func JsonArray(v []any) string {
 	return string(b)
 }
 
+// JsonArrayPretty marshals a slice to an indented (2-space) JSON array string.
+// Returns "[]" for nil.
+func JsonArrayPretty(v []any) string {
+	b, _ := json.MarshalIndent(v, "", "  ")
+	return string(b)
+}
+
 // FormatRoleAssignments converts a roleAssignmentMetadata slice to a JSON array of
 // "roleName (roleScopeLevel)" strings.
 func FormatRoleAssignments(assignments []any) string {

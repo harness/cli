@@ -484,7 +484,7 @@ nouns:
         field_type: multiline_text
         mutable_path: system_prompt
       - id: criteria
-        expr: jsonArray(it.criteria)
+        expr: '"Criteria:\n" + jsonArrayPretty(it.criteria)'
         field_type: multiline_text
       - id: mcp_servers
         expr: it.mcp_servers
