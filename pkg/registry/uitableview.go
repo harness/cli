@@ -134,8 +134,8 @@ type uiTableModel struct {
 	width  int
 	height int
 
-	// listpos restore — seeded from ctx.RestoreListPos, applied once on the
-	// first page load only (later page loads always GotoTop as before).
+	// cursor restore — derived from ctx.RestoreOffset (against pageSize), applied
+	// once on the first page load only (later page loads always GotoTop as before).
 	restoreCursor  int
 	restoreApplied bool
 }
@@ -156,6 +156,8 @@ func newUITableModel(
 	getCs *spec.CommandSpec,
 ) uiTableModel {
 	pageSize := tableHeight(termHeight)
+	page := ctx.RestoreOffset / pageSize
+	restoreCursor := ctx.RestoreOffset % pageSize
 	colDefs := placeholderColumns(tspec, termWidth)
 	t := tui.NewTable(colDefs, pageSize, termWidth)
 
@@ -184,8 +186,8 @@ func newUITableModel(
 		hasSearch:     hasSearch,
 		getCs:         getCs,
 		uiCommands:    uiCommands,
-		page:          ctx.RestorePage,
-		restoreCursor: ctx.RestoreListPos,
+		page:          page,
+		restoreCursor: restoreCursor,
 	}
 }
 
@@ -1279,12 +1281,11 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		Org:        org,
 		Project:    project,
 		FlagValues: fv,
-		Screen:     screen,
-		// ListPos is always captured from the underlying table, even mid detail-flip:
+		Screen: screen,
+		// Offset is always captured from the underlying table, even mid detail-flip:
 		// "b" always resumes the list, never the detail overlay, and detailOnly
 		// screens (Case 4) never populate fm.t, so its Cursor() is a natural 0 there.
-		ListPos: fm.t.Cursor(),
-		Page:    fm.page,
+		Offset: fm.page*fm.pageSize + fm.t.Cursor(),
 	}
 	return link
 }

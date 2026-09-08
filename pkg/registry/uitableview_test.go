@@ -121,7 +121,7 @@ func TestFinishUIExit_PushesLinkOnViewHop(t *testing.T) {
 	}
 }
 
-func TestCurrentScreenLink_CapturesListPosOnTable(t *testing.T) {
+func TestCurrentScreenLink_CapturesOffsetOnTable(t *testing.T) {
 	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1"}
 	table := tui.NewTable(nil, 5, 40)
 	rows := make([]tui.Row, 10)
@@ -133,12 +133,12 @@ func TestCurrentScreenLink_CapturesListPosOnTable(t *testing.T) {
 	fm := uiTableModel{t: table}
 
 	link := currentScreenLink(ctx, fm)
-	if link.ListPos != 4 {
-		t.Fatalf("ListPos = %d, want 4", link.ListPos)
+	if link.Offset != 4 {
+		t.Fatalf("Offset = %d, want 4", link.Offset)
 	}
 }
 
-func TestCurrentScreenLink_CapturesListPosEvenMidDetailFlip(t *testing.T) {
+func TestCurrentScreenLink_CapturesOffsetEvenMidDetailFlip(t *testing.T) {
 	// "b" always resumes the underlying list, never the detail overlay, so an
 	// in-place detail flip (detailMode true, detailOnly false) over a table must
 	// still capture that table's live cursor.
@@ -153,30 +153,36 @@ func TestCurrentScreenLink_CapturesListPosEvenMidDetailFlip(t *testing.T) {
 	fm := uiTableModel{t: table, detailMode: true, detailOnly: false}
 
 	link := currentScreenLink(ctx, fm)
-	if link.ListPos != 4 {
-		t.Fatalf("ListPos = %d, want 4 (mid-flip should still capture the list cursor)", link.ListPos)
+	if link.Offset != 4 {
+		t.Fatalf("Offset = %d, want 4 (mid-flip should still capture the list cursor)", link.Offset)
 	}
 }
 
-func TestCurrentScreenLink_DetailOnlyScreenHasZeroListPos(t *testing.T) {
+func TestCurrentScreenLink_DetailOnlyScreenHasZeroOffset(t *testing.T) {
 	// Case 4 detail-only Hops never populate fm.t, so its Cursor() is naturally 0.
 	ctx := &cmdctx.Ctx{Verb: VerbGet, Noun: "thing", Id: "child-1"}
 	fm := uiTableModel{detailMode: true, detailOnly: true}
 
 	link := currentScreenLink(ctx, fm)
-	if link.ListPos != 0 {
-		t.Fatalf("ListPos = %d, want 0 (detail-only screens have no underlying table)", link.ListPos)
+	if link.Offset != 0 {
+		t.Fatalf("Offset = %d, want 0 (detail-only screens have no underlying table)", link.Offset)
 	}
 }
 
-func TestCurrentScreenLink_CapturesPage(t *testing.T) {
+func TestCurrentScreenLink_CapturesOffsetAcrossPages(t *testing.T) {
 	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1"}
 	table := tui.NewTable(nil, 5, 40)
-	fm := uiTableModel{t: table, page: 2}
+	rows := make([]tui.Row, 10)
+	for i := range rows {
+		rows[i] = tui.Row{"x"}
+	}
+	table.SetRows(rows)
+	table.SetCursor(3)
+	fm := uiTableModel{t: table, page: 2, pageSize: 20}
 
 	link := currentScreenLink(ctx, fm)
-	if link.Page != 2 {
-		t.Fatalf("Page = %d, want 2", link.Page)
+	if link.Offset != 43 {
+		t.Fatalf("Offset = %d, want 43 (page 2 * pageSize 20 + cursor 3)", link.Offset)
 	}
 }
 
@@ -297,59 +303,66 @@ func TestFinishUIExit_NoHopNoPush(t *testing.T) {
 	}
 }
 
-func TestBuildLinkCtx_TableScreen_CarriesListPosToRestoreListPos(t *testing.T) {
+func TestBuildLinkCtx_TableScreen_CarriesOffsetToRestoreOffset(t *testing.T) {
 	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
-	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, ListPos: 4}
+	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, Offset: 44}
 	targetCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", NoAuth: true}
 
 	newCtx, err := buildLinkCtx(ctx, link, targetCs)
 	if err != nil {
 		t.Fatalf("buildLinkCtx: %v", err)
 	}
-	if newCtx.RestoreListPos != 4 {
-		t.Fatalf("RestoreListPos = %d, want 4", newCtx.RestoreListPos)
+	if newCtx.RestoreOffset != 44 {
+		t.Fatalf("RestoreOffset = %d, want 44", newCtx.RestoreOffset)
 	}
 	if newCtx.ParentId != "parent-1" {
 		t.Fatalf("ParentId = %q, want parent-1", newCtx.ParentId)
 	}
 }
 
-func TestBuildLinkCtx_TableScreen_CarriesPageToRestorePage(t *testing.T) {
+func TestBuildLinkCtx_DetailScreen_DoesNotSetRestoreOffset(t *testing.T) {
 	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
-	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, ListPos: 4, Page: 2}
-	targetCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", NoAuth: true}
-
-	newCtx, err := buildLinkCtx(ctx, link, targetCs)
-	if err != nil {
-		t.Fatalf("buildLinkCtx: %v", err)
-	}
-	if newCtx.RestorePage != 2 {
-		t.Fatalf("RestorePage = %d, want 2", newCtx.RestorePage)
-	}
-}
-
-func TestBuildLinkCtx_DetailScreen_DoesNotSetRestoreListPos(t *testing.T) {
-	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
-	link := &cmdctx.UILink{Verb: VerbGet, Noun: "thing", Id: "child-1", Screen: cmdctx.ScreenDetailForGet, ListPos: 4}
+	link := &cmdctx.UILink{Verb: VerbGet, Noun: "thing", Id: "child-1", Screen: cmdctx.ScreenDetailForGet, Offset: 4}
 	targetCs := &spec.CommandSpec{Verb: VerbGet, Noun: "thing", NoAuth: true}
 
 	newCtx, err := buildLinkCtx(ctx, link, targetCs)
 	if err != nil {
 		t.Fatalf("buildLinkCtx: %v", err)
 	}
-	if newCtx.RestoreListPos != 0 {
-		t.Fatalf("RestoreListPos = %d, want 0 (detail screens have no list cursor to restore)", newCtx.RestoreListPos)
+	if newCtx.RestoreOffset != 0 {
+		t.Fatalf("RestoreOffset = %d, want 0 (detail screens have no list cursor to restore)", newCtx.RestoreOffset)
 	}
 }
 
-func TestNewUITableModel_SeedsPageFromCtxRestorePage(t *testing.T) {
-	ctx := &cmdctx.Ctx{RestorePage: 2, RestoreListPos: 4}
+func TestNewUITableModel_SeedsPageAndCursorFromCtxRestoreOffset(t *testing.T) {
+	// termHeight 24 -> pageSize = tableHeight(24) = 24-uiOverheadLines-1. Derive
+	// the expected pageSize the same way the model does, so this test doesn't
+	// hardcode uiOverheadLines.
+	pageSize := tableHeight(24)
+	offset := 2*pageSize + 4
+	ctx := &cmdctx.Ctx{RestoreOffset: offset}
 	m := newUITableModel(ctx, nil, nil, nil, nil, "title", 80, 24, nil)
 	if m.page != 2 {
-		t.Fatalf("page = %d, want 2 (seeded from ctx.RestorePage)", m.page)
+		t.Fatalf("page = %d, want 2 (derived from ctx.RestoreOffset / pageSize)", m.page)
 	}
 	if m.restoreCursor != 4 {
-		t.Fatalf("restoreCursor = %d, want 4 (seeded from ctx.RestoreListPos)", m.restoreCursor)
+		t.Fatalf("restoreCursor = %d, want 4 (derived from ctx.RestoreOffset %% pageSize)", m.restoreCursor)
+	}
+}
+
+func TestNewUITableModel_RestoreOffsetSurvivesPageSizeChange(t *testing.T) {
+	// Capture at one pageSize, restore at a different (e.g. post-resize)
+	// pageSize, and confirm the absolute row is still targeted correctly.
+	capturedPageSize := 10
+	capturedPage, capturedCursor := 2, 3
+	offset := capturedPage*capturedPageSize + capturedCursor // absolute row 23
+
+	ctx := &cmdctx.Ctx{RestoreOffset: offset}
+	m := newUITableModel(ctx, nil, nil, nil, nil, "title", 80, 24, nil)
+
+	restoredPageSize := m.pageSize
+	if got := m.page*restoredPageSize + m.restoreCursor; got != offset {
+		t.Fatalf("restored absolute row = %d, want %d (offset must survive pageSize change)", got, offset)
 	}
 }
 
