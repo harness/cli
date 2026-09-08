@@ -157,6 +157,7 @@ type logViewModel struct {
 	activeStreams   map[string]sseStream   // nodeUUID → live SSE stream (running steps only)
 	leftPanelW      int
 	leftPanelOffset int
+	leftScrollTop   int // first visible row index into the left panel's line list (incl. blank pad row)
 	pipelineDone    bool
 	pollCountdown   int  // seconds remaining until next poll (counts down from lvPollIntervalSecs)
 	pollRefreshing  bool // poll fetch currently in flight
@@ -193,6 +194,42 @@ func (m *logViewModel) clampLeftOffset() {
 	}
 	if m.leftPanelOffset < 0 {
 		m.leftPanelOffset = 0
+	}
+}
+
+// leftListHeight returns the number of visible rows in the left step list.
+func (m *logViewModel) leftListHeight() int {
+	headerH := 2 // title line + blank line + help/hint line at bottom
+	listH := m.height - headerH
+	if listH < 1 {
+		listH = 1
+	}
+	return listH
+}
+
+// syncLeftScroll adjusts leftScrollTop just enough to keep the selected row
+// within view — it only scrolls when the selection would otherwise fall
+// outside the current window, rather than re-pinning it to an edge.
+func (m *logViewModel) syncLeftScroll() {
+	listH := m.leftListHeight()
+	selectedRow := m.selectedIndex() + 1 // +1 for blank padding row
+
+	if selectedRow < m.leftScrollTop {
+		m.leftScrollTop = selectedRow
+	}
+	if selectedRow > m.leftScrollTop+listH-1 {
+		m.leftScrollTop = selectedRow - listH + 1
+	}
+
+	maxTop := len(m.steps) + 1 - listH
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if m.leftScrollTop > maxTop {
+		m.leftScrollTop = maxTop
+	}
+	if m.leftScrollTop < 0 {
+		m.leftScrollTop = 0
 	}
 }
 
@@ -321,6 +358,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resizeComponents()
+		m.syncLeftScroll()
 		m.vpReady = true
 		return m, nil
 
@@ -438,6 +476,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				idx := m.selectedIndex()
 				if idx > 0 {
 					m.selectedUUID = m.steps[idx-1].UUID
+					m.syncLeftScroll()
 					m.syncViewportForTab()
 					return m, m.maybeLoadLog()
 				}
@@ -448,6 +487,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				idx := m.selectedIndex()
 				if idx < len(m.steps)-1 {
 					m.selectedUUID = m.steps[idx+1].UUID
+					m.syncLeftScroll()
 					m.syncViewportForTab()
 					return m, m.maybeLoadLog()
 				}
@@ -520,6 +560,7 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selectedUUID == "" && len(m.steps) > 0 {
 			m.selectedUUID = m.steps[0].UUID
 		}
+		m.syncLeftScroll()
 
 		m.pollRefreshing = false
 		if !m.pipelineDone {
@@ -839,10 +880,14 @@ func (m logViewModel) renderSplit(b *strings.Builder) {
 		leftLines = append(leftLines, m.renderLeftPanelRow(s, i == selectedIdx, leftW))
 	}
 
-	// scroll left panel so selected is visible (+1 for blank padding row)
-	start := 0
-	if selectedIdx+1 >= listH {
-		start = selectedIdx + 1 - listH + 1
+	// scroll left panel: leftScrollTop only moves when selection would
+	// otherwise fall outside the visible window (see syncLeftScroll).
+	start := m.leftScrollTop
+	if start > len(leftLines)-listH {
+		start = len(leftLines) - listH
+	}
+	if start < 0 {
+		start = 0
 	}
 	end := start + listH
 	if end > len(leftLines) {
