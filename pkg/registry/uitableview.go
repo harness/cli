@@ -134,8 +134,8 @@ type uiTableModel struct {
 	width  int
 	height int
 
-	// listpos restore — seeded from ctx.RestoreListPos, applied once on the
-	// first page load only (later page loads always GotoTop as before).
+	// cursor restore — derived from ctx.RestoreOffset (against pageSize), applied
+	// once on the first page load only (later page loads always GotoTop as before).
 	restoreCursor  int
 	restoreApplied bool
 }
@@ -156,6 +156,8 @@ func newUITableModel(
 	getCs *spec.CommandSpec,
 ) uiTableModel {
 	pageSize := tableHeight(termHeight)
+	page := ctx.RestoreOffset / pageSize
+	restoreCursor := ctx.RestoreOffset % pageSize
 	colDefs := placeholderColumns(tspec, termWidth)
 	t := tui.NewTable(colDefs, pageSize, termWidth)
 
@@ -184,7 +186,8 @@ func newUITableModel(
 		hasSearch:     hasSearch,
 		getCs:         getCs,
 		uiCommands:    uiCommands,
-		restoreCursor: ctx.RestoreListPos,
+		page:          page,
+		restoreCursor: restoreCursor,
 	}
 }
 
@@ -345,7 +348,7 @@ func (m uiTableModel) Init() tea.Cmd {
 	if m.detailOnly {
 		return m.fetchDetail(m.detail.id)
 	}
-	return m.fetchPage(0)
+	return m.fetchPage(m.page)
 }
 
 func (m uiTableModel) fetchPage(page int) tea.Cmd {
@@ -1279,10 +1282,10 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		Project:    project,
 		FlagValues: fv,
 		Screen:     screen,
-		// ListPos is always captured from the underlying table, even mid detail-flip:
+		// Offset is always captured from the underlying table, even mid detail-flip:
 		// "b" always resumes the list, never the detail overlay, and detailOnly
 		// screens (Case 4) never populate fm.t, so its Cursor() is a natural 0 there.
-		ListPos: fm.t.Cursor(),
+		Offset: fm.page*fm.pageSize + fm.t.Cursor(),
 	}
 	return link
 }
@@ -1310,8 +1313,12 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 		if err := ctx.Resolver.RunUIHandler(ctx, fm.launchUIHandlerFn); err != nil {
 			return err
 		}
-		if link, ok := ctx.PopUILink(); ok {
-			return dispatchLink(ctx, &link)
+		// UIWantBack defaults to false: unless the handler explicitly asked to go
+		// back (e.g. its own "b" key), quitting its screen quits outright.
+		if ctx.UIWantBack {
+			if link, ok := ctx.PopUILink(); ok {
+				return dispatchLink(ctx, &link)
+			}
 		}
 		return nil
 	}

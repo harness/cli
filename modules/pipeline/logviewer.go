@@ -446,6 +446,12 @@ func (m logViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ss.cancel()
 			}
 			return m, tea.Quit
+		case "b":
+			for _, ss := range m.activeStreams {
+				ss.cancel()
+			}
+			m.ctx.UIWantBack = true
+			return m, tea.Quit
 		case "s":
 			if m.state == lvStateReady && m.selectedUUID != "" {
 				node := m.selectedNode()
@@ -920,9 +926,9 @@ func (m logViewModel) renderSplit(b *strings.Builder) {
 	}
 
 	// help line: left side is fixed, right side shows poll state / scroll %
-	helpLeft := "  ↑/↓ select · l/d/i/o/tab tab · pgup/pgdn scroll · r refresh · q quit"
+	helpLeft := "  ↑/↓ select · l/d/i/o/tab tab · pgup/pgdn scroll · r refresh · b back · q quit"
 	if m.activeTab == tabLogs || m.activeTab == tabInputs || m.activeTab == tabOutputs {
-		helpLeft = "  ↑/↓ select · l/d/i/o/tab tab · pgup/pgdn scroll · r refresh · s save · q quit"
+		helpLeft = "  ↑/↓ select · l/d/i/o/tab tab · pgup/pgdn scroll · r refresh · s save · b back · q quit"
 	}
 
 	var helpRight string
