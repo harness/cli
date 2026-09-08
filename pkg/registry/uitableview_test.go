@@ -235,14 +235,43 @@ func TestFinishUIExit_ViewHop_ResumesLeftScreen(t *testing.T) {
 		launchUIId:        "child-1",
 		launchUIHandlerFn: "noop_handler",
 	}
-	// The handler pushes the screen it's leaving, runs "noop_handler" (returns nil), then
-	// pops that same entry back off to resume it via dispatchLink — which doesn't resolve
-	// against an empty Registry; the resulting error is expected and irrelevant here. Only
-	// the net stack effect (resume, not leak or exit) is under test.
+	// The handler pushes the screen it's leaving, runs "noop_handler" (returns nil), then sets
+	// ctx.UIWantBack (as a view handler's own "b" key would) so finishUIExit pops that same
+	// entry back off to resume it via dispatchLink — which doesn't resolve against an empty
+	// Registry; the resulting error is expected and irrelevant here. Only the net stack effect
+	// (resume, not leak or exit) is under test.
+	ctx.UIWantBack = true
 	_ = finishUIExit(ctx, fm)
 
 	if len(ctx.UIHistory) != 1 || ctx.UIHistory[0].Id != "prev-id" {
 		t.Fatalf("UIHistory = %+v, want just the pre-existing prev-id entry (view-hop's own push+pop should net to zero)", ctx.UIHistory)
+	}
+}
+
+func TestFinishUIExit_ViewHop_QuitOnlyByDefault(t *testing.T) {
+	r := New()
+	r.RegisterWorkflow("noop_handler", func(*cmdctx.Ctx) error { return nil })
+	ctx := &cmdctx.Ctx{
+		Verb:      VerbGet,
+		Noun:      "thing",
+		Id:        "child-1",
+		Resolver:  r,
+		UIHistory: []cmdctx.UILink{{Verb: VerbGet, Noun: "thing", Id: "prev-id"}},
+	}
+	fm := uiTableModel{
+		detailOnly:        true,
+		launchUIId:        "child-1",
+		launchUIHandlerFn: "noop_handler",
+	}
+	// The handler returns nil without setting ctx.UIWantBack (the default), so the view
+	// hop's own push is left in place and there is no pop/resume — quitting the handler's
+	// screen quits outright rather than resuming the caller.
+	if err := finishUIExit(ctx, fm); err != nil {
+		t.Fatalf("finishUIExit: %v", err)
+	}
+
+	if len(ctx.UIHistory) != 2 {
+		t.Fatalf("UIHistory len = %d, want 2 (view hop pushed, no pop without UIWantBack)", len(ctx.UIHistory))
 	}
 }
 
