@@ -169,6 +169,17 @@ func TestCurrentScreenLink_DetailOnlyScreenHasZeroListPos(t *testing.T) {
 	}
 }
 
+func TestCurrentScreenLink_CapturesPage(t *testing.T) {
+	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1"}
+	table := tui.NewTable(nil, 5, 40)
+	fm := uiTableModel{t: table, page: 2}
+
+	link := currentScreenLink(ctx, fm)
+	if link.Page != 2 {
+		t.Fatalf("Page = %d, want 2", link.Page)
+	}
+}
+
 func TestCurrentScreenLink_CapturesSearchTermIntoFlagValues(t *testing.T) {
 	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1", FlagValues: map[string]any{"other": "x"}}
 	table := tui.NewTable(nil, 5, 40)
@@ -303,6 +314,20 @@ func TestBuildLinkCtx_TableScreen_CarriesListPosToRestoreListPos(t *testing.T) {
 	}
 }
 
+func TestBuildLinkCtx_TableScreen_CarriesPageToRestorePage(t *testing.T) {
+	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
+	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, ListPos: 4, Page: 2}
+	targetCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", NoAuth: true}
+
+	newCtx, err := buildLinkCtx(ctx, link, targetCs)
+	if err != nil {
+		t.Fatalf("buildLinkCtx: %v", err)
+	}
+	if newCtx.RestorePage != 2 {
+		t.Fatalf("RestorePage = %d, want 2", newCtx.RestorePage)
+	}
+}
+
 func TestBuildLinkCtx_DetailScreen_DoesNotSetRestoreListPos(t *testing.T) {
 	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
 	link := &cmdctx.UILink{Verb: VerbGet, Noun: "thing", Id: "child-1", Screen: cmdctx.ScreenDetailForGet, ListPos: 4}
@@ -314,6 +339,17 @@ func TestBuildLinkCtx_DetailScreen_DoesNotSetRestoreListPos(t *testing.T) {
 	}
 	if newCtx.RestoreListPos != 0 {
 		t.Fatalf("RestoreListPos = %d, want 0 (detail screens have no list cursor to restore)", newCtx.RestoreListPos)
+	}
+}
+
+func TestNewUITableModel_SeedsPageFromCtxRestorePage(t *testing.T) {
+	ctx := &cmdctx.Ctx{RestorePage: 2, RestoreListPos: 4}
+	m := newUITableModel(ctx, nil, nil, nil, nil, "title", 80, 24, nil)
+	if m.page != 2 {
+		t.Fatalf("page = %d, want 2 (seeded from ctx.RestorePage)", m.page)
+	}
+	if m.restoreCursor != 4 {
+		t.Fatalf("restoreCursor = %d, want 4 (seeded from ctx.RestoreListPos)", m.restoreCursor)
 	}
 }
 

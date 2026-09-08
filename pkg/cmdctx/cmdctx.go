@@ -240,6 +240,10 @@ type Ctx struct {
 	// RestoreListPos is the cursor row (within the first-loaded page) to seed a
 	// freshly built table with when replaying a popped UILink's ListPos.
 	RestoreListPos int
+	// RestorePage is the page number to fetch first when replaying a popped
+	// UILink's Page, so RestoreListPos is applied against the same page the
+	// cursor was originally captured on.
+	RestorePage int
 	// UIWantBack is read by finishUIExit right after a "view" ui_command's
 	// handler returns, to decide whether to pop UIHistory and redraw the caller
 	// (true) or quit outright (false, the default). A view handler that wants

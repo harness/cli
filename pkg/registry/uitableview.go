@@ -184,6 +184,7 @@ func newUITableModel(
 		hasSearch:     hasSearch,
 		getCs:         getCs,
 		uiCommands:    uiCommands,
+		page:          ctx.RestorePage,
 		restoreCursor: ctx.RestoreListPos,
 	}
 }
@@ -345,7 +346,7 @@ func (m uiTableModel) Init() tea.Cmd {
 	if m.detailOnly {
 		return m.fetchDetail(m.detail.id)
 	}
-	return m.fetchPage(0)
+	return m.fetchPage(m.page)
 }
 
 func (m uiTableModel) fetchPage(page int) tea.Cmd {
@@ -1283,6 +1284,7 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		// "b" always resumes the list, never the detail overlay, and detailOnly
 		// screens (Case 4) never populate fm.t, so its Cursor() is a natural 0 there.
 		ListPos: fm.t.Cursor(),
+		Page:    fm.page,
 	}
 	return link
 }

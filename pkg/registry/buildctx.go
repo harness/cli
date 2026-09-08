@@ -381,6 +381,7 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 	} else {
 		newCtx.ParentId = link.Id
 		newCtx.RestoreListPos = link.ListPos
+		newCtx.RestorePage = link.Page
 	}
 	return newCtx, nil
 }

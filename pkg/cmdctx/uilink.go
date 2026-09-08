@@ -30,6 +30,7 @@ type UILink struct {
 
 	Screen  UIScreenKind
 	ListPos int
+	Page    int
 }
 
 // PushUILink appends link to the back-navigation stack (LIFO — PopUILink pops
