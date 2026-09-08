@@ -1281,7 +1281,7 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		Org:        org,
 		Project:    project,
 		FlagValues: fv,
-		Screen: screen,
+		Screen:     screen,
 		// Offset is always captured from the underlying table, even mid detail-flip:
 		// "b" always resumes the list, never the detail overlay, and detailOnly
 		// screens (Case 4) never populate fm.t, so its Cursor() is a natural 0 there.
