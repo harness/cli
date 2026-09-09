@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/format"
 )
 
 const corePrefix = "core"

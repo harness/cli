@@ -6,7 +6,7 @@ package exprfuncs
 import (
 	"strings"
 
-	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/v3/pkg/format"
 )
 
 const sparklineWidth = 10

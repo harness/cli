@@ -278,6 +278,11 @@ nouns:
       - id: committed
         expr: epochMs(it.committer.when)
 
+  - noun: pr_commit
+    short_desc: A commit included in a pull request (Harness Code).
+    noun_aliases: [pr_commits]
+    multi_level: true
+
   - noun: tag
     short_desc: A git tag in a Harness Code repository.
     noun_aliases: [tags]
@@ -456,6 +461,54 @@ nouns:
     short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).
     noun_aliases: [pr_review_groups]
     url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+
+  # ── repo_settings (AICR config + general repo settings) ────────────────────────
+
+  - noun: repo_settings
+    short_desc: Configuration settings for a Harness Code repository (AICR rules, general options).
+    noun_aliases: [repo_setting]
+
+  - noun: repo_settings_aicr
+    short_desc: AI Code Review (AICR) settings for a repository — rules, connector, inheritance.
+    fields:
+      - id: repo_path
+        expr: it.repo_path
+      - id: connector_path
+        expr: it.connector_path
+        mutable_path: connector_path
+      - id: connector_scope
+        label: Connector Scope
+        expr: it.connector_path_scope
+      - id: system_prompt
+        expr: it.system_prompt
+        field_type: multiline_text
+        mutable_path: system_prompt
+      - id: criteria
+        expr: '"Criteria:\n" + jsonArrayPretty(it.criteria)'
+        field_type: multiline_text
+      - id: mcp_servers
+        expr: it.mcp_servers
+      - id: version
+        expr: it.version
+        align: right
+      - id: created
+        expr: epochMs(it.created)
+      - id: updated
+        expr: epochMs(it.updated)
+
+  - noun: repo_settings_general
+    short_desc: General repository settings (file size limit, LFS, auto-merge, AI review toggle).
+    fields:
+      - id: file_size_limit
+        expr: it.file_size_limit
+        align: right
+      - id: git_lfs_enabled
+        expr: it.git_lfs_enabled
+      - id: auto_merge_enabled
+        expr: it.auto_merge_enabled
+      - id: ai_pullreq_review_enabled
+        label: AI Review Enabled
+        expr: it.ai_pullreq_review_enabled
 
   - noun: pr_reviewer
     short_desc: A reviewer on a pull request, with their review decision (Harness Code).
@@ -1115,6 +1168,80 @@ commands:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.idParts[0]}}/+/pullreq/{{ctx.idParts[1]}}/view
       item_expr: it
       text_formatter: pr_review_group_text
+
+  # ── repo_settings ────────────────────────────────────────────────────────────
+
+  - command: create repo_settings:aicr
+    verb: create
+    noun: repo_settings
+    noun_variant: aicr
+    fields_noun: repo_settings_aicr
+    short: "Create AI Code Review settings for a repo (first-time setup): harness create repo_settings:aicr <repo_id> -f settings.yaml"
+    handler_type: endpoint
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      method: POST
+      path: /gateway/aicr/api/v1/settings
+      query_params:
+        repo_path: auth.scope + "/" + ctx.id
+        recursive: '"true"'
+      file_body: required
+      item_expr: it
+      text_header: "\nCreated AICR settings for {{ctx.id}}\n"
+
+  - command: get repo_settings:aicr
+    verb: get
+    noun: repo_settings
+    noun_variant: aicr
+    fields_noun: repo_settings_aicr
+    short: "Get AI Code Review settings for a repo: harness get repo_settings:aicr <repo_id>"
+    handler_type: endpoint
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      path: /gateway/aicr/api/v1/settings
+      item_expr: it
+      query_params:
+        repo_path: auth.scope + "/" + ctx.id
+        recursive: '"true"'
+
+  - command: update repo_settings:aicr
+    verb: update
+    noun: repo_settings
+    noun_variant: aicr
+    fields_noun: repo_settings_aicr
+    short: "Update AI Code Review settings for a repo: --set connector_path=<path> system_prompt=<text>, or -f settings.yaml for a full replace (e.g. to edit criteria)"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      method: PUT
+      path: /gateway/aicr/api/v1/settings
+      query_params:
+        repo_path: auth.scope + "/" + ctx.id
+        recursive: '"true"'
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: it
+      item_expr: it
+      text_header: "\nUpdated AICR settings for {{ctx.id}}\n"
+
+  - command: get repo_settings:general
+    verb: get
+    noun: repo_settings
+    noun_variant: general
+    fields_noun: repo_settings_general
+    short: "Get general repository settings: harness get repo_settings:general <repo_id>"
+    handler_type: endpoint
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.id}}/+/settings/general
+      item_expr: it
 
   # ── pr conversation (threaded activity timeline as prose) ──────────────────────
 

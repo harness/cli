@@ -11,10 +11,10 @@ import (
 
 	"github.com/expr-lang/expr"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/exprenv/exprfuncs"
-	"github.com/harness/cli/pkg/spec"
-	"github.com/harness/cli/pkg/strutil"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/exprenv/exprfuncs"
+	"github.com/harness/cli/v3/pkg/spec"
+	"github.com/harness/cli/v3/pkg/strutil"
 )
 
 func isMachineFormat(flags map[string]any) bool {
@@ -32,6 +32,36 @@ func WithIt(env map[string]any, val any) map[string]any {
 	maps.Copy(out, env)
 	out["it"] = val
 	return out
+}
+
+// BaseFuncs returns the ctx-independent functions injected into every expr-lang
+// environment. ptyEnabled gates the PTY-sensitive rendering functions
+// (pipelineSparkline, statusIcon, prLabelColor).
+func BaseFuncs(ptyEnabled bool) map[string]any {
+	return map[string]any{
+		"lastPart":              exprfuncs.LastPart,
+		"coalesce":              exprfuncs.Coalesce,
+		"isBlank":               exprfuncs.IsBlank,
+		"formatTags":            exprfuncs.FormatTags,
+		"formatTagDisplay":      exprfuncs.FormatTagDisplay,
+		"formatMetadata":        exprfuncs.FormatMetadata,
+		"pipelineSparkline":     exprfuncs.NewPipelineSparkline(ptyEnabled),
+		"statusIcon":            exprfuncs.NewStatusIcon(ptyEnabled),
+		"prLabelColor":          exprfuncs.NewPrLabelColor(ptyEnabled),
+		"spaceAfter":            exprfuncs.SpaceAfter,
+		"duration":              exprfuncs.Duration,
+		"harScopeUrl":           exprfuncs.HarScopeUrl,
+		"scopePath":             exprfuncs.HarScopeUrl,
+		"epochMs":               exprfuncs.EpochMs,
+		"parseDateMs":           exprfuncs.ParseDateMs,
+		"jsonArray":             exprfuncs.JsonArray,
+		"jsonArrayPretty":       exprfuncs.JsonArrayPretty,
+		"formatRoleAssignments": exprfuncs.FormatRoleAssignments,
+		"formatRoleIds":         exprfuncs.FormatRoleIds,
+		"truncate":              exprfuncs.Truncate,
+		"substr":                exprfuncs.Substr,
+		"formatOrder":           exprfuncs.FormatOrder,
+	}
 }
 
 // Make builds the expr-lang environment from ctx.
@@ -83,29 +113,9 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 				"ui_url":  uiURL,
 			}
 		}(),
-		"flags":                 flags,
-		"lastPart":              exprfuncs.LastPart,
-		"coalesce":              exprfuncs.Coalesce,
-		"isBlank":               exprfuncs.IsBlank,
-		"formatTags":            exprfuncs.FormatTags,
-		"formatTagDisplay":      exprfuncs.FormatTagDisplay,
-		"formatMetadata":        exprfuncs.FormatMetadata,
-		"pipelineSparkline":     exprfuncs.NewPipelineSparkline(ctx.IsPty && !isMachineFormat(flags)),
-		"statusIcon":            exprfuncs.NewStatusIcon(ctx.IsPty && !isMachineFormat(flags)),
-		"prLabelColor":          exprfuncs.NewPrLabelColor(ctx.IsPty && !isMachineFormat(flags)),
-		"spaceAfter":            exprfuncs.SpaceAfter,
-		"duration":              exprfuncs.Duration,
-		"harScopeUrl":           exprfuncs.HarScopeUrl,
-		"scopePath":             exprfuncs.HarScopeUrl,
-		"epochMs":               exprfuncs.EpochMs,
-		"parseDateMs":           exprfuncs.ParseDateMs,
-		"jsonArray":             exprfuncs.JsonArray,
-		"formatRoleAssignments": exprfuncs.FormatRoleAssignments,
-		"formatRoleIds":         exprfuncs.FormatRoleIds,
-		"truncate":              exprfuncs.Truncate,
-		"substr":                exprfuncs.Substr,
-		"formatOrder":           exprfuncs.FormatOrder,
+		"flags": flags,
 	}
+	maps.Copy(env, BaseFuncs(ctx.IsPty && !isMachineFormat(flags)))
 	if ctx.Resolver != nil {
 		noun := ctx.Noun
 		if ctx.FieldsNoun != "" {

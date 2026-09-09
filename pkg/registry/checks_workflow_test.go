@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // ---------------------------------------------------------------------------
@@ -36,6 +36,31 @@ func TestCheckFunctions_TextFormatterMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "text_formatter") {
 		t.Fatalf("error = %q, want text_formatter mention", err)
+	}
+}
+
+func TestCheckUICommands_BReserved(t *testing.T) {
+	r := New()
+	r.specs[VerbGet] = append(r.specs[VerbGet], &spec.CommandSpec{
+		Command: "get thing",
+		Verb:    VerbGet,
+		Noun:    "thing",
+		Module:  "test",
+	})
+	if err := r.RegisterNoun(spec.NounDef{
+		Noun: "thing",
+		UICommands: []spec.UICommand{
+			{Key: "b", UICommandType: spec.UICommandText, Default: true, Noun: "thing"},
+		},
+	}); err != nil {
+		t.Fatalf("RegisterNoun: %v", err)
+	}
+	err := r.CheckFunctions()
+	if err == nil {
+		t.Fatal(`expected error for reserved key "b"`)
+	}
+	if !strings.Contains(err.Error(), `key "b" is reserved`) {
+		t.Fatalf("error = %q, want reserved key mention", err)
 	}
 }
 

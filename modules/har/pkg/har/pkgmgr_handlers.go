@@ -3,7 +3,7 @@
 
 package har
 
-import "github.com/harness/cli/pkg/cmdctx"
+import "github.com/harness/cli/v3/pkg/cmdctx"
 
 const (
 	executeArtifactNpmInstallHandlerID    = "execute_artifact_npm_install"

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/format"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/format"
 )
 
 // HarScopeUrl returns the HAR UI URL path segment for the given auth map.
@@ -291,6 +291,13 @@ func ParseDateMs(v any) string {
 // JsonArray marshals a slice to a compact JSON array string. Returns "[]" for nil.
 func JsonArray(v []any) string {
 	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// JsonArrayPretty marshals a slice to an indented (2-space) JSON array string.
+// Returns "[]" for nil.
+func JsonArrayPretty(v []any) string {
+	b, _ := json.MarshalIndent(v, "", "  ")
 	return string(b)
 }
 

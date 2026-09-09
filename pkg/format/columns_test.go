@@ -6,7 +6,7 @@ package format
 import (
 	"testing"
 
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 var testFields = []spec.FieldDef{

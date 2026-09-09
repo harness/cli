@@ -6,7 +6,7 @@ package plugin
 import (
 	"os"
 
-	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 // Resolve returns the absolute path of the binary a plugin module dispatches to.

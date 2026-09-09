@@ -6,7 +6,7 @@ package rt
 import (
 	"testing"
 
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 func filtersFor(t *testing.T, tags any) map[string]string {

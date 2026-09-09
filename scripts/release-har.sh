@@ -46,7 +46,7 @@ fi
 VERSION="${TAG#har/}"      # v3.1.0
 VER="${VERSION#v}"         # 3.1.0
 BUILD_TIME="$(date -u +%Y%m%d%H%MZ)"
-LDFLAGS="-s -w -X github.com/harness/cli/pkg/hbase.Version=${VER} -X github.com/harness/cli/pkg/hbase.BuildTime=${BUILD_TIME}"
+LDFLAGS="-s -w -X github.com/harness/cli/v3/pkg/hbase.Version=${VER} -X github.com/harness/cli/v3/pkg/hbase.BuildTime=${BUILD_TIME}"
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"

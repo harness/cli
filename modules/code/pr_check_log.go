@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/endpoint"
-	"github.com/harness/cli/pkg/exprenv"
-	"github.com/harness/cli/pkg/extractutil"
-	"github.com/harness/cli/pkg/logstream"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/endpoint"
+	"github.com/harness/cli/v3/pkg/exprenv"
+	"github.com/harness/cli/v3/pkg/extractutil"
+	"github.com/harness/cli/v3/pkg/logstream"
 )
 
 const getPRCheckLogWorkflowID = "get_pr_check_log"

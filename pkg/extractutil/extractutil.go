@@ -9,7 +9,7 @@ import (
 
 	"github.com/expr-lang/expr"
 
-	"github.com/harness/cli/pkg/strutil"
+	"github.com/harness/cli/v3/pkg/strutil"
 )
 
 type accessor struct {

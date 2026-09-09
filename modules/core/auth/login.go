@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/config"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/hlog"
 )
 
 var profileNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
@@ -191,15 +191,18 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 		}
 	}
 
-	email := fetchTokenEmail(apiURL, token, accountID)
+	identity := fetchTokenIdentity(apiURL, token, accountID)
 
 	cfg.Profiles[profileName] = &config.Profile{
-		APIUrl:      apiURL,
-		AccountID:   accountID,
-		OrgID:       orgID,
-		ProjectID:   projectID,
-		RegistryURL: registryURL,
-		Email:       email,
+		APIUrl:           apiURL,
+		AccountID:        accountID,
+		OrgID:            orgID,
+		ProjectID:        projectID,
+		RegistryURL:      registryURL,
+		Email:            identity.Email,
+		UserType:         identity.UserType,
+		UserID:           identity.UserID,
+		ServiceAccountID: identity.ServiceAccountID,
 	}
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving profile: %w", err)

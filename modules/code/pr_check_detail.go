@@ -4,9 +4,9 @@
 package code
 
 import (
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/registry"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/registry"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 const getPRCheckWorkflowID = "get_pr_check"

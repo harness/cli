@@ -11,9 +11,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/execgraph"
-	"github.com/harness/cli/pkg/tui"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/execgraph"
+	"github.com/harness/cli/v3/pkg/tui"
 )
 
 // hasSaveableContent reports whether the active tab has content available to save

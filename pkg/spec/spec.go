@@ -173,10 +173,21 @@ type Flag struct {
 	FlagResolveFn    string   `yaml:"flag_resolve_fn,omitempty"`   // registered FlagResolveFn name; transforms the raw flag string value before CEL evaluation
 }
 
+// Valid module_type values for a spec file's top-level module_type field.
+const (
+	ModuleTypeBuiltin = "builtin" // compiled into the binary, always enabled
+	ModuleTypePlugin  = "plugin"  // dispatches to a separately installed binary
+	// ModuleTypeHidden marks a module as not enabled by default: invisible in
+	// list/get module and no commands registered until something enables it.
+	// It replaces module_type: builtin (not module_type: plugin) — a hidden
+	// module is still compiled into the binary, just opt-in.
+	ModuleTypeHidden = "hidden"
+)
+
 // ModuleMeta holds metadata declared at the top level of a spec file.
 type ModuleMeta struct {
 	Name      string
-	Type      string // e.g. "builtin"
+	Type      string // ModuleTypeBuiltin, ModuleTypePlugin, or ModuleTypeHidden
 	Desc      string
 	Core      bool     // true for CLI-internal modules (auth, mgmt) that are hidden from "list module"
 	HelpText  string   // contents of <module>.help.txt, empty if none

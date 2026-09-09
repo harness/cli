@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/v3/pkg/console"
 )
 
 // Column defines a table column header and its display width.
@@ -80,6 +80,13 @@ func (t *TableModel) SetWidth(w int) {
 func (t *TableModel) GotoTop() {
 	t.cursor = 0
 	t.scroll = 0
+}
+
+// SetCursor moves the cursor to row, clamped to [0, len(rows)-1] (or 0 when
+// there are no rows), and scrolls it into view.
+func (t *TableModel) SetCursor(row int) {
+	t.cursor = min(max(row, 0), max(len(t.rows)-1, 0))
+	t.clampScroll()
 }
 
 func (t *TableModel) Cursor() int {

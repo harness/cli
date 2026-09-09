@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 // Returns both bounds parsed, since every assertion here is about the instants.

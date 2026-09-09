@@ -9,10 +9,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/harness/cli/pkg/client"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/endpoint"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/client"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/endpoint"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 const listApprovalInstancesFetchFnID = "list_approval_instances_fetch"

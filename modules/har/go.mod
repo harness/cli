@@ -7,7 +7,7 @@ require (
 	github.com/gobwas/glob v0.2.3
 	github.com/google/go-containerregistry v0.22.0
 	github.com/google/uuid v1.6.0
-	github.com/harness/cli v0.0.0
+	github.com/harness/cli/v3 v3.6.2
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/oapi-codegen/runtime v1.7.0
@@ -125,4 +125,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/harness/cli => ../../
+replace github.com/harness/cli/v3 => ../../

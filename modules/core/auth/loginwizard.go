@@ -16,11 +16,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	pkgauth "github.com/harness/cli/pkg/auth"
-	hclient "github.com/harness/cli/pkg/client"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hlog"
-	"github.com/harness/cli/pkg/tui"
+	pkgauth "github.com/harness/cli/v3/pkg/auth"
+	hclient "github.com/harness/cli/v3/pkg/client"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/tui"
 )
 
 // WizardResult is returned by RunLoginWizard on success.

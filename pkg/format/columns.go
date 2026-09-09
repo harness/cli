@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // EnvColumnsFor returns the --columns override configured via hbase.EnvColumns for the

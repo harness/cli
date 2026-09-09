@@ -9,8 +9,8 @@ package rt
 import (
 	"strconv"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/registry"
 )
 
 // The load test manager API root. A second RT feature area would have its own root.

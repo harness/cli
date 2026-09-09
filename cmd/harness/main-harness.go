@@ -12,20 +12,21 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 
-	"github.com/harness/cli/modules/code"
-	"github.com/harness/cli/modules/core"
-	"github.com/harness/cli/modules/core/mgmt"
-	"github.com/harness/cli/modules/gitops"
-	"github.com/harness/cli/modules/iacm"
-	"github.com/harness/cli/modules/pipeline"
-	"github.com/harness/cli/modules/platform"
-	"github.com/harness/cli/modules/rt"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/registry"
-	"github.com/harness/cli/pkg/rootcmd"
-	"github.com/harness/cli/pkg/spec"
-	"github.com/harness/cli/pkg/specloader"
+	"github.com/harness/cli/v3/modules/code"
+	"github.com/harness/cli/v3/modules/core"
+	"github.com/harness/cli/v3/modules/core/mgmt"
+	"github.com/harness/cli/v3/modules/gitops"
+	"github.com/harness/cli/v3/modules/iacm"
+	"github.com/harness/cli/v3/modules/pipeline"
+	"github.com/harness/cli/v3/modules/platform"
+	"github.com/harness/cli/v3/modules/rt"
+	"github.com/harness/cli/v3/modules/vibeapps"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/registry"
+	"github.com/harness/cli/v3/pkg/rootcmd"
+	"github.com/harness/cli/v3/pkg/spec"
+	"github.com/harness/cli/v3/pkg/specloader"
 )
 
 //go:embed noargs.txt
@@ -55,6 +56,7 @@ func main() {
 	// har is an external module (external_binary: harness-har) — ModuleInit is not loaded here.
 	iacm.ModuleInit(reg.Module("iacm"))
 	rt.ModuleInit(reg.Module("rt"))
+	vibeapps.ModuleInit(reg.Module("vibeapps"))
 	rootcmd.MaybeCheckSpecs(reg)
 
 	root := &cobra.Command{

@@ -17,13 +17,13 @@ vars:
     sh: date -u +%Y%m%d%H%MZ
   SEGMENT_WRITE_KEY: '{{default "" (env "SEGMENT_WRITE_KEY")}}'
   LDFLAGS: >-
-    -X github.com/harness/cli/pkg/hbase.Version={{.VERSION}}
-    -X github.com/harness/cli/pkg/hbase.BuildTime={{.BUILD_TIME}}
-    -X github.com/harness/cli/pkg/telemetry.segmentWriteKey={{.SEGMENT_WRITE_KEY}}
+    -X github.com/harness/cli/v3/pkg/hbase.Version={{.VERSION}}
+    -X github.com/harness/cli/v3/pkg/hbase.BuildTime={{.BUILD_TIME}}
+    -X github.com/harness/cli/v3/pkg/telemetry.segmentWriteKey={{.SEGMENT_WRITE_KEY}}
   HAR_LDFLAGS: >-
-    -X github.com/harness/cli/pkg/hbase.Version={{.HAR_VERSION}}
-    -X github.com/harness/cli/pkg/hbase.BuildTime={{.BUILD_TIME}}
-    -X github.com/harness/cli/pkg/telemetry.segmentWriteKey={{.SEGMENT_WRITE_KEY}}
+    -X github.com/harness/cli/v3/pkg/hbase.Version={{.HAR_VERSION}}
+    -X github.com/harness/cli/v3/pkg/hbase.BuildTime={{.BUILD_TIME}}
+    -X github.com/harness/cli/v3/pkg/telemetry.segmentWriteKey={{.SEGMENT_WRITE_KEY}}
 
 tasks:
   build:
@@ -116,6 +116,11 @@ tasks:
     desc: Run without ldflags (version shows 0.1.0-dev / dev)
     cmds:
       - go run {{.MAIN}} {{.CLI_ARGS}}
+
+  testexpr:
+    desc: 'Evaluate an expr-lang expression against a JSON env: task testexpr -- ''<expr>'' [envJSON|@file|-]'
+    cmds:
+      - go run ./cmd/testexpr/main-testexpr.go {{.CLI_ARGS}}
 
   check:specs:
     desc: Validate all *.spec.yaml files

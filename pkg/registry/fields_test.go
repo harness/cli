@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // ---------------------------------------------------------------------------
@@ -90,6 +90,7 @@ func (tr *testResolver) GetNoun(noun string) *spec.NounDef                   { r
 func (tr *testResolver) ResolveNounAlias(alias string) string                { return "" }
 func (tr *testResolver) GetVerbInfos() []spec.VerbInfo                       { return nil }
 func (tr *testResolver) GetModuleMetas() []spec.ModuleMeta                   { return nil }
+func (tr *testResolver) GetHiddenModule(string) *spec.ModuleMeta             { return nil }
 func (tr *testResolver) GetAllSpecs() []*spec.CommandSpec                    { return nil }
 func (tr *testResolver) GetSpecsForModule(module string) []*spec.CommandSpec { return nil }
 func (tr *testResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn {

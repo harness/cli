@@ -1,7 +1,6 @@
 spec_version: 1
-module_type: builtin
+module_type: hidden
 module_desc: Harness AI Evals — datasets, evaluations, runs, metrics, metric sets, suites, and targets
-harness_internal: true
 help_text: |
   ## AI Evals (aievals)
 
@@ -53,10 +52,13 @@ nouns:
         expr: it.uuid
       - id: identifier
         expr: it.identifier
+        mutable_path: identifier
       - id: name
         expr: it.name
+        mutable_path: name
       - id: description
         expr: it.description
+        mutable_path: description
       - id: item_count
         label: Items
         expr: it.item_count
@@ -75,22 +77,89 @@ nouns:
         expr: it.id
       - id: name
         expr: it.name
+        mutable_path: name
       - id: description
         expr: it.description
+        mutable_path: description
       - id: dataset_id
         label: Dataset
         expr: it.dataset_id
+        mutable_path: dataset_id
       - id: dataset_name
         label: Dataset
         expr: it.dataset_name
       - id: target_id
         label: Target
         expr: it.target_id
+        mutable_path: target_id
       - id: target_name
         label: Target
         expr: it.target_name
+      - id: metric_set_id
+        label: Metric Set
+        expr: it.metric_set_id
+        mutable_path: metric_set_id
       - id: status
         expr: it.status
+      - id: tags
+        expr: it.tags
+        mutable_path: tags
+        field_type: set
+      - id: sampling_strategy
+        expr: it.sampling_strategy
+        mutable_path: sampling_strategy
+      - id: sample_size
+        expr: it.sample_size
+        mutable_path: sample_size
+      - id: concurrency
+        expr: it.concurrency
+        mutable_path: concurrency
+      - id: cost_limit_usd
+        expr: it.cost_limit_usd
+        mutable_path: cost_limit_usd
+      - id: timeout_per_item_ms
+        expr: it.timeout_per_item_ms
+        mutable_path: timeout_per_item_ms
+      - id: storage_type
+        expr: it.storage_type
+        mutable_path: storage_type
+      - id: git_connector_ref
+        expr: it.git_source.connector_ref
+        mutable_path: git_source.connector_ref
+      - id: git_repo
+        expr: it.git_source.repo
+        mutable_path: git_source.repo
+      - id: git_branch
+        expr: it.git_source.branch
+        mutable_path: git_source.branch
+      - id: git_file_path
+        expr: it.git_source.file_path
+        mutable_path: git_source.file_path
+      # The fields below are not part of the eval resource itself — they're
+      # only meaningful as inputs to `execute evaluation:run` (TriggerEvalRunRequest),
+      # but the create/update/execute commands on this noun share one mutable-field
+      # pool, so they're declared here too. expr evaluates to empty on get/list.
+      - id: trigger_type
+        expr: it.trigger_type
+        mutable_path: trigger_type
+      - id: notes
+        expr: it.notes
+        mutable_path: notes
+      - id: input_set_id
+        expr: it.input_set_id
+        mutable_path: input_set_id
+      - id: branch
+        expr: it.branch
+        mutable_path: branch
+      - id: run_target_id
+        expr: it.run_inputs.target_id
+        mutable_path: run_inputs.target_id
+      - id: run_dataset_id
+        expr: it.run_inputs.dataset_id
+        mutable_path: run_inputs.dataset_id
+      - id: run_metric_set_id
+        expr: it.run_inputs.metric_set_id
+        mutable_path: run_inputs.metric_set_id
       - id: total_runs
         label: Runs
         expr: it.total_runs
@@ -126,6 +195,16 @@ nouns:
         expr: it.started_at
       - id: finished
         expr: it.completed_at
+      - id: item_id
+        label: ID
+        expr: it.id
+      - id: dataset_item_id
+        label: Dataset Item
+        expr: it.dataset_item_id
+      - id: duration_ms
+        label: Duration (ms)
+        expr: it.duration_ms
+        align: right
 
   - noun: eval_metric
     short_desc: An AI Evals metric (e.g. exact_match, rubric_judge, contains, geval).
@@ -136,14 +215,19 @@ nouns:
         expr: it.id
       - id: name
         expr: it.name
+        mutable_path: name
       - id: type
         expr: it.type
+        mutable_path: type
       - id: kind
         expr: it.kind
+        mutable_path: kind
       - id: dimension
         expr: it.dimension
+        mutable_path: dimension
       - id: description
         expr: it.description
+        mutable_path: description
 
   - noun: eval_metric_set
     short_desc: A named collection of AI Evals metrics with optional thresholds.
@@ -154,8 +238,10 @@ nouns:
         expr: it.id
       - id: name
         expr: it.name
+        mutable_path: name
       - id: description
         expr: it.description
+        mutable_path: description
       - id: metric_count
         label: Metrics
         expr: len(it.entries)
@@ -163,6 +249,10 @@ nouns:
       - id: judge_model_id
         label: Judge
         expr: it.judge_model_id
+        mutable_path: judge_model_id
+      - id: judge_llm_connector_ref
+        expr: it.judge_llm_connector_ref
+        mutable_path: judge_llm_connector_ref
 
   - noun: eval_target
     short_desc: An AI Evals target — the LLM endpoint under test.
@@ -173,13 +263,17 @@ nouns:
         expr: it.id
       - id: name
         expr: it.name
+        mutable_path: name
       - id: type
         expr: it.type
+        mutable_path: type
       - id: connector_ref
         label: Connector
         expr: it.connector_ref
+        mutable_path: connector_ref
       - id: description
         expr: it.description
+        mutable_path: description
 
   - noun: eval_suite
     short_desc: A named collection of evaluations run together.
@@ -202,8 +296,13 @@ commands:
   - command: list eval_dataset
     verb: list
     noun: eval_dataset
-    short: List AI Evals datasets
+    short: "List AI Evals datasets: harness list eval_dataset [--search <text>] [--target-id <uuid>]"
     handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by name, identifier, or description
+      - name: target-id
+        description: Filter to datasets used by evals referencing this target UUID
     endpoint:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset
       request_headers:
@@ -213,6 +312,8 @@ commands:
       query_params:
         page: flags.page
         limit: flags.limit
+        search: flags.search
+        target_id: 'flags["target-id"]'
       paging:
         paging_strategy: page_index
         countable: true
@@ -268,8 +369,19 @@ commands:
   - command: list evaluation
     verb: list
     noun: evaluation
-    short: List AI Evals evaluations
+    short: "List AI Evals evaluations: harness list evaluation [--search <text>] [--status active|draft|archived] [--metric-set-id <uuid>] [--target-id <uuid>]"
     handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by name or description
+      - name: status
+        description: Filter by status
+        completion_values: [active, draft, archived]
+      - name: metric-set-id
+        description: Filter by metric set UUID
+      - name: target-id
+        description: Filter by one or more target UUIDs (repeatable)
+        is_multi: true
     endpoint:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals
       request_headers:
@@ -279,6 +391,13 @@ commands:
       query_params:
         page: flags.page
         limit: flags.limit
+        search: flags.search
+        status: flags.status
+        metric_set_id: 'flags["metric-set-id"]'
+        # target-id is repeatable (is_multi); join() turns the []string into the
+        # comma-separated value the API expects. Works whether the user passes
+        # one --target-id per value or a comma-joined list in a single flag.
+        target_id: 'join(flags["target-id"], ",")'
       paging:
         paging_strategy: page_index
         countable: true
@@ -316,6 +435,26 @@ commands:
       create_body_wrap: ""
       text_header: "\nCreated eval {{it.id}}\n"
 
+  - command: update evaluation
+    verb: update
+    noun: evaluation
+    short: "Update an AI Eval: harness update evaluation <id> --set dataset_id=... target_id=... metric_set_id=..."
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/{{ctx.id}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated eval {{ctx.id}}\n"
+
   - command: delete evaluation
     verb: delete
     noun: evaluation
@@ -333,14 +472,17 @@ commands:
     verb: execute
     noun: evaluation
     noun_variant: run
-    short: "Trigger a new run for an evaluation: harness execute evaluation:run <eval_id>"
+    short: "Trigger a new run for an evaluation: harness execute evaluation:run <eval_id> [--set sampling_strategy=... branch=... notes=...]"
     handler_type: endpoint
+    flags_builtin:
+      set: true
     endpoint:
       method: POST
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/{{ctx.id}}/run
       request_headers:
         Harness-Account: auth.account
-      no_fields: true
+      create_strategy: set-fields
+      create_body_wrap: ""
       text_header: "\nTriggered run for eval {{ctx.id}}\n"
 
   # ── eval_run ──────────────────────────────────────────────────────────────────
@@ -381,6 +523,33 @@ commands:
       request_headers:
         Harness-Account: auth.account
       item_expr: it
+
+  - command: list eval_run:items
+    verb: list
+    noun: eval_run
+    noun_variant: items
+    short: "List per-item outputs and scores for an AI Eval run: harness list eval_run:items <run_id>"
+    requires_parentid: true
+    parentid_label: run
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/runs/{{ctx.parentId}}/items
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: it.id
+      query_params:
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 200
+        total_expr: it.total_elements
+      columns: [item_id, dataset_item_id, status, duration_ms]
 
   # ── eval_metric ───────────────────────────────────────────────────────────────
 
@@ -453,8 +622,13 @@ commands:
   - command: list eval_metric_set
     verb: list
     noun: eval_metric_set
-    short: List AI Evals metric sets
+    short: "List AI Evals metric sets: harness list eval_metric_set [--search <text>] [--target-id <uuid>]"
     handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by name or description
+      - name: target-id
+        description: Filter to metric sets used by evals referencing this target UUID
     endpoint:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets
       request_headers:
@@ -464,6 +638,8 @@ commands:
       query_params:
         page: flags.page
         limit: flags.limit
+        search: flags.search
+        target_id: 'flags["target-id"]'
       paging:
         paging_strategy: page_index
         countable: true

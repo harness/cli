@@ -23,7 +23,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/harness/cli
+        - github.com/harness/cli/v3
   exclusions:
     generated: lax
     paths:

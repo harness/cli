@@ -156,6 +156,14 @@ Available variables: `ctx.id`, `ctx.idParts[N]`, `ctx.parentId`, `auth.account`,
 - Array concat: `concat(it.entity_types ?? [], it.event_types ?? [])`.
 - Epoch formatting: `epochMs(it.created)` → human-readable timestamp.
 
+### Testing expr-lang expressions in isolation
+
+```sh
+task testexpr -- '<expression>' '<envJSON>'   # or @file.json, or - for stdin
+```
+
+Evaluates against the same helper functions (`truncate`, `coalesce`, `epochMs`, ...) as real spec expressions, via `exprenv.BaseFuncs`. Useful for checking a `columns:`/`body_params:` expression before wiring it into a spec.
+
 ### Body params (dotted paths)
 
 ```yaml

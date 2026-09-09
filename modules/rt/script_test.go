@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 // A DataAccessor over a flat map: the formatter reads two paths and nothing nested.

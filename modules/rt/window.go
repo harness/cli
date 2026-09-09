@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/exprenv/exprfuncs"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/exprenv/exprfuncs"
 )
 
 const usageWindowParamsID = "usage_window"

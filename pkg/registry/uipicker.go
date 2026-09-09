@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // RunUIPickerForGet intercepts a get command with --ui and, when ctx.Id isn't already
@@ -161,5 +161,6 @@ func buildPickerCtx(getCtx *cmdctx.Ctx, listCs *spec.CommandSpec) *cmdctx.Ctx {
 		Resolver:    getCtx.Resolver,
 		FormatFlags: cmdctx.FormatFlags{},
 		FlagValues:  fv,
+		UIHistory:   getCtx.UIHistory,
 	}
 }

@@ -10,7 +10,8 @@ import (
 	"github.com/harness/cli/modules/har/pkg/har/migrate/tree"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
-	"github.com/harness/cli/pkg/console"
+
+	"github.com/harness/cli/v3/pkg/console"
 
 	"github.com/google/uuid"
 	"github.com/pterm/pterm"

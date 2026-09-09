@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harness/cli/pkg/console"
+	"github.com/harness/cli/v3/pkg/console"
 )
 
 // activityItem is a normalized view of one raw activity map, as returned by

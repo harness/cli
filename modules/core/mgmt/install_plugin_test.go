@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/cli/pkg/release"
+	"github.com/harness/cli/v3/pkg/release"
 )
 
 func TestLooksLikePath(t *testing.T) {

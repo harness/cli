@@ -13,9 +13,9 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/cli/pkg/client"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/registry"
+	"github.com/harness/cli/v3/pkg/client"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/registry"
 )
 
 const installWorkflowID = "gitops_agent_install"

@@ -10,13 +10,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/config"
-	"github.com/harness/cli/pkg/exprenv"
-	"github.com/harness/cli/pkg/hlog"
-	"github.com/harness/cli/pkg/plugin"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
+	"github.com/harness/cli/v3/pkg/exprenv"
+	"github.com/harness/cli/v3/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/plugin"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // execPluginCompletion execs the plugin binary with the original os.Args so that

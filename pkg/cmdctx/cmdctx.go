@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // TimeoutError is the cause set on the context when --timeout expires.
@@ -145,6 +145,9 @@ type Resolver interface {
 	FetchItems(ctx *Ctx, ep *spec.EndpointSpec, pf PagingFlags) ([]any, error)
 	// GetModuleMetas returns metadata for all loaded modules in load order.
 	GetModuleMetas() []spec.ModuleMeta
+	// GetHiddenModule returns the recorded stub for a module_type: hidden
+	// module by name (recorded regardless of enablement), or nil.
+	GetHiddenModule(name string) *spec.ModuleMeta
 	// GetSpecsForModule returns all registered CommandSpecs belonging to the given module.
 	GetSpecsForModule(module string) []*spec.CommandSpec
 	// GetAllSpecs returns every registered CommandSpec across all modules.
@@ -231,6 +234,20 @@ type Ctx struct {
 	//   - "list-fields"  bool   when the flag exists (get/update commands)
 	//   - "profile", "org", "project" string when no_auth: true (the handler owns auth resolution)
 	FlagValues map[string]any
+	// UIHistory is the --ui back-navigation stack: one UILink pushed per Hop
+	// (link/up/view), popped by the "b" key. Session-lifetime only.
+	UIHistory []UILink
+	// RestoreOffset is the absolute row index to restore when replaying a
+	// popped UILink's Offset. It is resolved against the current pageSize
+	// (page = RestoreOffset / pageSize, cursor = RestoreOffset % pageSize),
+	// since the terminal may have been resized since it was captured.
+	RestoreOffset int
+	// UIWantBack is read by finishUIExit right after a "view" ui_command's
+	// handler returns, to decide whether to pop UIHistory and redraw the caller
+	// (true) or quit outright (false, the default). A view handler that wants
+	// its screen's own "b" key to behave like the rest of --ui's back
+	// navigation must set this to true before returning — it is not automatic.
+	UIWantBack bool
 }
 
 // ScopedAuth returns Auth adjusted for Level: "org" clears ProjectID, "account"

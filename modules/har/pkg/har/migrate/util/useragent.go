@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/harness/cli/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 // UserAgentString returns the User-Agent value sent with all outgoing migrate

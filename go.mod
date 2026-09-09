@@ -1,4 +1,4 @@
-module github.com/harness/cli
+module github.com/harness/cli/v3
 
 go 1.26.7
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 // pushGenericArtifact implements "push artifact:generic".

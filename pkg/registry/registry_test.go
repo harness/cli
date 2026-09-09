@@ -11,10 +11,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/hbase"
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 // ---------------------------------------------------------------------------
@@ -1005,7 +1005,7 @@ func TestAuthTelemetryFields(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			accountID, _, tokenKind, authSource := authTelemetryFields(tc.input)
+			accountID, _, _, _, tokenKind, authSource := authTelemetryFields(tc.input)
 			if accountID != tc.wantAccountID {
 				t.Errorf("accountID = %q, want %q", accountID, tc.wantAccountID)
 			}

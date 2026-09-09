@@ -5,6 +5,7 @@ package logstream
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,16 +13,19 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
-	"github.com/harness/cli/pkg/console"
-	"github.com/harness/cli/pkg/execgraph"
-	"github.com/harness/cli/pkg/format"
-	"github.com/harness/cli/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/execgraph"
+	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/hlog"
 )
 
 // SseTerminalDrainDelay is how long we wait after the pipeline reaches a terminal state
@@ -69,16 +73,171 @@ type LogKeyEntry struct {
 	Outputs    string   // raw JSON from outcomes
 }
 
+// innerLogSkipKeys are fields already reflected in the outer envelope
+// (timestamp/level/message) and shouldn't be repeated as trailing KVs.
+var innerLogSkipKeys = map[string]bool{
+	"message": true, "msg": true,
+	"severity": true, "level": true,
+	"ts": true, "time": true, "timestamp": true,
+}
+
+// ANSI codes for our own synthesized log formatting. These are always
+// embedded in the rendered line; the non-pty path already strips all ANSI
+// via console.StripANSI, so there's no need to gate emission on isPty here.
+const (
+	ansiDim    = "\x1b[2m"
+	ansiBlue   = "\x1b[34m"
+	ansiResetC = "\x1b[0m"
+)
+
+// plainDecimalRE matches a bare decimal literal with a fractional part —
+// no exponent, no thousands separators. Used to find high-precision
+// measurements (CPU%, memory) worth rounding, without touching integers
+// (byte counts) or scientific notation, which look identical numerically
+// but shouldn't be reformatted as if they were.
+var plainDecimalRE = regexp.MustCompile(`^-?[0-9]+\.[0-9]+$`)
+
+// detectSmallFloat reports whether s is a plain decimal float (see
+// plainDecimalRE) with a magnitude under 1000, the shape of noisy
+// high-precision percentages/measurements as opposed to large exact byte
+// counts.
+func detectSmallFloat(s string) (float64, bool) {
+	if !plainDecimalRE.MatchString(s) {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f < -1000 || f > 1000 {
+		return 0, false
+	}
+	return f, true
+}
+
+// formatKVRaw renders a "key=value" pair with "key=" colored blue, matching
+// the style plugin binaries commonly use for their own structured-log KVs.
+// valStr is used verbatim, already formatted by the caller.
+func formatKVRaw(key, valStr string) string {
+	return fmt.Sprintf("%s%s=%s%s", ansiBlue, key, ansiResetC, valStr)
+}
+
+// formatKV renders key/val as a colored "key=value" pair. Values that look
+// like noisy high-precision floats (see detectSmallFloat) are rounded to 2
+// decimal places for readability.
+func formatKV(key string, val any) string {
+	s := fmt.Sprintf("%v", val)
+	if f, ok := detectSmallFloat(s); ok {
+		s = fmt.Sprintf("%.2f", f)
+	}
+	return formatKVRaw(key, s)
+}
+
+// unwrapInnerJSON detects a structured-log JSON object nested inside an
+// already-unwrapped log line (e.g. an app logging its own JSON to stdout,
+// which the execution log envelope then wraps a second time). If out is
+// such a JSON object with a "message"/"msg" string field, it returns that
+// message plus the remaining fields rendered as "key=value" KVs. ok is
+// false when out is not a recognizable inner JSON log line.
+func unwrapInnerJSON(out string) (msg string, kvs []string, ok bool) {
+	trimmed := strings.TrimSpace(out)
+	if !strings.HasPrefix(trimmed, "{") {
+		return "", nil, false
+	}
+	var m map[string]any
+	dec := json.NewDecoder(strings.NewReader(trimmed))
+	dec.UseNumber()
+	if err := dec.Decode(&m); err != nil {
+		return "", nil, false
+	}
+	msgVal, hasMsg := m["message"]
+	if !hasMsg {
+		msgVal, hasMsg = m["msg"]
+	}
+	msg, isStr := msgVal.(string)
+	if !hasMsg || !isStr {
+		return "", nil, false
+	}
+
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		if !innerLogSkipKeys[k] {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	kvs = make([]string, 0, len(keys))
+	for _, k := range keys {
+		kvs = append(kvs, formatKV(k, m[k]))
+	}
+	return msg, kvs, true
+}
+
+// metricsFloatFields are the delegate resource-sample fields that are
+// always floating-point measurements (% or GB) even when the current
+// sample happens to be a whole number — Go's JSON encoder drops the
+// fractional part for exact float64 values (e.g. 100.0 marshals as "100"),
+// so avalCPU can read "100" on one line and "97.11417816813044" on the
+// next. detectSmallFloat can't tell that apart from a genuinely integer
+// field like diskReadBytesSec from the literal text alone, so these known
+// fields are always formatted as floats regardless of their current shape.
+var metricsFloatFields = map[string]bool{
+	"avaMemory":   true,
+	"avalCPU":     true,
+	"totalMemory": true,
+}
+
+// unwrapTimestampedMetrics detects a common delegate-log shape where the
+// entire line is a single-key JSON object whose key is itself an
+// RFC3339Nano timestamp and whose value is a metrics object, e.g. delegate
+// resource-usage samples like {"<ts>":{"totalMemory":...,"totalCPU":...}}.
+// Returns the parsed timestamp and the metrics rendered as sorted
+// "key=value" KVs.
+func unwrapTimestampedMetrics(out string) (ts time.Time, kvs []string, ok bool) {
+	trimmed := strings.TrimSpace(out)
+	if !strings.HasPrefix(trimmed, "{") {
+		return time.Time{}, nil, false
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &m); err != nil || len(m) != 1 {
+		return time.Time{}, nil, false
+	}
+	var key string
+	var raw json.RawMessage
+	for k, v := range m {
+		key, raw = k, v
+	}
+	t, err := time.Parse(time.RFC3339Nano, key)
+	if err != nil {
+		return time.Time{}, nil, false
+	}
+
+	var vals map[string]any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&vals); err != nil || len(vals) == 0 {
+		return time.Time{}, nil, false
+	}
+
+	keys := make([]string, 0, len(vals))
+	for k := range vals {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	kvs = make([]string, 0, len(keys))
+	for _, k := range keys {
+		if metricsFloatFields[k] {
+			if f, err := strconv.ParseFloat(fmt.Sprintf("%v", vals[k]), 64); err == nil {
+				kvs = append(kvs, formatKVRaw(k, fmt.Sprintf("%.2f", f)))
+				continue
+			}
+		}
+		kvs = append(kvs, formatKV(k, vals[k]))
+	}
+	return t, kvs, true
+}
+
 func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error {
 	if fmtFlag == "json" || fmtFlag == "jsonl" {
 		_, err := fmt.Fprint(w, text)
 		return err
-	}
-
-	type logLine struct {
-		Level string `json:"level"`
-		Out   string `json:"out"`
-		Time  string `json:"time"`
 	}
 
 	// bufio.Reader.ReadString grows its buffer as needed instead of erroring on
@@ -88,23 +247,7 @@ func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error
 		raw, rerr := r.ReadString('\n')
 		line := strings.TrimRight(raw, "\r\n")
 		if line != "" {
-			var ll logLine
-			if err := json.Unmarshal([]byte(line), &ll); err != nil {
-				fmt.Fprintln(w, line)
-			} else {
-				ts := ll.Time
-				if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-					ts = t.UTC().Format("2006-01-02 15:04:05")
-				}
-				out := strings.TrimRight(ll.Out, "\n")
-				out = strings.ReplaceAll(out, "\r", "")
-				if !isPty {
-					out = console.StripANSI(out)
-					fmt.Fprintf(w, "%s [%s] %s\n", ts, ll.Level, out)
-				} else {
-					fmt.Fprintf(w, "%s [%s] %s\033[0m\n", ts, ll.Level, out)
-				}
-			}
+			fmt.Fprintln(w, formatLogLine(line, isPty))
 		}
 		if rerr != nil {
 			if rerr == io.EOF {
@@ -113,6 +256,50 @@ func RenderLogLinesToWriter(text, fmtFlag string, isPty bool, w io.Writer) error
 			return rerr
 		}
 	}
+}
+
+// formatLogLine formats a single raw execution log line. Lines are JSON
+// envelopes of the form {"level":..,"time":..,"out":..}; lines that aren't
+// valid envelopes (e.g. plain text) are returned unchanged. The envelope's
+// "out" field may itself be a nested structured-log JSON object (an app
+// logging its own JSON to stdout, wrapped a second time by the execution
+// log envelope) — unwrapInnerJSON detects that case and folds it into
+// "message  key=value ..." instead of printing the raw nested JSON.
+func formatLogLine(line string, isPty bool) string {
+	type logLine struct {
+		Level string `json:"level"`
+		Out   string `json:"out"`
+		Time  string `json:"time"`
+	}
+	var ll logLine
+	if err := json.Unmarshal([]byte(line), &ll); err != nil {
+		return line
+	}
+
+	ts := ll.Time
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		ts = t.UTC().Format("2006-01-02 15:04:05")
+	}
+	level := ll.Level
+	out := strings.TrimRight(ll.Out, "\n")
+	out = strings.ReplaceAll(out, "\r", "")
+	if msg, kvs, ok := unwrapInnerJSON(out); ok {
+		if len(kvs) > 0 {
+			out = msg + "  " + strings.Join(kvs, " ")
+		} else {
+			out = msg
+		}
+	} else if metricsTs, kvs, ok := unwrapTimestampedMetrics(out); ok {
+		ts = metricsTs.UTC().Format("2006-01-02 15:04:05")
+		level = "perf"
+		out = strings.Join(kvs, ", ")
+	}
+	if !isPty {
+		out = console.StripANSI(out)
+		return fmt.Sprintf("%s [%s] %s", ts, level, out)
+	}
+	dimTs := ansiDim + ts + ansiResetC
+	return fmt.Sprintf("%s [%s] %s\033[0m", dimTs, level, out)
 }
 
 // FetchAndPrintLog fetches a log blob and writes it to out.

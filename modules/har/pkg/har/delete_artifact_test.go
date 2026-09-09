@@ -12,8 +12,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/harness/cli/pkg/auth"
-	"github.com/harness/cli/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 func bulkDeleteTestCtx(flags map[string]any, apiURL string) *cmdctx.Ctx {

@@ -6,7 +6,7 @@ package endpoint
 import (
 	"testing"
 
-	"github.com/harness/cli/pkg/spec"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 func TestSetDotPath(t *testing.T) {
