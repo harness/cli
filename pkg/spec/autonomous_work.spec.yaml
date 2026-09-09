@@ -451,6 +451,7 @@ commands:
     endpoint:
       method: POST
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/work-classes
       query_params:
         orgIdentifier: auth.org
@@ -465,6 +466,7 @@ commands:
     endpoint:
       method: PUT
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/work-classes/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
@@ -522,6 +524,7 @@ commands:
     endpoint:
       method: POST
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/triggers
       query_params:
         orgIdentifier: auth.org
@@ -536,6 +539,7 @@ commands:
     endpoint:
       method: PUT
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/triggers/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
@@ -593,6 +597,7 @@ commands:
     endpoint:
       method: POST
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/capabilities
       query_params:
         orgIdentifier: auth.org
@@ -607,6 +612,7 @@ commands:
     endpoint:
       method: PUT
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/capabilities/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
@@ -664,6 +670,7 @@ commands:
     endpoint:
       method: POST
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/risk-evaluators
       query_params:
         orgIdentifier: auth.org
@@ -678,6 +685,7 @@ commands:
     endpoint:
       method: PUT
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/risk-evaluators/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
@@ -730,7 +738,7 @@ commands:
   - command: create team
     verb: create
     noun: team
-    short: Create a team from a YAML ask-body (--file team.yaml)
+    short: Create a team (--file team.json with {id, name}; plain JSON, not a YAML ask-body)
     handler_type: endpoint
     endpoint:
       method: POST
@@ -744,7 +752,7 @@ commands:
   - command: update team
     verb: update
     noun: team
-    short: Update a team from a YAML ask-body (--file team.yaml)
+    short: Update a team (--file team.json with {name}; plain JSON, not a YAML ask-body)
     handler_type: endpoint
     endpoint:
       method: PUT
@@ -806,6 +814,7 @@ commands:
     endpoint:
       method: POST
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/members
       query_params:
         orgIdentifier: auth.org
@@ -820,6 +829,7 @@ commands:
     endpoint:
       method: PUT
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/members/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
@@ -877,6 +887,7 @@ commands:
     endpoint:
       method: POST
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/member-templates
       query_params:
         orgIdentifier: auth.org
@@ -891,6 +902,7 @@ commands:
     endpoint:
       method: PUT
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/member-templates/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
@@ -948,6 +960,7 @@ commands:
     endpoint:
       method: POST
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/software-components
       query_params:
         orgIdentifier: auth.org
@@ -962,6 +975,7 @@ commands:
     endpoint:
       method: PUT
       file_body: required
+      content_type: application/yaml
       path: /adlc/api/software-components/{{ctx.id}}
       query_params:
         orgIdentifier: auth.org
@@ -1016,7 +1030,7 @@ commands:
     noun: content_source_connector
     noun_variant: set_default
     no_id: true
-    short: Set default content-source connectors from a YAML body (--file connectors.yaml)
+    short: Set default content-source connectors (--file connectors.json; plain JSON, not a YAML ask-body)
     handler_type: endpoint
     endpoint:
       method: PUT
