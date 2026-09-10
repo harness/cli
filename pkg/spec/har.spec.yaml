@@ -1172,3 +1172,65 @@ commands:
     completion_noun: registry
     handler_type: workflow
     workflow_id: configure_registry_nuget
+
+  - command: execute artifact:download
+    verb: execute
+    noun: artifact
+    noun_variant: download
+    short: "Download matching artifacts: harness execute artifact:download --registry <reg> --regex <pattern> --dest <dir>"
+    no_id: true
+    long: |
+      Search a Harness Artifact Registry for files whose paths match a regular
+      expression and download every match into a local directory. Works for all
+      artifact types.
+
+      The regex is a POSIX regular expression evaluated server-side and is
+      case-sensitive. It is matched against the full artifact path within the
+      registry, not just the filename.
+
+      By default files are written under --dest preserving the registry path
+      hierarchy, and files that already exist locally are skipped. Downloads are
+      written atomically, so an interrupted run never leaves a partial file.
+
+      Use --flatten to drop the registry sub-paths and write every file directly
+      into --dest. If two artifacts would then collide on the same filename the
+      run aborts without downloading anything; run with --dry-run to see the
+      conflicting pairs.
+
+      Examples:
+        # Preview what would be downloaded, without writing anything
+        harness execute artifact:download --registry my-reg --regex '.*' --dest ./out --dry-run
+
+        # Download every tarball, preserving registry paths
+        harness execute artifact:download --registry my-reg --regex '.*\.tar\.gz$' --dest ./out
+
+        # Flatten into one directory and replace existing local files
+        harness execute artifact:download --registry my-reg --regex '.*' --dest ./out --flatten --overwrite
+
+        # Raise parallelism for many small files
+        harness execute artifact:download --registry my-reg --regex '.*' --dest ./out --concurrency 16
+    handler_type: workflow
+    workflow_id: execute_artifact_download
+    flags:
+      - name: registry
+        description: "Registry to search in (required)"
+        required: true
+      - name: regex
+        description: "POSIX regular expression matched against artifact paths, case-sensitive (required)"
+        required: true
+      - name: dest
+        description: "Local destination directory for downloaded files (required)"
+        required: true
+      - name: flatten
+        description: "Write all files directly into dest, ignoring registry sub-paths (collisions abort the run; use --dry-run to preview)"
+        is_bool: true
+      - name: dry-run
+        description: "Preview matching files without downloading; writes a JSON report to dry-run-output/ (or to --out if specified)"
+        is_bool: true
+      - name: overwrite
+        description: "Overwrite existing local files (default: skip if present)"
+        is_bool: true
+      - name: page-size
+        description: "Files fetched per search page; must be 1–100 (default: 100)"
+      - name: concurrency
+        description: "Number of parallel downloads (default: 4)"
