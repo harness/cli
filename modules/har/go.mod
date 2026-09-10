@@ -4,7 +4,7 @@ go 1.26.7
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/gobwas/glob v0.2.3
+	github.com/gobwas/glob v1.0.0
 	github.com/google/go-containerregistry v0.22.0
 	github.com/google/uuid v1.6.0
 	github.com/harness/cli/v3 v3.6.2
