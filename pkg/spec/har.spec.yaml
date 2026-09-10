@@ -1201,7 +1201,7 @@ commands:
         description: "Write all files directly into dest, ignoring registry sub-paths (collisions abort the run; use --dry-run to preview)"
         is_bool: true
       - name: dry-run
-        description: "List matching files to stdout without downloading"
+        description: "Preview matching files without downloading; writes a JSON report to dry-run-output/ (or to --out if specified)"
         is_bool: true
       - name: overwrite
         description: "Overwrite existing local files (default: skip if present)"

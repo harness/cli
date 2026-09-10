@@ -40,6 +40,15 @@ func downloadTestCtx(flags map[string]any, serverURL string) *cmdctx.Ctx {
 	}
 }
 
+// downloadTestCtxWithOut is like downloadTestCtx but also sets OutFile on the
+// Ctx (the framework populates this from --out; workflow handlers read it
+// directly rather than from FlagValues).
+func downloadTestCtxWithOut(flags map[string]any, serverURL, outFile string) *cmdctx.Ctx {
+	ctx := downloadTestCtx(flags, serverURL)
+	ctx.FormatFlags.OutFile = outFile
+	return ctx
+}
+
 // newDownloadTestServer returns a server that:
 //   - POST /har/api/v3/files/search → JSON with each name as a file item whose
 //     downloadUrl points back to GET /dl/<name> on this same server
@@ -275,9 +284,17 @@ func TestArtifactSearchFiles_EmptyResult(t *testing.T) {
 
 // --- executeArtifactDownloadHandler ---
 
-func TestExecuteArtifactDownload_DryRun_PrintsAndDoesNotDownload(t *testing.T) {
+func TestExecuteArtifactDownload_DryRun_WritesReportAndDoesNotDownload(t *testing.T) {
 	srv := newDownloadTestServer(t, []string{"art/1.0/art.tar.gz"})
 	dest := t.TempDir()
+
+	runDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(runDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(origDir) }) //nolint:errcheck
+
 	ctx := downloadTestCtx(map[string]any{
 		"registry": "myreg",
 		"regex":    ".*",
@@ -289,9 +306,18 @@ func TestExecuteArtifactDownload_DryRun_PrintsAndDoesNotDownload(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// Dest should be empty — no actual downloads.
 	entries, _ := os.ReadDir(dest)
 	if len(entries) != 0 {
-		t.Errorf("dry-run should not write files; found %d entries", len(entries))
+		t.Errorf("dry-run should not write files to dest; found %d entries", len(entries))
+	}
+	// A report file should have been created in dry-run-output/.
+	reports, err := os.ReadDir(filepath.Join(runDir, "dry-run-output"))
+	if err != nil {
+		t.Fatalf("dry-run-output dir not created: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Errorf("expected 1 report file, got %d", len(reports))
 	}
 }
 
@@ -428,6 +454,14 @@ func TestExecuteArtifactDownload_Flatten_CollisionErrors(t *testing.T) {
 	names := []string{"art/1.0/art.tar.gz", "art/2.0/art.tar.gz"}
 	srv := newDownloadTestServer(t, names)
 	dest := t.TempDir()
+
+	runDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(runDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(origDir) }) //nolint:errcheck
+
 	ctx := downloadTestCtx(map[string]any{
 		"registry": "myreg",
 		"regex":    ".*",
@@ -439,17 +473,35 @@ func TestExecuteArtifactDownload_Flatten_CollisionErrors(t *testing.T) {
 		t.Fatal("expected error for flatten collision, got nil")
 	}
 
+	// No files should have been downloaded.
 	entries, _ := os.ReadDir(dest)
 	if len(entries) != 0 {
 		t.Errorf("expected dest to be empty after collision error, got %d entries", len(entries))
 	}
+
+	// A conflict file should have been written.
+	conflicts, err := os.ReadDir(filepath.Join(runDir, "dry-run-output"))
+	if err != nil {
+		t.Fatalf("dry-run-output dir not created: %v", err)
+	}
+	if len(conflicts) != 1 || !strings.HasPrefix(conflicts[0].Name(), "conflict-download-") {
+		t.Errorf("expected 1 conflict-download-*.json file, got %v", conflicts)
+	}
 }
 
-func TestExecuteArtifactDownload_Flatten_DryRunShowsCollisionWarning(t *testing.T) {
-	// In dry-run mode, collisions are a warning, not an error.
+func TestExecuteArtifactDownload_Flatten_DryRunReportsCollisionsInFile(t *testing.T) {
+	// In dry-run mode, collisions are included in the report file, not an error.
 	names := []string{"art/1.0/art.tar.gz", "art/2.0/art.tar.gz"}
 	srv := newDownloadTestServer(t, names)
 	dest := t.TempDir()
+
+	runDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(runDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(origDir) }) //nolint:errcheck
+
 	ctx := downloadTestCtx(map[string]any{
 		"registry": "myreg",
 		"regex":    ".*",
@@ -465,6 +517,20 @@ func TestExecuteArtifactDownload_Flatten_DryRunShowsCollisionWarning(t *testing.
 	entries, _ := os.ReadDir(dest)
 	if len(entries) != 0 {
 		t.Errorf("dry-run should not write files; found %d entries", len(entries))
+	}
+
+	// The report file should include the collision.
+	reports, _ := os.ReadDir(filepath.Join(runDir, "dry-run-output"))
+	if len(reports) != 1 {
+		t.Fatalf("expected 1 report file, got %d", len(reports))
+	}
+	raw, _ := os.ReadFile(filepath.Join(runDir, "dry-run-output", reports[0].Name()))
+	var out dryRunOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("invalid JSON in report: %v", err)
+	}
+	if len(out.Conflicts) != 1 {
+		t.Errorf("expected 1 conflict in report, got %d", len(out.Conflicts))
 	}
 }
 
@@ -587,6 +653,182 @@ func TestFlattenCollisions_DetectsCollisions(t *testing.T) {
 	got := flattenCollisions(files)
 	if len(got) != 2 {
 		t.Errorf("expected 2 collisions, got %d: %v", len(got), got)
+	}
+}
+
+// --- writeDryRunJSON / flattenCollisionMap ---
+
+func TestWriteDryRunJSON_BasicOutput(t *testing.T) {
+	items := []fileItem{
+		{Path: "art/1.0/foo.tar.gz", DownloadURL: "http://x/foo", Size: "100"},
+		{Path: "art/2.0/bar.zip", DownloadURL: "http://x/bar", Size: "200"},
+	}
+	dest := "/tmp/out"
+
+	var buf strings.Builder
+	_, err := writeDryRunJSON(&buf, items, dest, false, 0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var out dryRunOutput
+	if err := json.Unmarshal([]byte(buf.String()), &out); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	if out.Matched != 2 {
+		t.Errorf("matched: got %d, want 2", out.Matched)
+	}
+	if len(out.Files) != 2 {
+		t.Errorf("files: got %d, want 2", len(out.Files))
+	}
+	if out.Files[0].SourcePath != "art/1.0/foo.tar.gz" {
+		t.Errorf("file[0].source_path = %q", out.Files[0].SourcePath)
+	}
+	if out.Files[0].Size != "100" {
+		t.Errorf("file[0].size = %q", out.Files[0].Size)
+	}
+	if out.Conflicts != nil {
+		t.Errorf("expected no conflicts, got %v", out.Conflicts)
+	}
+	if out.Skipped != nil {
+		t.Errorf("expected no skipped, got %v", out.Skipped)
+	}
+}
+
+func TestWriteDryRunJSON_SkippedCounts(t *testing.T) {
+	var buf strings.Builder
+	_, err := writeDryRunJSON(&buf, []fileItem{{Path: "a/b.gz", DownloadURL: "http://x", Size: "1"}}, "/out", false, 2, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var out dryRunOutput
+	if err := json.Unmarshal([]byte(buf.String()), &out); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if out.Skipped == nil || out.Skipped.NoURL != 2 || out.Skipped.UnsafePath != 1 {
+		t.Errorf("skipped: got %+v", out.Skipped)
+	}
+}
+
+func TestWriteDryRunJSON_FlattenConflictsIncluded(t *testing.T) {
+	items := []fileItem{
+		{Path: "a/1.0/img.png", DownloadURL: "http://x/1", Size: "10"},
+		{Path: "b/2.0/img.png", DownloadURL: "http://x/2", Size: "20"},
+		{Path: "c/3.0/other.png", DownloadURL: "http://x/3", Size: "30"},
+	}
+	var buf strings.Builder
+	_, err := writeDryRunJSON(&buf, items, "/out", true, 0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var out dryRunOutput
+	if err := json.Unmarshal([]byte(buf.String()), &out); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(out.Conflicts) != 1 {
+		t.Fatalf("expected 1 conflict, got %d: %v", len(out.Conflicts), out.Conflicts)
+	}
+	if len(out.Conflicts[0].Sources) != 2 {
+		t.Errorf("conflict should list 2 sources, got %d", len(out.Conflicts[0].Sources))
+	}
+}
+
+func TestDryRunJSON_WrittenToFile(t *testing.T) {
+	srv := newDownloadTestServer(t, []string{"art/1.0/art.tar.gz"})
+	dest := t.TempDir()
+	outFile := filepath.Join(t.TempDir(), "dryrun.json")
+	ctx := downloadTestCtxWithOut(map[string]any{
+		"registry": "myreg",
+		"regex":    ".*",
+		"dest":     dest,
+		"dry-run":  true,
+	}, srv.URL, outFile)
+
+	if err := executeArtifactDownloadHandler(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	raw, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("output file not written: %v", err)
+	}
+	var out dryRunOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("invalid JSON in output file: %v\n%s", err, raw)
+	}
+	if out.Matched != 1 {
+		t.Errorf("matched: got %d, want 1", out.Matched)
+	}
+	// Ensure nothing was downloaded.
+	entries, _ := os.ReadDir(dest)
+	if len(entries) != 0 {
+		t.Errorf("dry-run should not write files; found %d entries", len(entries))
+	}
+}
+
+func TestDryRunJSON_AutoGeneratesFile(t *testing.T) {
+	// When --report is used without --out, a file should be auto-generated
+	// under dry-run-output/ with a timestamped name (matching hc behaviour).
+	srv := newDownloadTestServer(t, []string{"art/1.0/art.tar.gz"})
+	dest := t.TempDir()
+
+	// Run from a temp dir so dry-run-output/ is created there, not in the repo root.
+	origDir, _ := os.Getwd()
+	runDir := t.TempDir()
+	if err := os.Chdir(runDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(origDir) }) //nolint:errcheck
+
+	ctx := downloadTestCtx(map[string]any{
+		"registry": "myreg",
+		"regex":    ".*",
+		"dest":     dest,
+		"dry-run":  true,
+	}, srv.URL)
+
+	if err := executeArtifactDownloadHandler(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Exactly one JSON file should exist under dry-run-output/.
+	entries, err := os.ReadDir(filepath.Join(runDir, "dry-run-output"))
+	if err != nil {
+		t.Fatalf("dry-run-output dir not created: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 output file, got %d: %v", len(entries), entries)
+	}
+	name := entries[0].Name()
+	if !strings.HasPrefix(name, "download-dryrun-output-") || !strings.HasSuffix(name, ".json") {
+		t.Errorf("unexpected filename format: %q", name)
+	}
+
+	raw, _ := os.ReadFile(filepath.Join(runDir, "dry-run-output", name))
+	var out dryRunOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("invalid JSON in auto-generated file: %v\n%s", err, raw)
+	}
+	if out.Matched != 1 {
+		t.Errorf("matched: got %d, want 1", out.Matched)
+	}
+}
+
+func TestFlattenCollisionMap_Empty(t *testing.T) {
+	m := flattenCollisionMap([]string{"a/foo.gz", "b/bar.gz"})
+	if len(m) != 0 {
+		t.Errorf("expected no collisions, got %v", m)
+	}
+}
+
+func TestFlattenCollisionMap_DetectsCollision(t *testing.T) {
+	m := flattenCollisionMap([]string{"a/1.0/img.png", "b/2.0/img.png", "c/other.png"})
+	if len(m) != 1 {
+		t.Fatalf("expected 1 collision, got %d: %v", len(m), m)
+	}
+	srcs, ok := m["img.png"]
+	if !ok || len(srcs) != 2 {
+		t.Errorf("expected 2 sources for img.png, got %v", srcs)
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
@@ -69,6 +70,7 @@ func executeArtifactDownloadHandler(ctx *cmdctx.Ctx) error {
 	flatten := cmdctx.GetBool(ctx.FlagValues, "flatten")
 	concurrencyStr := cmdctx.GetString(ctx.FlagValues, "concurrency")
 	pageSizeStr := cmdctx.GetString(ctx.FlagValues, "page-size")
+	outFile := ctx.FormatFlags.OutFile
 
 	concurrency := downloadDefaultConcurrency
 	if concurrencyStr != "" {
@@ -150,29 +152,45 @@ func executeArtifactDownloadHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	if dryRun {
-		fmt.Printf("Dry run — %d file(s) matched", len(downloadable))
-		if skippedNoURL > 0 || skippedUnsafePath > 0 {
-			fmt.Printf(" (%d no-URL, %d unsafe-path skipped)", skippedNoURL, skippedUnsafePath)
+		// Always write a JSON report file; never dump the file list to the terminal.
+		// Use --out to specify a custom path; otherwise auto-generate under dry-run-output/.
+		target := outFile
+		if target == "" {
+			ts := time.Now().Format("20060102_150405")
+			target = filepath.Join("dry-run-output", fmt.Sprintf("download-dryrun-output-%s.json", ts))
 		}
-		fmt.Println(":")
-		for _, item := range downloadable {
-			fmt.Printf("  %s → %s\n", item.Path, resolveOutPath(dest, item.Path, flatten))
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return fmt.Errorf("creating dry-run output directory: %w", err)
+		}
+		b, err := writeDryRunJSON(io.Discard, downloadable, dest, flatten, skippedNoURL, skippedUnsafePath)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, b, 0644); err != nil {
+			return fmt.Errorf("writing dry-run output to %q: %w", target, err)
+		}
+		summary := fmt.Sprintf("Dry run — %d file(s) found, %d matched", len(allFiles), len(downloadable))
+		if skippedNoURL > 0 || skippedUnsafePath > 0 {
+			summary += fmt.Sprintf(" (%d no-URL, %d unsafe-path skipped)", skippedNoURL, skippedUnsafePath)
 		}
 		if len(collisions) > 0 {
-			fmt.Fprintf(os.Stderr, "\nWarning — %d flatten collision(s) (real run would abort):\n", len(collisions))
-			for _, c := range collisions {
-				fmt.Fprintln(os.Stderr, "  "+c)
-			}
+			summary += fmt.Sprintf(", %d flatten collision(s)", len(collisions))
 		}
+		fmt.Fprintf(os.Stderr, "%s. Output written to %s\n", summary, target)
 		return nil
 	}
 
 	if len(collisions) > 0 {
-		fmt.Fprintln(os.Stderr, "Flatten name collisions — multiple paths share the same basename:")
-		for _, c := range collisions {
-			fmt.Fprintln(os.Stderr, "  "+c)
+		// Write the collision details to a file; keep terminal output minimal.
+		ts := time.Now().Format("20060102_150405")
+		conflictPath := filepath.Join("dry-run-output", fmt.Sprintf("conflict-download-%s.json", ts))
+		if err := writeConflictJSON(conflictPath, downloadable, dest); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not write conflict file: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "%d file(s) found, %d matched, %d flatten collision(s) detected. Run with --dry-run to see the full file list.\nConflict details: %s\n",
+				len(allFiles), len(downloadable), len(collisions), conflictPath)
 		}
-		return fmt.Errorf("use a narrower --regex or remove --flatten to resolve %d collision(s)", len(collisions))
+		return errors.New("")
 	}
 
 	if err := os.MkdirAll(dest, 0755); err != nil {
@@ -412,13 +430,135 @@ func newDownloadHTTPClient() *http.Client {
 	return client
 }
 
+// dryRunOutput is the structured JSON representation of a dry-run result.
+// Emitted when --format json (or --json) is combined with --dry-run.
+type dryRunOutput struct {
+	Matched   int              `json:"matched"`
+	Skipped   *dryRunSkipped   `json:"skipped,omitempty"`
+	Files     []dryRunFile     `json:"files"`
+	Conflicts []dryRunConflict `json:"conflicts,omitempty"`
+}
+
+type dryRunSkipped struct {
+	NoURL      int `json:"no_url,omitempty"`
+	UnsafePath int `json:"unsafe_path,omitempty"`
+}
+
+type dryRunFile struct {
+	SourcePath string `json:"source_path"`
+	DestPath   string `json:"dest_path"`
+	Size       string `json:"size,omitempty"`
+}
+
+type dryRunConflict struct {
+	DestPath string   `json:"dest_path"`
+	Sources  []string `json:"sources"`
+}
+
+// writeDryRunJSON marshals the dry-run result as indented JSON and writes it to w.
+// Returns the marshalled bytes so callers can also write to a file.
+func writeDryRunJSON(w io.Writer, items []fileItem, dest string, flatten bool, skippedNoURL, skippedUnsafePath int) ([]byte, error) {
+	files := make([]dryRunFile, 0, len(items))
+	for _, item := range items {
+		files = append(files, dryRunFile{
+			SourcePath: item.Path,
+			DestPath:   resolveOutPath(dest, item.Path, flatten),
+			Size:       item.Size,
+		})
+	}
+
+	var conflicts []dryRunConflict
+	if flatten {
+		paths := make([]string, len(items))
+		for i, item := range items {
+			paths[i] = item.Path
+		}
+		for base, srcs := range flattenCollisionMap(paths) {
+			conflicts = append(conflicts, dryRunConflict{
+				DestPath: resolveOutPath(dest, srcs[0], true),
+				Sources:  srcs,
+			})
+			_ = base
+		}
+	}
+
+	var skipped *dryRunSkipped
+	if skippedNoURL > 0 || skippedUnsafePath > 0 {
+		skipped = &dryRunSkipped{NoURL: skippedNoURL, UnsafePath: skippedUnsafePath}
+	}
+
+	out := dryRunOutput{
+		Matched:   len(items),
+		Skipped:   skipped,
+		Files:     files,
+		Conflicts: conflicts,
+	}
+
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshalling dry-run output: %w", err)
+	}
+	_, err = fmt.Fprintln(w, string(b))
+	return b, err
+}
+
+// writeConflictJSON writes a JSON file listing all flatten collisions to conflictPath.
+func writeConflictJSON(conflictPath string, items []fileItem, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(conflictPath), 0755); err != nil {
+		return fmt.Errorf("creating conflict output directory: %w", err)
+	}
+	paths := make([]string, len(items))
+	for i, item := range items {
+		paths[i] = item.Path
+	}
+	var conflicts []dryRunConflict
+	for base, srcs := range flattenCollisionMap(paths) {
+		conflicts = append(conflicts, dryRunConflict{
+			DestPath: resolveOutPath(dest, srcs[0], true),
+			Sources:  srcs,
+		})
+		_ = base
+	}
+	b, err := json.MarshalIndent(struct {
+		Conflicts []dryRunConflict `json:"conflicts"`
+	}{Conflicts: conflicts}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling conflict output: %w", err)
+	}
+	return os.WriteFile(conflictPath, b, 0644)
+}
+
+// flattenCollisionMap returns a map of basename → all source paths that share it,
+// for basenames claimed by more than one path. Empty map means no collisions.
+func flattenCollisionMap(files []string) map[string][]string {
+	all := make(map[string][]string, len(files))
+	for _, f := range files {
+		base := filepath.Base(filepath.FromSlash(f))
+		all[base] = append(all[base], f)
+	}
+	out := make(map[string][]string)
+	for base, srcs := range all {
+		if len(srcs) > 1 {
+			out[base] = srcs
+		}
+	}
+	return out
+}
+
 // flattenCollisions returns one descriptive string per basename shared by more
 // than one path. Empty slice means no collisions.
 func flattenCollisions(files []string) []string {
+	colMap := flattenCollisionMap(files)
+	if len(colMap) == 0 {
+		return nil
+	}
 	seen := map[string]string{}
 	var out []string
 	for _, f := range files {
 		base := filepath.Base(filepath.FromSlash(f))
+		if _, hasCollision := colMap[base]; !hasCollision {
+			continue
+		}
 		if first, ok := seen[base]; ok {
 			out = append(out, fmt.Sprintf("%q and %q both flatten to %q", first, f, base))
 			seen[base] = f // advance so the next collision pairs with the most recent file
