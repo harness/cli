@@ -212,6 +212,12 @@ commands:
         description: "Artifact version (default: 1.0.0)"
       - name: include-hidden
         description: "Include hidden files and directories (names starting with '.') when walking directory inputs"
+      - name: max-concurrent-uploads
+        description: "Maximum number of files uploaded concurrently (default: 4, use 1 for sequential)"
+      - name: max-concurrent-parts
+        description: "Maximum number of multipart parts uploaded concurrently across all files (default: 8)"
+      - name: no-multipart
+        description: "Disable parallel multipart upload and always use a single upload request per file"
 
   - command: push artifact:maven
     verb: push
