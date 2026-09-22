@@ -145,12 +145,16 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("concurrency must be greater than 0")
 	}
 
-	// Validate source and destination registry configurations
-	if err := validateCredentials(config.Source); err != nil {
+	// Validate source and destination registry configurations. The source
+	// endpoint is external and cli has no way to infer it, so it's always
+	// required. The destination endpoint may be left empty here and resolved
+	// later from the CLI's own auth context or --pkg-url (see
+	// executeRegistryMigrateHandler), so it's not required at load time.
+	if err := validateCredentials(config.Source, true); err != nil {
 		return fmt.Errorf("invalid source credentials block provided in config: %w", err)
 	}
 
-	if err := validateCredentials(config.Dest); err != nil {
+	if err := validateCredentials(config.Dest, false); err != nil {
 		return fmt.Errorf("invalid destination credentials block provided in config: %w", err)
 	}
 
@@ -194,9 +198,9 @@ func validateConfig(config *Config) error {
 	return nil
 }
 
-func validateCredentials(registry RegistryConfig) error {
+func validateCredentials(registry RegistryConfig, endpointRequired bool) error {
 	// Check that the endpoint is not empty
-	if registry.Endpoint == "" {
+	if endpointRequired && registry.Endpoint == "" {
 		return fmt.Errorf("registry endpoint cannot be empty")
 	}
 

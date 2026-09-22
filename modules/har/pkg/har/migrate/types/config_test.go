@@ -82,6 +82,42 @@ func TestValidateConfig_PatternsAllowedForDebian(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_DestEndpointNotRequired(t *testing.T) {
+	dest := validCredentials()
+	dest.Endpoint = ""
+
+	cfg := &Config{
+		Concurrency: 1,
+		Source:      validCredentials(),
+		Dest:        dest,
+		Mappings:    []RegistryMapping{validMapping(GENERIC)},
+	}
+
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("expected empty destination.endpoint to be accepted (resolved later from auth/--pkg-url), got: %v", err)
+	}
+}
+
+func TestValidateConfig_SourceEndpointStillRequired(t *testing.T) {
+	src := validCredentials()
+	src.Endpoint = ""
+
+	cfg := &Config{
+		Concurrency: 1,
+		Source:      src,
+		Dest:        validCredentials(),
+		Mappings:    []RegistryMapping{validMapping(GENERIC)},
+	}
+
+	err := validateConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for empty source.endpoint")
+	}
+	if !strings.Contains(err.Error(), "endpoint cannot be empty") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
 func TestValidateConfig_IncludeAndExcludePatternsMutuallyExclusive(t *testing.T) {
 	mapping := validMapping(GENERIC)
 	mapping.IncludePatterns = []string{"*.txt"}

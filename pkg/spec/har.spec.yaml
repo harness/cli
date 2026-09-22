@@ -1098,6 +1098,8 @@ commands:
       - name: dry-run
         description: "Dry run — discover files without uploading, write report to ./dry-run-output/"
         is_bool: true
+      - name: pkg-url
+        description: "Destination package registry base URL (overrides config; defaults to the resolved auth registry URL)"
 
   - command: configure registry:npm
     verb: configure
