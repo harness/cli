@@ -137,6 +137,7 @@ nouns:
     fields:
       - id: name
         expr: it.name
+        mutable_path: metadata.name
       - id: agent
         expr: it.agentIdentifier
       - id: cluster
@@ -147,6 +148,11 @@ nouns:
         expr: it.app.spec.project
       - id: namespace
         expr: it.app.spec.destination.namespace
+        mutable_path: spec.destination.namespace
+      - id: destination_server
+        label: Destination Server
+        expr: it.app.spec.destination.server
+        mutable_path: spec.destination.server
       - id: sync_status
         label: Sync
         expr: it.app.status.sync.status
@@ -159,10 +165,13 @@ nouns:
         label: Repo URL
         expr: it.app.spec.source.repoURL
         width_max: 60
+        mutable_path: spec.source.repoURL
       - id: path
         expr: it.app.spec.source.path
+        mutable_path: spec.source.path
       - id: target_revision
         expr: it.app.spec.source.targetRevision
+        mutable_path: spec.source.targetRevision
       - id: created
         expr: it.createdAt ?? it.app.creationTimestampTs
       - id: updated
@@ -177,11 +186,17 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.cluster.name
+        mutable_path: name
       - id: agent
         expr: it.agentIdentifier
       - id: server
         expr: it.cluster.server
         width_max: 60
+        mutable_path: server
+      - id: connection_type
+        label: Connection Type
+        expr: it.cluster.config.clusterConnectionType ?? ""
+        mutable_path: config.clusterConnectionType
       - id: connection
         label: Connection
         expr: it.cluster.connectionState.status
@@ -203,14 +218,17 @@ nouns:
         expr: it.identifier
       - id: name
         expr: 'it.repository.name != "" ? it.repository.name : it.identifier'
+        mutable_path: name
       - id: agent
         expr: it.agentIdentifier
       - id: repo_url
         label: Repo URL
         expr: it.repository.repo
         width_max: 60
+        mutable_path: repo
       - id: type
         expr: it.repository.type
+        mutable_path: type
       - id: connection
         label: Connection
         expr: it.repository.connectionState.status
@@ -220,6 +238,7 @@ nouns:
       - id: connection_type
         label: Connection Type
         expr: it.repository.connectionType ?? ""
+        mutable_path: connectionType
       - id: org_id
         expr: it.orgIdentifier
       - id: project_id
@@ -419,8 +438,10 @@ commands:
     verb: create
     noun: gitops_application
     requires_id: true
-    short: "Create a GitOps application: harness create gitops_application <agent> -f app.yaml --cluster <cluster> [--repo <repo>]"
+    short: "Create a GitOps application: harness create gitops_application <agent> --set name=<name> repo_url=<url> path=<path> destination_server=<url> namespace=<ns> --cluster <cluster> [--repo <repo>], or -f app.yaml"
     handler_type: endpoint
+    flags_builtin:
+      set: true
     flags:
       - name: cluster
         description: "GitOps cluster identifier (required)"
@@ -433,7 +454,10 @@ commands:
     endpoint:
       method: POST
       path: /gitops/api/v1/agents/{{ctx.id}}/applications
-      file_body: required
+      file_body: optional
+      create_strategy: set-fields
+      create_body_init:
+        metadata.name: coalesce(ctx.setArgs.name, ctx.id)
       create_body_wrap: application
       query_params:
         orgIdentifier: 'auth.org != "" ? auth.org : nil'
@@ -449,8 +473,11 @@ commands:
     noun: gitops_application
     id_parts: 2
     id_label: "<agent/app>"
-    short: "Update a GitOps application: harness update gitops_application <agent/app> -f app.yaml [--cluster <cluster>] [--repo <repo>]"
+    short: "Update a GitOps application: harness update gitops_application <agent/app> --set repo_url=<url> path=<path> namespace=<ns> [--cluster <cluster>] [--repo <repo>], or -f app.yaml"
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     flags:
       - name: cluster
         description: "GitOps cluster identifier (when changing cluster/destination binding)"
@@ -462,7 +489,10 @@ commands:
     endpoint:
       method: PUT
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-put
+      get_path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}
+      update_body_pick: "{metadata: {name: it.app.metadata.name, labels: it.app.metadata.labels ?? {}}, spec: {source: it.app.spec.source, destination: it.app.spec.destination, project: it.app.spec.project}}"
       update_body_wrap: application
       query_params:
         orgIdentifier: 'auth.org != "" ? auth.org : nil'
@@ -615,8 +645,10 @@ commands:
     noun: gitops_cluster
     id_parts: 2
     id_label: "<agent/cluster_id>"
-    short: "Register a cluster on a GitOps agent: harness create gitops_cluster <agent/cluster_id> -f cluster.yaml [--upsert]"
+    short: "Register a cluster on a GitOps agent: harness create gitops_cluster <agent/cluster_id> --set server=<url> connection_type=IN_CLUSTER, or -f cluster.yaml [--upsert]"
     handler_type: endpoint
+    flags_builtin:
+      set: true
     flags:
       - name: upsert
         description: Update existing cluster if identifier already exists
@@ -624,7 +656,10 @@ commands:
     endpoint:
       method: POST
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/clusters
-      file_body: required
+      file_body: optional
+      create_strategy: set-fields
+      create_body_init:
+        name: coalesce(ctx.setArgs.name, ctx.idParts[1])
       create_body_wrap: cluster
       query_params:
         identifier: ctx.idParts[1]
@@ -641,8 +676,11 @@ commands:
     noun: gitops_cluster
     id_parts: 2
     id_label: "<agent/cluster_id>"
-    short: "Update a GitOps cluster: harness update gitops_cluster <agent/cluster_id> -f cluster.yaml [--force-update]"
+    short: "Update a GitOps cluster: harness update gitops_cluster <agent/cluster_id> --set server=<url> connection_type=IN_CLUSTER, or -f cluster.yaml [--force-update]"
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     flags:
       - name: force-update
         description: Force update even when server-side validation would reject changes
@@ -650,7 +688,10 @@ commands:
     endpoint:
       method: PUT
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/clusters/{{ctx.idParts[1]}}
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-put
+      get_path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/clusters/{{ctx.idParts[1]}}
+      update_body_pick: "{name: it.cluster.name, server: it.cluster.server, config: it.cluster.config}"
       update_body_wrap: cluster
       query_params:
         orgIdentifier: 'auth.org != "" ? auth.org : nil'
@@ -733,8 +774,10 @@ commands:
     noun: gitops_repository
     id_parts: 2
     id_label: "<agent/repo_id>"
-    short: "Register a Git repo on a GitOps agent: harness create gitops_repository <agent/repo_id> -f repo.yaml [--upsert] [--repo-creds-id <id>]"
+    short: "Register a Git repo on a GitOps agent: harness create gitops_repository <agent/repo_id> --set repo_url=<url> type=git connection_type=HTTPS_ANONYMOUS, or -f repo.yaml [--upsert] [--repo-creds-id <id>]"
     handler_type: endpoint
+    flags_builtin:
+      set: true
     flags:
       - name: upsert
         description: Update existing repository if identifier already exists
@@ -744,7 +787,11 @@ commands:
     endpoint:
       method: POST
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/repositories
-      file_body: required
+      file_body: optional
+      create_strategy: set-fields
+      create_body_init:
+        name: coalesce(ctx.setArgs.name, ctx.idParts[1])
+        type: coalesce(ctx.setArgs.type, '"git"')
       create_body_wrap: repo
       query_params:
         identifier: ctx.idParts[1]
@@ -762,12 +809,18 @@ commands:
     noun: gitops_repository
     id_parts: 2
     id_label: "<agent/repo_id>"
-    short: "Update a GitOps repository: harness update gitops_repository <agent/repo_id> -f repo.yaml"
+    short: "Update a GitOps repository: harness update gitops_repository <agent/repo_id> --set repo_url=<url> type=git connection_type=HTTPS_ANONYMOUS, or -f repo.yaml"
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PUT
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/repositories/{{ctx.idParts[1]}}
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-put
+      get_path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/repositories/{{ctx.idParts[1]}}
+      update_body_pick: "{name: it.repository.name, repo: it.repository.repo, type: it.repository.type, connectionType: it.repository.connectionType}"
       update_body_wrap: repo
       query_params:
         orgIdentifier: 'auth.org != "" ? auth.org : nil'
