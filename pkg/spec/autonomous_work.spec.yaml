@@ -209,6 +209,25 @@ nouns:
       - id: status
         expr: it.status
 
+  - noun: work_item_artifact
+    short_desc: An artifact produced by a work item phase.
+    noun_aliases: [work_item_artifacts]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+        width_max: 40
+      - id: type
+        expr: it.type
+      - id: size
+        expr: it.size
+        align: right
+      - id: updated
+        expr: epochMs(it.updatedAt)
+      - id: created
+        expr: epochMs(it.createdAt)
+
 commands:
   # ── work_item ──────────────────────────────────────────────────────────────────
 
@@ -288,6 +307,7 @@ commands:
     verb: list
     noun: work_item
     noun_variant: phase_artifacts
+    fields_noun: work_item_artifact
     id_parts: 2
     short: List artifacts for a phase of a work item (workItemId/phaseId)
     handler_type: endpoint
@@ -300,6 +320,7 @@ commands:
         projectIdentifier: auth.project
       paging:
         paging_strategy: flat_list
+      columns: [id, name, type, size, updated]
 
   - command: get work_item:artifact
     verb: get
