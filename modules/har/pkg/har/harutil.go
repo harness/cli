@@ -8,6 +8,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -96,6 +97,77 @@ func doRequest(c *http.Client, req *http.Request) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return body, nil
+}
+
+// apiError is a non-2xx response from the registry, preserving the status code and the
+// machine-readable error code the backend puts in values.code. Callers switch on Code rather
+// than matching error strings.
+type apiError struct {
+	StatusCode int
+	Code       string
+	Message    string
+	Values     map[string]any
+}
+
+func (e *apiError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("HTTP %d (%s): %s", e.StatusCode, e.Code, e.Message)
+	}
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Message)
+}
+
+// apiErrorCode returns the backend values.code carried by err, or "" if err is not an apiError.
+func apiErrorCode(err error) string {
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code
+	}
+	return ""
+}
+
+// apiErrorStatus returns the HTTP status carried by err, or 0 if err is not an apiError.
+func apiErrorStatus(err error) int {
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode
+	}
+	return 0
+}
+
+// doJSONRequest executes req and returns the status code and body. Unlike doRequest it reports
+// the status code on success too (callers need to tell 200 from 201/202) and parses a non-2xx
+// body into an *apiError so the backend's values.code is preserved.
+func doJSONRequest(c *http.Client, req *http.Request) (int, []byte, error) {
+	resp, err := c.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return resp.StatusCode, nil, fmt.Errorf("reading response body: %w", readErr)
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return resp.StatusCode, body, nil
+	}
+
+	apiErr := &apiError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}
+
+	var parsed struct {
+		Message string         `json:"message"`
+		Values  map[string]any `json:"values"`
+	}
+	if json.Unmarshal(body, &parsed) == nil {
+		if parsed.Message != "" {
+			apiErr.Message = parsed.Message
+		}
+		apiErr.Values = parsed.Values
+		if code, ok := parsed.Values["code"].(string); ok {
+			apiErr.Code = code
+		}
+	}
+	return resp.StatusCode, body, apiErr
 }
 
 // buildPkgURL constructs a registry URL of the form:

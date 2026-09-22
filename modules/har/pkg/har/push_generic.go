@@ -4,6 +4,7 @@
 package har
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -21,7 +22,9 @@ import (
 //	harness push artifact:generic <registry/name> <path> [<path>...] --name <pkg> [--version v]
 //
 // Each <path> may be a file or a directory. Directories are walked recursively.
-// Files are uploaded to: {registryURL}/pkg/{accountID}/{registry}/generic/{name}/{version}/{relPath}
+// Files are uploaded to: {registryURL}/pkg/{accountID}/{registry}/files/{name}/{version}/{relPath}
+// Files at or above multipartThreshold are uploaded in parallel parts instead, falling back to the
+// single-request upload when the registry does not support multipart.
 func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push generic artifact requires at least one file or directory path")
@@ -39,6 +42,16 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 
 	includeHidden := cmdctx.GetBool(ctx.FlagValues, "include-hidden")
 
+	maxConcurrentFiles := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-uploads")
+	if maxConcurrentFiles <= 0 {
+		maxConcurrentFiles = defaultMaxConcurrentUploads
+	}
+	maxConcurrentParts := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-parts")
+	if maxConcurrentParts <= 0 {
+		maxConcurrentParts = defaultMaxConcurrentParts
+	}
+	noMultipart := cmdctx.GetBool(ctx.FlagValues, "no-multipart")
+
 	fmt.Fprintf(os.Stderr, "Scanning %d input(s) ...\n", len(ctx.Args))
 
 	jobs, totalFiles, totalBytes, err := collectGenericJobs(ctx.Args, includeHidden)
@@ -54,7 +67,11 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 
 	client := newHTTPClient()
 
-	sem := make(chan struct{}, defaultMaxConcurrentUploads)
+	// The part semaphore is created once here, not per file: file-level concurrency multiplied by
+	// per-file part fan-out would otherwise open (files x parts) connections at the same time.
+	uploader := newMultipartUploader(ctx, client, registry, maxConcurrentParts)
+
+	sem := make(chan struct{}, maxConcurrentFiles)
 	var wg sync.WaitGroup
 	errs := make([]error, len(jobs))
 
@@ -65,8 +82,10 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			fmt.Fprintf(os.Stderr, "Uploading %s ...\n", job.relPath)
-			if uploadErr := genericPutFile(ctx, client, registry, name, version, job.relPath, job.localPath); uploadErr != nil {
+			fmt.Fprintf(os.Stderr, "Uploading %s (%s) ...\n", job.relPath, formatBytes(job.size))
+			if uploadErr := uploadGenericFile(
+				ctx, uploader, client, registry, name, version, job, noMultipart,
+			); uploadErr != nil {
 				errs[i] = fmt.Errorf("failed to upload %s: %w", job.relPath, uploadErr)
 			}
 		}(i, job)
@@ -202,10 +221,46 @@ func walkDir(srcDir string, includeHidden bool) ([]genericUploadJob, int64, erro
 	return jobs, totalBytes, nil
 }
 
-// genericPutFile uploads a single file via PUT.
+// uploadGenericFile uploads one file, choosing multipart for large files and a single PUT
+// otherwise. If the registry does not support multipart (feature disabled or endpoint absent) the
+// multipart attempt reports that before sending any bytes, so falling back here costs nothing.
+func uploadGenericFile(
+	ctx *cmdctx.Ctx,
+	uploader *multipartUploader,
+	client *http.Client,
+	registry, name, version string,
+	job genericUploadJob,
+	noMultipart bool,
+) error {
+	// Hashed once here and handed to whichever path runs. Both need the same digests, and the
+	// multipart-then-fallback route would otherwise read a large file twice just to hash it.
+	sums, err := computeFileChecksums(job.localPath)
+	if err != nil {
+		return fmt.Errorf("computing checksums for %q: %w", job.localPath, err)
+	}
+
+	if !noMultipart && job.size >= multipartThreshold {
+		mpErr := uploader.upload(name, version, job.relPath, job.localPath, job.size, sums)
+		if mpErr == nil {
+			return nil
+		}
+		if !errors.Is(mpErr, errMultipartUnsupported) {
+			return mpErr
+		}
+		fmt.Fprintf(os.Stderr,
+			"Multipart upload unavailable for %s, falling back to a single upload ...\n", job.relPath)
+	}
+	return genericPutFile(ctx, client, registry, name, version, job.relPath, job.localPath, sums)
+}
+
+// genericPutFile uploads a single file via PUT. sums are the file's digests, already computed by the
+// caller so that a multipart attempt and this fallback do not each hash the same file.
 //
-// URL: {registryURL}/pkg/{accountID}/{registry}/generic/{name}/{version}/{relPath}
-func genericPutFile(ctx *cmdctx.Ctx, client *http.Client, registry, name, version, relPath, localPath string) error {
+// URL: {registryURL}/pkg/{accountID}/{registry}/files/{name}/{version}/{relPath}
+func genericPutFile(
+	ctx *cmdctx.Ctx, client *http.Client, registry, name, version, relPath, localPath string,
+	sums fileChecksums,
+) error {
 	f, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("opening %q: %w", localPath, err)
@@ -217,8 +272,7 @@ func genericPutFile(ctx *cmdctx.Ctx, client *http.Client, registry, name, versio
 		return fmt.Errorf("stat %q: %w", localPath, err)
 	}
 
-	subpath := fmt.Sprintf("%s/files/%s/%s/%s", registry, name, version, relPath)
-	uploadURL, err := buildPkgURL(ctx.Auth.RegistryURL, ctx.Auth.AccountID, subpath)
+	uploadURL, err := genericFileURL(ctx, registry, name, version, relPath)
 	if err != nil {
 		return err
 	}
@@ -228,6 +282,7 @@ func genericPutFile(ctx *cmdctx.Ctx, client *http.Client, registry, name, versio
 		return fmt.Errorf("building request: %w", err)
 	}
 	setAuthHeader(req, ctx.Auth)
+	setChecksumHeaders(req.Header, sums)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = fi.Size()
 
@@ -235,6 +290,12 @@ func genericPutFile(ctx *cmdctx.Ctx, client *http.Client, registry, name, versio
 		return err
 	}
 	return nil
+}
+
+// genericFileURL builds the single-PUT upload URL for one generic file.
+func genericFileURL(ctx *cmdctx.Ctx, registry, name, version, relPath string) (string, error) {
+	subpath := fmt.Sprintf("%s/files/%s/%s/%s", registry, name, version, relPath)
+	return buildPkgURL(ctx.Auth.RegistryURL, ctx.Auth.AccountID, subpath)
 }
 
 // formatBytes returns a human-readable byte size string.
