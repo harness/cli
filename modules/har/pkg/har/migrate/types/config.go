@@ -171,6 +171,24 @@ func validateConfig(config *Config) error {
 			log.Warn().Msg(msg)
 			pterm.Warning.Println(msg)
 		}
+		// Scope controls must never be silent no-ops: include/exclude patterns
+		// only take effect for pattern-filterable types (file-level or
+		// package-level); for every other type they would be ignored entirely.
+		if (len(mapping.IncludePatterns) > 0 || len(mapping.ExcludePatterns) > 0) &&
+			!IsPatternFilterable(mapping.ArtifactType) {
+			return fmt.Errorf("mapping %d: includePatterns/excludePatterns are not supported for artifact type %s — "+
+				"patterns are applied at file level for %s and at package level for %s",
+				i, mapping.ArtifactType,
+				"GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, PUPPET",
+				"DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, DEBIAN")
+		}
+		// includePatterns and excludePatterns are mutually exclusive: applying
+		// both would silently discard excludePatterns (FilterFilesByPatterns uses
+		// else-if). Catch this at config validation time so it never reaches the
+		// migration step.
+		if len(mapping.IncludePatterns) > 0 && len(mapping.ExcludePatterns) > 0 {
+			return fmt.Errorf("mapping %d: includePatterns and excludePatterns are mutually exclusive — only one may be set per mapping", i)
+		}
 	}
 
 	return nil
