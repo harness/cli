@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/harness/cli/modules/har/pkg/har/genapi/ar_v3"
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
@@ -146,6 +147,8 @@ func pkgmgrBulkEvalAndDisplay(ctx context.Context, hc *http.Client, a *auth.Reso
 		results = append(results, r)
 	}
 
+	fwClient, fwClientErr := newFirewallClient(hc, a)
+
 	fmt.Printf("\nFirewall evaluation: %d package(s) evaluated\n", len(results))
 	for _, r := range results {
 		switch r.ScanStatus {
@@ -161,14 +164,12 @@ func pkgmgrBulkEvalAndDisplay(ctx context.Context, hc *http.Client, a *auth.Reso
 			continue
 		}
 		// Fetch and print policy-set violation details for BLOCKED/WARN.
-		if r.ScanID != "" {
-			detailURL, err := buildScanDetailsURL(a.APIUrl, r.ScanID, a.AccountID)
-			if err != nil {
-				continue
-			}
-			var detailResp scanDetailsResp
-			if err := doHAR(ctx, hc, a, detailURL, "GET", nil, &detailResp); err == nil && detailResp.Data != nil {
-				printScanDetails(detailResp.Data)
+		if r.ScanID != "" && fwClientErr == nil {
+			detailResp, err := fwClient.GetArtifactScanDetailsWithResponse(ctx, r.ScanID, &ar_v3.GetArtifactScanDetailsParams{
+				AccountIdentifier: a.AccountID,
+			})
+			if err == nil && detailResp.JSON200 != nil && detailResp.JSON200.Data != nil {
+				printScanDetails(detailResp.JSON200.Data)
 			}
 		}
 	}
