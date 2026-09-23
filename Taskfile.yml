@@ -117,6 +117,13 @@ tasks:
     cmds:
       - go run {{.MAIN}} {{.CLI_ARGS}}
 
+  generate:har-api:
+    desc: Regenerate the har module's vendored OpenAPI clients (ar, ar_pkg)
+    cmds:
+      - go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.5.1
+      - PATH="$(go env GOPATH)/bin:$PATH" oapi-codegen --package ar --generate types,client -response-type-suffix Resp --o modules/har/pkg/har/genapi/ar/client_gen.go modules/har/api/ar/openapi.yaml
+      - PATH="$(go env GOPATH)/bin:$PATH" oapi-codegen --package ar_pkg --generate types,client -response-type-suffix Resp --o modules/har/pkg/har/genapi/ar_pkg/client_gen.go modules/har/api/ar_pkg/openapi.yaml
+
   testexpr:
     desc: 'Evaluate an expr-lang expression against a JSON env: task testexpr -- ''<expr>'' [envJSON|@file|-]'
     cmds:
