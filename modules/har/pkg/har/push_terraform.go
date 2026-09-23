@@ -167,6 +167,7 @@ func uploadTerraformModule(ctx *cmdctx.Ctx, registry, filePath, namespace, name,
 	}
 	fmt.Fprintf(os.Stderr, "Successfully pushed Terraform module %s/%s/%s@%s to registry %q\n",
 		namespace, name, provider, version, registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, name, version)
 	return nil
 }
 
@@ -196,6 +197,7 @@ func uploadTerraformProvider(ctx *cmdctx.Ctx, registry, filePath, namespace stri
 	}
 	fmt.Fprintf(os.Stderr, "Successfully pushed Terraform provider %s/%s@%s (%s_%s) to registry %q\n",
 		namespace, typeName, version, osName, arch, registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, typeName, version)
 	return nil
 }
 

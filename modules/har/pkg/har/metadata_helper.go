@@ -66,8 +66,13 @@ func applyPostPushMetadata(ctx *cmdctx.Ctx, metadataStr, registry, pkg, version 
 		body["version"] = version
 	}
 
+	// har/api/v2 endpoints take the account scope as account_identifier
+	// (snake_case), not the platform-wide accountIdentifier the client adds by
+	// default — see the other /har/api/v2/* endpoints in har.spec.yaml.
 	c := client.New(ctx)
-	if _, _, err := c.Post("/har/api/v2/metadata", map[string]string{}, body); err != nil {
+	c.NoAccountID = true
+	queryParams := map[string]string{"account_identifier": ctx.Auth.AccountID}
+	if _, _, err := c.Post("/har/api/v2/metadata", queryParams, body); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to publish metadata for %s/%s: %v\n", registry, pkg, err)
 		return
 	}

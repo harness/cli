@@ -558,6 +558,8 @@ commands:
         description: "Module provider, e.g. aws (required for module uploads)"
       - name: version
         description: "Module version, SemVer 2.0.0 (required for module uploads)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: delete artifact
     verb: delete
