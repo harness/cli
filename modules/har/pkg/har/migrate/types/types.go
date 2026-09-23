@@ -71,6 +71,19 @@ const (
 	StatusFail    Status = "Failed"
 )
 
+// Skip reasons recorded in FileStat.Reason when Status == StatusSkip, so
+// reconciliation tooling can tell WHY a coordinate was skipped instead of
+// treating every skip alike.
+const (
+	// SkipReasonAlreadyExists marks skips caused by the destination already
+	// holding the coordinate (destination index hit, HEAD 200, or an
+	// idempotent upload conflict). Safe to ignore on re-run.
+	SkipReasonAlreadyExists = "already_exists"
+	// SkipReasonNoContent marks skips where the source coordinate resolved to
+	// nothing migratable (e.g. an OCI repository with no tags).
+	SkipReasonNoContent = "no_content"
+)
+
 type FileStat struct {
 	Name     string
 	Registry string
@@ -78,6 +91,9 @@ type FileStat struct {
 	Status   Status
 	Size     int64
 	Error    string
+	// Reason classifies StatusSkip rows (see SkipReason* constants). Empty for
+	// non-skip rows and for skips recorded before a reason was set.
+	Reason string
 }
 
 type TransferStats struct {

@@ -380,7 +380,7 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 		}
 	} else {
 		newCtx.ParentId = link.Id
-		newCtx.RestoreListPos = link.ListPos
+		newCtx.RestoreOffset = link.Offset
 	}
 	return newCtx, nil
 }

@@ -8,6 +8,7 @@ package exprfuncs
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -294,6 +295,13 @@ func JsonArray(v []any) string {
 	return string(b)
 }
 
+// JsonArrayPretty marshals a slice to an indented (2-space) JSON array string.
+// Returns "[]" for nil.
+func JsonArrayPretty(v []any) string {
+	b, _ := json.MarshalIndent(v, "", "  ")
+	return string(b)
+}
+
 // FormatRoleAssignments converts a roleAssignmentMetadata slice to a JSON array of
 // "roleName (roleScopeLevel)" strings.
 func FormatRoleAssignments(assignments []any) string {
@@ -406,4 +414,16 @@ func IsBlank(v any) bool {
 	}
 	s, ok := v.(string)
 	return ok && s == ""
+}
+
+// Env returns the value of the named environment variable, or def (default "")
+// when it is unset or empty.
+func Env(name string, def ...string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	if len(def) > 0 {
+		return def[0]
+	}
+	return ""
 }

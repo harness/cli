@@ -180,6 +180,7 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 	}
 	root.SilenceUsage = true
 	root.SilenceErrors = true
+	root.SetUsageTemplate(usageTemplate)
 
 	root.PersistentFlags().BoolFunc("debug", "Enable debug logging", func(string) error {
 		if !isCompletionInvocation() {
@@ -211,7 +212,9 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 				os.Exit(1)
 			}
 		}
-		console.PrintError(err.Error())
+		if msg := err.Error(); msg != "" {
+			console.PrintError(msg)
+		}
 		if cmdctx.IsTimeout(err) {
 			os.Exit(hbase.TimeoutExitCode)
 		}

@@ -74,6 +74,8 @@ type Request struct {
 	Body            any
 	BodyContentType string
 	Headers         map[string]string
+	// NoAccountID, when true, omits the accountIdentifier query param for this request.
+	NoAccountID bool
 }
 
 // Client makes authenticated HTTP requests to the Harness API.
@@ -82,6 +84,10 @@ type Client struct {
 	resolved   *auth.ResolvedAuth
 	http       *http.Client
 	cliCommand string // value for X-CLI-Command header; "completion" for completion requests
+	// NoAccountID, when true, omits the accountIdentifier query param from every
+	// request made by this Client. Set by callers that build requests via the
+	// Get/Post/Put/Delete/etc. shorthand methods, which don't accept per-request options.
+	NoAccountID bool
 }
 
 // New creates a Client from a command context.
@@ -243,7 +249,9 @@ func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 		return nil, nil, fmt.Errorf("building URL: %w", err)
 	}
 	q := u.Query()
-	q.Set("accountIdentifier", c.resolved.AccountID)
+	if !r.NoAccountID && !c.NoAccountID {
+		q.Set("accountIdentifier", c.resolved.AccountID)
+	}
 	for k, v := range r.QueryParams {
 		if v != "" {
 			q.Set(k, v)

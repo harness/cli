@@ -19,6 +19,7 @@ internal/
 old-hc/
 CLAUDE.local.md
 internal-docs/
+dry-run-output/
 *~
 .claude/settings.local.md
 .claude/

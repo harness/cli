@@ -923,6 +923,36 @@ func TestCallEndpointFull_Priority3_DefaultDispatch(t *testing.T) {
 	}
 }
 
+// TestCallEndpointFull_NoAccountID verifies accountIdentifier is set by default
+// and omitted when the endpoint opts out via no_account_id.
+func TestCallEndpointFull_NoAccountID(t *testing.T) {
+	tests := []struct {
+		name string
+		ep   *spec.EndpointSpec
+		want bool // want accountIdentifier present
+	}{
+		{name: "default_present", ep: &spec.EndpointSpec{Path: "/items"}, want: true},
+		{name: "suppressed", ep: &spec.EndpointSpec{Path: "/items", NoAccountID: true}, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, cap := captureServer(t, `{}`)
+			r := New()
+			ctx := testCtx(srv.URL, nil)
+			ctx.Resolver = r
+
+			if _, _, err := callEndpointFull(ctx, tc.ep, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := qv(t, cap.rawQuery).Get("accountIdentifier") != ""
+			if got != tc.want {
+				t.Fatalf("accountIdentifier present = %v, want %v (query=%q)", got, tc.want, cap.rawQuery)
+			}
+		})
+	}
+}
+
 // TestCallEndpointFull_Priority3_BodyFn — body_fn supplies the POST body.
 func TestCallEndpointFull_Priority3_BodyFn(t *testing.T) {
 	srv, cap := captureServer(t, `{}`)

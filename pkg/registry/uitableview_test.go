@@ -121,7 +121,7 @@ func TestFinishUIExit_PushesLinkOnViewHop(t *testing.T) {
 	}
 }
 
-func TestCurrentScreenLink_CapturesListPosOnTable(t *testing.T) {
+func TestCurrentScreenLink_CapturesOffsetOnTable(t *testing.T) {
 	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1"}
 	table := tui.NewTable(nil, 5, 40)
 	rows := make([]tui.Row, 10)
@@ -133,12 +133,12 @@ func TestCurrentScreenLink_CapturesListPosOnTable(t *testing.T) {
 	fm := uiTableModel{t: table}
 
 	link := currentScreenLink(ctx, fm)
-	if link.ListPos != 4 {
-		t.Fatalf("ListPos = %d, want 4", link.ListPos)
+	if link.Offset != 4 {
+		t.Fatalf("Offset = %d, want 4", link.Offset)
 	}
 }
 
-func TestCurrentScreenLink_CapturesListPosEvenMidDetailFlip(t *testing.T) {
+func TestCurrentScreenLink_CapturesOffsetEvenMidDetailFlip(t *testing.T) {
 	// "b" always resumes the underlying list, never the detail overlay, so an
 	// in-place detail flip (detailMode true, detailOnly false) over a table must
 	// still capture that table's live cursor.
@@ -153,19 +153,36 @@ func TestCurrentScreenLink_CapturesListPosEvenMidDetailFlip(t *testing.T) {
 	fm := uiTableModel{t: table, detailMode: true, detailOnly: false}
 
 	link := currentScreenLink(ctx, fm)
-	if link.ListPos != 4 {
-		t.Fatalf("ListPos = %d, want 4 (mid-flip should still capture the list cursor)", link.ListPos)
+	if link.Offset != 4 {
+		t.Fatalf("Offset = %d, want 4 (mid-flip should still capture the list cursor)", link.Offset)
 	}
 }
 
-func TestCurrentScreenLink_DetailOnlyScreenHasZeroListPos(t *testing.T) {
+func TestCurrentScreenLink_DetailOnlyScreenHasZeroOffset(t *testing.T) {
 	// Case 4 detail-only Hops never populate fm.t, so its Cursor() is naturally 0.
 	ctx := &cmdctx.Ctx{Verb: VerbGet, Noun: "thing", Id: "child-1"}
 	fm := uiTableModel{detailMode: true, detailOnly: true}
 
 	link := currentScreenLink(ctx, fm)
-	if link.ListPos != 0 {
-		t.Fatalf("ListPos = %d, want 0 (detail-only screens have no underlying table)", link.ListPos)
+	if link.Offset != 0 {
+		t.Fatalf("Offset = %d, want 0 (detail-only screens have no underlying table)", link.Offset)
+	}
+}
+
+func TestCurrentScreenLink_CapturesOffsetAcrossPages(t *testing.T) {
+	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1"}
+	table := tui.NewTable(nil, 5, 40)
+	rows := make([]tui.Row, 10)
+	for i := range rows {
+		rows[i] = tui.Row{"x"}
+	}
+	table.SetRows(rows)
+	table.SetCursor(3)
+	fm := uiTableModel{t: table, page: 2, pageSize: 20}
+
+	link := currentScreenLink(ctx, fm)
+	if link.Offset != 43 {
+		t.Fatalf("Offset = %d, want 43 (page 2 * pageSize 20 + cursor 3)", link.Offset)
 	}
 }
 
@@ -235,14 +252,43 @@ func TestFinishUIExit_ViewHop_ResumesLeftScreen(t *testing.T) {
 		launchUIId:        "child-1",
 		launchUIHandlerFn: "noop_handler",
 	}
-	// The handler pushes the screen it's leaving, runs "noop_handler" (returns nil), then
-	// pops that same entry back off to resume it via dispatchLink — which doesn't resolve
-	// against an empty Registry; the resulting error is expected and irrelevant here. Only
-	// the net stack effect (resume, not leak or exit) is under test.
+	// The handler pushes the screen it's leaving, runs "noop_handler" (returns nil), then sets
+	// ctx.UIWantBack (as a view handler's own "b" key would) so finishUIExit pops that same
+	// entry back off to resume it via dispatchLink — which doesn't resolve against an empty
+	// Registry; the resulting error is expected and irrelevant here. Only the net stack effect
+	// (resume, not leak or exit) is under test.
+	ctx.UIWantBack = true
 	_ = finishUIExit(ctx, fm)
 
 	if len(ctx.UIHistory) != 1 || ctx.UIHistory[0].Id != "prev-id" {
 		t.Fatalf("UIHistory = %+v, want just the pre-existing prev-id entry (view-hop's own push+pop should net to zero)", ctx.UIHistory)
+	}
+}
+
+func TestFinishUIExit_ViewHop_QuitOnlyByDefault(t *testing.T) {
+	r := New()
+	r.RegisterWorkflow("noop_handler", func(*cmdctx.Ctx) error { return nil })
+	ctx := &cmdctx.Ctx{
+		Verb:      VerbGet,
+		Noun:      "thing",
+		Id:        "child-1",
+		Resolver:  r,
+		UIHistory: []cmdctx.UILink{{Verb: VerbGet, Noun: "thing", Id: "prev-id"}},
+	}
+	fm := uiTableModel{
+		detailOnly:        true,
+		launchUIId:        "child-1",
+		launchUIHandlerFn: "noop_handler",
+	}
+	// The handler returns nil without setting ctx.UIWantBack (the default), so the view
+	// hop's own push is left in place and there is no pop/resume — quitting the handler's
+	// screen quits outright rather than resuming the caller.
+	if err := finishUIExit(ctx, fm); err != nil {
+		t.Fatalf("finishUIExit: %v", err)
+	}
+
+	if len(ctx.UIHistory) != 2 {
+		t.Fatalf("UIHistory len = %d, want 2 (view hop pushed, no pop without UIWantBack)", len(ctx.UIHistory))
 	}
 }
 
@@ -257,34 +303,66 @@ func TestFinishUIExit_NoHopNoPush(t *testing.T) {
 	}
 }
 
-func TestBuildLinkCtx_TableScreen_CarriesListPosToRestoreListPos(t *testing.T) {
+func TestBuildLinkCtx_TableScreen_CarriesOffsetToRestoreOffset(t *testing.T) {
 	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
-	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, ListPos: 4}
+	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, Offset: 44}
 	targetCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", NoAuth: true}
 
 	newCtx, err := buildLinkCtx(ctx, link, targetCs)
 	if err != nil {
 		t.Fatalf("buildLinkCtx: %v", err)
 	}
-	if newCtx.RestoreListPos != 4 {
-		t.Fatalf("RestoreListPos = %d, want 4", newCtx.RestoreListPos)
+	if newCtx.RestoreOffset != 44 {
+		t.Fatalf("RestoreOffset = %d, want 44", newCtx.RestoreOffset)
 	}
 	if newCtx.ParentId != "parent-1" {
 		t.Fatalf("ParentId = %q, want parent-1", newCtx.ParentId)
 	}
 }
 
-func TestBuildLinkCtx_DetailScreen_DoesNotSetRestoreListPos(t *testing.T) {
+func TestBuildLinkCtx_DetailScreen_DoesNotSetRestoreOffset(t *testing.T) {
 	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
-	link := &cmdctx.UILink{Verb: VerbGet, Noun: "thing", Id: "child-1", Screen: cmdctx.ScreenDetailForGet, ListPos: 4}
+	link := &cmdctx.UILink{Verb: VerbGet, Noun: "thing", Id: "child-1", Screen: cmdctx.ScreenDetailForGet, Offset: 4}
 	targetCs := &spec.CommandSpec{Verb: VerbGet, Noun: "thing", NoAuth: true}
 
 	newCtx, err := buildLinkCtx(ctx, link, targetCs)
 	if err != nil {
 		t.Fatalf("buildLinkCtx: %v", err)
 	}
-	if newCtx.RestoreListPos != 0 {
-		t.Fatalf("RestoreListPos = %d, want 0 (detail screens have no list cursor to restore)", newCtx.RestoreListPos)
+	if newCtx.RestoreOffset != 0 {
+		t.Fatalf("RestoreOffset = %d, want 0 (detail screens have no list cursor to restore)", newCtx.RestoreOffset)
+	}
+}
+
+func TestNewUITableModel_SeedsPageAndCursorFromCtxRestoreOffset(t *testing.T) {
+	// termHeight 24 -> pageSize = tableHeight(24) = 24-uiOverheadLines-1. Derive
+	// the expected pageSize the same way the model does, so this test doesn't
+	// hardcode uiOverheadLines.
+	pageSize := tableHeight(24)
+	offset := 2*pageSize + 4
+	ctx := &cmdctx.Ctx{RestoreOffset: offset}
+	m := newUITableModel(ctx, nil, nil, nil, nil, "title", 80, 24, nil)
+	if m.page != 2 {
+		t.Fatalf("page = %d, want 2 (derived from ctx.RestoreOffset / pageSize)", m.page)
+	}
+	if m.restoreCursor != 4 {
+		t.Fatalf("restoreCursor = %d, want 4 (derived from ctx.RestoreOffset %% pageSize)", m.restoreCursor)
+	}
+}
+
+func TestNewUITableModel_RestoreOffsetSurvivesPageSizeChange(t *testing.T) {
+	// Capture at one pageSize, restore at a different (e.g. post-resize)
+	// pageSize, and confirm the absolute row is still targeted correctly.
+	capturedPageSize := 10
+	capturedPage, capturedCursor := 2, 3
+	offset := capturedPage*capturedPageSize + capturedCursor // absolute row 23
+
+	ctx := &cmdctx.Ctx{RestoreOffset: offset}
+	m := newUITableModel(ctx, nil, nil, nil, nil, "title", 80, 24, nil)
+
+	restoredPageSize := m.pageSize
+	if got := m.page*restoredPageSize + m.restoreCursor; got != offset {
+		t.Fatalf("restored absolute row = %d, want %d (offset must survive pageSize change)", got, offset)
 	}
 }
 

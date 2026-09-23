@@ -78,6 +78,7 @@ func TestBuildCtx_WorkflowFormatFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := buildWorkflowTestCmd(t, r, cs)
+			addFlag(cmd.Flags(), specYaml)
 			cmd.SetArgs(tt.args)
 			if err := cmd.ParseFlags(tt.args); err != nil {
 				t.Fatalf("ParseFlags: %v", err)
@@ -358,6 +359,7 @@ func TestBuildCtx_WorkflowYamlSetsFormat(t *testing.T) {
 	registerWorkflowExecute(t, r, "yamlfmt", &spec.CommandSpec{})
 	cs := r.GetSpec(VerbExecute, "yamlfmt")
 	cmd := buildWorkflowTestCmd(t, r, cs)
+	addFlag(cmd.Flags(), specYaml)
 	if err := cmd.ParseFlags([]string{"--yaml"}); err != nil {
 		t.Fatalf("ParseFlags: %v", err)
 	}

@@ -233,8 +233,11 @@ func (r *Registry) Migrate(ctx context.Context) error {
 	// For PYTHON (IsAtomicVersionArtifact), build an unfilteredRoot from the
 	// original file list so version.go can recover distributions that were pruned
 	// by date or pattern filters. Other types pass nil.
+	// TERRAFORM also gets the unfilteredRoot: its provider versions are atomic
+	// multi-file versions too (all platform zips per version), but discovery
+	// happens inside Version.Migrate, which swaps to this tree — see version.go.
 	var unfilteredRoot *types.TreeNode
-	if dateFilterActive && util.IsAtomicVersionArtifact(currArtifactType) {
+	if dateFilterActive && (util.IsAtomicVersionArtifact(currArtifactType) || currArtifactType == types.TERRAFORM) {
 		recoveryFiles := originalFiles
 		if util.IsFileLevelFilterableArtifact(currArtifactType) &&
 			(len(r.mapping.IncludePatterns) > 0 || len(r.mapping.ExcludePatterns) > 0) {
@@ -272,13 +275,22 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		}
 	}
 
+	// Apply the opt-in package selector allow-list (packageFilters). When set,
+	// only the named packages are migrated; runs before the destination index is
+	// built so the index only covers selected work. No-op when unset.
+	if len(r.mapping.PackageFilters) > 0 {
+		originalCount := len(pkgs)
+		pkgs = util.FilterPackagesBySelectors(pkgs, r.mapping.PackageFilters)
+		logger.Info().Msgf("Package selector filter: %d -> %d packages", originalCount, len(pkgs))
+	}
+
 	if r.artifactType == types.COMPOSER &&
 		composerPkgsBeforeFilters > 0 &&
 		len(pkgs) == 0 &&
-		(len(r.mapping.IncludePatterns) > 0 || len(r.mapping.ExcludePatterns) > 0) {
+		(len(r.mapping.IncludePatterns) > 0 || len(r.mapping.ExcludePatterns) > 0 || len(r.mapping.PackageFilters) > 0) {
 		warnMsg := fmt.Sprintf(
 			"Registry %s: Composer package filters reduced %d package(s) to 0; nothing will be migrated — "+
-				"use vendor/package names (e.g. harness/migtest, acme/*), not zip basenames, in includePatterns and excludePatterns",
+				"use vendor/package names (e.g. harness/migtest, acme/*), not zip basenames, in includePatterns, excludePatterns, and packageFilters",
 			r.srcRegistry, composerPkgsBeforeFilters,
 		)
 		logger.Warn().Msg(warnMsg)
@@ -291,7 +303,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 	indexApplicable := func(t types.ArtifactType) bool {
 		switch t {
 		case types.GENERIC, types.RAW, types.MAVEN, types.PYTHON,
-			types.NUGET, types.NPM, types.DART, types.PUPPET:
+			types.NUGET, types.NPM, types.DART, types.PUPPET, types.RUBY:
 			return true
 		}
 		return false
@@ -315,6 +327,11 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		}
 	}
 
+	var filesByPkg map[string][]types.File
+	if r.artifactType == types.CRAN {
+		filesByPkg = util.BuildCranPackageFilesMap(files)
+	}
+
 	var jobs []engine.Job
 	for _, pkg := range pkgs {
 		treeNode, err2 := tree.GetNodeForPath(root, pkg.Path)
@@ -322,8 +339,12 @@ func (r *Registry) Migrate(ctx context.Context) error {
 			logger.Error().Msgf("Failed to get node for path %s", pkg.Path)
 			return fmt.Errorf("get node for path %s failed: %w", pkg.Path, err2)
 		}
+		var pkgFiles []types.File
+		if filesByPkg != nil {
+			pkgFiles = filesByPkg[pkg.Name]
+		}
 		job := NewPackageJob(r.srcAdapter, r.destAdapter, r.srcRegistry, r.sourcePackageHostname, r.destRegistry, r.artifactType, pkg, treeNode,
-			r.stats, r.mapping, r.config, r.registry, r.dryRunStats, unfilteredRoot, existingIndex)
+			r.stats, r.mapping, r.config, r.registry, r.dryRunStats, unfilteredRoot, existingIndex, pkgFiles)
 		jobs = append(jobs, job)
 	}
 

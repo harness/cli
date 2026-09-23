@@ -28,7 +28,9 @@ type flagSpec struct {
 }
 
 var (
-	specFormat      = flagSpec{name: "format", usage: "Output format: json, yaml, jsonl, table, csv, tsv"}
+	specFormat      = flagSpec{name: "format", usage: "Output format: text, json"}
+	specFormatYaml  = flagSpec{name: "format", usage: "Output format: text, json, yaml"}
+	specFormatList  = flagSpec{name: "format", usage: "Output format: table, json, jsonl, csv, tsv, markdown"}
 	specJson        = flagSpec{name: "json", kind: flagKindBool, usage: "Output as JSON (shorthand for --format json)"}
 	specYaml        = flagSpec{name: "yaml", kind: flagKindBool, usage: "Output as YAML (shorthand for --format yaml)"}
 	specColumns     = flagSpec{name: "columns", usage: `Columns to display by ID or expr, e.g. "name,org" or "+sparkline" or "Name:it.name"`}
@@ -145,6 +147,26 @@ func buildCoreFlagBool() map[string]bool {
 		}
 	}
 	return m
+}
+
+// coreFlagNames is the bare-name set of coreFlagTable, for classifying a
+// command's local flags when grouping --help output (see
+// rootcmd.splitLocalFlags).
+var coreFlagNames = buildCoreFlagNames()
+
+func buildCoreFlagNames() map[string]bool {
+	m := make(map[string]bool, len(coreFlagTable))
+	for _, f := range coreFlagTable {
+		m[f.Name] = true
+	}
+	return m
+}
+
+// IsCoreFlag reports whether name (bare, no leading dashes) is one of the
+// built-in flags wired in globally or per verb/endpoint, as opposed to a
+// flag declared by an individual command's spec (spec.CommandSpec.Flags).
+func IsCoreFlag(name string) bool {
+	return coreFlagNames[name]
 }
 
 // IndexVerbNoun scans raw CLI args (e.g. os.Args[1:]) and returns the index

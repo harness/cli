@@ -28,8 +28,11 @@ type UILink struct {
 	Profile, Org, Project string
 	FlagValues            map[string]any
 
-	Screen  UIScreenKind
-	ListPos int
+	Screen UIScreenKind
+	// Offset is the absolute row index (page*pageSize + cursor row) the user
+	// was on when this Link was captured — resize-safe, unlike a raw page
+	// number or in-page cursor alone.
+	Offset int
 }
 
 // PushUILink appends link to the back-navigation stack (LIFO — PopUILink pops

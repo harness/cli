@@ -52,11 +52,11 @@ with a single consistent grammar.
 - **One grammar, every resource** — `harness <verb> <noun>` works identically across pipelines, code, artifacts, GitOps, load testing, IaC, feature flags, governance, and platform.
 - **Spec-driven** — commands are declared in YAML specs and wired at startup, so new resources arrive without waiting on custom code paths.
 - **Self-describing** — every module, noun, field, and verb is queryable at runtime with `list module`, `get module`, `list noun --matrix`, and `get noun`.
-- **Human and machine friendly** — the same command outputs a colored table for you, or JSON / JSONL / YAML / CSV / TSV / Markdown for scripts and agents.
+- **Human and machine friendly** — the same command outputs a colored table for you, or JSON / JSONL / YAML / CSV / TSV / Markdown for scripts and agents. See [docs/format.md](docs/format.md) for when to pick each format.
 - **Interactive when you want, headless when you don't** — TUI wizards for onboarding and picking, non-interactive flags for CI, and `HARNESS_API_KEY` for zero-config env-var auth.
-- **Live log streaming** — follow pipeline executions with real-time SSE-based log tailing; `get execution_log --ui` opens an interactive log viewer with step navigation.
-- **Interactive TUI (`--ui`)** — browse paginated lists, drill into PRs (details → AI review → conversation → checks → logs), and pick resources without memorizing IDs.
-- **Harness Code, end to end** — clone repos (`pull repository`), review PRs (`list pr:review_pending`, `execute pr:review`), merge/label/comment, and read AI review insights (`get pr:insight`, `get pr:conversation`).
+- **Live log streaming** — follow pipeline executions with real-time SSE-based log tailing; `get execution_log --ui` opens an interactive log viewer with step navigation and back (`b`).
+- **Interactive TUI (`--ui`)** — browse paginated lists, drill into PRs (details → AI review → conversation → checks → logs), and pick resources without memorizing IDs. Browser-like back navigation and link replay.
+- **Harness Code, end to end** — clone repos (`pull repository`), review PRs (`list pr:review_pending`, `execute pr:review`), merge/label/comment, configure AI Code Review (`repo_settings:aicr`), and read AI review insights (`get pr:insight`, `get pr:conversation`).
 - **GitOps & load testing** — manage Argo CD agents, applications, clusters, and ApplicationSets; run JMeter/Locust/k6 load tests with `--follow` streaming.
 - **SSO login** — `harness auth login --sso` (or the in-wizard "Login with SSO" option) drives a browser-based OAuth2 PKCE flow, no PAT/SAT required.
 - **Tab completion that talks to the API** — completions for IDs return live `id<tab>Name` suggestions.
@@ -265,7 +265,8 @@ harness execute loadtest my-test --follow
 harness execute gitops_application:sync <agent>/<app>
 harness get execution_log <pipeline>/<exec-id> --ui
 harness push artifact:docker my-image:1.0
-harness push artifact:npm ./my-package.tgz
+harness push artifact:terraform my-reg ./module.tar.gz --namespace myorg --name vpc --provider aws --version 1.0.0
+harness execute artifact:download --registry my-reg --regex '.*\.tar\.gz$' --dest ./out
 harness execute artifact_version:firewall_scan <ver>
 harness execute registry:migrate <registry>
 harness execute execution:abort <id>
@@ -474,10 +475,12 @@ Legend used in the tables below:
 
 | Noun               | list | get | create | update | delete |
 | ------------------ | :--: | :-: | :----: | :----: | :----: |
-| `service`          |  ✓   |  ✓  |   S    |  GTP   |   ✓    |
-| `environment`      |  ✓   |  ✓  |   S    |  GTP   |   ✓    |
-| `infrastructure`   |  ✓   |  ✓  |   S    |  GTP   |   ✓    |
-| `service_override` |  ✓   |  ✓  |   S    |  GTP   |   ✓    |
+| `service`          |  L   |  ✓  |   S    |  GTP   |   ✓    |
+| `environment`      |  L   |  ✓  |   S    |  GTP   |   ✓    |
+| `infrastructure`   |  L   |  ✓  |   S    |  GTP   |   ✓    |
+| `service_override` |  L   |  ✓  |   S    |  GTP   |   ✓    |
+
+CD nouns are multi-level: pass `--level account|org|project` (with `--org` / `--project` as needed) to target a scope other than the profile default.
 
 </details>
 
@@ -518,6 +521,8 @@ Legend used in the tables below:
 | `pr_suggested_reviewer` |  ✓   |     |        |        |        |         |      |
 | `pr_suggested_label`    |  ✓   |     |        |        |        |         |      |
 | `pr_success_criterion`  |  ✓   |     |        |        |        |         |      |
+| `repo_settings:aicr`    |      |  ✓  |   Y    |  GTP   |        |         |      |
+| `repo_settings:general` |      |  ✓  |        |        |        |         |      |
 
 `get pr` renders a rich PR summary; add `--ui` to browse details, AI review, conversation, checks, and logs interactively.
 
@@ -556,6 +561,7 @@ The `har` binary ships alongside `harness` in the default bundle. It manages reg
 | `registry:migrate`               |      |     |        |        |        |    ✓    |      |      |
 | `registry_metadata`              |      |  ✓  |        |  GTP   |        |         |      |      |
 | `artifact`                       |  ✓   |  ✓  |        |        |   ✓    |         |  ✓†  |  ✓   |
+| `artifact:download`              |      |     |        |        |        |    ✓    |      |      |
 | `artifact_metadata`              |      |  ✓  |        |  GTP   |        |         |      |      |
 | `artifact_version`               |  ✓   |  ✓  |        |        |   ✓    |    ✓    |      |      |
 | `artifact_version:copy`          |      |     |        |        |        |    ✓    |      |      |
@@ -563,17 +569,21 @@ The `har` binary ships alongside `harness` in the default bundle. It manages reg
 | `artifact_version_metadata`      |      |  ✓  |        |  GTP   |        |         |      |      |
 | `artifact_file`                  |  ✓   |     |        |        |        |         |      |      |
 
-`configure registry <id> --client npm` wires a local package manager client to a Harness registry.
+`configure registry:npm|maven|pip|nuget <id>` wires a local package manager client to a Harness registry.
 
 **Push variants (†)** — pick the variant that matches your package type; each validates the file format and sets the correct registry type:
 
 ```
-push artifact:maven       push artifact:cargo       push artifact:swift
-push artifact:npm         push artifact:go          push artifact:puppet
-push artifact:python      push artifact:conda       push artifact:helm
-push artifact:nuget       push artifact:dart        push artifact:docker
-push artifact:rpm         push artifact:composer    push artifact:ruby
+push artifact:generic     push artifact:conda       push artifact:helm
+push artifact:maven       push artifact:dart        push artifact:docker
+push artifact:npm         push artifact:composer    push artifact:debian
+push artifact:python      push artifact:ruby        push artifact:conan
+push artifact:nuget       push artifact:swift       push artifact:terraform
+push artifact:rpm         push artifact:puppet
+push artifact:cargo       push artifact:go
 ```
+
+`execute artifact:download --registry <reg> --regex <pattern> --dest <dir>` downloads matching artifact paths (supports `--dry-run`, `--flatten`, `--overwrite`).
 
 </details>
 
@@ -696,7 +706,7 @@ harness execute hql:run --query 'find entity "platform:project" | select { * } |
 
 ## 📤 Output Formats
 
-Every command supports `--format`. `list` commands default to `table`; single-resource commands default to `text`.
+Every command supports `--format`. `list` commands default to `table`; single-resource commands default to `text`. For when to pick each format, `--columns` / `--fields`, helper expressions, and paging, see [docs/format.md](docs/format.md).
 
 ```sh
 harness list pipeline --format table      # default for lists

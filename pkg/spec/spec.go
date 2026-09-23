@@ -456,6 +456,9 @@ type EndpointSpec struct {
 	// NoFields, when true, suppresses all field rendering (noun fields and fields_extra).
 	// Use with text_header/text_footer for commands whose response has no displayable fields.
 	NoFields bool `yaml:"no_fields,omitempty"`
+	// NoAccountID, when true, omits the accountIdentifier query param that is otherwise
+	// set on every request. Use for endpoints that reject or don't expect it.
+	NoAccountID bool `yaml:"no_account_id,omitempty"`
 	// FieldsSubset lists field IDs from the noun that this command's API actually returns.
 	// When set, --list-columns only advertises these IDs.
 	FieldsSubset []string `yaml:"fields_subset,omitempty"`
