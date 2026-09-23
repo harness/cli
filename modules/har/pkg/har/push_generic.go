@@ -89,6 +89,7 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed %d file(s) to %s/%s in registry %q\n", totalFiles, name, version, registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, name, version)
 	return nil
 }
 

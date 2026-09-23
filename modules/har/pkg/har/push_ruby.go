@@ -83,9 +83,11 @@ func pushRubyArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	successMsg := fmt.Sprintf("Successfully pushed %s to %s", filepath.Base(localFile), registry)
+	var uploadedPkgName, uploadedPkgVersion string
 	if len(body) > 0 {
 		var uploadResp rubyUploadResponse
 		if err := json.Unmarshal(body, &uploadResp); err == nil && uploadResp.Name != "" && uploadResp.Version != "" {
+			uploadedPkgName, uploadedPkgVersion = uploadResp.Name, uploadResp.Version
 			if uploadResp.Platform != "" {
 				successMsg = fmt.Sprintf("Successfully pushed %s@%s (%s) to %s", uploadResp.Name, uploadResp.Version, uploadResp.Platform, registry)
 			} else {
@@ -95,5 +97,6 @@ func pushRubyArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Fprintln(os.Stderr, successMsg)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, uploadedPkgName, uploadedPkgVersion)
 	return nil
 }
