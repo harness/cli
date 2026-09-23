@@ -55,11 +55,13 @@ func BaseFuncs(ptyEnabled bool) map[string]any {
 		"epochMs":               exprfuncs.EpochMs,
 		"parseDateMs":           exprfuncs.ParseDateMs,
 		"jsonArray":             exprfuncs.JsonArray,
+		"jsonArrayPretty":       exprfuncs.JsonArrayPretty,
 		"formatRoleAssignments": exprfuncs.FormatRoleAssignments,
 		"formatRoleIds":         exprfuncs.FormatRoleIds,
 		"truncate":              exprfuncs.Truncate,
 		"substr":                exprfuncs.Substr,
 		"formatOrder":           exprfuncs.FormatOrder,
+		"env":                   exprfuncs.Env,
 	}
 }
 

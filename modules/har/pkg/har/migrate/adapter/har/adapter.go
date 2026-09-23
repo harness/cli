@@ -112,12 +112,16 @@ func (a *harAdapter) UploadFile(
 		err = a.client.uploadSwiftFile(registry, f.Name, file, artifactName, version)
 	case types.DART:
 		err = a.client.uploadDartFile(registry, artifactName, version, f, file)
-	case types.RAW:
+	case types.RAW, types.CRAN:
 		err = a.client.uploadRawFile(registry, f, file)
 	case types.DEBIAN:
 		err = a.client.uploadDebianFile(registry, f, file, metadata)
 	case types.PUPPET:
 		err = a.client.uploadPuppetFile(registry, f, file)
+	case types.RUBY:
+		err = a.client.uploadRubyFile(registry, f, file)
+	case types.TERRAFORM:
+		err = a.client.uploadTerraformFile(registry, f, artifactName, version, file)
 	case types.CONAN:
 		err = a.client.uploadConanFile(registry, file, metadata)
 	default:
@@ -157,7 +161,7 @@ func (a *harAdapter) VersionExists(ctx context.Context, p types.Package, registr
 }
 
 func (a *harAdapter) FileExists(ctx context.Context, registryRef, pkg, version string, file *types.File, artifactType types.ArtifactType) (bool, error) {
-	if artifactType == types.RAW {
+	if artifactType == types.RAW || artifactType == types.CRAN {
 		return a.client.headRawFile(registryRef, file.Uri)
 	}
 	return a.client.artifactFileExists(ctx, registryRef, pkg, version, file, artifactType)

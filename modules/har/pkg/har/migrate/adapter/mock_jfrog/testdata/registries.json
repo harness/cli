@@ -75,5 +75,19 @@
     "url": "http://localhost:8081/artifactory/swift-local",
     "description": "Mock Swift Local Repository",
     "packageType": "swift"
+  },
+  "cran-local": {
+    "key": "cran-local",
+    "type": "LOCAL",
+    "url": "http://localhost:8081/artifactory/cran-local",
+    "description": "Mock CRAN Local Repository",
+    "packageType": "cran"
+  },
+  "terraform-local": {
+    "key": "terraform-local",
+    "type": "LOCAL",
+    "url": "http://localhost:8081/artifactory/terraform-local",
+    "description": "Mock Terraform Local Repository",
+    "packageType": "terraform"
   }
 }

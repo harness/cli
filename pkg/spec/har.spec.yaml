@@ -535,6 +535,30 @@ commands:
     handler_type: workflow
     workflow_id: push_artifact_docker
 
+  - command: push artifact:terraform
+    verb: push
+    noun: artifact
+    noun_variant: terraform
+    short: Push a Terraform module (.tar.gz) or provider (.zip) to a Harness registry
+    has_args: true
+    id_allow_slash: false
+    id_label: "<registry>"
+    args_label: "<local-module-or-provider>"
+    completion_seq:
+      - completion_noun: registry
+    handler_type: workflow
+    workflow_id: push_artifact_terraform
+    flags:
+      - name: namespace
+        description: "Terraform namespace (required)"
+        required: true
+      - name: name
+        description: "Module name (required for module uploads)"
+      - name: provider
+        description: "Module provider, e.g. aws (required for module uploads)"
+      - name: version
+        description: "Module version, SemVer 2.0.0 (required for module uploads)"
+
   - command: delete artifact
     verb: delete
     noun: artifact
@@ -1109,6 +1133,89 @@ commands:
     noun: registry
     noun_variant: migrate
     short: Migrate artifacts from a source registry into Harness using a config file
+    long: |
+      Migrate artifacts from a source registry to a Harness Artifact Registry.
+
+      This command reads a YAML configuration file that defines the source and
+      destination registries, credentials, and artifact mappings.
+
+      Example configuration file (config.yaml):
+
+        version: 1.0.0
+        concurrency: 5
+        overwrite: false
+
+        source:
+          endpoint: https://source-registry.example.com
+          type: JFROG                    # Supported: JFROG, NEXUS, HARBOR, HAR
+          credentials:
+            username: source_user
+            password: source_password
+          insecure: false
+
+        destination:
+          endpoint: https://pkg.harness.io
+          type: HAR
+          credentials:
+            username: harness_user
+            password: harness_api_key
+
+        mappings:
+          - artifactType: DOCKER
+            sourceRegistry: docker-repo
+            destinationRegistry: harness-docker-repo
+
+          - artifactType: MAVEN
+            sourceRegistry: maven-releases
+            destinationRegistry: harness-maven
+            # MAVEN identity is derived from file paths, so filter via files (see note below).
+            packageFilters:
+              - files: [my-artifact-1.0.0.jar, my-artifact-1.1.0.pom]
+
+          - artifactType: PYTHON
+            sourceRegistry: pypi-local
+            destinationRegistry: harness-pypi
+            packageFilters:
+              - package: requests
+                versions: [2.28.0, 2.29.0]
+                files: [requests-2.28.0-py3-none-any.whl]
+
+      Supported artifact types:
+        DOCKER, HELM, HELM_LEGACY, GENERIC, PYTHON, MAVEN, NPM, NUGET, RPM, GO,
+        CONDA, COMPOSER, DART, RAW, SWIFT, DEBIAN, CONAN, PUPPET, HELM_HTTP,
+        RUBY, CRAN, TERRAFORM
+
+      Package Filtering (packageFilters, opt-in):
+        An allow-list: when set, only the named packages (and optionally specific
+        versions/files) are migrated; when omitted, everything migrates.
+
+        Supported packageFilters granularity by type:
+          - package name only: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, DEBIAN,
+            CONDA, COMPOSER, SWIFT, CONAN, CRAN, TERRAFORM
+          - package name + versions: GO
+          - package name + versions + files: GENERIC, RAW, MAVEN, PYTHON, NUGET,
+            NPM, DART, PUPPET, RUBY
+
+        For synthetic-identity types (MAVEN, NPM, GENERIC, RAW), filter via the
+        files field rather than package names, since package/version names are
+        derived from file paths.
+
+      Include/Exclude Patterns (includePatterns / excludePatterns, mutually exclusive):
+        Glob patterns (* and ** wildcards) applied at a type-dependent granularity:
+          - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, TERRAFORM
+          - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, CRAN
+        Setting them for PUPPET or DEBIAN currently has no effect (silently ignored,
+        not rejected at config load).
+
+      Output and automation flags:
+        --summary      prints condensed per-status counts instead of the full per-file table.
+        --result-file  writes one JSON-lines record per migrated coordinate (status,
+                       reason, error) for scripts/CI to consume, even when the run fails.
+
+      Environment variables can be used in the config file using ${VAR_NAME} syntax.
+
+      Usage example:
+        harness execute registry:migrate --config config.yaml
     no_id: true
     flags_builtin:
     handler_type: workflow
@@ -1127,6 +1234,11 @@ commands:
         is_bool: true
       - name: pkg-url
         description: "Destination package registry base URL (overrides config; defaults to the resolved auth registry URL)"
+      - name: summary
+        description: "Print a condensed status summary instead of the full per-file table"
+        is_bool: true
+      - name: result-file
+        description: "Path to a JSON-lines file to write one per-coordinate result record (overrides config)"
 
   - command: configure registry:npm
     verb: configure
@@ -1177,3 +1289,65 @@ commands:
     completion_noun: registry
     handler_type: workflow
     workflow_id: configure_registry_nuget
+
+  - command: execute artifact:download
+    verb: execute
+    noun: artifact
+    noun_variant: download
+    short: "Download matching artifacts: harness execute artifact:download --registry <reg> --regex <pattern> --dest <dir>"
+    no_id: true
+    long: |
+      Search a Harness Artifact Registry for files whose paths match a regular
+      expression and download every match into a local directory. Works for all
+      artifact types.
+
+      The regex is a POSIX regular expression evaluated server-side and is
+      case-sensitive. It is matched against the full artifact path within the
+      registry, not just the filename.
+
+      By default files are written under --dest preserving the registry path
+      hierarchy, and files that already exist locally are skipped. Downloads are
+      written atomically, so an interrupted run never leaves a partial file.
+
+      Use --flatten to drop the registry sub-paths and write every file directly
+      into --dest. If two artifacts would then collide on the same filename the
+      run aborts without downloading anything; run with --dry-run to see the
+      conflicting pairs.
+
+      Examples:
+        # Preview what would be downloaded, without writing anything
+        harness execute artifact:download --registry my-reg --regex '.*' --dest ./out --dry-run
+
+        # Download every tarball, preserving registry paths
+        harness execute artifact:download --registry my-reg --regex '.*\.tar\.gz$' --dest ./out
+
+        # Flatten into one directory and replace existing local files
+        harness execute artifact:download --registry my-reg --regex '.*' --dest ./out --flatten --overwrite
+
+        # Raise parallelism for many small files
+        harness execute artifact:download --registry my-reg --regex '.*' --dest ./out --concurrency 16
+    handler_type: workflow
+    workflow_id: execute_artifact_download
+    flags:
+      - name: registry
+        description: "Registry to search in (required)"
+        required: true
+      - name: regex
+        description: "POSIX regular expression matched against artifact paths, case-sensitive (required)"
+        required: true
+      - name: dest
+        description: "Local destination directory for downloaded files (required)"
+        required: true
+      - name: flatten
+        description: "Write all files directly into dest, ignoring registry sub-paths (collisions abort the run; use --dry-run to preview)"
+        is_bool: true
+      - name: dry-run
+        description: "Preview matching files without downloading; writes a JSON report to dry-run-output/ (or to --out if specified)"
+        is_bool: true
+      - name: overwrite
+        description: "Overwrite existing local files (default: skip if present)"
+        is_bool: true
+      - name: page-size
+        description: "Files fetched per search page; must be 1–100 (default: 100)"
+      - name: concurrency
+        description: "Number of parallel downloads (default: 4)"

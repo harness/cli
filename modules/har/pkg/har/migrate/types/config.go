@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/pterm/pterm"
@@ -42,7 +43,54 @@ var (
 	CONAN       ArtifactType = "CONAN"
 	PUPPET      ArtifactType = "PUPPET"
 	HELM_HTTP   ArtifactType = "HELM_HTTP"
+	RUBY        ArtifactType = "RUBY"
+	CRAN        ArtifactType = "CRAN"
+	TERRAFORM   ArtifactType = "TERRAFORM"
 )
+
+// knownArtifactTypesList is the exhaustive, ordered list of valid ArtifactType
+// values and the SINGLE SOURCE OF TRUTH for "which types exist": config
+// validation and the validation error message are both derived from it. Add
+// new types here (and to the var block above) whenever a new ArtifactType is
+// introduced.
+var knownArtifactTypesList = []ArtifactType{
+	DOCKER, HELM, HELM_LEGACY, GENERIC, PYTHON, MAVEN, NPM, NUGET,
+	RPM, GO, CONDA, COMPOSER, DART, RAW, SWIFT, DEBIAN, CONAN, PUPPET, HELM_HTTP, RUBY, CRAN,
+	TERRAFORM,
+}
+
+// knownArtifactTypes is the lookup set derived from knownArtifactTypesList.
+var knownArtifactTypes = func() map[ArtifactType]struct{} {
+	m := make(map[ArtifactType]struct{}, len(knownArtifactTypesList))
+	for _, t := range knownArtifactTypesList {
+		m[t] = struct{}{}
+	}
+	return m
+}()
+
+// KnownArtifactTypes returns the ordered list of all valid ArtifactType
+// values. Safe to mutate by the caller (a fresh copy is returned each time).
+func KnownArtifactTypes() []ArtifactType {
+	out := make([]ArtifactType, len(knownArtifactTypesList))
+	copy(out, knownArtifactTypesList)
+	return out
+}
+
+// KnownArtifactTypesString returns the valid types as a single
+// comma-separated string for error messages and help text.
+func KnownArtifactTypesString() string {
+	parts := make([]string, len(knownArtifactTypesList))
+	for i, t := range knownArtifactTypesList {
+		parts[i] = string(t)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// IsKnownArtifactType reports whether t is a recognised ArtifactType value.
+func IsKnownArtifactType(t ArtifactType) bool {
+	_, ok := knownArtifactTypes[t]
+	return ok
+}
 
 // Config represents the top-level configuration structure
 type Config struct {
@@ -50,6 +98,12 @@ type Config struct {
 	Concurrency int               `yaml:"concurrency"`
 	Overwrite   bool              `yaml:"overwrite"`
 	DryRun      bool              `yaml:"dryRun"`
+	// Summary, when true, prints condensed per-status counts instead of the
+	// full per-file table.
+	Summary bool `yaml:"summary"`
+	// ResultFile, when set, is a path to write one JSON-lines record per
+	// per-coordinate result (types.FileStat) for automation to consume.
+	ResultFile string `yaml:"resultFile,omitempty"`
 	Source      RegistryConfig    `yaml:"source"`
 	Dest        RegistryConfig    `yaml:"destination"`
 	Mappings    []RegistryMapping `yaml:"mappings"`
@@ -95,8 +149,9 @@ type RegistryMapping struct {
 	IncludePatterns []string `yaml:"includePatterns"`
 	ExcludePatterns []string `yaml:"excludePatterns"`
 	//Optional
-	SourcePackageHostname string      `yaml:"sourcePackageHostname"`
-	DateFilter            *DateFilter `yaml:"dateFilter"`
+	SourcePackageHostname string            `yaml:"sourcePackageHostname"`
+	DateFilter            *DateFilter       `yaml:"dateFilter"`
+	PackageFilters        []PackageSelector `yaml:"packageFilters,omitempty"`
 }
 
 // CredentialsConfig defines the credential configuration
@@ -169,6 +224,12 @@ func validateConfig(config *Config) error {
 		}
 		if mapping.DestinationRegistry == "" {
 			return fmt.Errorf("mapping %d: destination registry cannot be empty", i)
+		}
+		if !IsKnownArtifactType(mapping.ArtifactType) {
+			return fmt.Errorf("mapping %d: unknown artifactType %q — valid values are: %s", i, mapping.ArtifactType, KnownArtifactTypesString())
+		}
+		if err := ValidatePackageFilters(mapping.PackageFilters, mapping.ArtifactType); err != nil {
+			return fmt.Errorf("mapping %d: %w", i, err)
 		}
 		if mapping.ArtifactType == MAVEN && mapping.DateFilter != nil {
 			msg := fmt.Sprintf("mapping %d: date filter is enabled for %s — maven-metadata.xml may not be in sync with the migrated artifacts", i, MAVEN)

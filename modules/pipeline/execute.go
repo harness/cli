@@ -29,13 +29,21 @@ const executeRetryBodyFnID = "execute_retry_body"
 func executePipelineBody(ctx *cmdctx.Ctx) (any, error) {
 	inputFile := cmdctx.GetString(ctx.FlagValues, "input-file")
 	inputPairs := cmdctx.GetStringSlice(ctx.FlagValues, "input")
-
+	inputSetIDs := cmdctx.GetStringSlice(ctx.FlagValues, "input-set")
+	if len(inputSetIDs) > 0 {
+		hlog.Debug("execute pipeline: input-set flags provided", "inputSetIDs", inputSetIDs)
+		body, err := executeInputSetBody(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return body, nil
+	}
 	inputs, err := parseKeyValuePairs(inputPairs)
 	if err != nil {
 		return nil, err
 	}
 
-	if inputFile == "" && len(inputs) == 0 {
+	if inputFile == "" && len(inputs) == 0 && len(inputSetIDs) == 0 {
 		hlog.Debug("execute pipeline: no runtime inputs provided")
 		return nil, nil
 	}

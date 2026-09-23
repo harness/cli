@@ -175,6 +175,9 @@ func TestVersionMigrateSkipsFileByUriNotBasename(t *testing.T) {
 			if s.Uri != nestedURI {
 				t.Errorf("skip stat for unexpected file %q, want %q", s.Uri, nestedURI)
 			}
+			if s.Reason != types.SkipReasonAlreadyExists {
+				t.Errorf("Reason = %q, want %q", s.Reason, types.SkipReasonAlreadyExists)
+			}
 		case types.StatusSuccess:
 			uploaded++
 			if s.Uri != rootURI {

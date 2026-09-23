@@ -37,6 +37,14 @@ harness <verb> <noun> --help   # flags for a specific command
 
 Unsure which verb an operation belongs to (e.g. `import` vs `create`, `execute` vs `update`)? See [docs/verbs.md](docs/verbs.md) for the full classification rules.
 
+### Output & formatting
+
+Before reaching for `--format json` + `jq` by default, see [docs/format.md](docs/format.md) — covers when to use `table`/`csv`/`tsv`/`json`/`jsonl`/`yaml`/`markdown`, `--columns`/`--fields` (including ad-hoc `id:expr` columns and helper functions like `truncate`/`duration`/`epochMs`), `--list-columns`/`--list-fields`, and paging (`--offset`/`--limit`/`--all`/`--count`).
+
+### Auth
+
+See [docs/auth.md](docs/auth.md) for how auth is resolved (profile vs env var mode), config file locations, and the `harness auth` subcommands (`login`, `status`, `setscope`, `env`, `token`).
+
 ### Qualified nouns (`noun:variant`)
 
 Some commands use a variant suffix to distinguish sub-operations on the same noun:

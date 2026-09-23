@@ -150,9 +150,13 @@ func (r *Version) Migrate(ctx context.Context) error {
 	var jobs []engine.Job
 
 	if r.artifactType == types.GENERIC || r.artifactType == types.RAW || r.artifactType == types.MAVEN || r.artifactType == types.PYTHON ||
-		r.artifactType == types.NUGET || r.artifactType == types.NPM || r.artifactType == types.DART || r.artifactType == types.PUPPET {
+		r.artifactType == types.NUGET || r.artifactType == types.NPM || r.artifactType == types.DART || r.artifactType == types.PUPPET ||
+		r.artifactType == types.RUBY || r.artifactType == types.TERRAFORM {
 		// For PYTHON, use unfilteredRoot so distribution files pruned by the date filter
 		// are still enumerated — prevents partial versions from being published.
+		// TERRAFORM versions are atomic multi-file versions (a provider version spans
+		// one zip per os/arch and a network mirror is only complete when ALL platform
+		// files are present), so it also swaps to the unfiltered tree when available.
 		fileNode := r.node
 		if r.artifactType == types.PYTHON && r.unfilteredRoot != nil {
 			if unfilteredPkgNode, e := tree.GetNodeForPath(r.unfilteredRoot, r.pkg.Path); e == nil {
@@ -161,13 +165,24 @@ func (r *Version) Migrate(ctx context.Context) error {
 					logger.Debug().Str("version", r.version.Name).Msg("recovered distribution files from unfiltered tree")
 				}
 			}
+		} else if r.artifactType == types.TERRAFORM && r.unfilteredRoot != nil {
+			fileNode = r.unfilteredRoot
+			logger.Debug().Str("version", r.version.Name).Msg("recovered distribution files from unfiltered tree")
 		}
 		files, err := tree.GetAllFiles(fileNode)
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to get files from tree")
 			return fmt.Errorf("get files from tree failed: %w", err)
 		}
+		// Resolve the opt-in file selector (packageFilters[].files) for this package once.
+		fileSel, fileHasFilters, fileMatched := util.SelectorForPackage(r.mapping, r.pkg.Name)
 		for _, file := range files {
+			// Skip files not named by the package file selector. No-op when there is
+			// no matching selector or the selector's files list is empty (all files).
+			if fileHasFilters && fileMatched && !util.FileSelectedBySelector(fileSel, file.Name) {
+				logger.Debug().Msgf("Skipping file %s: not selected by package filter", file.Name)
+				continue
+			}
 			// For NPM, skip files that don't have .tgz extension
 			if r.artifactType == types.NPM && !strings.HasSuffix(file.Name, ".tgz") {
 				logger.Debug().Msgf("Skipping non-tgz file %s for NPM migration", file.Name)
@@ -188,6 +203,40 @@ func (r *Version) Migrate(ctx context.Context) error {
 				pkgName, version, ok := util.ParsePuppetFileNameWithPath(file.Uri)
 				if !ok || pkgName != r.pkg.Name || version != r.version.Name {
 					logger.Debug().Msgf("Skipping file %s for PUPPET (pkg=%s ver=%s)", file.Uri, r.pkg.Name, r.version.Name)
+					continue
+				}
+			}
+			// For RUBY, skip files that don't match current gem and version.
+			if r.artifactType == types.RUBY {
+				if !strings.HasSuffix(file.Name, ".gem") {
+					logger.Debug().Msgf("Skipping non-gem file %s for RUBY migration", file.Name)
+					continue
+				}
+				meta, ok := util.ParseRubyGemFileNameWithPath(file.Uri)
+				if !ok || meta.Name != r.pkg.Name || meta.Version != r.version.Name {
+					logger.Debug().Msgf("Skipping file %s (gem=%s, ver=%s) - doesn't match current package %s version %s",
+						file.Name, meta.Name, meta.Version, r.pkg.Name, r.version.Name)
+					continue
+				}
+			}
+			// For TERRAFORM, skip files that don't belong to this package+version.
+			if r.artifactType == types.TERRAFORM {
+				if util.IsTerraformModule(file.Uri) {
+					ns, name, provider, version, ok := util.ParseTerraformModulePath(file.Uri)
+					if !ok || ns+"/"+name+"/"+provider != r.pkg.Name || version != r.version.Name {
+						logger.Debug().Msgf("Skipping terraform module file %s - doesn't match package %s version %s",
+							file.Uri, r.pkg.Name, r.version.Name)
+						continue
+					}
+				} else if util.IsTerraformProvider(file.Uri) {
+					ns, typeName, version, _, _, _, ok := util.ParseTerraformProviderPath(file.Uri)
+					if !ok || ns+"/"+typeName != r.pkg.Name || version != r.version.Name {
+						logger.Debug().Msgf("Skipping terraform provider file %s - doesn't match package %s version %s",
+							file.Uri, r.pkg.Name, r.version.Name)
+						continue
+					}
+				} else {
+					logger.Debug().Msgf("Skipping terraform file %s - unrecognised path shape", file.Uri)
 					continue
 				}
 			}
@@ -215,6 +264,7 @@ func (r *Version) Migrate(ctx context.Context) error {
 					Uri:      file.Uri,
 					Size:     int64(file.Size),
 					Status:   types.StatusSkip,
+					Reason:   types.SkipReasonAlreadyExists,
 				}
 				r.stats.FileStats = append(r.stats.FileStats, stat)
 				continue

@@ -237,9 +237,17 @@ type Ctx struct {
 	// UIHistory is the --ui back-navigation stack: one UILink pushed per Hop
 	// (link/up/view), popped by the "b" key. Session-lifetime only.
 	UIHistory []UILink
-	// RestoreListPos is the cursor row (within the first-loaded page) to seed a
-	// freshly built table with when replaying a popped UILink's ListPos.
-	RestoreListPos int
+	// RestoreOffset is the absolute row index to restore when replaying a
+	// popped UILink's Offset. It is resolved against the current pageSize
+	// (page = RestoreOffset / pageSize, cursor = RestoreOffset % pageSize),
+	// since the terminal may have been resized since it was captured.
+	RestoreOffset int
+	// UIWantBack is read by finishUIExit right after a "view" ui_command's
+	// handler returns, to decide whether to pop UIHistory and redraw the caller
+	// (true) or quit outright (false, the default). A view handler that wants
+	// its screen's own "b" key to behave like the rest of --ui's back
+	// navigation must set this to true before returning — it is not automatic.
+	UIWantBack bool
 }
 
 // ScopedAuth returns Auth adjusted for Level: "org" clears ProjectID, "account"

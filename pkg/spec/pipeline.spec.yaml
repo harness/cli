@@ -139,6 +139,26 @@ nouns:
         expr: it.type
       - id: enabled
         expr: it.enabled
+      - id: description
+        expr: it.description
+      - id: pipeline
+        expr: coalesce(it.targetIdentifier, ctx.idParts[0])
+      - id: tags
+        expr: formatTagDisplay(it.tags)
+      - id: webhook_url
+        expr: it.webhookUrl
+      - id: last_execution_status
+        expr: '(it.lastTriggerExecutionDetails != nil && it.lastTriggerExecutionDetails.lastExecutionSuccessful == true) ? "Passed" : "Failed"'
+      - id: last_execution_time
+        expr: epochMs(it.lastTriggerExecutionDetails.lastExecutionTime)
+      - id: last_execution_id
+        expr: it.lastTriggerExecutionDetails.planExecutionId
+      - id: last_execution_message
+        expr: it.lastTriggerExecutionDetails.message
+        width_max: 60
+      - id: yaml
+        expr: it.yaml
+        field_type: yaml
 
   - noun: input_set
     short_desc: A reusable set of runtime inputs that can be applied when running a pipeline.
@@ -527,6 +547,7 @@ commands:
         description: Branch to execute (for remote pipelines)
       - name: input-set
         description: Input set identifier to apply when executing
+        is_multi: true
       - name: input
         description: "Runtime input as key=value (repeatable); e.g. --input loop_count=5"
         is_multi: true
@@ -537,7 +558,7 @@ commands:
         description: Stream logs live after execution starts; exits when the execution reaches a terminal state
     endpoint:
       method: POST
-      path: /pipeline/api/pipeline/execute/{{ctx.id}}
+      path: '{{len(flags["input-set"]) > 0 ? "/pipeline/api/pipeline/execute/" + ctx.id + "/inputSetList" : "/pipeline/api/pipeline/execute/" + ctx.id}}'
       item_expr: it.data.planExecution
       text_header: "\nExecution started successfully.\n"
       text_footer: |
@@ -551,7 +572,6 @@ commands:
       body_fn: execute_body
       query_params:
         branch: flags.branch
-        inputSetIdentifiers: flags["input-set"]
 
   - command: execute pipeline:dynamic
     verb: execute
@@ -882,7 +902,7 @@ commands:
     endpoint:
       path: /pipeline/api/triggers
       items_expr: it.data.content
-      get_id_expr: it.identifier
+      get_id_expr: ctx.parentId + "/" + it.identifier
       completion:
         id_expr: it.identifier
         name_expr: it.name
@@ -897,7 +917,7 @@ commands:
         page_size_default: 25
         page_size_max: 100
         total_expr: it.data.totalItems
-      columns: [identifier, name, type, enabled]
+      columns: [identifier, name, type, enabled, last_execution_status, tags]
 
   - command: get trigger
     verb: get
@@ -911,8 +931,8 @@ commands:
         keep_order: true
     handler_type: endpoint
     endpoint:
-      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
-      item_expr: it.data
+      path: /pipeline/api/triggers
+      item_expr: find(it.data.content, .identifier == lastPart(ctx.id))
       query_params:
         targetIdentifier: ctx.idParts[0]
 

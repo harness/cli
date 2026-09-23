@@ -25,6 +25,7 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow("push_artifact_puppet", pushPuppetArtifact)
 	reg.RegisterWorkflow("push_artifact_helm", pushHelmArtifact)
 	reg.RegisterWorkflow("push_artifact_docker", pushDockerArtifact)
+	reg.RegisterWorkflow("push_artifact_terraform", pushTerraformArtifact)
 	reg.RegisterWorkflow(pullArtifactHandlerID, pullArtifactHandler)
 	reg.RegisterWorkflow(executeArtifactFirewallScanHandlerID, executeArtifactFirewallScanHandler)
 	reg.RegisterWorkflow(executeRegistryFirewallScanHandlerID, executeRegistryFirewallScanHandler)
@@ -39,4 +40,5 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(executeArtifactMvnInstallHandlerID, executeArtifactMvnInstallHandler)
 	reg.RegisterWorkflow(executeArtifactDotnetRestoreHandlerID, executeArtifactDotnetRestoreHandler)
 	reg.RegisterWorkflow(bulkDeleteArtifactHandlerID, bulkDeleteArtifactHandler)
+	reg.RegisterWorkflow(executeArtifactDownloadHandlerID, executeArtifactDownloadHandler)
 }

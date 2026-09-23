@@ -26,6 +26,8 @@ func executeRegistryMigrateHandler(ctx *cmdctx.Ctx) error {
 	overwrite := cmdctx.GetBool(ctx.FlagValues, "overwrite")
 	dryRun := cmdctx.GetBool(ctx.FlagValues, "dry-run")
 	pkgURLFlag := cmdctx.GetString(ctx.FlagValues, "pkg-url")
+	summary := cmdctx.GetBool(ctx.FlagValues, "summary")
+	resultFile := cmdctx.GetString(ctx.FlagValues, "result-file")
 
 	cfg, err := types.LoadConfig(filePath)
 	if err != nil {
@@ -42,6 +44,12 @@ func executeRegistryMigrateHandler(ctx *cmdctx.Ctx) error {
 	}
 	if dryRun {
 		cfg.DryRun = true
+	}
+	if summary {
+		cfg.Summary = true
+	}
+	if resultFile != "" {
+		cfg.ResultFile = resultFile
 	}
 
 	// Thread auth context into the destination (HAR) registry config.

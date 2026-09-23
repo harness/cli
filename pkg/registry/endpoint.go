@@ -57,6 +57,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 	}
 
 	c := client.New(ctx)
+	c.NoAccountID = ep.NoAccountID
 	method := ep.Method
 	if method == "" {
 		method = "GET"

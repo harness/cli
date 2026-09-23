@@ -1051,6 +1051,114 @@ func (c *client) uploadPuppetFile(
 	return nil
 }
 
+// uploadRubyFile streams a Ruby gem (.gem) to HAR via the Ruby push API.
+// Do not send checksum headers; the server generates sidecar metadata on push.
+func (c *client) uploadRubyFile(
+	registry string,
+	f *types.File,
+	file io.ReadCloser,
+) error {
+	if c.pkgClient == nil {
+		return fmt.Errorf("ruby upload: pkg client is not configured")
+	}
+
+	resp, err := c.pkgClient.UploadRubyPackageWithBodyWithResponse(
+		context.Background(),
+		c.accountID,
+		registry,
+		"application/octet-stream",
+		file,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to upload Ruby gem '%s': %w", f.Name, err)
+	}
+
+	switch resp.StatusCode() {
+	case http2.StatusOK, http2.StatusCreated:
+		return nil
+	case http2.StatusConflict:
+		return types.ErrArtifactAlreadyExists
+	default:
+		return fmt.Errorf("failed to upload Ruby gem '%s', status code: %d, response: %s",
+			f.Name, resp.StatusCode(), string(resp.Body))
+	}
+}
+
+// uploadTerraformFile routes a Terraform file to the correct HAR endpoint.
+// Modules (.tar.gz/.tgz) go to PUT /terraform/v1/modules/{ns}/{name}/{provider}/{ver}.
+// Providers (.zip) go to PUT /terraform/v1/providers/{ns}/{type}/{ver}/{filename}.
+// The pkg argument is "ns/name/provider" for modules or "ns/type" for providers.
+func (c *client) uploadTerraformFile(
+	registry string,
+	f *types.File,
+	pkg string,
+	version string,
+	file io.ReadCloser,
+) error {
+	ctx := context.Background()
+	lower := strings.ToLower(f.Name)
+
+	// Route by pkg segment count: modules have "ns/name/provider" (3 parts),
+	// providers have "ns/type" (2 parts). This handles both Layout A (.tar.gz/.tgz)
+	// and Layout B (.zip) modules unambiguously.
+	pkgParts := strings.SplitN(pkg, "/", 3)
+	isModule := len(pkgParts) == 3
+
+	if isModule && (strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") || strings.HasSuffix(lower, ".zip")) {
+		// Module upload: pkg = "ns/name/provider"
+		ns, name, provider := pkgParts[0], pkgParts[1], pkgParts[2]
+		resp, err := c.pkgClient.UploadTerraformModuleWithBodyWithResponse(
+			ctx,
+			c.accountID,
+			registry,
+			ns, name, provider, version,
+			"application/octet-stream",
+			file,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to upload Terraform module '%s': %w", f.Name, err)
+		}
+		if resp.StatusCode() == http2.StatusConflict {
+			return types.ErrArtifactAlreadyExists
+		}
+		if resp.StatusCode() < 200 || resp.StatusCode() > 299 {
+			return fmt.Errorf("failed to upload Terraform module '%s', status: %d, response: %s",
+				f.Name, resp.StatusCode(), string(resp.Body))
+		}
+		return nil
+	}
+
+	if !isModule && strings.HasSuffix(lower, ".zip") {
+		// Provider upload: pkg = "ns/type"
+		parts := strings.SplitN(pkg, "/", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("terraform provider package name must be ns/type, got: %s", pkg)
+		}
+		ns, typeName := parts[0], parts[1]
+		resp, err := c.pkgClient.UploadTerraformProviderWithBodyWithResponse(
+			ctx,
+			c.accountID,
+			registry,
+			ns, typeName, version, f.Name,
+			"application/octet-stream",
+			file,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to upload Terraform provider '%s': %w", f.Name, err)
+		}
+		if resp.StatusCode() == http2.StatusConflict {
+			return types.ErrArtifactAlreadyExists
+		}
+		if resp.StatusCode() < 200 || resp.StatusCode() > 299 {
+			return fmt.Errorf("failed to upload Terraform provider '%s', status: %d, response: %s",
+				f.Name, resp.StatusCode(), string(resp.Body))
+		}
+		return nil
+	}
+
+	return fmt.Errorf("unsupported Terraform file extension for '%s': must be .tar.gz, .tgz, or .zip", f.Name)
+}
+
 func (c *client) uploadConanFile(
 	registry string,
 	file io.ReadCloser,
