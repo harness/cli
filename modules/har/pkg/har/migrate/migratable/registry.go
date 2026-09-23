@@ -351,7 +351,10 @@ func (r *Registry) Migrate(ctx context.Context) error {
 	eng := engine.NewEngine(r.config.Concurrency, jobs)
 	err = eng.Execute(ctx)
 	if err != nil {
+		// Propagate so the failure reaches MigrationService.Run's exit-code
+		// contract; the per-coordinate stats already carry the detail.
 		logger.Error().Err(err).Msg("Engine execution saw following errors")
+		return fmt.Errorf("registry %s: package migration errors: %w", r.srcRegistry, err)
 	}
 
 	logger.Info().
