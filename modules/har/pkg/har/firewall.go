@@ -4,7 +4,6 @@
 package har
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -31,43 +30,6 @@ import (
 
 const executeArtifactFirewallScanHandlerID = "execute_artifact_firewall_scan"
 
-// ---- request / response types ----
-
-type artifactScanInput struct {
-	PackageName string `json:"packageName"`
-	Version     string `json:"version"`
-}
-
-type bulkEvalRequest struct {
-	RegistryId string              `json:"registryId"`
-	Artifacts  []artifactScanInput `json:"artifacts"`
-}
-
-type bulkEvalAcceptedData struct {
-	EvaluationId *string `json:"evaluationId,omitempty"`
-}
-
-type bulkEvalAcceptedResp struct {
-	Data *bulkEvalAcceptedData `json:"data,omitempty"`
-}
-
-type bulkEvalStatusData struct {
-	Status *string         `json:"status,omitempty"`
-	Error  *string         `json:"error,omitempty"`
-	Scans  *[]bulkScanItem `json:"scans,omitempty"`
-}
-
-type bulkEvalStatusResp struct {
-	Data *bulkEvalStatusData `json:"data,omitempty"`
-}
-
-type bulkScanItem struct {
-	ScanId      *string `json:"scanId,omitempty"`
-	ScanStatus  *string `json:"scanStatus,omitempty"`
-	PackageName *string `json:"packageName,omitempty"`
-	Version     *string `json:"version,omitempty"`
-}
-
 // ---- API helpers ----
 
 func harV3URL(apiUrl, path string) string {
@@ -75,7 +37,7 @@ func harV3URL(apiUrl, path string) string {
 }
 
 // newFirewallClient builds an ar_v3 client for the firewall scan endpoints,
-// wired with the same auth header and base URL as the hand-rolled doHAR calls.
+// wired with the same auth header and base URL used across the firewall handlers.
 func newFirewallClient(hc *http.Client, a *auth.ResolvedAuth) (*ar_v3.ClientWithResponses, error) {
 	return ar_v3.NewClientWithResponses(harV3URL(a.APIUrl, ""), ar_v3.WithHTTPClient(hc), ar_v3.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
 		a.SetAuthHeader(req)
@@ -90,41 +52,6 @@ func optionalStrPtr(s string) *string {
 		return nil
 	}
 	return &s
-}
-
-func doHAR(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, url, method string, body any, out any) error {
-	var bodyReader io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		bodyReader = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
-	if err != nil {
-		return err
-	}
-	a.SetAuthHeader(req)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-	if out != nil && len(respBody) > 0 {
-		return json.Unmarshal(respBody, out)
-	}
-	return nil
 }
 
 // applyLevelScope returns a copy of cmdCtx.Auth with OrgID/ProjectID stripped per
@@ -328,44 +255,6 @@ done:
 	return nil
 }
 
-// ---- URL builders ----
-
-func buildEvalURL(apiUrl, accountID, orgID, projectID string) (string, error) {
-	base := harV3URL(apiUrl, "/scans/bulk-evaluate")
-	u, err := url.Parse(base)
-	if err != nil {
-		return "", fmt.Errorf("malformed API URL %q: %w", apiUrl, err)
-	}
-	q := u.Query()
-	q.Set("account_identifier", accountID)
-	if orgID != "" {
-		q.Set("org_identifier", orgID)
-	}
-	if projectID != "" {
-		q.Set("project_identifier", projectID)
-	}
-	u.RawQuery = q.Encode()
-	return u.String(), nil
-}
-
-func buildEvalStatusURL(apiUrl, evaluationID, accountID, orgID, projectID string) (string, error) {
-	base := harV3URL(apiUrl, "/scans/bulk-evaluate/"+url.PathEscape(evaluationID))
-	u, err := url.Parse(base)
-	if err != nil {
-		return "", fmt.Errorf("malformed API URL %q: %w", apiUrl, err)
-	}
-	q := u.Query()
-	q.Set("account_identifier", accountID)
-	if orgID != "" {
-		q.Set("org_identifier", orgID)
-	}
-	if projectID != "" {
-		q.Set("project_identifier", projectID)
-	}
-	u.RawQuery = q.Encode()
-	return u.String(), nil
-}
-
 // ---- output helpers ----
 
 func displayVal(s string) string {
@@ -494,6 +383,15 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		return fmt.Errorf("fetching registry: %w", err)
 	}
 	fmt.Printf("Registry UUID: %s\n", registryUUID)
+	registryUUIDParsed, err := uuid.Parse(registryUUID)
+	if err != nil {
+		return fmt.Errorf("parsing registry UUID %q: %w", registryUUID, err)
+	}
+
+	client, err := newFirewallClient(hc, a)
+	if err != nil {
+		return fmt.Errorf("building firewall client: %w", err)
+	}
 
 	// 2. Parse lock file.
 	fmt.Printf("Parsing dependency file: %s\n", filepath.Base(filePath))
@@ -522,49 +420,49 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		batch := deps[start:end]
 
 		fmt.Printf("Processing batch %d/%d (%d packages)...\n", i+1, totalBatches, len(batch))
-		artifacts := make([]artifactScanInput, 0, len(batch))
+		artifacts := make([]ar_v3.ArtifactScanInput, 0, len(batch))
 		for _, d := range batch {
-			artifacts = append(artifacts, artifactScanInput{PackageName: d.Name, Version: d.Version})
+			artifacts = append(artifacts, ar_v3.ArtifactScanInput{PackageName: d.Name, Version: d.Version})
 		}
 
-		evalURL, err := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
-		if err != nil {
-			return fmt.Errorf("batch %d: building evaluation URL: %w", i+1, err)
-		}
-		var initResp bulkEvalAcceptedResp
-		if err := doHAR(ctx, hc, a, evalURL, "POST", bulkEvalRequest{
-			RegistryId: registryUUID,
+		initResp, err := client.InitiateBulkScanEvaluationWithResponse(ctx, &ar_v3.InitiateBulkScanEvaluationParams{
+			AccountIdentifier: a.AccountID,
+			OrgIdentifier:     optionalStrPtr(a.OrgID),
+			ProjectIdentifier: optionalStrPtr(a.ProjectID),
+		}, ar_v3.InitiateBulkScanEvaluationJSONRequestBody{
+			RegistryId: registryUUIDParsed,
 			Artifacts:  artifacts,
-		}, &initResp); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("batch %d: initiating evaluation: %w", i+1, err)
 		}
-		if initResp.Data == nil || initResp.Data.EvaluationId == nil {
+		if initResp.JSON202 == nil || initResp.JSON202.Data == nil || initResp.JSON202.Data.EvaluationId == nil {
 			return fmt.Errorf("batch %d: missing evaluationId in response", i+1)
 		}
-		evaluationID := *initResp.Data.EvaluationId
+		evaluationID := *initResp.JSON202.Data.EvaluationId
 
 		// Poll.
-		statusURL, err := buildEvalStatusURL(a.APIUrl, evaluationID, a.AccountID, a.OrgID, a.ProjectID)
-		if err != nil {
-			return fmt.Errorf("batch %d: building status URL: %w", i+1, err)
-		}
-		var statusData *bulkEvalStatusData
+		var statusData *ar_v3.BulkScanEvaluationStatusData
 		for poll := 0; poll < 120; poll++ {
-			var statusResp bulkEvalStatusResp
-			if err := doHAR(ctx, hc, a, statusURL, "GET", nil, &statusResp); err != nil {
+			statusResp, err := client.GetBulkScanEvaluationStatusWithResponse(ctx, evaluationID, &ar_v3.GetBulkScanEvaluationStatusParams{
+				AccountIdentifier: a.AccountID,
+				OrgIdentifier:     optionalStrPtr(a.OrgID),
+				ProjectIdentifier: optionalStrPtr(a.ProjectID),
+			})
+			if err != nil {
 				return fmt.Errorf("batch %d: polling status: %w", i+1, err)
 			}
-			if statusResp.Data == nil || statusResp.Data.Status == nil {
+			if statusResp.JSON200 == nil || statusResp.JSON200.Data == nil || statusResp.JSON200.Data.Status == nil {
 				return fmt.Errorf("batch %d: invalid status response", i+1)
 			}
-			switch *statusResp.Data.Status {
-			case "SUCCESS":
-				statusData = statusResp.Data
+			switch *statusResp.JSON200.Data.Status {
+			case ar_v3.SUCCESS:
+				statusData = statusResp.JSON200.Data
 				goto batchDone
-			case "FAILURE":
+			case ar_v3.FAILURE:
 				msg := fmt.Sprintf("batch %d evaluation failed", i+1)
-				if statusResp.Data.Error != nil {
-					msg = *statusResp.Data.Error
+				if statusResp.JSON200.Data.Error != nil {
+					msg = *statusResp.JSON200.Data.Error
 				}
 				return fmt.Errorf("%s", msg)
 			}
@@ -583,10 +481,10 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 					r.Version = *s.Version
 				}
 				if s.ScanId != nil {
-					r.ScanID = *s.ScanId
+					r.ScanID = s.ScanId.String()
 				}
 				if s.ScanStatus != nil {
-					r.ScanStatus = *s.ScanStatus
+					r.ScanStatus = string(*s.ScanStatus)
 				}
 				allResults = append(allResults, r)
 			}

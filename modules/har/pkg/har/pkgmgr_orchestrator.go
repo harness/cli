@@ -7,11 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/harness/cli/modules/har/pkg/har/genapi/ar_v3"
 	"github.com/harness/cli/v3/pkg/auth"
@@ -51,6 +52,10 @@ func pkgmgrExecute(cmdCtx *cmdctx.Ctx, client pkgmgrClient, subcommand string, n
 		return fmt.Errorf("resolving registry UUID: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "Registry UUID: %s\n", registryUUID)
+	registryUUIDParsed, err := uuid.Parse(registryUUID)
+	if err != nil {
+		return fmt.Errorf("parsing registry UUID %q: %w", registryUUID, err)
+	}
 
 	// Phase 3 — run native command
 	fmt.Fprintf(os.Stderr, "Running %s %s...\n", client.Name(), subcommand)
@@ -85,13 +90,18 @@ func pkgmgrExecute(cmdCtx *cmdctx.Ctx, client pkgmgrClient, subcommand string, n
 
 	pkgmgrSaveBuildInfo(client.Name(), subcommand, regInfo.RegistryIdentifier, deps)
 
-	artifacts := make([]artifactScanInput, 0, len(deps))
+	artifacts := make([]ar_v3.ArtifactScanInput, 0, len(deps))
 	for _, d := range deps {
-		artifacts = append(artifacts, artifactScanInput{PackageName: d.Name, Version: d.Version})
+		artifacts = append(artifacts, ar_v3.ArtifactScanInput{PackageName: d.Name, Version: d.Version})
+	}
+
+	fwClient, err := newFirewallClient(hc, &scopedAuth)
+	if err != nil {
+		return fmt.Errorf("building firewall client: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Fetching firewall evaluation...\n")
-	if _, evalErr := pkgmgrBulkEvalAndDisplay(ctx, hc, &scopedAuth, registryUUID, artifacts); evalErr != nil {
+	if _, evalErr := pkgmgrBulkEvalAndDisplay(ctx, fwClient, &scopedAuth, registryUUIDParsed, artifacts); evalErr != nil {
 		fmt.Fprintf(os.Stderr, "Firewall evaluation failed: %v\n", evalErr)
 	}
 
@@ -105,10 +115,10 @@ const (
 
 // pkgmgrBulkEvalAndDisplay batches artifacts into ≤50-item chunks, polls each
 // evaluation to completion, and prints BLOCKED/WARN/ALLOWED results with scan details.
-func pkgmgrBulkEvalAndDisplay(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryUUID string, artifacts []artifactScanInput) (int, error) {
+func pkgmgrBulkEvalAndDisplay(ctx context.Context, client *ar_v3.ClientWithResponses, a *auth.ResolvedAuth, registryUUID uuid.UUID, artifacts []ar_v3.ArtifactScanInput) (int, error) {
 	const batchSize = 50
 	totalBatches := (len(artifacts) + batchSize - 1) / batchSize
-	var allScans []bulkScanItem
+	var allScans []ar_v3.BulkScanResultItem
 
 	for i := 0; i < totalBatches; i++ {
 		start := i * batchSize
@@ -122,7 +132,7 @@ func pkgmgrBulkEvalAndDisplay(ctx context.Context, hc *http.Client, a *auth.Reso
 			fmt.Fprintf(os.Stderr, "Evaluating batch %d/%d (%d packages)...\n", i+1, totalBatches, len(batch))
 		}
 
-		scans, err := pkgmgrRunBatch(ctx, hc, a, registryUUID, batch, i+1)
+		scans, err := pkgmgrRunBatch(ctx, client, a, registryUUID, batch, i+1)
 		if err != nil {
 			return 0, err
 		}
@@ -139,15 +149,13 @@ func pkgmgrBulkEvalAndDisplay(ctx context.Context, hc *http.Client, a *auth.Reso
 			r.Version = *s.Version
 		}
 		if s.ScanId != nil {
-			r.ScanID = *s.ScanId
+			r.ScanID = s.ScanId.String()
 		}
 		if s.ScanStatus != nil {
-			r.ScanStatus = *s.ScanStatus
+			r.ScanStatus = string(*s.ScanStatus)
 		}
 		results = append(results, r)
 	}
-
-	fwClient, fwClientErr := newFirewallClient(hc, a)
 
 	fmt.Printf("\nFirewall evaluation: %d package(s) evaluated\n", len(results))
 	for _, r := range results {
@@ -164,8 +172,8 @@ func pkgmgrBulkEvalAndDisplay(ctx context.Context, hc *http.Client, a *auth.Reso
 			continue
 		}
 		// Fetch and print policy-set violation details for BLOCKED/WARN.
-		if r.ScanID != "" && fwClientErr == nil {
-			detailResp, err := fwClient.GetArtifactScanDetailsWithResponse(ctx, r.ScanID, &ar_v3.GetArtifactScanDetailsParams{
+		if r.ScanID != "" {
+			detailResp, err := client.GetArtifactScanDetailsWithResponse(ctx, r.ScanID, &ar_v3.GetArtifactScanDetailsParams{
 				AccountIdentifier: a.AccountID,
 			})
 			if err == nil && detailResp.JSON200 != nil && detailResp.JSON200.Data != nil {
@@ -178,10 +186,10 @@ func pkgmgrBulkEvalAndDisplay(ctx context.Context, hc *http.Client, a *auth.Reso
 }
 
 // pkgmgrRunBatch initiates a single bulk eval batch and polls to completion with retry/backoff.
-func pkgmgrRunBatch(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryUUID string, batch []artifactScanInput, batchNum int) ([]bulkScanItem, error) {
+func pkgmgrRunBatch(ctx context.Context, client *ar_v3.ClientWithResponses, a *auth.ResolvedAuth, registryUUID uuid.UUID, batch []ar_v3.ArtifactScanInput, batchNum int) ([]ar_v3.BulkScanResultItem, error) {
 	var lastErr error
 	for attempt := 1; attempt <= pkgmgrMaxRetries; attempt++ {
-		scans, err := pkgmgrInitiateAndPoll(ctx, hc, a, registryUUID, batch, batchNum)
+		scans, err := pkgmgrInitiateAndPoll(ctx, client, a, registryUUID, batch, batchNum)
 		if err == nil {
 			return scans, nil
 		}
@@ -196,31 +204,31 @@ func pkgmgrRunBatch(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, 
 }
 
 // pkgmgrInitiateAndPoll initiates a bulk eval and polls until SUCCESS or FAILURE.
-func pkgmgrInitiateAndPoll(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryUUID string, batch []artifactScanInput, batchNum int) ([]bulkScanItem, error) {
-	evalURL, err := buildEvalURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("building evaluation URL: %w", err)
-	}
-	var initResp bulkEvalAcceptedResp
-	if err := doHAR(ctx, hc, a, evalURL, "POST", bulkEvalRequest{
+func pkgmgrInitiateAndPoll(ctx context.Context, client *ar_v3.ClientWithResponses, a *auth.ResolvedAuth, registryUUID uuid.UUID, batch []ar_v3.ArtifactScanInput, batchNum int) ([]ar_v3.BulkScanResultItem, error) {
+	initResp, err := client.InitiateBulkScanEvaluationWithResponse(ctx, &ar_v3.InitiateBulkScanEvaluationParams{
+		AccountIdentifier: a.AccountID,
+		OrgIdentifier:     optionalStrPtr(a.OrgID),
+		ProjectIdentifier: optionalStrPtr(a.ProjectID),
+	}, ar_v3.InitiateBulkScanEvaluationJSONRequestBody{
 		RegistryId: registryUUID,
 		Artifacts:  batch,
-	}, &initResp); err != nil {
+	})
+	if err != nil {
 		return nil, fmt.Errorf("initiating evaluation: %w", err)
 	}
-	if initResp.Data == nil || initResp.Data.EvaluationId == nil {
+	if initResp.JSON202 == nil || initResp.JSON202.Data == nil || initResp.JSON202.Data.EvaluationId == nil {
 		return nil, fmt.Errorf("missing evaluationId in response")
 	}
-	evaluationID := *initResp.Data.EvaluationId
+	evaluationID := *initResp.JSON202.Data.EvaluationId
 
-	statusURL, err := buildEvalStatusURL(a.APIUrl, evaluationID, a.AccountID, a.OrgID, a.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("building status URL: %w", err)
-	}
 	pollRetries := 0
 	for poll := 0; poll < 120; poll++ {
-		var statusResp bulkEvalStatusResp
-		if err := doHAR(ctx, hc, a, statusURL, "GET", nil, &statusResp); err != nil {
+		statusResp, err := client.GetBulkScanEvaluationStatusWithResponse(ctx, evaluationID, &ar_v3.GetBulkScanEvaluationStatusParams{
+			AccountIdentifier: a.AccountID,
+			OrgIdentifier:     optionalStrPtr(a.OrgID),
+			ProjectIdentifier: optionalStrPtr(a.ProjectID),
+		})
+		if err != nil {
 			pollRetries++
 			if pollRetries <= pkgmgrMaxRetries {
 				fmt.Fprintf(os.Stderr, "batch %d: poll failed (attempt %d/%d), retrying in %ds: %v\n",
@@ -230,7 +238,7 @@ func pkgmgrInitiateAndPoll(ctx context.Context, hc *http.Client, a *auth.Resolve
 			}
 			return nil, fmt.Errorf("polling status failed after retries: %w", err)
 		}
-		if statusResp.Data == nil || statusResp.Data.Status == nil {
+		if statusResp.JSON200 == nil || statusResp.JSON200.Data == nil || statusResp.JSON200.Data.Status == nil {
 			pollRetries++
 			if pollRetries <= pkgmgrMaxRetries {
 				time.Sleep(pkgmgrRetryInterval)
@@ -239,16 +247,16 @@ func pkgmgrInitiateAndPoll(ctx context.Context, hc *http.Client, a *auth.Resolve
 			return nil, fmt.Errorf("invalid status response after retries")
 		}
 		pollRetries = 0
-		switch *statusResp.Data.Status {
-		case "SUCCESS":
-			if statusResp.Data.Scans != nil {
-				return *statusResp.Data.Scans, nil
+		switch *statusResp.JSON200.Data.Status {
+		case ar_v3.SUCCESS:
+			if statusResp.JSON200.Data.Scans != nil {
+				return *statusResp.JSON200.Data.Scans, nil
 			}
 			return nil, nil
-		case "FAILURE":
+		case ar_v3.FAILURE:
 			msg := "evaluation failed"
-			if statusResp.Data.Error != nil {
-				msg = *statusResp.Data.Error
+			if statusResp.JSON200.Data.Error != nil {
+				msg = *statusResp.JSON200.Data.Error
 			}
 			return nil, fmt.Errorf("%s", msg)
 		}
