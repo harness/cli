@@ -25,6 +25,7 @@ func executeRegistryMigrateHandler(ctx *cmdctx.Ctx) error {
 	concurrencyStr := cmdctx.GetString(ctx.FlagValues, "concurrency")
 	overwrite := cmdctx.GetBool(ctx.FlagValues, "overwrite")
 	dryRun := cmdctx.GetBool(ctx.FlagValues, "dry-run")
+	pkgURLFlag := cmdctx.GetString(ctx.FlagValues, "pkg-url")
 	summary := cmdctx.GetBool(ctx.FlagValues, "summary")
 	resultFile := cmdctx.GetString(ctx.FlagValues, "result-file")
 
@@ -54,6 +55,23 @@ func executeRegistryMigrateHandler(ctx *cmdctx.Ctx) error {
 	// Thread auth context into the destination (HAR) registry config.
 	cfg.Dest.AccountID = a.AccountID
 	cfg.Dest.APIBaseURL = a.APIUrl
+
+	// Resolve the destination package registry endpoint: explicit --pkg-url
+	// override, then whatever the config file already specifies, then the
+	// resolved auth registry URL. Fail fast rather than streaming migrated
+	// artifacts into a 404 from an empty package host.
+	switch {
+	case pkgURLFlag != "":
+		cfg.Dest.Endpoint = pkgURLFlag
+	case cfg.Dest.Endpoint != "":
+		// keep the value from the config file
+	default:
+		cfg.Dest.Endpoint = a.RegistryURL
+	}
+	if cfg.Dest.Endpoint == "" {
+		return fmt.Errorf("pkg-url must be set: no destination package registry URL configured — " +
+			"pass --pkg-url, set destination.endpoint in the config, or run the login flow so it can be resolved from auth")
+	}
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

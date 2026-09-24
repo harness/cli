@@ -200,12 +200,16 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("concurrency must be greater than 0")
 	}
 
-	// Validate source and destination registry configurations
-	if err := validateCredentials(config.Source); err != nil {
+	// Validate source and destination registry configurations. The source
+	// endpoint is external and cli has no way to infer it, so it's always
+	// required. The destination endpoint may be left empty here and resolved
+	// later from the CLI's own auth context or --pkg-url (see
+	// executeRegistryMigrateHandler), so it's not required at load time.
+	if err := validateCredentials(config.Source, true); err != nil {
 		return fmt.Errorf("invalid source credentials block provided in config: %w", err)
 	}
 
-	if err := validateCredentials(config.Dest); err != nil {
+	if err := validateCredentials(config.Dest, false); err != nil {
 		return fmt.Errorf("invalid destination credentials block provided in config: %w", err)
 	}
 
@@ -232,14 +236,32 @@ func validateConfig(config *Config) error {
 			log.Warn().Msg(msg)
 			pterm.Warning.Println(msg)
 		}
+		// Scope controls must never be silent no-ops: include/exclude patterns
+		// only take effect for pattern-filterable types (file-level or
+		// package-level); for every other type they would be ignored entirely.
+		if (len(mapping.IncludePatterns) > 0 || len(mapping.ExcludePatterns) > 0) &&
+			!IsPatternFilterable(mapping.ArtifactType) {
+			return fmt.Errorf("mapping %d: includePatterns/excludePatterns are not supported for artifact type %s — "+
+				"patterns are applied at file level for %s and at package level for %s",
+				i, mapping.ArtifactType,
+				"GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, PUPPET",
+				"DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, DEBIAN")
+		}
+		// includePatterns and excludePatterns are mutually exclusive: applying
+		// both would silently discard excludePatterns (FilterFilesByPatterns uses
+		// else-if). Catch this at config validation time so it never reaches the
+		// migration step.
+		if len(mapping.IncludePatterns) > 0 && len(mapping.ExcludePatterns) > 0 {
+			return fmt.Errorf("mapping %d: includePatterns and excludePatterns are mutually exclusive — only one may be set per mapping", i)
+		}
 	}
 
 	return nil
 }
 
-func validateCredentials(registry RegistryConfig) error {
+func validateCredentials(registry RegistryConfig, endpointRequired bool) error {
 	// Check that the endpoint is not empty
-	if registry.Endpoint == "" {
+	if endpointRequired && registry.Endpoint == "" {
 		return fmt.Errorf("registry endpoint cannot be empty")
 	}
 

@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arapi"
-	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arpkg"
+	"github.com/harness/cli/modules/har/pkg/har/genapi/ar"
+	"github.com/harness/cli/modules/har/pkg/har/genapi/ar_pkg"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
@@ -54,7 +54,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	username := reg.Credentials.Username
 	token := reg.Credentials.Password
 
-	withXApiKey := func(c *arapi.Client) error {
+	withXApiKey := func(c *ar.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
 			req.Header.Set("User-Agent", util.UserAgentString())
@@ -62,7 +62,7 @@ func newClient(reg *types.RegistryConfig) *client {
 		})
 		return nil
 	}
-	withXApiKeyPkg := func(c *arpkg.Client) error {
+	withXApiKeyPkg := func(c *ar_pkg.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
 			req.Header.Set("User-Agent", util.UserAgentString())
@@ -71,11 +71,11 @@ func newClient(reg *types.RegistryConfig) *client {
 		return nil
 	}
 
-	arClient, _ := arapi.NewClientWithResponses(reg.APIBaseURL+"/gateway/har/api/v1",
-		arapi.WithHTTPClient(retryingHTTPClient()),
+	arClient, _ := ar.NewClientWithResponses(reg.APIBaseURL+"/gateway/har/api/v1",
+		ar.WithHTTPClient(retryingHTTPClient()),
 		withXApiKey)
 
-	pkgClient, _ := arpkg.NewClientWithResponses(reg.Endpoint, withXApiKeyPkg)
+	pkgClient, _ := ar_pkg.NewClientWithResponses(reg.Endpoint, withXApiKeyPkg)
 
 	return &client{
 		client: &http2.Client{
@@ -95,13 +95,13 @@ func newClient(reg *types.RegistryConfig) *client {
 }
 
 type client struct {
-	apiClient *arapi.ClientWithResponses
+	apiClient *ar.ClientWithResponses
 	client    *http2.Client
 	url       string
 	insecure  bool
 	username  string
 	password  string
-	pkgClient *arpkg.ClientWithResponses
+	pkgClient *ar_pkg.ClientWithResponses
 	accountID string
 }
 
@@ -725,7 +725,7 @@ func (c *client) artifactFileExists(
 
 	for {
 		response, err := c.apiClient.GetArtifactFilesWithResponse(ctx, registryRef, pkg, version,
-			&arapi.GetArtifactFilesParams{
+			&ar.GetArtifactFilesParams{
 				Page:      &page,
 				Size:      &size,
 				SortOrder: nil,
@@ -761,7 +761,7 @@ func (c *client) artifactGetFilesForVersion(
 	var allFileNames []string
 	for {
 		response, err := c.apiClient.GetArtifactFilesWithResponse(ctx, registryRef, pkg, version,
-			&arapi.GetArtifactFilesParams{
+			&ar.GetArtifactFilesParams{
 				Page:      &page,
 				Size:      &size,
 				SortOrder: nil,
@@ -793,9 +793,9 @@ func (c *client) getRegistry(
 	page := int64(0)
 	size := int64(100)
 	for {
-		descendants := arapi.GetAllRegistriesParamsScopeDescendants
+		descendants := ar.GetAllRegistriesParamsScopeDescendants
 		response, err := c.apiClient.GetAllRegistriesWithResponse(ctx, c.accountID,
-			&arapi.GetAllRegistriesParams{
+			&ar.GetAllRegistriesParams{
 				Page:       &page,
 				Size:       &size,
 				SearchTerm: &registry,
@@ -838,7 +838,7 @@ func (c *client) artifactVersionExists(
 
 	for {
 		response, err := c.apiClient.GetAllArtifactVersionsWithResponse(ctx, registryRef, pkg,
-			&arapi.GetAllArtifactVersionsParams{
+			&ar.GetAllArtifactVersionsParams{
 				Page:       &page,
 				Size:       &size,
 				SortOrder:  nil,
@@ -854,7 +854,7 @@ func (c *client) artifactVersionExists(
 		if response.StatusCode() != http2.StatusOK {
 			return false, fmt.Errorf("failed to get artifact versions: %s", response.Status())
 		}
-		var data arapi.ListArtifactVersion
+		var data ar.ListArtifactVersion
 
 		if response.JSON200 == nil {
 			return false, fmt.Errorf("failed to get artifact 200 response: %s", response.Status())
@@ -1232,7 +1232,7 @@ func (c *client) buildExistingIndex(ctx context.Context, registryRef string, con
 	var artifactNames []string
 	for {
 		resp, err := c.apiClient.GetAllArtifactsByRegistryWithResponse(ctx, registryRef,
-			&arapi.GetAllArtifactsByRegistryParams{Page: &page, Size: &size})
+			&ar.GetAllArtifactsByRegistryParams{Page: &page, Size: &size})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list artifacts for index: %w", err)
 		}
@@ -1257,7 +1257,7 @@ func (c *client) buildExistingIndex(ctx context.Context, registryRef string, con
 		p := int64(0)
 		for {
 			resp, err := c.apiClient.GetAllArtifactVersionsWithResponse(ctx, registryRef, name,
-				&arapi.GetAllArtifactVersionsParams{Page: &p, Size: &size})
+				&ar.GetAllArtifactVersionsParams{Page: &p, Size: &size})
 			if err != nil {
 				log.Warn().Err(err).Str("artifact", name).Msg("buildExistingIndex: failed to list versions, skipping artifact")
 				break

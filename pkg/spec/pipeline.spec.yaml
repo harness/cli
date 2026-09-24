@@ -1043,10 +1043,21 @@ commands:
   - command: create input_set
     verb: create
     noun: input_set
-    short: Create an input set for a pipeline (-f input-set.yaml)
+    short: "Create an input set: inline from YAML (-f input-set.yaml) or Git-backed (--connector, --repo, --file-path)"
     requires_id: true
+    id_label: "<pipeline>"
     completion_noun: pipeline
     handler_type: endpoint
+    flags:
+      - name: connector
+        description: Git connector reference ID (remote only)
+      - name: repo
+        description: Git repository name (remote only)
+      - name: branch
+        default: main
+        description: Branch (remote only)
+      - name: file-path
+        description: Path to the input set YAML in the repo, e.g. .harness/pr_input_set.yaml (remote only)
     endpoint:
       method: POST
       path: /pipeline/api/inputSets
@@ -1056,6 +1067,11 @@ commands:
       text_header: "\nCreated input set in pipeline {{ctx.id}}\n"
       query_params:
         pipelineIdentifier: ctx.id
+        storeType: 'flags.repo != "" ? "REMOTE" : ""'
+        connectorRef: flags.connector
+        repoName: flags.repo
+        branch: flags.branch
+        filePath: flags["file-path"]
 
   - command: update input_set
     verb: update

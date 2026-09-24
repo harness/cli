@@ -151,6 +151,7 @@ func uploadPythonFile(ctx *cmdctx.Ctx, registry, filePath string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed %s to %s\n", filepath.Base(filePath), registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, meta.Name, meta.Version)
 	return nil
 }
 

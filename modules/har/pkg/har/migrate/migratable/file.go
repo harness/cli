@@ -135,7 +135,7 @@ func (r *File) Pre(ctx context.Context) error {
 				Status:   types.StatusSkip,
 				Reason:   types.SkipReasonAlreadyExists,
 			}
-			r.stats.FileStats = append(r.stats.FileStats, stat)
+			r.stats.Add(stat)
 		}
 	}
 
@@ -209,17 +209,17 @@ func (r *File) Migrate(ctx context.Context) error {
 		} else {
 			pterm.Success.Println(title)
 		}
-		r.stats.FileStats = append(r.stats.FileStats, stat)
+		r.stats.Add(stat)
 		return nil
 	}
 
 	if r.artifactType == types.GENERIC || r.artifactType == types.RAW || r.artifactType == types.MAVEN || r.artifactType == types.NUGET || r.artifactType == types.PUPPET || r.artifactType == types.RUBY {
 		downloadFile, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, r.file.Uri)
-		defer downloadFile.Close()
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to download file")
 			return fmt.Errorf("download file failed: %w", err)
 		}
+		defer downloadFile.Close()
 
 		//readCloser := progress.ReadCloser(int64(r.file.Size), downloadFile, r.file.Name)
 		title := fmt.Sprintf("%s (%s)", r.file.Name, sizeutil.GetSize(int64(r.file.Size)))
@@ -247,7 +247,7 @@ func (r *File) Migrate(ctx context.Context) error {
 		} else {
 			pterm.Success.Println(title)
 		}
-		r.stats.FileStats = append(r.stats.FileStats, stat)
+		r.stats.Add(stat)
 	}
 
 	if r.artifactType == types.PYTHON {
@@ -326,7 +326,7 @@ func (r *File) Migrate(ctx context.Context) error {
 		} else {
 			pterm.Success.Println(title)
 		}
-		r.stats.FileStats = append(r.stats.FileStats, stat)
+		r.stats.Add(stat)
 	} else if r.artifactType == types.NPM {
 		tarFileURL := r.file.Uri
 		logger.Info().Msg("Downloading tar file from " + tarFileURL)
@@ -404,7 +404,7 @@ func (r *File) Migrate(ctx context.Context) error {
 				Msgf("Successfully uploaded NPM package %s@%s", pkgName, version)
 			pterm.Success.Println(title)
 		}
-		r.stats.FileStats = append(r.stats.FileStats, stat)
+		r.stats.Add(stat)
 	} else if r.artifactType == types.DART {
 		if r.file == nil {
 			return fmt.Errorf("no file provided for Dart migration")
@@ -448,7 +448,7 @@ func (r *File) Migrate(ctx context.Context) error {
 			pterm.Success.Println(title)
 		}
 
-		r.stats.FileStats = append(r.stats.FileStats, stat)
+		r.stats.Add(stat)
 	}
 
 	logger.Info().

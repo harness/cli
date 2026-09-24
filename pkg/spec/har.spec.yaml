@@ -212,6 +212,8 @@ commands:
         description: "Artifact version (default: 1.0.0)"
       - name: include-hidden
         description: "Include hidden files and directories (names starting with '.') when walking directory inputs"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:maven
     verb: push
@@ -233,6 +235,8 @@ commands:
         required: true
       - name: max-concurrent-uploads
         description: "Maximum number of concurrent file uploads (default: 4, use 1 for sequential)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:npm
     verb: push
@@ -248,6 +252,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_npm
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:python
     verb: push
@@ -266,6 +273,8 @@ commands:
     flags:
       - name: max-concurrent-uploads
         description: "Maximum number of concurrent file uploads (default: 4, use 1 for sequential)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:nuget
     verb: push
@@ -311,6 +320,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_cargo
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:go
     verb: push
@@ -336,6 +348,8 @@ commands:
         description: "Path to pre-built .info file (skips local generation when all three go file flags are set)"
       - name: zip-file
         description: "Path to pre-built .zip file (skips local generation when all three go file flags are set)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:conda
     verb: push
@@ -366,6 +380,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_dart
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:composer
     verb: push
@@ -396,6 +413,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_ruby
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:swift
     verb: push
@@ -414,6 +434,8 @@ commands:
     flags:
       - name: metadata-path
         description: "Path to metadata JSON file (optional)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:puppet
     verb: push
@@ -429,6 +451,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_puppet
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:debian
     verb: push
@@ -477,6 +502,8 @@ commands:
         description: "Conan package ID (PKGID, 40-char SHA-1); required with --package-dir"
       - name: package-revision
         description: "Package revision (PREV). Defaults to the MD5 of the package's conanmanifest.txt"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:helm
     verb: push
@@ -531,6 +558,8 @@ commands:
         description: "Module provider, e.g. aws (required for module uploads)"
       - name: version
         description: "Module version, SemVer 2.0.0 (required for module uploads)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: delete artifact
     verb: delete
@@ -1205,6 +1234,8 @@ commands:
       - name: dry-run
         description: "Dry run — discover files without uploading, write report to ./dry-run-output/"
         is_bool: true
+      - name: pkg-url
+        description: "Destination package registry base URL (overrides config; defaults to the resolved auth registry URL)"
       - name: summary
         description: "Print a condensed status summary instead of the full per-file table"
         is_bool: true

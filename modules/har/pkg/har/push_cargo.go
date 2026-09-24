@@ -105,6 +105,7 @@ func pushCargoArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed %s@%s to %s\n", name, version, registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, name, version)
 	return nil
 }
 

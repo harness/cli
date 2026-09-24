@@ -59,6 +59,8 @@ nouns:
     short_desc: A Harness FME environment (distinct from the CD "environment" noun).
     noun_aliases: [fme_environments, fme_env]
     fields:
+      - id: id
+        expr: it.id
       - id: name
         expr: it.name
         mutable_path: name
@@ -114,6 +116,11 @@ nouns:
       - id: default_treatment
         label: Default Treatment
         expr: it.defaultTreatment
+        mutable_path: defaultTreatment
+      - id: baseline_treatment
+        label: Baseline Treatment
+        expr: it.baselineTreatment ?? ""
+        mutable_path: baselineTreatment
       - id: traffic_allocation
         label: Traffic Allocation
         expr: string(it.trafficAllocation)
@@ -321,7 +328,7 @@ commands:
       path: /fme/api/v4/feature-flag-definitions
       items_expr: it.data
       item_item_expr: it
-      get_id_expr: it.environment.id
+      get_id_expr: it.featureFlag.name
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -385,23 +392,35 @@ commands:
     verb: update
     noun: feature_flag
     noun_variant: definition
-    short: "Update a flag definition: harness update ff:definition <name> --env <env-id> --set trafficAllocation=80"
+    short: "Update a flag definition: harness update ff:definition <name> --env <env-id> --set traffic_allocation=80 (or -f body.json for treatments/rules/defaultRule)"
     handler_type: endpoint
     fields_noun: feature_flag_definition
     flags:
       - name: env
         description: Environment identifier (required)
         required: true
+      - name: comment
+        description: Audit comment (metadata only — not stored on or returned by the definition)
+      - name: title
+        description: Audit title (metadata only — not stored on or returned by the definition)
     flags_builtin:
       set: true
       del: true
     endpoint:
       method: PATCH
+      file_body: optional
       path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
       get_path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      update_body_pick: '{trafficAllocation: it.trafficAllocation, defaultTreatment: it.defaultTreatment, baselineTreatment: it.baselineTreatment}'
       update_body_wrap: ""
+      # comment/title are write-only: v4 accepts them as audit metadata but never stores or
+      # returns them, so there is nothing in the GET for update_body_pick to select. As
+      # body_params they are omitted entirely when the flag is unset — putting them in the
+      # pick sent "comment": null, which a merge patch reads as "delete this field".
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -534,7 +553,7 @@ commands:
         page_size_max: 100
         total_expr: it.totalCount
         countable: true
-      columns: [name, production, status]
+      columns: [id, name, production, status]
 
   - command: get fme_environment
     verb: get
@@ -589,7 +608,7 @@ commands:
       path: /fme/api/v4/environments/{{ctx.id}}
       get_path: /fme/api/v4/environments/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      update_body_pick: '{name: it.name, isProduction: it.isProduction}'
       update_body_wrap: ""
       query_params:
         account_id: auth.account

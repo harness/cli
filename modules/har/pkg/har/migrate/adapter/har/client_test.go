@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arpkg"
+	"github.com/harness/cli/modules/har/pkg/har/genapi/ar_pkg"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 )
 
@@ -16,7 +16,7 @@ import (
 // given test server URL.
 func newTestClient(t *testing.T, serverURL string) *client {
 	t.Helper()
-	pc, err := arpkg.NewClientWithResponses(serverURL)
+	pc, err := ar_pkg.NewClientWithResponses(serverURL)
 	if err != nil {
 		t.Fatalf("new pkg client: %v", err)
 	}

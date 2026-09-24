@@ -437,6 +437,10 @@ type EndpointSpec struct {
 	// BodyParams maps dot-path in the JSON body → expr-lang expression.
 	// Supports nested paths: {"config.type": "flags.type"} sets body["config"]["type"].
 	// Expressions have access to ctx, auth, flags, coalesce(), formatTags(), etc.
+	// An expression returning nil contributes no key at all.
+	// On the get-then-* update strategies these are merged into the body after
+	// update_body_pick and update_body_wrap, which is how a write-only field is declared:
+	// one the API accepts on write but never returns, so the pick cannot source it.
 	BodyParams map[string]string `yaml:"body_params,omitempty"`
 	// RequestHeaders maps HTTP header name → expr-lang expression.
 	// Headers are evaluated against the command context (auth, flags, ctx) and injected

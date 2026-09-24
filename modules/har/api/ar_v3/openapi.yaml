@@ -1,0 +1,2056 @@
+openapi: "3.0.0"
+info:
+  title: Harness Artifact Registry API
+  version: 3.0.0
+  contact:
+    name: Harness Artifact Registry - developers
+    url: https://www.harness.io
+
+tags:
+  - name: Registry V3
+    description: V3 endpoints
+
+
+servers:
+  - url: /api/v3
+    description: Harness Artifact Registry APIs V3
+
+paths:
+  /scans:
+    get:
+      x-internal: false
+      summary: Get the list of artifact scan result for a particular scope
+      description: Get the list of artifact scan result for a particular scope
+      operationId: GetArtifactScans
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+        - $ref: "#/components/parameters/PackageTypeListParam"
+        - $ref: "#/components/parameters/RegistryIdListParam"
+        - $ref: "#/components/parameters/PolicySetRefParam"
+        - $ref: "#/components/parameters/ScanIDQueryParam"
+        - $ref: "#/components/parameters/ScanStatusParam"
+        - $ref: "#/components/parameters/PageNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/SortOrder"
+        - $ref: "#/components/parameters/SortField"
+        - $ref: "#/components/parameters/SearchTerm"
+        - $ref: "#/components/parameters/RegistryScope"
+      responses:
+        200:
+          $ref: "#/components/responses/ListArtifactScanResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /scans/{scan_id}/details:
+    get:
+      x-internal: false
+      summary: Get the details of a artifact scan
+      description: Get the details of a artifact scan
+      operationId: GetArtifactScanDetails
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/ScanIDParam"
+        - $ref: "#/components/parameters/PolicySetRefParam"
+      responses:
+        200:
+          $ref: "#/components/responses/ArtifactScanDetailsResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /scans/evaluate:
+    post:
+      x-internal: false
+      summary: Re-evaluate artifact scan
+      description: Re-evaluate artifact scan
+      operationId: EvaluateArtifactScan
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+      requestBody:
+        $ref: "#/components/requestBodies/ArtifactScanEvaluateRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/ArtifactScanEvaluateRequestAccepted"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /scans/bulk-evaluate:
+    post:
+      x-internal: false
+      summary: Initiate bulk evaluation
+      description: Triggers firewall policy evaluation for multiple artifacts (max 50)
+      operationId: InitiateBulkScanEvaluation
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+      requestBody:
+        $ref: "#/components/requestBodies/BulkScanEvaluationRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/BulkScanEvaluationAccepted"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /scans/bulk-evaluate/{evaluation_id}:
+    get:
+      x-internal: false
+      summary: Get bulk evaluation status
+      description: Returns the status of a bulk evaluation
+      operationId: GetBulkScanEvaluationStatus
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+        - $ref: "#/components/parameters/EvaluationIdParam"
+      responses:
+        "200":
+          $ref: "#/components/responses/BulkScanEvaluationStatusResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /scans/bulk-evaluate-sync:
+    post:
+      x-internal: false
+      summary: Synchronous bulk evaluation
+      description: Evaluates artifacts in-process against firewall policies and returns results immediately (no DB writes, max 50 artifacts).
+      operationId: BulkScanEvaluateSync
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+      requestBody:
+        $ref: "#/components/requestBodies/BulkScanEvaluateSyncRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/BulkScanEvaluateSyncResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /build-info:
+    post:
+      x-internal: false
+      summary: Add build info
+      description: Adds build info generated by CLI after package installation.
+      operationId: AddBuildInfo
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+      requestBody:
+        $ref: "#/components/requestBodies/BuildInfoRequest"
+      responses:
+        "201":
+          description: Build info added successfully
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /system/info:
+    get:
+      x-internal: false
+      summary: Get system information
+      description: Get system information
+      operationId: GetSystemInfo
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+      responses:
+        200:
+          description: System information response
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /bulkdelete:
+    post:
+      x-internal: false
+      summary: Bulk delete artifacts
+      description: Bulk delete artifact OR versions matching the provided package and version patterns
+      operationId: BulkDeleteArtifacts
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+      requestBody:
+        $ref: "#/components/requestBodies/BulkDeleteRequest"
+      responses:
+        "200":
+          description: Bulk delete response
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /registries:
+    get:
+      x-internal: false
+      summary: List registries
+      description: Lists registries.
+      operationId: ListRegistriesV3
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+        - $ref: "#/components/parameters/PackageTypesListParam"
+        - $ref: "#/components/parameters/RegistryTypeParam"
+        - $ref: "#/components/parameters/MetadataFilterListParam"
+        - $ref: "#/components/parameters/RegistryScope"
+        - $ref: "#/components/parameters/DeleteFilterParam"
+        - $ref: "#/components/parameters/PageNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/SortParam"
+        - $ref: "#/components/parameters/SearchTerm"
+        - $ref: "#/components/parameters/IncludeMetaParam"
+      responses:
+        200:
+          $ref: "#/components/responses/ListRegistryResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /packages:
+    get:
+      x-internal: false
+      summary: List Packages
+      description: Lists Packages
+      operationId: ListPackagesV3
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+        - $ref: "#/components/parameters/RegistryIdsListParam"
+        - $ref: "#/components/parameters/MetadataFilterListParam"
+        - $ref: "#/components/parameters/PackageKindQueryParam"
+        - $ref: "#/components/parameters/PackageTypesListParam"
+        - $ref: "#/components/parameters/DeleteFilterParam"
+        - $ref: "#/components/parameters/PageNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/SortParam"
+        - $ref: "#/components/parameters/SearchTerm"
+        - $ref: "#/components/parameters/IncludeMetaParam"
+      responses:
+        200:
+          $ref: "#/components/responses/ListPackageResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /files/search:
+    post:
+      x-internal: false
+      summary: Search Registry Files by path regex
+      description: >
+        Search files across a registry using a POSIX regular expression
+        matched server-side against the full node path. Filter payload is
+        sent in the request body so that regex characters such as `?`, `&`,
+        `+`, `#` and `%` do not need URL-encoding and are not truncated by
+        proxies. Backs the CLI bulk-download flow: the server performs regex
+        filtering and the client parallelizes the individual file downloads.
+      operationId: SearchRegistryFilesV3
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+        - $ref: "#/components/parameters/PageNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/SortParam"
+      requestBody:
+        $ref: "#/components/requestBodies/SearchRegistryFilesRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ListFilesResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /files:
+    get:
+      x-internal: false
+      summary: Search Files
+      description: List files.
+      operationId: ListFilesV3
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+        - $ref: "#/components/parameters/RegistryIdOptionalParam"
+        - $ref: "#/components/parameters/PackageIdOptionalParam"
+        - $ref: "#/components/parameters/VersionIdOptionalParam"
+        - $ref: "#/components/parameters/ConanRecipeRevisionOptionalParam"
+        - $ref: "#/components/parameters/ConanPackageRevisionOptionalParam"
+        - $ref: "#/components/parameters/PageNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/SortParam"
+        - $ref: "#/components/parameters/SearchTerm"
+      responses:
+        200:
+          $ref: "#/components/responses/ListFilesResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+  /versions:
+    get:
+      x-internal: false
+      summary: List versions of packages
+      description: Lists versions of packages
+      operationId: ListVersionsV3
+      tags:
+        - Registry V3
+      parameters:
+        - $ref: "#/components/parameters/AccountIdentifier"
+        - $ref: "#/components/parameters/OrgIdentifier"
+        - $ref: "#/components/parameters/ProjectIdentifier"
+        - $ref: "#/components/parameters/RegistryIdsListParam"
+        - $ref: "#/components/parameters/PackageIdsListParam"
+        - $ref: "#/components/parameters/PackageTypesListParam"
+        - $ref: "#/components/parameters/DeleteFilterParam"
+        - $ref: "#/components/parameters/MetadataFilterListParam"
+        - $ref: "#/components/parameters/PageNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/SortParam"
+        - $ref: "#/components/parameters/SearchTerm"
+        - $ref: "#/components/parameters/IncludeMetaParam"
+        - $ref: "#/components/parameters/UploadedByParam"
+      responses:
+        200:
+          $ref: "#/components/responses/ListVersionResponse"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/V3Error"
+          description: Error response.
+components:
+  requestBodies:
+    BuildInfoRequest:
+      description: Request to add build info
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BuildInfoRequestInput"
+    ArtifactScanEvaluateRequest:
+      description: request to re-evaluate artifact scan
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ArtifactScanEvaluateRequest"
+    BulkScanEvaluationRequest:
+      description: Request to initiate bulk evaluation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BulkScanEvaluationRequest"
+    BulkScanEvaluateSyncRequest:
+      description: Request to synchronously evaluate a batch of artifacts
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BulkScanEvaluateSyncRequest"
+    BulkDeleteRequest:
+      description: Request to bulk delete artifacts
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BulkDeleteRequest"
+    SearchRegistryFilesRequest:
+      description: Request to search registry files by path regex
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SearchRegistryFilesRequest"
+  responses:
+    ListRegistryResponse:
+      description: Response containing list of registries
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/PageInfo"
+              - type: object
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Registry"
+                  meta:
+                    $ref: "#/components/schemas/Meta"
+    ListPackageResponse:
+      description: Response containing list of packages
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/PageInfo"
+              - type: object
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Package"
+                  meta:
+                    $ref: "#/components/schemas/Meta"
+    ListFilesResponse:
+      description: Response containing list of files
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/PageInfo"
+              - type: object
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FileMetadata"
+                  meta:
+                    $ref: "#/components/schemas/Meta"
+    ListVersionResponse:
+      description: Response containing list of versions
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/PageInfo"
+              - type: object
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Version"
+                  meta:
+                    $ref: "#/components/schemas/Meta"
+    ListArtifactScanResponse:
+      description: Response containing list of artifact scan
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ pageCount, itemCount, pageSize, pageIndex, data, meta ]
+            properties:
+              pageCount:
+                type: integer
+                format: int64
+                description: The total number of pages
+                example: 100
+              itemCount:
+                type: integer
+                format: int64
+                description: The total number of items
+                example: 1
+              pageSize:
+                type: integer
+                description: The number of items per page
+                example: 1
+              pageIndex:
+                type: integer
+                format: int64
+                description: The current page
+                example: 0
+              data:
+                type: array
+                description: A list of artifact scans
+                items:
+                  $ref: "#/components/schemas/ArtifactScan"
+              meta:
+                $ref: "#/components/schemas/ScanMeta"
+    ArtifactScanDetailsResponse:
+      description: Response containing details of artifact scan
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                $ref: "#/components/schemas/ArtifactScanDetails"
+    ArtifactScanEvaluateRequestAccepted:
+      description: Artifact scan evaluate request accepted for processing
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                $ref: "#/components/schemas/ArtifactScanEvaluateRequestStatus"
+    BulkScanEvaluationAccepted:
+      description: Bulk evaluation request accepted for processing
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                $ref: "#/components/schemas/BulkScanEvaluationAcceptedData"
+    BulkScanEvaluationStatusResponse:
+      description: Bulk evaluation status response
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                $ref: "#/components/schemas/BulkScanEvaluationStatusData"
+    BulkScanEvaluateSyncResponse:
+      description: Synchronous bulk evaluation results
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ArtifactScanDetailsV3"
+  schemas:
+    BuildInfoRequestInput:
+      type: object
+      description: Request to add build info
+      required:
+        - registryId
+        - packageType
+        - rootPackage
+        - status
+        - metadata
+      properties:
+        registryId:
+          type: string
+          format: uuid
+          description: UUID of the registry
+        packageType:
+          $ref: "#/components/schemas/PackageType"
+        rootPackage:
+          $ref: "#/components/schemas/RootPackage"
+        status:
+          type: string
+          description: Status of the install
+          enum:
+            - PENDING
+            - PROCESSING
+            - SUCCESS
+            - FAILURE
+        pipelineContext:
+          $ref: "#/components/schemas/PipelineContext"
+        metadata:
+          type: array
+          description: List of dependency graph nodes
+          items:
+            $ref: "#/components/schemas/BuildInfoNode"
+    RootPackage:
+      type: object
+      description: Root package of the build
+      required:
+        - name
+        - version
+      properties:
+        name:
+          type: string
+          description: Name of the root package
+        version:
+          type: string
+          description: Version of the root package
+    PipelineContext:
+      type: object
+      description: Pipeline execution context
+      required:
+        - pipelineId
+        - executionId
+        - orgId
+        - projectId
+        - stageId
+      properties:
+        pipelineId:
+          type: string
+          description: Pipeline identifier
+        executionId:
+          type: string
+          description: Execution identifier
+        orgId:
+          type: string
+          description: Organization identifier
+        projectId:
+          type: string
+          description: Project identifier
+        stageId:
+          type: string
+          description: Stage identifier
+        stepId:
+          type: string
+          description: Step identifier
+    BuildInfoNode:
+      type: object
+      description: Node in the dependency graph
+      required:
+        - nodeKey
+      properties:
+        nodeKey:
+          type: string
+          description: "package@version"
+        parentNodeKey:
+          type: string
+          description: Parent node key
+    V3Error:
+      description: An error response from the Stripe API
+      properties:
+        error:
+          $ref: '#/components/schemas/ApiErrors'
+      required:
+        - error
+      type: object
+    ApiErrors:
+      description: ''
+      properties:
+        code:
+          description: >-
+            For some errors that could be handled programmatically, a short
+            string indicating the [error
+            code](https://docs.stripe.com/error-codes) reported.
+          maxLength: 5000
+          type: string
+        message:
+          description: >-
+            A human-readable message providing more details about the error. These messages can be shown to users.
+          maxLength: 40000
+          type: string
+        param:
+          description: >-
+            If the error is parameter-specific, the parameter related to the
+            error. For example, we can use this to display a message near the
+            correct form field.
+          maxLength: 5000
+          type: string
+        type:
+          description: >-
+            The type of error returned.
+          enum:
+            - INVALID_REQUEST_ERROR
+            - AUTHENTICATION_ERROR
+            - PERMISSION_ERROR
+            - API_ERROR
+          type: string
+      required:
+        - type
+      title: APIErrors
+      type: object
+    ScanMeta:
+      type: object
+      description: Metadata about the list artifact scans
+      properties:
+        blockedCount:
+          type: integer
+          format: int64
+          description: Count of active blocked artifacts
+          example: 95
+        warnCount:
+          type: integer
+          format: int64
+          description: Count of active Warn artifacts
+          example: 5
+        totalCount:
+          type: integer
+          format: int64
+          description: Count of total artifact violations
+          example: 5
+    ArtifactScanDetails:
+      type: object
+      description: Artifact scans details
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for this artifact scan details
+        packageType:
+          $ref: "#/components/schemas/PackageType"
+        packageName:
+          type: string
+          description: Package name
+        version:
+          type: string
+          description: Version
+        versionId:
+          type: string
+          format: uuid
+          description: Version
+        registryName:
+          type: string
+          description: Registry name
+        registryId:
+          type: string
+          format: uuid
+          description: Registry ID
+        policySetFailureDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicySetFailureDetail"
+        fixVersionDetails:
+          $ref: "#/components/schemas/FixVersionDetails"
+        scanStatus:
+          type: string
+          description: Scan status
+          enum:
+            - BLOCKED
+            - WARN
+        lastEvaluatedAt:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - packageType
+        - packageName
+        - version
+        - registryName
+        - registry_id
+        - policyFailureDetails
+        - scanStatus
+    PolicyFailureDetail:
+      type: object
+      description: Policy failure detail entry.
+      properties:
+        category:
+          $ref: "#/components/schemas/PolicyFailureDetailCategory"
+        policyName:
+          type: string
+          description: Policy name.
+        policyRef:
+          type: string
+          description: Policy Ref.
+      discriminator:
+        propertyName: category
+        mapping:
+          Security: "#/components/schemas/SecurityPolicyFailureDetail"
+          License: "#/components/schemas/LicensePolicyFailureDetail"
+          PackageAge: "#/components/schemas/PackageAgeViolationPolicyFailureDetail"
+      oneOf:
+        - $ref: "#/components/schemas/SecurityPolicyFailureDetailConfig"
+        - $ref: "#/components/schemas/LicensePolicyFailureDetailConfig"
+        - $ref: "#/components/schemas/PackageAgeViolationPolicyFailureDetailConfig"
+      required:
+        - category
+        - policyName
+        - policyRef
+    PolicySetFailureDetail:
+      type: object
+      description: Policy set failure detail entry.
+      properties:
+        policySetRef:
+          type: string
+          description: Policy set reference.
+        policySetName:
+          type: string
+          description: Policy set name.
+        policyFailureDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyFailureDetail"
+      required:
+        - policySetRef
+        - policySetName
+        - policyFailureDetails
+    PolicyFailureDetailCategory:
+      type: string
+      description: Policy failure detail category.
+      enum:
+        - Security
+        - License
+        - PackageAge
+        - Unknown
+    SecurityPolicyFailureDetailConfig:
+      type: object
+      description: Security-specific failure detail payload.
+      properties:
+        vulnerabilities:
+          type: array
+          description: List of security violations.
+          items:
+            $ref: "#/components/schemas/SecurityPolicyFailureVulnerability"
+      required:
+        - vulnerabilities
+    SecurityPolicyFailureVulnerability:
+      type: object
+      description: Security violation entry.
+      properties:
+        cveId:
+          type: string
+          description: CVE identifier.
+        cvssScore:
+          type: number
+          format: double
+          description: CVSS score.
+        cvssThreshold:
+          type: number
+          format: double
+          description: CVSS threshold.
+      required:
+        - cveId
+        - cvssScore
+        - cvssThreshold
+    LicensePolicyFailureDetailConfig:
+      type: object
+      description: License-specific failure detail payload.
+      properties:
+        allowedLicenses:
+          type: array
+          description: Allowed license list.
+          items:
+            type: string
+        blockedLicense:
+          type: string
+          description: Blocked license.
+      required:
+        - allowedLicenses
+        - blockedLicense
+    PackageAgeViolationPolicyFailureDetailConfig:
+      type: object
+      description: Package age violation failure detail payload.
+      properties:
+        publishedOn:
+          type: string
+          description: Package publish date.
+        packageAgeThreshold:
+          type: string
+          description: Package age threshold.
+      required:
+        - publishedOn
+        - packageAgeThreshold
+    FixVersionDetails:
+      type: object
+      description: Fix version Details
+      properties:
+        fixVersionAvailable:
+          type: boolean
+          description: Fix version available or not
+        currentVersion:
+          type: string
+          description: The current version
+          example: "1.2.0"
+        fixVersion:
+          type: string
+          description: The fix version
+          example: "1.2.2"
+      required:
+        - fixVersionAvailable
+        - currentVersion
+    ArtifactScanEvaluateRequestInput:
+      type: object
+      description: |
+        Input for re-evaluate artifact scan.
+      properties:
+        packageName:
+          type: string
+          description: Name of the package
+        version:
+          type: string
+          description: Version of the package
+        registryIdentifier:
+          type: string
+          description: Registry Identifier
+    ArtifactScanEvaluateRequest:
+      description: |
+        Input for re-evaluate artifact scan.
+        Exactly one of scanId or versionId must be provided.
+      type: object
+      properties:
+        scanId:
+          type: string
+          description: Scan identifier
+        versionId:
+          type: string
+          description: Artifact version identifier
+    ArtifactScanEvaluateRequestStatus:
+      type: string
+      description: Status of the Artifact Scan Evaluate Request
+      enum:
+        - PENDING
+        - PROCESSING
+        - SUCCESS
+        - FAILED
+    BulkScanEvaluationRequest:
+      type: object
+      description: Request to initiate bulk evaluation
+      required:
+        - registryId
+        - artifacts
+      properties:
+        registryId:
+          type: string
+          format: uuid
+          description: Registry identifier
+        artifacts:
+          type: array
+          description: List of artifacts to evaluate (max 50)
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ArtifactScanInput"
+    SearchRegistryFilesRequest:
+      type: object
+      description: >
+        Input for the search registry files operation. The regex is sent
+        in the body so characters like `?`, `&`, `+`, `#` and `%` don't
+        need URL-encoding and aren't mangled by proxies.
+      required:
+        - registry
+        - regex
+      properties:
+        registry:
+          type: string
+          description: Registry identifier (name).
+          example: "my-generic-registry"
+        regex:
+          type: string
+          description: >
+            POSIX regular expression matched server-side against file paths.
+            Evaluated by Postgres (`~` operator, case-sensitive). Max length 500.
+          maxLength: 500
+          example: ".*\\.txt"
+    BulkDeleteRequest:
+      type: object
+      description: Request to bulk delete artifacts
+      required:
+        - packages
+        - versions
+        - registry
+      properties:
+        packages:
+          type: string
+          description: Package name pattern (supports wildcards)
+          example: "com.harness.gradle:*"
+        versions:
+          type: string
+          description: Version pattern (supports wildcards)
+          example: "?.0.0"
+        registry:
+          type: string
+          description: Registry name
+          example: "maven-test"
+        force:
+          type: boolean
+          description: Force delete even if artifact is in use
+          default: false
+        dryRun:
+          type: boolean
+          description: If true, only simulates deletion without actually deleting
+          default: false
+    ArtifactScanInput:
+      type: object
+      description: Artifact to be scanned
+      required:
+        - packageName
+        - version
+      properties:
+        packageName:
+          type: string
+          description: Name of the package
+        version:
+          type: string
+          description: Version of the package
+    BulkScanEvaluateSyncRequest:
+      type: object
+      description: Request body for synchronous bulk evaluation
+      required:
+        - registryId
+        - artifacts
+      properties:
+        registryId:
+          type: string
+          format: uuid
+          description: Registry identifier (must be an upstream registry with firewall enabled)
+        artifacts:
+          type: array
+          description: List of artifacts to evaluate (max 50)
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ArtifactScanInput"
+        skipCache:
+          type: boolean
+          description: If true, skip cached scan results and force fresh OPA evaluation
+          default: false
+    ArtifactScanDetailsV3:
+      type: object
+      description: |
+        Per-artifact synchronous bulk-evaluate result. Same shape as
+        ArtifactScanDetails but scanStatus additionally allows ALLOWED and UNKNOWN,
+        and id is always the zero UUID (no DB record is written).
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Always the zero UUID for sync evaluations (no DB record)
+        packageType:
+          $ref: "#/components/schemas/PackageType"
+        packageName:
+          type: string
+          description: Package name
+        version:
+          type: string
+          description: Version
+        versionId:
+          type: string
+          format: uuid
+          description: Version UUID (populated only if the artifact already exists in the DB)
+        purl:
+          type: string
+          description: Package URL
+        registryName:
+          type: string
+          description: Registry name
+        registryId:
+          type: string
+          format: uuid
+          description: Registry ID
+        parentRegistryName:
+          type: string
+          description: Parent registry name (upstream chain)
+        parentRegistryId:
+          type: string
+          format: uuid
+          description: Parent registry ID (upstream chain)
+        policySetFailureDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicySetFailureDetail"
+        fixVersionDetails:
+          $ref: "#/components/schemas/FixVersionDetails"
+        scanStatus:
+          type: string
+          description: Scan status
+          enum:
+            - ALLOWED
+            - BLOCKED
+            - WARN
+            - UNKNOWN
+        lastEvaluatedAt:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - packageName
+        - version
+        - scanStatus
+    BulkScanEvaluationAcceptedData:
+      type: object
+      description: Response data for bulk evaluation request
+      properties:
+        evaluationId:
+          type: string
+          description: Unique evaluation ID for tracking the bulk evaluation
+    BulkScanEvaluationStatusData:
+      type: object
+      description: Response data for bulk evaluation status
+      properties:
+        evaluationId:
+          type: string
+          description: The evaluation ID
+        status:
+          type: string
+          description: Status of the evaluation
+          enum:
+            - PENDING
+            - PROCESSING
+            - SUCCESS
+            - FAILURE
+        scans:
+          type: array
+          nullable: true
+          description: List of scan results (only present when status is success)
+          items:
+            $ref: "#/components/schemas/BulkScanResultItem"
+        error:
+          type: string
+          nullable: true
+          description: Error message (only present when status is failure)
+    BulkScanResultItem:
+      type: object
+      description: Individual scan result item
+      properties:
+        packageName:
+          type: string
+          description: Name of the package
+        version:
+          type: string
+          description: Version of the package
+        scanId:
+          type: string
+          format: uuid
+          description: Scan identifier
+        scanStatus:
+          type: string
+          description: Scan status
+          enum:
+            - ALLOWED
+            - BLOCKED
+            - WARN
+            - UNKNOWN
+    PackageType:
+      type: string
+      description: >
+        Package type.
+        Known values include: DOCKER, MAVEN, PYTHON, GENERIC, HELM, NUGET, NPM, RPM, CARGO,
+        COMPOSER, GO, HUGGINGFACE, CONDA, DART, SWIFT.
+        This field is extensible; clients must handle unknown values.
+      example: DOCKER
+      x-extensible-enum:
+        - DOCKER
+        - MAVEN
+        - PYTHON
+        - GENERIC
+        - HELM
+        - NUGET
+        - NPM
+        - RPM
+        - CARGO
+        - COMPOSER
+        - GO
+        - HUGGINGFACE
+        - CONDA
+        - DART
+        - SWIFT
+        - DEBIAN
+    PackageKind:
+      type: string
+      description: refers to package kind which is being used in huggingface packages for model, dataset
+      example: model
+    RegistryType:
+      type: string
+      description: refers to type of registry i.e virtual or upstream
+      enum:
+        - VIRTUAL
+        - UPSTREAM
+    DeletedAtMs:
+      type: integer
+      format: int64
+      nullable: true
+      description: Unix timestamp in milliseconds when the resource was soft-deleted
+      example: 1736360000456
+    LastModifiedAtMs:
+      type: integer
+      format: int64
+      nullable: true
+      description: Unix timestamp in milliseconds when the resource was last modified
+      example: 1736360000123
+    policySets:
+      type: array
+      description: List of opa policy sets.
+      items:
+        type: object
+        properties:
+          policySetRef:
+            type: string
+            description: "Unique reference for the opa policy set. Example: `my-policy` or `account.my-policy`"
+          policySetName:
+            type: string
+            description: Policy Set name
+        required:
+          - policySetRef
+          - policySetName
+    ArtifactScan:
+      type: object
+      properties:
+        packageType:
+          $ref: "#/components/schemas/PackageType"
+        id:
+          type: string
+        packageName:
+          type: string
+          description: Package name
+        version:
+          type: string
+          description: Version
+        versionId:
+          type: string
+          description: Version
+        registryName:
+          type: string
+          description: Registry name
+        registryId:
+          type: string
+          description: Registry name
+        policySets:
+          $ref: "#/components/schemas/policySets"
+        scanStatus:
+          type: string
+          description: Scan status
+          enum:
+            - BLOCKED
+            - WARN
+        lastEvaluatedAt:
+          type: string
+        lastEvaluatedBy:
+          type: string
+      required:
+        - id
+        - packageType
+        - packageName
+        - version
+        - registryName
+        - registryId
+        - policySets
+        - scanStatus
+    Registry:
+      type: object
+      description: Registry Metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        packageType:
+          $ref: "#/components/schemas/PackageType"
+        type:
+          $ref: "#/components/schemas/RegistryType"
+        path:
+          type: string
+        url:
+          type: string
+        size:
+          type: string
+        isPublic:
+          type: boolean
+        artifactsCount:
+          type: integer
+          format: int64
+        packageCount:
+          type: integer
+          format: int64
+        downloadCount:
+          type: integer
+          format: int64
+        deletedAt:
+          $ref: "#/components/schemas/DeletedAtMs"
+        deletedBy:
+          $ref: "#/components/schemas/UserInfo"
+        modifiedAt:
+          $ref: "#/components/schemas/LastModifiedAtMs"
+        modifiedBy:
+          $ref: "#/components/schemas/UserInfo"
+      required:
+        - id
+        - name
+        - type
+        - packageType
+        - isPublic
+        - url
+    Package:
+      type: object
+      description: Package Metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        packageType:
+          $ref: "#/components/schemas/PackageType"
+        packageKind:
+          $ref: "#/components/schemas/PackageKind"
+        registryId:
+          type: string
+          format: uuid
+        registryName:
+          type: string
+        isPublic:
+          type: boolean
+        isQuarantined:
+          type: boolean
+        quarantineReason:
+          type: string
+        latestVersion:
+          type: string
+        latestVersionArtifactKey:
+          type: object
+          additionalProperties: true
+        downloadCount:
+          type: integer
+          format: int64
+        deletedAt:
+          $ref: "#/components/schemas/DeletedAtMs"
+        deletedBy:
+          $ref: "#/components/schemas/UserInfo"
+        modifiedAt:
+          $ref: "#/components/schemas/LastModifiedAtMs"
+        modifiedBy:
+          $ref: "#/components/schemas/UserInfo"
+      required:
+        - id
+        - name
+        - packageType
+        - registryId
+        - registryName
+        - isPublic
+        - latestVersion
+    FileMetadata:
+      type: object
+      description: File Metadata
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        path:
+          type: string
+        downloadUrl:
+          type: string
+        size:
+          type: string
+        md5:
+          type: string
+        sha1:
+          type: string
+        sha256:
+          type: string
+        sha512:
+          type: string
+        createdAt:
+          $ref: "#/components/schemas/LastModifiedAtMs"
+        createdBy:
+          $ref: "#/components/schemas/UserInfo"
+      required:
+        - id
+        - name
+        - path
+        - createdAt
+        - sha1
+        - sha256
+        - sha512
+        - md5
+        - size
+    Version:
+      type: object
+      description: Version metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        packageId:
+          type: string
+          format: uuid
+        packageName:
+          type: string
+        packageType:
+          $ref: "#/components/schemas/PackageType"
+        packageKind:
+          $ref: "#/components/schemas/PackageKind"
+        registryId:
+          type: string
+          format: uuid
+        registryName:
+          type: string
+        registryType:
+          $ref: "#/components/schemas/RegistryType"
+        size:
+          type: string
+        fileCount:
+          type: integer
+        downloadCount:
+          type: integer
+          format: int64
+        isQuarantined:
+          type: boolean
+        quarantineReason:
+          type: string
+        firewallMode:
+          type: string
+          enum:
+            - ENABLED
+            - QUARANTINE
+            - ALLOW
+        scanStatus:
+          type: string
+          enum:
+            - ALLOWED
+            - BLOCKED
+            - WARN
+            - UNKNOWN
+        scanID:
+          type: string
+          format: uuid
+        lastScannedAt:
+          type: string
+        pullCommand:
+          type: string
+        artifactKey:
+          type: object
+          additionalProperties: true
+        deploymentMetadata:
+          type: object
+          properties:
+            prodEnvCount:
+              type: integer
+            nonProdEnvCount:
+              type: integer
+          required:
+            - prodEnvCount
+            - nonProdEnvCount
+        deletedAt:
+          $ref: "#/components/schemas/DeletedAtMs"
+        deletedBy:
+          $ref: "#/components/schemas/UserInfo"
+        modifiedAt:
+          $ref: "#/components/schemas/LastModifiedAtMs"
+        modifiedBy:
+          $ref: "#/components/schemas/UserInfo"
+        createdAt:
+          $ref: "#/components/schemas/LastModifiedAtMs"
+        createdBy:
+          $ref: "#/components/schemas/UserInfo"
+        pushedBy:
+          $ref: "#/components/schemas/UserInfo"
+      required:
+        - id
+        - name
+        - packageType
+        - registryId
+        - registryName
+        - packageId
+        - packageName
+        - registryType
+    UserInfo:
+      type: object
+      description: Structured user information for a principal
+      properties:
+        uid:
+          type: string
+          description: Principal unique identifier (username)
+        display_name:
+          type: string
+          description: Human-readable display name
+        email:
+          type: string
+          description: Email address
+        type:
+          type: string
+          description: Principal type (user, service, service_account)
+    PageInfo:
+      type: object
+      description: |
+        Pagination metadata.
+        - `page` selects which page of results to return (0 = first page).
+        - `size` controls how many items are returned per page.
+        - `hasMore` is true if more results exist after this page.
+      properties:
+        page:
+          type: integer
+          format: int64
+          description: The current page (0-indexed)
+          example: 0
+        size:
+          type: integer
+          format: int64
+          description: Number of items per page
+          example: 20
+        hasMore:
+          type: boolean
+          description: True if more results exist after this page.
+          example: true
+      required:
+        - page
+        - size
+        - hasMore
+    Meta:
+      type: object
+      description: Metadata about the list response
+      properties:
+        activeCount:
+          type: integer
+          format: int64
+          description: Count of active (non-deleted) entities
+          example: 95
+        deletedCount:
+          type: integer
+          format: int64
+          description: Count of soft-deleted entities
+          example: 5
+      required:
+        - activeCount
+        - deletedCount
+  parameters:
+    AccountIdentifier:
+      name: account_identifier
+      in: query
+      required: true
+      description: |
+        Unique identifier for the Harness account.
+      schema:
+        type: string
+    OrgIdentifier:
+      name: org_identifier
+      in: query
+      required: false
+      description: |
+        Unique identifier for the organization within the account.
+        
+        Example: `default` or `engineering_org`
+      schema:
+        type: string
+    ProjectIdentifier:
+      name: project_identifier
+      in: query
+      required: false
+      description: |
+        Unique identifier for the project within the organization.
+        
+        Example: `my_project` or `frontend_services`
+      schema:
+        type: string
+    RegistryQueryParam:
+      name: registry
+      in: query
+      required: true
+      description: |
+        Unique identifier for the registry.
+        
+        Example: `my-docker-registry` or `npm-packages`
+      schema:
+        type: string
+    RegistryIdParam:
+      name: registry_id
+      in: query
+      required: true
+      description: |
+        Unique registry ID.
+      schema:
+        type: string
+        format: uuid
+    RegistryListParam:
+      name: registry
+      in: query
+      required: false
+      description: |
+        Unique identifier for the registry.
+
+        Example: `my-docker-registry` or `npm-packages`
+
+        Note: This parameter should have one registry if package query param is provided
+      schema:
+        type: array
+        items:
+          type: string
+    PackageIdParam:
+      name: package_id
+      in: query
+      required: true
+      description: |
+        Unique identifier for the package.
+      schema:
+        type: string
+        format: uuid
+    FileIdParam:
+      name: file_id
+      in: query
+      required: true
+      description: |
+        Unique identifier for the file.
+      schema:
+        type: string
+        format: uuid
+    VersionIdParam:
+      name: version_id
+      in: query
+      required: true
+      description: |
+        Unique identifier for the version.
+      schema:
+        type: string
+        format: uuid
+    PackageParam:
+      name: package
+      in: query
+      required: false
+      description: |
+        Name of the package
+        
+        Example: `nginx` or `redis`
+      schema:
+        type: string
+    RegistryIdListParam:
+      name: registry_id
+      in: query
+      required: false
+      style: form
+      explode: false
+      description: |
+        Unique id for the registry.
+        Note: This parameter should have one id if package query param is provided
+      schema:
+        type: array
+        items:
+          type: string
+          format: uuid
+      example:
+        - "12345678-1234-1234-1234-123456789012"
+        - "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    KeyParam:
+      name: key
+      in: query
+      required: true
+      description: |
+        The metadata key for which to retrieve all possible values.
+        This parameter is used to filter metadata values by a specific key name.
+        
+        Examples: `environment`, `team`, `version_type`, `build_number`
+      schema:
+        type: string
+    PathParam:
+      name: path
+      in: query
+      required: false
+      description: |
+        The hierarchical path to the registry entity. The path structure varies based on the entity type:
+        
+        **Registry Level**: Empty path (`""`) - refers to the registry root
+        
+        **package Level**: `{package-name}` - refers to a specific package
+        - Example: `my-package` for an package named "my-package"
+        - Example: `@scope/package-name` for scoped npm packages
+        
+        **Version Level**: `{package-name}/{version}` - refers to a specific version of an package
+        - Example: `my-package/1.0.0` for version "1.0.0" of package "my-package"
+        - Example: `@scope/package-name/2.1.0` for version "2.1.0" of scoped package
+        
+        **Nested Artifacts**: For artifacts with nested structures, use forward slashes as separators
+        - Example: `group/artifact/1.0.0` for Maven-style group/artifact/version
+        - Example: `namespace/Package/latest` for Docker-style namespace/Package/tag
+      schema:
+        type: string
+    PolicySetRefParam:
+      name: policy_set_ref
+      in: query
+      required: false
+      description: "Unique reference for the opa policy set. Example: `my-policy` or `account.my-policy"
+      schema:
+        type: string
+    ScanStatusParam:
+      name: scan_status
+      in: query
+      required: false
+      description: "Scan status of the artifact after opa policy evaluation. Note: It can only be BLOCKED or WARN"
+      schema:
+        type: string
+    V3RegistryIdentifier:
+      name: registry_id
+      in: query
+      required: true
+      description: "Registry identifier"
+      schema:
+        type: string
+    V3VersionParam:
+      name: version
+      in: query
+      required: true
+      description: "Version of the package"
+      schema:
+        type: string
+    ScanIDParam:
+      name: scan_id
+      in: path
+      required: true
+      description: "Scan Identifier"
+      schema:
+        type: string
+    ScanIDQueryParam:
+      name: scan_id
+      in: query
+      required: false
+      description: "Scan Identifier"
+      schema:
+        type: string
+    EvaluationIdParam:
+      name: evaluation_id
+      in: path
+      required: true
+      description: "Bulk evaluation identifier"
+      schema:
+        type: string
+    PackageKindQueryParam:
+      name: package_kind
+      in: query
+      required: false
+      description: "refers to package kind which is being used in huggingface packages for model, dataset"
+      schema:
+        type: string
+        example: model
+    FilePath:
+      name: path
+      in: query
+      required: true
+      description: "Full path of file to download"
+      schema:
+        type: string
+    FileNamePathParam:
+      name: file_name
+      in: path
+      required: true
+      description: "Name of file to download"
+      schema:
+        type: string
+    PageNumber:
+      name: page
+      in: query
+      required: false
+      description: |
+        The page number for pagination (0-indexed).
+        
+        Used to navigate through large result sets. Combined with `size` parameter
+        to control which subset of results to return.
+        
+        Example: `page=0` returns the first page, `page=1` returns the second page
+      schema:
+        type: integer
+        format: int64
+        default: 0
+    PageSize:
+      name: size
+      in: query
+      required: false
+      description: |
+        The number of items to return per page.
+        
+        Controls the page size for paginated results. 
+        
+        Example: `size=50` returns up to 50 items per page
+      schema:
+        type: integer
+        format: int64
+        default: 20
+        minimum: 1
+        maximum: 100
+    Query:
+      name: query
+      in: query
+      required: true
+      description: |
+        Advanced search expression (query language).
+
+        Query structure
+        - A query clause consists of a field followed by an operator followed by a value.
+          Example clause: `email:"amy@rocketrides.io"`
+          - field: `email`
+          - operator: `:`
+          - value: `amy@rocketrides.io`
+
+        Operators
+        - `:` exact match operator (case sensitive): `field:value`
+
+        Combining clauses
+        - You can combine up to 10 query clauses.
+        - Clauses can be separated by a space or by using `AND` / `OR` keywords.
+        - You can’t combine `AND` and `OR` in the same query.
+        - Parentheses are not supported.
+        - If clauses are separated by a space, clauses are combined using `AND` logic.
+
+        Supported query fields for files search api
+        - `package` (string)
+        - `version` (string)
+        - `groupId` (string)
+        - `artifactId` (string)
+        - `classifier` (string)
+        - `extension` (string)
+        - `fileName` (string)
+
+        Examples
+        - `query=package:"usd" AND version:"1.0.0"`
+        - `query=fileName:"report" OR extension:"zip"`
+      schema:
+        type: string
+    SortOrder:
+      name: sort_order
+      in: query
+      required: false
+      description: |
+        The sort order for the results.
+        
+        Determines whether results are sorted in ascending or descending order.
+        Must be used in combination with `sort_field` parameter.
+        
+        Allowed values: `ASC` (ascending), `DESC` (descending)
+      schema:
+        type: string
+        enum: [ "ASC", "DESC" ]
+        default: "ASC"
+    SortField:
+      name: sort_field
+      in: query
+      required: false
+      description: |
+        The field by which to sort the results.
+        
+        Specifies which field should be used for sorting. Available fields depend
+        on the endpoint and the type of data being returned.
+        
+        Common examples: `name`, `createdAt`, `updatedAt`
+      schema:
+        type: string
+    SearchTerm:
+      name: search_term
+      in: query
+      required: false
+      description: |
+        Search term for filtering results.
+        
+        Example: `search_term=prod` might match keys like "production", "prod-env", etc.
+      schema:
+        type: string
+    PackageTypeListParam:
+      name: package_type
+      in: query
+      required: false
+      description: Registry Package Type
+      schema:
+        type: array
+        items:
+          type: string
+    RegistryTypeParam:
+      name: type
+      in: query
+      required: false
+      description: Registry Type
+      schema:
+        type: string
+        enum:
+          - VIRTUAL
+          - UPSTREAM
+    RegistryScope:
+      name: scope
+      in: query
+      description: >
+        **Scope of registries to list**
+
+        * **none** – current space only (default)  
+        * **ancestors** – current space **plus** all parent spaces  
+        * **descendants** – current space **plus** all child spaces  
+
+        If omitted, `none` is assumed.
+      required: false
+      schema:
+        type: string
+        enum:
+          - ancestors
+          - descendants
+          - none
+    MetadataFilterListParam:
+      name: metadata
+      in: query
+      required: false
+      description: Filter by metadata using key:value format
+      schema:
+        type: array
+        items:
+          type: string
+    DeleteFilterParam:
+      name: deleted
+      in: query
+      required: false
+      schema:
+        type: string
+        enum:
+          - exclude
+          - include
+          - only
+        default: exclude
+    IdPathParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ForceParam:
+      name: force
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+    PackageTypesListParam:
+      name: package_types
+      in: query
+      required: false
+      description: Registry Package Type
+      schema:
+        type: array
+        items:
+          type: string
+    RegistryIdsListParam:
+      name: registry_ids
+      in: query
+      required: false
+      description: |
+        Unique id for the registry.
+        Note: This parameter should have one id if package query param is provided
+      schema:
+        type: array
+        items:
+          type: string
+          format: uuid
+      example:
+        - "12345678-1234-1234-1234-123456789012"
+        - "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    PackageIdsListParam:
+      name: package_ids
+      in: query
+      required: false
+      description: |
+        Unique id for the package.
+      schema:
+        type: array
+        items:
+          type: string
+          format: uuid
+      example:
+        - "12345678-1234-1234-1234-123456789012"
+        - "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    RegistryIdOptionalParam:
+      name: registry_id
+      in: query
+      required: false
+      description: |
+        Unique id for the registry.
+      schema:
+        type: string
+      example: "12345678-1234-1234-1234-123456789012"
+    PackageIdOptionalParam:
+      name: package_id
+      in: query
+      required: false
+      description: |
+        Unique identifier for the package.
+      schema:
+        type: string
+    VersionIdOptionalParam:
+      name: version_id
+      in: query
+      required: false
+      description: |
+        Unique identifier for the version.
+      schema:
+        type: string
+    ConanRecipeRevisionOptionalParam:
+      name: recipe_revision_id
+      in: query
+      required: false
+      description: |
+        Internal UUID of the Conan recipe revision (RREV) row. Resolves file paths via
+        node_entity_mapping. Requires version_id.
+        Mutually exclusive with package_revision_id.
+      schema:
+        type: string
+    ConanPackageRevisionOptionalParam:
+      name: package_revision_id
+      in: query
+      required: false
+      description: |
+        Internal UUID of the Conan package revision (PREV) row. Resolves file paths via
+        node_entity_mapping. Requires version_id.
+        Mutually exclusive with recipe_revision_id.
+      schema:
+        type: string
+    IncludeMetaParam:
+      name: include_meta
+      in: query
+      required: false
+      description: |
+        When `true`, include the `meta` object (e.g. active/deleted counts)
+        in the response.
+      schema:
+        type: boolean
+        default: false
+    SortParam:
+      name: sort
+      in: query
+      required: false
+      description: |
+        The sort for the results.
+        Accepted pattern: `sort_field:sort_order` where sort_field is the field name
+        and sort_order is either `asc` or `desc`.
+
+        Examples: `name:asc`, `modifiedAt:desc`
+      schema:
+        type: string
+    UploadedByParam:
+      name: uploaded_by
+      in: query
+      required: false
+      description: |
+        Filter by uploaded by user ID.
+
+        Example: `uploaded_by=123`
+      schema:
+        type: array
+        items:
+          type: integer
+          format: int64
+          example: 123

@@ -590,14 +590,21 @@ func evalQueryParams(ctx *cmdctx.Ctx, exprs map[string]string, withScope bool, e
 // evalBodyParams evaluates a dot-path→expr map against ctx, returning a nested map[string]any.
 // Dot-path keys (e.g. "config.type") create nested objects via setDotPath.
 func evalBodyParams(ctx *cmdctx.Ctx, exprs map[string]string) map[string]any {
-	exprEnv := exprenv.Make(ctx)
 	body := make(map[string]any)
+	mergeBodyParams(exprenv.Make(ctx), body, exprs)
+	return body
+}
+
+// mergeBodyParams writes each non-nil body_params result into dst, so it can add to a body
+// that already has content (e.g. a subtree picked from a GET). Expressions evaluating to
+// nil are skipped rather than written as null: a caller that omitted the flag wants the key
+// absent, and under a merge patch null means "delete this field".
+func mergeBodyParams(env map[string]any, dst map[string]any, exprs map[string]string) {
 	for dotPath, exprStr := range exprs {
-		if result, ok := exprenv.EvalExprAny(exprEnv, exprStr); ok && result != nil {
-			setDotPath(body, dotPath, result)
+		if result, ok := exprenv.EvalExprAny(env, exprStr); ok && result != nil {
+			setDotPath(dst, dotPath, result)
 		}
 	}
-	return body
 }
 
 // parseArrayFlag parses a string flag value as []string.
@@ -737,7 +744,8 @@ func resolveContentType(ep *spec.EndpointSpec, method string) string {
 //  2. Extract ep.UpdateBodyPick subtree from the response
 //  3. Apply --set/--del mutations using noun field paths
 //  4. Re-wrap under ep.UpdateBodyWrap key (if set)
-//  5. PUT or PATCH the result (method determines verb and Content-Type)
+//  5. Merge ep.BodyParams for write-only fields the GET cannot supply
+//  6. PUT or PATCH the result (method determines verb and Content-Type)
 func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path, method string) (any, error) {
 	exprEnv := exprenv.Make(ctx)
 
@@ -792,10 +800,19 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, err
 	}
 
-	var updateBody any = mutable
+	body := mutable
 	if ep.UpdateBodyWrap != "" {
-		updateBody = map[string]any{ep.UpdateBodyWrap: mutable}
+		body = map[string]any{ep.UpdateBodyWrap: mutable}
 	}
+
+	// body_params supply fields the GET cannot: write-only ones the API accepts but never
+	// returns, such as audit metadata. They are merged after the wrap, so they land
+	// alongside the wrapped subtree rather than inside it. An expression evaluating to nil
+	// contributes no key, which matters for PATCH: an explicit null is a merge-patch
+	// instruction to delete the field, not to leave it alone.
+	mergeBodyParams(exprEnv, body, ep.BodyParams)
+
+	var updateBody any = body
 	updateQP := evalQueryParams(ctx, ep.QueryParams, true)
 	result, _, err := c.DoRequest(client.Request{
 		Method:          method,
