@@ -51,5 +51,5 @@ func AddPackageErrorToStat(stats *types.TransferStats, pkg types.Package, srcReg
 		Status:   types.StatusFail,
 		Error:    err.Error(),
 	}
-	stats.FileStats = append(stats.FileStats, stat)
+	stats.Add(stat)
 }

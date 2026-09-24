@@ -266,7 +266,7 @@ func (r *Version) Migrate(ctx context.Context) error {
 					Status:   types.StatusSkip,
 					Reason:   types.SkipReasonAlreadyExists,
 				}
-				r.stats.FileStats = append(r.stats.FileStats, stat)
+				r.stats.Add(stat)
 				continue
 			}
 
