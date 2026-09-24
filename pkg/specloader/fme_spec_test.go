@@ -433,13 +433,14 @@ func TestFMESpec_ListSegment(t *testing.T) {
 		t.Fatal("list segment: command not found or missing endpoint spec")
 	}
 
-	fixture := `{"data":[{"name":"my-segment","description":"desc","trafficType":{"name":"user"},"status":"ACTIVE","createdAt":1778049995.725}],"limit":100,"offset":0,"totalCount":1}`
-	srv, path := fmeCaptureServer(t, fixture)
+	fixture := `{"data":[{"name":"my-segment","description":"desc","trafficType":{"name":"user"},"segmentType":"STANDARD","status":"ACTIVE","createdAt":1778049995.725}],"limit":100,"offset":0,"totalCount":1}`
+	srv, path, query := fmeCaptureServerWithQuery(t, fixture)
 
 	ctx := fmeTestCtx(t, srv.URL)
 	ctx.Noun = "segment"
 	ctx.Resolver = reg
 	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"segment-type": "LARGE", "status": "ARCHIVED"}
 
 	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
 		t.Fatalf("RunListEndpoint: %v", err)
@@ -448,12 +449,295 @@ func TestFMESpec_ListSegment(t *testing.T) {
 	if !strings.HasPrefix(*path, "/fme/api/v4/segments") {
 		t.Fatalf("request path = %q, want prefix /fme/api/v4/segments", *path)
 	}
+	// SegmentListQueryParams marks segment_type @NotNull, so a list call without it is a
+	// 400 rather than an unfiltered list.
+	for _, want := range []string{"segment_type=LARGE", "status=ARCHIVED"} {
+		if !strings.Contains(*query, want) {
+			t.Fatalf("query = %q, want %s", *query, want)
+		}
+	}
 
 	body := fmeReadOut(t, ctx)
 	for _, want := range []string{"my-segment", "user", "ACTIVE"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("output missing %q: %s", want, body)
 		}
+	}
+}
+
+// TestFMESpec_GetSegment asserts --segment-type reaches the segment_type query param
+// (required on the v4 GET) and that the segment noun renders the tags/owners/segmentType
+// fields the response carries.
+func TestFMESpec_GetSegment(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("get", "segment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("get segment: command not found or missing endpoint spec")
+	}
+
+	fixture := `{"id":"s1","name":"my-segment","description":"desc","trafficType":{"name":"user"},` +
+		`"segmentType":"STANDARD","status":"ACTIVE",` +
+		`"tags":[{"id":"t1","name":"alpha"}],` +
+		`"owners":[{"id":"u1","name":"alice","type":"USER","email":"alice@x.com"}],` +
+		`"createdAt":1778049995.725}`
+	srv, path, query := fmeCaptureServerWithQuery(t, fixture)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "my-segment"
+	ctx.Noun = "segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"segment-type": "STANDARD"}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if *path != "/fme/api/v4/segments/my-segment" {
+		t.Fatalf("request path = %q, want /fme/api/v4/segments/my-segment", *path)
+	}
+	if !strings.Contains(*query, "segment_type=STANDARD") {
+		t.Fatalf("query = %q, want segment_type=STANDARD (from --segment-type)", *query)
+	}
+
+	out := fmeReadOut(t, ctx)
+	for _, want := range []string{"my-segment", "STANDARD", "alpha", "alice"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q: %s", want, out)
+		}
+	}
+}
+
+// TestFMESpec_CreateSegment asserts segmentType lands in the create body — it is
+// @NotNull on CreateSegmentRequest, so omitting it is a 400 "Field 'segmentType' is
+// required" on every create.
+func TestFMESpec_CreateSegment(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("create", "segment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("create segment: command not found or missing endpoint spec")
+	}
+
+	srv, caps := fmeSequenceServer(t, []string{`{"entity":{"name":"new-segment"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "new-segment"
+	ctx.Noun = "segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{
+		"traffic-type": "user",
+		"segment-type": "RULE_BASED",
+		"description":  "from the cli",
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	got := (*caps)[0]
+	if got.method != "POST" || got.path != "/fme/api/v4/segments" {
+		t.Fatalf("request = %s %s, want POST /fme/api/v4/segments", got.method, got.path)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(got.body, &body); err != nil {
+		t.Fatalf("unmarshal request body: %v", err)
+	}
+	for k, want := range map[string]string{
+		"name":        "new-segment",
+		"trafficType": "user",
+		"segmentType": "RULE_BASED",
+		"description": "from the cli",
+	} {
+		if body[k] != want {
+			t.Fatalf("body[%q] = %v, want %q (full body: %v)", k, body[k], want, body)
+		}
+	}
+}
+
+// TestFMESpec_UpdateSegment asserts the get-then-patch body is narrowed to the three
+// fields UpdateSegmentRequest accepts. Echoing the GET back (the previous
+// update_body_pick: it) sent id/name/trafficType/status/segmentType, which v4 rejects
+// as unknown properties, so every segment update was a 400.
+func TestFMESpec_UpdateSegment(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "segment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update segment: command not found or missing endpoint spec")
+	}
+
+	getResp := `{"id":"s1","name":"my-segment","description":"old desc","trafficType":{"name":"user"},` +
+		`"segmentType":"STANDARD","status":"ACTIVE","createdAt":1778049995.725}`
+	srv, caps := fmeSequenceServer(t, []string{getResp, `{"entity":{"name":"my-segment"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "my-segment"
+	ctx.Noun = "segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"segment-type": "STANDARD"}
+	ctx.SetArgs = map[string]string{"description": "new desc"}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if len(*caps) != 2 {
+		t.Fatalf("got %d requests, want 2 (GET, PATCH)", len(*caps))
+	}
+	patch := (*caps)[1]
+	if patch.method != "PATCH" {
+		t.Fatalf("2nd request method = %q, want PATCH", patch.method)
+	}
+	if !strings.Contains(patch.rawQuery, "segment_type=STANDARD") {
+		t.Fatalf("PATCH query = %q, want segment_type=STANDARD", patch.rawQuery)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(patch.body, &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v", err)
+	}
+	if len(body) != 3 || body["description"] != "new desc" {
+		t.Fatalf("PATCH body = %v, want exactly {description, tags, owners}", body)
+	}
+	for _, k := range []string{"tags", "owners"} {
+		arr, ok := body[k].([]any)
+		if !ok || len(arr) != 0 {
+			t.Fatalf("PATCH body[%q] = %v, want empty array", k, body[k])
+		}
+	}
+}
+
+// TestFMESpec_UpdateSegment_TagsOwners mirrors the feature_flag behaviour for segments:
+// existing members are carried into the PATCH so --set/--del amend the collection instead
+// of replacing it, and they are reshaped to the write DTOs (tags drop the read-only id,
+// owners become {type, id} / {type, identifier}) because v4 rejects the read shape.
+func TestFMESpec_UpdateSegment_TagsOwners(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "segment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update segment: command not found or missing endpoint spec")
+	}
+
+	getResp := `{"name":"my-segment","description":"desc",` +
+		`"tags":[{"id":"t1","name":"alpha"},{"id":"t2","name":"beta"}],` +
+		`"owners":[{"id":"u1","name":"alice","type":"USER","email":"alice@x.com"},` +
+		`{"id":"g1","name":"platform","type":"GROUP"}]}`
+	srv, caps := fmeSequenceServer(t, []string{getResp, `{"entity":{"name":"my-segment"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "my-segment"
+	ctx.Noun = "segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"segment-type": "STANDARD"}
+	ctx.SetArgs = map[string]string{"tags.gamma": "", "owners.user:u2": ""}
+	ctx.DelArgs = []string{"tags.alpha"}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal((*caps)[1].body, &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v", err)
+	}
+
+	gotTags, err := json.Marshal(body["tags"])
+	if err != nil {
+		t.Fatalf("marshal tags: %v", err)
+	}
+	if wantTags := `[{"name":"beta"},{"name":"gamma"}]`; string(gotTags) != wantTags {
+		t.Errorf("PATCH tags = %s, want %s (beta kept, alpha removed, gamma added, ids dropped)", gotTags, wantTags)
+	}
+
+	gotOwners, err := json.Marshal(body["owners"])
+	if err != nil {
+		t.Fatalf("marshal owners: %v", err)
+	}
+	wantOwners := `[{"id":"u1","type":"USER"},{"identifier":"g1","type":"GROUP"},{"id":"u2","type":"USER"}]`
+	if string(gotOwners) != wantOwners {
+		t.Errorf("PATCH owners = %s, want %s (existing kept and reshaped, u2 added)", gotOwners, wantOwners)
+	}
+}
+
+// TestFMESpec_DeleteSegment asserts the archive call carries segment_type, which the v4
+// DELETE requires just as GET and PATCH do.
+func TestFMESpec_DeleteSegment(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("delete", "segment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("delete segment: command not found or missing endpoint spec")
+	}
+
+	srv, caps := fmeSequenceServer(t, []string{`{}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "my-segment"
+	ctx.Noun = "segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"segment-type": "LARGE"}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	got := (*caps)[0]
+	if got.method != "DELETE" || got.path != "/fme/api/v4/segments/my-segment" {
+		t.Fatalf("request = %s %s, want DELETE /fme/api/v4/segments/my-segment", got.method, got.path)
+	}
+	if !strings.Contains(got.rawQuery, "segment_type=LARGE") {
+		t.Fatalf("query = %q, want segment_type=LARGE", got.rawQuery)
+	}
+}
+
+// TestFMESpec_DeleteSegmentDefinition asserts --env reaches environment_id. The delete
+// command declared the flag but never mapped it, and environment_id is @NotBlank on the
+// v4 resource, so the call was a 400 no matter what the user passed.
+func TestFMESpec_DeleteSegmentDefinition(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("delete", "segment:definition")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("delete segment:definition: command not found or missing endpoint spec")
+	}
+
+	srv, caps := fmeSequenceServer(t, []string{`{}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "my-segment"
+	ctx.Noun = "segment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"env": "env-uuid-1"}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	got := (*caps)[0]
+	if got.method != "DELETE" || got.path != "/fme/api/v4/segment-definitions/my-segment" {
+		t.Fatalf("request = %s %s, want DELETE /fme/api/v4/segment-definitions/my-segment", got.method, got.path)
+	}
+	if !strings.Contains(got.rawQuery, "environment_id=env-uuid-1") {
+		t.Fatalf("query = %q, want environment_id=env-uuid-1 (from --env)", got.rawQuery)
 	}
 }
 
