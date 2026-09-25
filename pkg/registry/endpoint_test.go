@@ -1265,7 +1265,7 @@ func TestApplyMutations(t *testing.T) {
 
 	t.Run("set_scalar", func(t *testing.T) {
 		m := map[string]any{}
-		if err := applyMutations(m, map[string]string{"name": "new"}, nil, fields); err != nil {
+		if err := applyMutations(nil, m, map[string]string{"name": "new"}, nil, fields, nil); err != nil {
 			t.Fatal(err)
 		}
 		if m["name"] != "new" {
@@ -1274,7 +1274,7 @@ func TestApplyMutations(t *testing.T) {
 	})
 
 	t.Run("set_unknown_field_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, map[string]string{"bad": "x"}, nil, fields)
+		err := applyMutations(nil, map[string]any{}, map[string]string{"bad": "x"}, nil, fields, nil)
 		if err == nil || !strings.Contains(err.Error(), "unknown or read-only") {
 			t.Fatalf("err = %v, want unknown or read-only", err)
 		}
@@ -1282,7 +1282,7 @@ func TestApplyMutations(t *testing.T) {
 
 	t.Run("set_tag_creates_entry", func(t *testing.T) {
 		m := map[string]any{}
-		if err := applyMutations(m, map[string]string{"labels.env": "prod"}, nil, fields); err != nil {
+		if err := applyMutations(nil, m, map[string]string{"labels.env": "prod"}, nil, fields, nil); err != nil {
 			t.Fatal(err)
 		}
 		tags, ok := m["labels"].(map[string]any)
@@ -1292,7 +1292,7 @@ func TestApplyMutations(t *testing.T) {
 	})
 
 	t.Run("set_tag_no_subkey_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, map[string]string{"labels": "v"}, nil, fields)
+		err := applyMutations(nil, map[string]any{}, map[string]string{"labels": "v"}, nil, fields, nil)
 		if err == nil || !strings.Contains(err.Error(), "require a key") {
 			t.Fatalf("err = %v, want require a key", err)
 		}
@@ -1300,7 +1300,7 @@ func TestApplyMutations(t *testing.T) {
 
 	t.Run("set_set_field_adds_member", func(t *testing.T) {
 		m := map[string]any{}
-		if err := applyMutations(m, map[string]string{"modules.CD": ""}, nil, fields); err != nil {
+		if err := applyMutations(nil, m, map[string]string{"modules.CD": ""}, nil, fields, nil); err != nil {
 			t.Fatal(err)
 		}
 		if !sliceContains(getDotPathSlice(m, "modules"), "CD") {
@@ -1310,7 +1310,7 @@ func TestApplyMutations(t *testing.T) {
 
 	t.Run("set_set_field_dedup", func(t *testing.T) {
 		m := map[string]any{"modules": []any{"CD"}}
-		if err := applyMutations(m, map[string]string{"modules.CD": ""}, nil, fields); err != nil {
+		if err := applyMutations(nil, m, map[string]string{"modules.CD": ""}, nil, fields, nil); err != nil {
 			t.Fatal(err)
 		}
 		s := getDotPathSlice(m, "modules")
@@ -1320,7 +1320,7 @@ func TestApplyMutations(t *testing.T) {
 	})
 
 	t.Run("set_set_field_no_member_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, map[string]string{"modules": ""}, nil, fields)
+		err := applyMutations(nil, map[string]any{}, map[string]string{"modules": ""}, nil, fields, nil)
 		if err == nil || !strings.Contains(err.Error(), "require a member") {
 			t.Fatalf("err = %v, want require a member", err)
 		}
@@ -1328,7 +1328,7 @@ func TestApplyMutations(t *testing.T) {
 
 	t.Run("del_scalar_sets_nil", func(t *testing.T) {
 		m := map[string]any{"name": "old"}
-		if err := applyMutations(m, nil, []string{"name"}, fields); err != nil {
+		if err := applyMutations(nil, m, nil, []string{"name"}, fields, nil); err != nil {
 			t.Fatal(err)
 		}
 		if m["name"] != nil {
@@ -1337,7 +1337,7 @@ func TestApplyMutations(t *testing.T) {
 	})
 
 	t.Run("del_unknown_field_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, nil, []string{"bad"}, fields)
+		err := applyMutations(nil, map[string]any{}, nil, []string{"bad"}, fields, nil)
 		if err == nil || !strings.Contains(err.Error(), "unknown or read-only") {
 			t.Fatalf("err = %v, want unknown or read-only", err)
 		}
@@ -1345,7 +1345,7 @@ func TestApplyMutations(t *testing.T) {
 
 	t.Run("del_tag_removes_entry", func(t *testing.T) {
 		m := map[string]any{"labels": map[string]any{"env": "prod", "team": "ops"}}
-		if err := applyMutations(m, nil, []string{"labels.env"}, fields); err != nil {
+		if err := applyMutations(nil, m, nil, []string{"labels.env"}, fields, nil); err != nil {
 			t.Fatal(err)
 		}
 		tags := getDotPathMap(m, "labels")
@@ -1358,7 +1358,7 @@ func TestApplyMutations(t *testing.T) {
 	})
 
 	t.Run("del_tag_no_subkey_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, nil, []string{"labels"}, fields)
+		err := applyMutations(nil, map[string]any{}, nil, []string{"labels"}, fields, nil)
 		if err == nil || !strings.Contains(err.Error(), "require a key") {
 			t.Fatalf("err = %v, want require a key", err)
 		}
@@ -1366,7 +1366,7 @@ func TestApplyMutations(t *testing.T) {
 
 	t.Run("del_set_field_removes_member", func(t *testing.T) {
 		m := map[string]any{"modules": []any{"CD", "CE"}}
-		if err := applyMutations(m, nil, []string{"modules.CD"}, fields); err != nil {
+		if err := applyMutations(nil, m, nil, []string{"modules.CD"}, fields, nil); err != nil {
 			t.Fatal(err)
 		}
 		s := getDotPathSlice(m, "modules")
@@ -1376,7 +1376,7 @@ func TestApplyMutations(t *testing.T) {
 	})
 
 	t.Run("del_set_field_no_member_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, nil, []string{"modules"}, fields)
+		err := applyMutations(nil, map[string]any{}, nil, []string{"modules"}, fields, nil)
 		if err == nil || !strings.Contains(err.Error(), "require a member") {
 			t.Fatalf("err = %v, want require a member", err)
 		}
