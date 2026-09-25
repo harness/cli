@@ -27,6 +27,11 @@ nouns:
       - id: rollout_status
         label: Rollout Status
         expr: it.rolloutStatus.name ?? ""
+        mutable_path: rolloutStatus.id
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
       - id: created
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
@@ -60,8 +65,15 @@ nouns:
       - id: traffic_type
         label: Traffic Type
         expr: it.trafficType.name
+      - id: segment_type
+        label: Segment Type
+        expr: it.segmentType
       - id: status
         expr: it.status
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
       - id: created
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
@@ -149,7 +161,7 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         name: flags.search
-        rollout_statuses: flags.status
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -213,7 +225,12 @@ commands:
       path: /fme/api/v4/feature-flags/{{ctx.id}}
       get_path: /fme/api/v4/feature-flags/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      # v4's UpdateFeatureFlagRequest accepts only description/tags/owners/rolloutStatus
+      # and rejects unknown properties, so the GET response cannot be echoed back —
+      # id/name/trafficType/status/createdAt all make it a 400. Pick the one writable
+      # field the GET carries; rolloutStatus is created by --set via its mutable_path,
+      # and the PATCH is an RFC 7396 merge patch, so anything omitted is left untouched.
+      update_body_pick: "{description: it.description}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
@@ -245,6 +262,8 @@ commands:
     flags:
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flags/{{ctx.id}}/archive
@@ -254,6 +273,7 @@ commands:
         project_identifier: auth.project
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nArchived feature flag {{ctx.id}}\n"
 
@@ -266,6 +286,8 @@ commands:
     flags:
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flags/{{ctx.id}}/unarchive
@@ -275,6 +297,7 @@ commands:
         project_identifier: auth.project
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nUnarchived feature flag {{ctx.id}}\n"
 
@@ -601,8 +624,18 @@ commands:
   - command: list segment
     verb: list
     noun: segment
-    short: List segments
+    short: "List segments of one type: harness list segment --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      # v4 keeps the three segment kinds in disjoint collections and rejects a list call
+      # without segment_type, so there is no "all segments" query to default to.
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
+      - name: status
+        description: "Filter by status: ACTIVE, ARCHIVED (default ACTIVE)"
+        completion_values: [ACTIVE, ARCHIVED]
     endpoint:
       path: /fme/api/v4/segments
       items_expr: it.data
@@ -612,6 +645,8 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -625,26 +660,36 @@ commands:
   - command: get segment
     verb: get
     noun: segment
-    short: "Get segment details: harness get segment <name>"
+    short: "Get segment details: harness get segment <name> --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     endpoint:
       path: /fme/api/v4/segments/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
       item_expr: it
       yaml_pick_expr: it
 
   - command: create segment
     verb: create
     noun: segment
-    short: "Create a segment: harness create segment <name> --traffic-type user"
+    short: "Create a segment: harness create segment <name> --traffic-type user --segment-type STANDARD"
     handler_type: endpoint
     flags:
       - name: traffic-type
         description: Traffic type for the segment (e.g. user, account)
         required: true
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
       - name: description
         description: Segment description
     flags_builtin:
@@ -660,6 +705,7 @@ commands:
       create_body_init:
         name: ctx.id
         trafficType: flags["traffic-type"]
+        segmentType: flags["segment-type"]
         description: 'flags.description != "" ? flags.description : nil'
       create_body_wrap: ""
       item_expr: it.entity
@@ -668,8 +714,13 @@ commands:
   - command: update segment
     verb: update
     noun: segment
-    short: "Update a segment: harness update segment <name> --set description=foo"
+    short: "Update a segment: harness update segment <name> --segment-type STANDARD --set description=foo"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     flags_builtin:
       set: true
       del: true
@@ -678,12 +729,17 @@ commands:
       path: /fme/api/v4/segments/{{ctx.id}}
       get_path: /fme/api/v4/segments/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      # The v4 PATCH accepts only description/tags/owners, so the GET response cannot be
+      # echoed back: id/name/trafficType/status/segmentType are all rejected. Pick the one
+      # writable field the GET carries — the PATCH is an RFC 7396 merge patch, so the
+      # omitted collections are left untouched.
+      update_body_pick: "{description: it.description}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
       item_expr: it.entity
       text_header: "\nUpdated segment {{ctx.id}}\n"
 
@@ -691,8 +747,13 @@ commands:
     verb: delete
     noun: segment
     confirm_mode: prompt
-    short: Delete (archive) a segment
+    short: "Delete (archive) a segment: harness delete segment <name> --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     endpoint:
       method: DELETE
       path: /fme/api/v4/segments/{{ctx.id}}
@@ -700,6 +761,7 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
 
   # ── segment:definition ─────────────────────────────────────────────────────────
 
@@ -714,6 +776,9 @@ commands:
       - name: env
         description: Environment identifier (required)
         required: true
+      - name: status
+        description: "Filter by status: ACTIVE, ARCHIVED (default ACTIVE)"
+        completion_values: [ACTIVE, ARCHIVED]
     endpoint:
       path: /fme/api/v4/segment-definitions
       items_expr: it.data
@@ -724,6 +789,7 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -815,7 +881,7 @@ commands:
     noun: segment
     noun_variant: definition
     confirm_mode: prompt
-    short: Delete (archive) a segment definition from an environment
+    short: "Delete (archive) a segment definition from an environment: harness delete segment:definition <segment-name> --env <env-id>"
     handler_type: endpoint
     flags:
       - name: env
