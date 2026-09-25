@@ -796,7 +796,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		fieldPaths[f.ID] = f
 	}
 
-	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths); err != nil {
+	if err := applyMutations(ctx, mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths, getResult); err != nil {
 		return nil, err
 	}
 
@@ -918,7 +918,8 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		fieldPaths[f.ID] = f
 	}
 
-	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths); err != nil {
+	// create has no GET, so collections with a mutable_seed_expr correctly start empty.
+	if err := applyMutations(ctx, mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths, nil); err != nil {
 		return nil, err
 	}
 
@@ -932,14 +933,52 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 }
 
 // applyMutations applies --set and --del operations to mutable in-place.
-// applyMutations applies --set and --del operations to mutable in-place.
 // fieldPaths maps field IDs to their FieldDef; fd.MutablePath is the dot-path
 // within mutable (relative to the update_body_pick subtree, no "it." prefix).
-func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs []string, fieldPaths map[string]spec.FieldDef) error {
+//
+// ctx is only used to build the expr-lang environment that field_type "object_set"
+// evaluates its member_expr/member_identity in, so it may be nil for specs that
+// declare no object_set field.
+//
+// seedRoot is the GET response a field's mutable_seed_expr is evaluated against when the
+// picked body carries no value for a collection being mutated. Pass nil where there is no
+// GET (create), which leaves such collections starting from empty.
+func applyMutations(ctx *cmdctx.Ctx, mutable map[string]any, setArgs map[string]string, delArgs []string, fieldPaths map[string]spec.FieldDef, seedRoot any) error {
 	// Build a map from user-facing field ID to its mutable_path within mutable.
 	idToRel := map[string]string{}
 	for id, fd := range fieldPaths {
 		idToRel[id] = fd.MutablePath
+	}
+
+	// Built on first use: object_set is the only field type that evaluates expressions,
+	// and most commands declare none.
+	var exprEnv map[string]any
+	envFor := func() map[string]any {
+		if exprEnv == nil {
+			if ctx == nil {
+				exprEnv = map[string]any{}
+			} else {
+				exprEnv = exprenv.Make(ctx)
+			}
+		}
+		return exprEnv
+	}
+
+	// seed fills in a collection's current members from the GET response the first time a
+	// mutation touches a field the pick left out. Once written, the path exists, so later
+	// mutations of the same field see the seeded members rather than re-seeding.
+	seeded := map[string]bool{}
+	seed := func(fd spec.FieldDef, rel string) {
+		if fd.MutableSeedExpr == "" || seedRoot == nil || seeded[fd.ID] {
+			return
+		}
+		seeded[fd.ID] = true
+		if _, exists := getDotPath(mutable, rel); exists {
+			return
+		}
+		if v, ok := exprenv.EvalExprAny(exprenv.WithIt(envFor(), seedRoot), fd.MutableSeedExpr); ok && v != nil {
+			setDotPath(mutable, rel, v)
+		}
 	}
 
 	for key, val := range setArgs {
@@ -960,6 +999,7 @@ func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs [
 				return fmt.Errorf("--set %s: tag fields require a key (e.g. --%s tags.key=value)", key, "set")
 			}
 			tagKey := parts[1]
+			seed(fd, rel)
 			// Get or create the tags map.
 			tagsMap := getDotPathMap(mutable, rel)
 			if tagsMap == nil {
@@ -972,9 +1012,24 @@ func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs [
 				return fmt.Errorf("--set %s: set fields require a member (e.g. --set modules.CD)", key)
 			}
 			member := parts[1]
+			seed(fd, rel)
 			arr := getDotPathSlice(mutable, rel)
 			if !sliceContains(arr, member) {
 				arr = append(arr, member)
+			}
+			setDotPath(mutable, rel, arr)
+		case "object_set":
+			if len(parts) < 2 {
+				return fmt.Errorf("--set %s: %s requires a member (e.g. --set %s.%s)", key, fieldID, fieldID, memberHint(fd))
+			}
+			obj, identity, err := objectSetMember(envFor(), fd, parts[1])
+			if err != nil {
+				return fmt.Errorf("--set %s: %w", key, err)
+			}
+			seed(fd, rel)
+			arr := getDotPathSlice(mutable, rel)
+			if !objectSetContains(envFor(), fd, arr, identity) {
+				arr = append(arr, obj)
 			}
 			setDotPath(mutable, rel, arr)
 		default: // scalar
@@ -998,6 +1053,7 @@ func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs [
 				return fmt.Errorf("--del %s: tag fields require a key (e.g. --del tags.key)", key)
 			}
 			tagKey := parts[1]
+			seed(fd, rel)
 			tagsMap := getDotPathMap(mutable, rel)
 			if tagsMap != nil {
 				delete(tagsMap, tagKey)
@@ -1008,8 +1064,20 @@ func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs [
 				return fmt.Errorf("--del %s: set fields require a member (e.g. --del modules.CD)", key)
 			}
 			member := parts[1]
+			seed(fd, rel)
 			arr := getDotPathSlice(mutable, rel)
 			setDotPath(mutable, rel, sliceRemove(arr, member))
+		case "object_set":
+			if len(parts) < 2 {
+				return fmt.Errorf("--del %s: %s requires a member (e.g. --del %s.%s)", key, fieldID, fieldID, memberHint(fd))
+			}
+			_, identity, err := objectSetMember(envFor(), fd, parts[1])
+			if err != nil {
+				return fmt.Errorf("--del %s: %w", key, err)
+			}
+			seed(fd, rel)
+			arr := getDotPathSlice(mutable, rel)
+			setDotPath(mutable, rel, objectSetRemove(envFor(), fd, arr, identity))
 		default: // scalar
 			setDotPath(mutable, rel, nil)
 		}
@@ -1018,6 +1086,26 @@ func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs [
 }
 
 // getDotPathMap retrieves a map[string]any at a dot-separated path, or nil.
+// getDotPath retrieves the raw value at a dot-separated path, reporting whether the path
+// is present. Distinct from getDotPathMap/getDotPathSlice, which conflate "absent" with
+// "present but of another type" — the seeding path needs to tell those apart, since an
+// explicit empty collection must not be overwritten by the seed.
+func getDotPath(m map[string]any, path string) (any, bool) {
+	parts := strings.SplitN(path, ".", 2)
+	v, ok := m[parts[0]]
+	if !ok {
+		return nil, false
+	}
+	if len(parts) == 1 {
+		return v, true
+	}
+	child, _ := v.(map[string]any)
+	if child == nil {
+		return nil, false
+	}
+	return getDotPath(child, parts[1])
+}
+
 func getDotPathMap(m map[string]any, path string) map[string]any {
 	parts := strings.SplitN(path, ".", 2)
 	v, ok := m[parts[0]]
@@ -1090,6 +1178,61 @@ func sliceRemove(s []any, v string) []any {
 		if fmt.Sprint(el) != v {
 			out = append(out, el)
 		}
+	}
+	return out
+}
+
+// memberHint renders the member syntax for a field_type "object_set" field, for use
+// in error messages. Falls back to a generic placeholder when the spec omits one.
+func memberHint(fd spec.FieldDef) string {
+	if fd.MemberHint != "" {
+		return fd.MemberHint
+	}
+	return "<member>"
+}
+
+// objectSetMember evaluates a field's member_expr to build the object that the member
+// string the user typed stands for, plus that object's identity for comparison.
+//
+// An empty identity means the member could not be turned into something addressable
+// (member_expr rejected it by returning nil, or the object it built carries none of
+// the keys member_identity reads), so it is reported back as a malformed member.
+func objectSetMember(env map[string]any, fd spec.FieldDef, member string) (any, string, error) {
+	env["member"] = member
+	obj, ok := exprenv.EvalExprAny(env, fd.MemberExpr)
+	if !ok {
+		return nil, "", fmt.Errorf("%q is not a valid %s member (expected %s)", member, fd.ID, memberHint(fd))
+	}
+	identity := objectSetIdentity(env, fd, obj)
+	if identity == "" {
+		return nil, "", fmt.Errorf("%q is not a valid %s member (expected %s)", member, fd.ID, memberHint(fd))
+	}
+	return obj, identity, nil
+}
+
+// objectSetIdentity projects one array element to the string identifying it. Elements
+// the expression cannot read return "", which never matches a real member.
+func objectSetIdentity(env map[string]any, fd spec.FieldDef, el any) string {
+	env["el"] = el
+	return exprenv.EvalExpr(env, fd.MemberIdentity)
+}
+
+func objectSetContains(env map[string]any, fd spec.FieldDef, s []any, identity string) bool {
+	for _, el := range s {
+		if objectSetIdentity(env, fd, el) == identity {
+			return true
+		}
+	}
+	return false
+}
+
+func objectSetRemove(env map[string]any, fd spec.FieldDef, s []any, identity string) []any {
+	out := make([]any, 0, len(s))
+	for _, el := range s {
+		if objectSetIdentity(env, fd, el) == identity {
+			continue
+		}
+		out = append(out, el)
 	}
 	return out
 }

@@ -27,6 +27,50 @@ nouns:
       - id: rollout_status
         label: Rollout Status
         expr: it.rolloutStatus.name ?? ""
+        mutable_path: rolloutStatus.id
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+        mutable_path: tags
+        # v4 reads tags as {id, name} but writes them as {name}, so a member is just its
+        # name, and the seed reshapes what was read into what can be written. The seed is
+        # what makes --set/--del start from the tags the entity already has instead of
+        # replacing them all, and it only runs when a mutation names this field.
+        field_type: object_set
+        mutable_seed_expr: 'it.tags == nil ? [] : map(it.tags, ({name: #.name}))'
+        member_expr: "{name: member}"
+        member_identity: el.name
+        member_hint: <tag-name>
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
+        mutable_path: owners
+        # Users are addressed by id, not email: v4 returns owners with an id and no email,
+        # and a member has to be comparable against what was read for --del to match and
+        # --set to stay idempotent. Use "harness list user" to look an id up.
+        #
+        # Groups go under "identifier" where users use "id" — sending the value under "id"
+        # instead is rejected as "Invalid json structure", so "identifier" is the only key
+        # the write DTO accepts. The value is the group's name, not an id, because the
+        # resolver matches it against the FME team name in the workspace.
+        #
+        # Adding a group owner currently fails whatever is sent: v4 answers every value it
+        # itself exposes for a group — the identifier, the display name, and both at once
+        # for a group where they are the same string — with "group owner not found", so its
+        # PATCH cannot accept the group owners its own GET returns. Reading and removing one
+        # do work, which is what this member syntax is for. Quote a name containing spaces.
+        field_type: object_set
+        member_expr: >-
+          lower(split(member, ":")[0]) == "user" ? {type: "USER", id: member[5:]} :
+          lower(split(member, ":")[0]) == "group" ? {type: "GROUP", identifier: member[6:]} :
+          nil
+        member_identity: 'el.type == "USER" ? "user:" + el.id : "group:" + el.identifier'
+        member_hint: user:<id> or group:<group-name>
+        # Seeded from the read so --set/--del start from the current owners rather than
+        # replacing them, reshaped here because v4 reads {id, type, name, email} and writes
+        # {type, id} or {type, identifier}. Only evaluated when a mutation names owners, so
+        # an update that does not touch them never sends them.
+        mutable_seed_expr: >-
+          it.owners == nil ? [] : map(it.owners, (#.type == "USER" ?
+          {type: "USER", id: #.id} : {type: "GROUP", identifier: #.name}))
       - id: created
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
@@ -60,11 +104,52 @@ nouns:
       - id: traffic_type
         label: Traffic Type
         expr: it.trafficType.name
+      - id: segment_type
+        label: Segment Type
+        expr: it.segmentType
       - id: status
         expr: it.status
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+        mutable_path: tags
+        # v4 reads tags as {id, name} but writes them as {name}, so a member is just its
+        # name, and the seed reshapes what was read into what can be written. The seed is
+        # what makes --set/--del start from the tags the entity already has instead of
+        # replacing them all, and it only runs when a mutation names this field.
+        field_type: object_set
+        mutable_seed_expr: 'it.tags == nil ? [] : map(it.tags, ({name: #.name}))'
+        member_expr: "{name: member}"
+        member_identity: el.name
+        member_hint: <tag-name>
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
+        mutable_path: owners
+        # Same addressing as feature_flag owners: users by id (the read carries no email to
+        # compare against), groups by name under "identifier" — including the backend's
+        # inability to add a group owner at all. Use "harness list user" to look an id up.
+        field_type: object_set
+        member_expr: >-
+          lower(split(member, ":")[0]) == "user" ? {type: "USER", id: member[5:]} :
+          lower(split(member, ":")[0]) == "group" ? {type: "GROUP", identifier: member[6:]} :
+          nil
+        member_identity: 'el.type == "USER" ? "user:" + el.id : "group:" + el.identifier'
+        member_hint: user:<id> or group:<group-name>
+        # Seeded from the read so --set/--del start from the current owners rather than
+        # replacing them, reshaped here because v4 reads {id, type, name, email} and writes
+        # {type, id} or {type, identifier}. Only evaluated when a mutation names owners, so
+        # an update that does not touch them never sends them.
+        mutable_seed_expr: >-
+          it.owners == nil ? [] : map(it.owners, (#.type == "USER" ?
+          {type: "USER", id: #.id} : {type: "GROUP", identifier: #.name}))
       - id: created
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
+
+  - noun: segment_key
+    short_desc: One membership key of a segment definition (used for field lookup only).
+    fields:
+      - id: key
+        expr: it.key
 
   - noun: traffic_type
     short_desc: Harness FME traffic type (read-only lookup).
@@ -149,7 +234,7 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         name: flags.search
-        rollout_statuses: flags.status
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -213,7 +298,17 @@ commands:
       path: /fme/api/v4/feature-flags/{{ctx.id}}
       get_path: /fme/api/v4/feature-flags/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      # v4's UpdateFeatureFlagRequest accepts only description/tags/owners/rolloutStatus
+      # and rejects unknown properties, so the GET response cannot be echoed back —
+      # id/name/trafficType/status/createdAt all make it a 400.
+      #
+      # tags/owners stay out too, even though --set/--del mutate them: each carries a
+      # mutable_seed_expr, so the framework fetches their current members from the GET only
+      # when a mutation names them. Carrying them here instead would send them on every
+      # update, so an owner the API can no longer resolve would 400 a description change.
+      #
+      # rolloutStatus stays out — it is a scalar, so --set creates the path itself.
+      update_body_pick: "{description: it.description}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
@@ -245,6 +340,8 @@ commands:
     flags:
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flags/{{ctx.id}}/archive
@@ -254,6 +351,7 @@ commands:
         project_identifier: auth.project
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nArchived feature flag {{ctx.id}}\n"
 
@@ -266,6 +364,8 @@ commands:
     flags:
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flags/{{ctx.id}}/unarchive
@@ -275,6 +375,7 @@ commands:
         project_identifier: auth.project
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nUnarchived feature flag {{ctx.id}}\n"
 
@@ -601,8 +702,18 @@ commands:
   - command: list segment
     verb: list
     noun: segment
-    short: List segments
+    short: "List segments of one type: harness list segment --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      # v4 keeps the three segment kinds in disjoint collections and rejects a list call
+      # without segment_type, so there is no "all segments" query to default to.
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
+      - name: status
+        description: "Filter by status: ACTIVE, ARCHIVED (default ACTIVE)"
+        completion_values: [ACTIVE, ARCHIVED]
     endpoint:
       path: /fme/api/v4/segments
       items_expr: it.data
@@ -612,6 +723,8 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -625,26 +738,36 @@ commands:
   - command: get segment
     verb: get
     noun: segment
-    short: "Get segment details: harness get segment <name>"
+    short: "Get segment details: harness get segment <name> --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     endpoint:
       path: /fme/api/v4/segments/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
       item_expr: it
       yaml_pick_expr: it
 
   - command: create segment
     verb: create
     noun: segment
-    short: "Create a segment: harness create segment <name> --traffic-type user"
+    short: "Create a segment: harness create segment <name> --traffic-type user --segment-type STANDARD"
     handler_type: endpoint
     flags:
       - name: traffic-type
         description: Traffic type for the segment (e.g. user, account)
         required: true
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
       - name: description
         description: Segment description
     flags_builtin:
@@ -660,6 +783,7 @@ commands:
       create_body_init:
         name: ctx.id
         trafficType: flags["traffic-type"]
+        segmentType: flags["segment-type"]
         description: 'flags.description != "" ? flags.description : nil'
       create_body_wrap: ""
       item_expr: it.entity
@@ -668,8 +792,13 @@ commands:
   - command: update segment
     verb: update
     noun: segment
-    short: "Update a segment: harness update segment <name> --set description=foo"
+    short: "Update a segment: harness update segment <name> --segment-type STANDARD --set description=foo"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     flags_builtin:
       set: true
       del: true
@@ -678,12 +807,19 @@ commands:
       path: /fme/api/v4/segments/{{ctx.id}}
       get_path: /fme/api/v4/segments/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      # The v4 PATCH accepts only description/tags/owners, so the GET response cannot be
+      # echoed back: id/name/trafficType/status/segmentType are all rejected.
+      #
+      # tags/owners stay out for the same reason as on feature_flag: their mutable_seed_expr
+      # supplies the current members only when a --set/--del names them, so an update that
+      # does not touch a collection never sends it.
+      update_body_pick: "{description: it.description}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
       item_expr: it.entity
       text_header: "\nUpdated segment {{ctx.id}}\n"
 
@@ -691,8 +827,13 @@ commands:
     verb: delete
     noun: segment
     confirm_mode: prompt
-    short: Delete (archive) a segment
+    short: "Delete (archive) a segment: harness delete segment <name> --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     endpoint:
       method: DELETE
       path: /fme/api/v4/segments/{{ctx.id}}
@@ -700,6 +841,7 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
 
   # ── segment:definition ─────────────────────────────────────────────────────────
 
@@ -714,6 +856,9 @@ commands:
       - name: env
         description: Environment identifier (required)
         required: true
+      - name: status
+        description: "Filter by status: ACTIVE, ARCHIVED (default ACTIVE)"
+        completion_values: [ACTIVE, ARCHIVED]
     endpoint:
       path: /fme/api/v4/segment-definitions
       items_expr: it.data
@@ -724,6 +869,7 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -815,7 +961,7 @@ commands:
     noun: segment
     noun_variant: definition
     confirm_mode: prompt
-    short: Delete (archive) a segment definition from an environment
+    short: "Delete (archive) a segment definition from an environment: harness delete segment:definition <segment-name> --env <env-id>"
     handler_type: endpoint
     flags:
       - name: env
@@ -829,6 +975,120 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
+
+  # ── segment:definition:keys ───────────────────────────────────────────────────
+  # Membership keys live on the definition, not the segment, so every keys command is
+  # scoped to one environment with --env.
+
+  - command: list segment:definition:keys
+    verb: list
+    noun: segment
+    noun_variant: definition:keys
+    short: "List the membership keys of a segment definition: harness list segment:definition:keys <segment-name> --env <env-id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<segment-name>"
+    fields_noun: segment_key
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      path: /fme/api/v4/segment-definitions/{{ctx.parentId}}/keys
+      # The endpoint returns bare strings; wrap each one so it has a named field to render.
+      items_expr: 'map(it.data, ({key: #}))'
+      item_item_expr: it
+      get_id_expr: it.key
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [key]
+
+  - command: execute segment:definition:add-keys
+    verb: execute
+    noun: segment
+    noun_variant: definition:add-keys
+    short: "Add membership keys to a segment definition: harness execute segment:definition:add-keys <segment-name> --env <env-id> --key user-1 --key user-2"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: key
+        description: "Membership key to add (repeatable, up to 10000: --key user-1 --key user-2)"
+        is_multi: true
+        required: true
+      - name: replace
+        description: Replace the whole membership with the given keys instead of adding to it
+        is_bool: true
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
+    endpoint:
+      method: POST
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}/keys
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+        # Only sent when asked for: the endpoint already defaults to replace=false.
+        replace: 'flags.replace ? "true" : ""'
+      body_params:
+        keys: 'flags["key"]'
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
+      # The response echoes the submitted keys plus a governance result, not a segment, so
+      # there is no entity to render fields from.
+      no_fields: true
+      text_header: "\nAdded {{len(flags[\"key\"])}} key(s) to {{ctx.id}} in {{flags.env}}\n"
+
+  - command: execute segment:definition:remove-keys
+    verb: execute
+    noun: segment
+    noun_variant: definition:remove-keys
+    # POST, not DELETE: the keys to remove travel in a body, and DELETE with a body is
+    # unreliable across HTTP clients, so v4 exposes this as .../keys/remove.
+    short: "Remove membership keys from a segment definition: harness execute segment:definition:remove-keys <segment-name> --env <env-id> --key user-1"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: key
+        description: "Membership key to remove (repeatable, at least one: --key user-1 --key user-2)"
+        is_multi: true
+        required: true
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
+    endpoint:
+      method: POST
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}/keys/remove
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      body_params:
+        keys: 'flags["key"]'
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
+      # Same echo-plus-governance response shape as add-keys: nothing to render as fields.
+      no_fields: true
+      text_header: "\nRemoved {{len(flags[\"key\"])}} key(s) from {{ctx.id}} in {{flags.env}}\n"
 
   # ── traffic_type ──────────────────────────────────────────────────────────────
 
