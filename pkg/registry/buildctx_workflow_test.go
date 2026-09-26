@@ -272,9 +272,12 @@ func TestBuildCtx_ProvidedFlags(t *testing.T) {
 				t.Fatalf("buildCtx: %v", err)
 			}
 			for _, flag := range cs.Flags {
-				if got := ctx.ProvidedFlags[flag.Name]; got != tc.want[flag.Name] {
-					t.Errorf("ProvidedFlags[%q] = %t, want %t", flag.Name, got, tc.want[flag.Name])
+				if got, exists := ctx.ProvidedFlags[flag.Name]; !exists || got != tc.want[flag.Name] {
+					t.Errorf("ProvidedFlags[%q] = (%t, %t), want (%t, true)", flag.Name, got, exists, tc.want[flag.Name])
 				}
+			}
+			if _, exists := ctx.ProvidedFlags["timeout"]; !exists {
+				t.Error("omitted core flag timeout should have a false presence entry")
 			}
 			if got := ctx.FlagValues["mode"]; !ctx.ProvidedFlags["mode"] && got != "auto" {
 				t.Errorf("omitted mode = %v, want default auto", got)

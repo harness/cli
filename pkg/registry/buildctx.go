@@ -286,7 +286,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 	}
 	ctx.FlagValues = buildFlagValues(cmd.Flags(), cs)
 	ctx.ProvidedFlags = map[string]bool{}
-	cmd.Flags().Visit(func(f *pflag.Flag) { ctx.ProvidedFlags[f.Name] = true })
+	cmd.Flags().VisitAll(func(f *pflag.Flag) { ctx.ProvidedFlags[f.Name] = f.Changed })
 	ctx.Resolver = r
 	if err := resolveFlagValues(ctx, cs); err != nil {
 		return nil, err

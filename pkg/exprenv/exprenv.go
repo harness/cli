@@ -87,11 +87,11 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		flags = map[string]any{}
 	}
 	providedFlags := make(map[string]bool, len(flags)+len(ctx.ProvidedFlags))
+	maps.Copy(providedFlags, ctx.ProvidedFlags)
 	for name := range flags {
-		providedFlags[name] = ctx.ProvidedFlags[name]
-	}
-	for name, provided := range ctx.ProvidedFlags {
-		providedFlags[name] = provided
+		if _, exists := providedFlags[name]; !exists {
+			providedFlags[name] = false
+		}
 	}
 
 	env := map[string]any{
