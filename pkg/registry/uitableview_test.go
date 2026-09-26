@@ -187,7 +187,7 @@ func TestCurrentScreenLink_CapturesOffsetAcrossPages(t *testing.T) {
 }
 
 func TestCurrentScreenLink_CapturesSearchTermIntoFlagValues(t *testing.T) {
-	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1", FlagValues: map[string]any{"other": "x"}}
+	ctx := &cmdctx.Ctx{Verb: VerbList, Noun: "thing", ParentId: "parent-1", FlagValues: map[string]any{"other": "x"}, ProvidedFlags: map[string]bool{"other": true}}
 	table := tui.NewTable(nil, 5, 40)
 	fm := uiTableModel{t: table, hasSearch: true, searchTerm: "foo"}
 
@@ -200,6 +200,12 @@ func TestCurrentScreenLink_CapturesSearchTermIntoFlagValues(t *testing.T) {
 	}
 	if ctx.FlagValues["search"] != nil {
 		t.Fatalf("ctx.FlagValues mutated, want the copy left untouched")
+	}
+	if !link.ProvidedFlags["search"] || !link.ProvidedFlags["other"] {
+		t.Fatalf("ProvidedFlags = %v, want both search and other", link.ProvidedFlags)
+	}
+	if ctx.ProvidedFlags["search"] {
+		t.Fatal("ctx.ProvidedFlags mutated")
 	}
 }
 
@@ -305,7 +311,8 @@ func TestFinishUIExit_NoHopNoPush(t *testing.T) {
 
 func TestBuildLinkCtx_TableScreen_CarriesOffsetToRestoreOffset(t *testing.T) {
 	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
-	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, Offset: 44}
+	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, Offset: 44,
+		FlagValues: map[string]any{"search": "foo"}, ProvidedFlags: map[string]bool{"search": true}}
 	targetCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", NoAuth: true}
 
 	newCtx, err := buildLinkCtx(ctx, link, targetCs)
@@ -317,6 +324,9 @@ func TestBuildLinkCtx_TableScreen_CarriesOffsetToRestoreOffset(t *testing.T) {
 	}
 	if newCtx.ParentId != "parent-1" {
 		t.Fatalf("ParentId = %q, want parent-1", newCtx.ParentId)
+	}
+	if !newCtx.ProvidedFlags["search"] || newCtx.FlagValues["search"] != "foo" {
+		t.Fatalf("replayed search = (%v, %v), want (true, foo)", newCtx.ProvidedFlags["search"], newCtx.FlagValues["search"])
 	}
 }
 

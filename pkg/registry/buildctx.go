@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
 	"github.com/harness/cli/v3/pkg/auth"
@@ -284,6 +285,8 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 	}
 	ctx.FlagValues = buildFlagValues(cmd.Flags(), cs)
+	ctx.ProvidedFlags = map[string]bool{}
+	cmd.Flags().Visit(func(f *pflag.Flag) { ctx.ProvidedFlags[f.Name] = true })
 	ctx.Resolver = r
 	if err := resolveFlagValues(ctx, cs); err != nil {
 		return nil, err
@@ -359,19 +362,20 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 	}
 	goCtx, cancel := context.WithCancelCause(ctx.Context)
 	newCtx := &cmdctx.Ctx{
-		Context:     goCtx,
-		CancelFn:    cancel,
-		Auth:        resolved,
-		Verb:        targetCs.Verb,
-		VerbHandler: targetCs.VerbHandler,
-		Noun:        targetCs.Noun,
-		FieldsNoun:  targetCs.FieldsNoun,
-		Level:       link.Level,
-		IsPty:       ctx.IsPty,
-		Resolver:    ctx.Resolver,
-		FormatFlags: cmdctx.FormatFlags{Format: "text"},
-		FlagValues:  fv,
-		UIHistory:   ctx.UIHistory,
+		Context:       goCtx,
+		CancelFn:      cancel,
+		Auth:          resolved,
+		Verb:          targetCs.Verb,
+		VerbHandler:   targetCs.VerbHandler,
+		Noun:          targetCs.Noun,
+		FieldsNoun:    targetCs.FieldsNoun,
+		Level:         link.Level,
+		IsPty:         ctx.IsPty,
+		Resolver:      ctx.Resolver,
+		FormatFlags:   cmdctx.FormatFlags{Format: "text"},
+		FlagValues:    fv,
+		ProvidedFlags: link.ProvidedFlags,
+		UIHistory:     ctx.UIHistory,
 	}
 	if link.Screen == cmdctx.ScreenDetailForGet {
 		newCtx.Id = link.Id

@@ -240,6 +240,49 @@ func TestBuildCtx_MigrateRejectsPositional(t *testing.T) {
 	}
 }
 
+func TestBuildCtx_ProvidedFlags(t *testing.T) {
+	r := New()
+	registerWorkflowExecute(t, r, "providedflags", &spec.CommandSpec{
+		Flags: []spec.Flag{
+			{Name: "comment"},
+			{Name: "mode", Default: "auto"},
+			{Name: "enabled", IsBool: true},
+		},
+	})
+	cs := r.GetSpec(VerbExecute, "providedflags")
+	tests := []struct {
+		name string
+		args []string
+		want map[string]bool
+	}{
+		{"omitted with defaults", nil, nil},
+		{"empty string supplied", []string{"--comment="}, map[string]bool{"comment": true}},
+		{"default overridden with empty", []string{"--mode="}, map[string]bool{"mode": true}},
+		{"explicit false", []string{"--enabled=false"}, map[string]bool{"enabled": true}},
+		{"multiple supplied", []string{"--comment=hello", "--mode=manual"}, map[string]bool{"comment": true, "mode": true}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := buildWorkflowTestCmd(t, r, cs)
+			if err := cmd.ParseFlags(tc.args); err != nil {
+				t.Fatalf("ParseFlags: %v", err)
+			}
+			ctx, err := buildCtx(cmd, cs, []string{"my-id"}, r)
+			if err != nil {
+				t.Fatalf("buildCtx: %v", err)
+			}
+			for _, flag := range cs.Flags {
+				if got := ctx.ProvidedFlags[flag.Name]; got != tc.want[flag.Name] {
+					t.Errorf("ProvidedFlags[%q] = %t, want %t", flag.Name, got, tc.want[flag.Name])
+				}
+			}
+			if got := ctx.FlagValues["mode"]; !ctx.ProvidedFlags["mode"] && got != "auto" {
+				t.Errorf("omitted mode = %v, want default auto", got)
+			}
+		})
+	}
+}
+
 func TestBuildCtx_WorkflowRequiredFlag(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "reqflag", &spec.CommandSpec{

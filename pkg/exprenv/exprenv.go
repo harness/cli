@@ -117,6 +117,13 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		"flags": flags,
 	}
 	maps.Copy(env, BaseFuncs(ctx.IsPty && !isMachineFormat(flags)))
+	env["flagProvided"] = func(name string) bool { return ctx.ProvidedFlags[name] }
+	env["flagIfProvided"] = func(name string) any {
+		if !ctx.ProvidedFlags[name] {
+			return nil
+		}
+		return flags[name]
+	}
 	if ctx.Resolver != nil {
 		noun := ctx.Noun
 		if ctx.FieldsNoun != "" {

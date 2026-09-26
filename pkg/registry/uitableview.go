@@ -370,6 +370,13 @@ func (m uiTableModel) fetchPage(page int) tea.Cmd {
 			}
 			fv["search"] = searchTerm
 			ctxCopy.FlagValues = fv
+			if searchTerm != "" {
+				ctxCopy.ProvidedFlags = make(map[string]bool, len(ctx.ProvidedFlags)+1)
+				for name, provided := range ctx.ProvidedFlags {
+					ctxCopy.ProvidedFlags[name] = provided
+				}
+				ctxCopy.ProvidedFlags["search"] = true
+			}
 			ctx = &ctxCopy
 		}
 
@@ -520,15 +527,16 @@ func (m uiTableModel) buildUILink(verb, noun, id string) *cmdctx.UILink {
 		screen = cmdctx.ScreenTable
 	}
 	return &cmdctx.UILink{
-		Verb:       verb,
-		Noun:       noun,
-		Id:         id,
-		Level:      m.ctx.Level,
-		Profile:    profile,
-		Org:        org,
-		Project:    project,
-		FlagValues: m.ctx.FlagValues,
-		Screen:     screen,
+		Verb:          verb,
+		Noun:          noun,
+		Id:            id,
+		Level:         m.ctx.Level,
+		Profile:       profile,
+		Org:           org,
+		Project:       project,
+		FlagValues:    m.ctx.FlagValues,
+		ProvidedFlags: m.ctx.ProvidedFlags,
+		Screen:        screen,
 	}
 }
 
@@ -1273,19 +1281,27 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		fv = copied
 	}
 	link := cmdctx.UILink{
-		Verb:       ctx.Verb,
-		Noun:       ctx.Noun,
-		Id:         id,
-		Level:      ctx.Level,
-		Profile:    profile,
-		Org:        org,
-		Project:    project,
-		FlagValues: fv,
-		Screen:     screen,
+		Verb:          ctx.Verb,
+		Noun:          ctx.Noun,
+		Id:            id,
+		Level:         ctx.Level,
+		Profile:       profile,
+		Org:           org,
+		Project:       project,
+		FlagValues:    fv,
+		ProvidedFlags: ctx.ProvidedFlags,
+		Screen:        screen,
 		// Offset is always captured from the underlying table, even mid detail-flip:
 		// "b" always resumes the list, never the detail overlay, and detailOnly
 		// screens (Case 4) never populate fm.t, so its Cursor() is a natural 0 there.
 		Offset: fm.page*fm.pageSize + fm.t.Cursor(),
+	}
+	if fm.hasSearch && fm.searchTerm != "" {
+		link.ProvidedFlags = make(map[string]bool, len(ctx.ProvidedFlags)+1)
+		for name, provided := range ctx.ProvidedFlags {
+			link.ProvidedFlags[name] = provided
+		}
+		link.ProvidedFlags["search"] = true
 	}
 	return link
 }

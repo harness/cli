@@ -4,7 +4,10 @@
 package exprenv
 
 import (
+	"reflect"
 	"testing"
+
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 func baseEnv() map[string]any {
@@ -72,6 +75,37 @@ func TestEvalExprAny_Value(t *testing.T) {
 	}
 	if result != "5000" {
 		t.Errorf("got %v, want %q", result, "5000")
+	}
+}
+
+func TestFlagPresenceFunctions(t *testing.T) {
+	tests := []struct {
+		name     string
+		flags    map[string]any
+		provided map[string]bool
+		expr     string
+		want     any
+		wantOK   bool
+	}{
+		{"absent empty", map[string]any{"comment": ""}, nil, `flagIfProvided("comment")`, nil, false},
+		{"explicit empty", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `flagIfProvided("comment")`, "", true},
+		{"explicit value", map[string]any{"comment": "hello"}, map[string]bool{"comment": true}, `flagIfProvided("comment")`, "hello", true},
+		{"absent nonempty default", map[string]any{"mode": "auto"}, nil, `flagIfProvided("mode")`, nil, false},
+		{"explicit false", map[string]any{"enabled": false}, map[string]bool{"enabled": true}, `flagIfProvided("enabled")`, false, true},
+		{"explicit zero", map[string]any{"count": 0}, map[string]bool{"count": true}, `flagIfProvided("count")`, 0, true},
+		{"absent predicate", map[string]any{"comment": ""}, nil, `flagProvided("comment")`, false, true},
+		{"present predicate", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `flagProvided("comment")`, true, true},
+		{"transformed absent", map[string]any{"action": ""}, nil, `flagProvided("action") ? [flags.action] : nil`, nil, false},
+		{"transformed present", map[string]any{"action": ""}, map[string]bool{"action": true}, `flagProvided("action") ? [flags.action] : nil`, []any{""}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &cmdctx.Ctx{FlagValues: tc.flags, ProvidedFlags: tc.provided}
+			got, ok := EvalExprAny(Make(ctx), tc.expr)
+			if ok != tc.wantOK || !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("EvalExprAny(%q) = (%v, %t), want (%v, %t)", tc.expr, got, ok, tc.want, tc.wantOK)
+			}
+		})
 	}
 }
 
