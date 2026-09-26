@@ -251,6 +251,22 @@ type Ctx struct {
 	UIWantBack bool
 }
 
+func (c *Ctx) SetFlag(name string, value any) {
+	if c.FlagValues == nil {
+		c.FlagValues = map[string]any{}
+	}
+	if c.ProvidedFlags == nil {
+		c.ProvidedFlags = map[string]bool{}
+	}
+	c.FlagValues[name] = value
+	c.ProvidedFlags[name] = true
+}
+
+func (c *Ctx) RemoveFlag(name string) {
+	delete(c.FlagValues, name)
+	delete(c.ProvidedFlags, name)
+}
+
 // ScopedAuth returns Auth adjusted for Level: "org" clears ProjectID, "account"
 // clears both OrgID and ProjectID. Callers making direct API requests outside
 // the endpoint framework (which applies this via CallEndpoint) must use this

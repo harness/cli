@@ -87,20 +87,20 @@ func TestFlagPresenceFunctions(t *testing.T) {
 		want     any
 		wantOK   bool
 	}{
-		{"absent empty", map[string]any{"comment": ""}, nil, `flagIfProvided("comment")`, nil, false},
+		{"absent empty", map[string]any{"comment": ""}, map[string]bool{"comment": false}, `flagIfProvided("comment")`, nil, false},
 		{"explicit empty", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `flagIfProvided("comment")`, "", true},
 		{"explicit value", map[string]any{"comment": "hello"}, map[string]bool{"comment": true}, `flagIfProvided("comment")`, "hello", true},
-		{"absent nonempty default", map[string]any{"mode": "auto"}, nil, `flagIfProvided("mode")`, nil, false},
+		{"absent nonempty default", map[string]any{"mode": "auto"}, map[string]bool{"mode": false}, `flagIfProvided("mode")`, nil, false},
 		{"explicit false", map[string]any{"enabled": false}, map[string]bool{"enabled": true}, `flagIfProvided("enabled")`, false, true},
 		{"explicit zero", map[string]any{"count": 0}, map[string]bool{"count": true}, `flagIfProvided("count")`, 0, true},
-		{"absent predicate", map[string]any{"comment": ""}, nil, `flagProvided("comment")`, false, true},
+		{"absent predicate", map[string]any{"comment": ""}, map[string]bool{"comment": false}, `flagProvided("comment")`, false, true},
 		{"present predicate", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `flagProvided("comment")`, true, true},
-		{"absent presence value", map[string]any{"comment": ""}, nil, `providedFlags.comment`, false, true},
+		{"absent presence value", map[string]any{"comment": ""}, map[string]bool{"comment": false}, `providedFlags.comment`, false, true},
 		{"present empty presence value", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `providedFlags.comment`, true, true},
-		{"nonempty default presence value", map[string]any{"mode": "auto"}, nil, `providedFlags.mode`, false, true},
+		{"nonempty default presence value", map[string]any{"mode": "auto"}, map[string]bool{"mode": false}, `providedFlags.mode`, false, true},
 		{"explicit false presence value", map[string]any{"enabled": false}, map[string]bool{"enabled": true}, `providedFlags.enabled`, true, true},
 		{"hyphenated presence value", map[string]any{"no-cascade": false}, map[string]bool{"no-cascade": true}, `providedFlags["no-cascade"]`, true, true},
-		{"transformed absent", map[string]any{"action": ""}, nil, `flagProvided("action") ? [flags.action] : nil`, nil, false},
+		{"transformed absent", map[string]any{"action": ""}, map[string]bool{"action": false}, `flagProvided("action") ? [flags.action] : nil`, nil, false},
 		{"transformed present", map[string]any{"action": ""}, map[string]bool{"action": true}, `flagProvided("action") ? [flags.action] : nil`, []any{""}, true},
 		{"transformed with presence value", map[string]any{"action": ""}, map[string]bool{"action": true}, `providedFlags.action ? [flags.action] : nil`, []any{""}, true},
 	}
@@ -115,10 +115,10 @@ func TestFlagPresenceFunctions(t *testing.T) {
 	}
 }
 
-func TestMake_ProvidedFlagsIncludesExplicitCoreFlags(t *testing.T) {
+func TestMake_ProvidedFlagsCopiesContext(t *testing.T) {
 	ctx := &cmdctx.Ctx{
 		FlagValues:    map[string]any{"comment": ""},
-		ProvidedFlags: map[string]bool{"timeout": true},
+		ProvidedFlags: map[string]bool{"comment": false, "timeout": true},
 	}
 	provided := Make(ctx)["providedFlags"].(map[string]bool)
 	if value, ok := provided["comment"]; !ok || value {
@@ -127,8 +127,16 @@ func TestMake_ProvidedFlagsIncludesExplicitCoreFlags(t *testing.T) {
 	if !provided["timeout"] {
 		t.Error("explicit core flag should be present")
 	}
-	if _, ok := ctx.ProvidedFlags["comment"]; ok {
-		t.Error("Make should not mutate ctx.ProvidedFlags")
+	provided["comment"] = true
+	if ctx.ProvidedFlags["comment"] {
+		t.Error("mutating env should not change ctx.ProvidedFlags")
+	}
+}
+
+func TestMake_EmptyProvidedFlags(t *testing.T) {
+	provided := Make(&cmdctx.Ctx{})["providedFlags"].(map[string]bool)
+	if provided == nil {
+		t.Fatal("providedFlags should be an empty map, not nil")
 	}
 }
 

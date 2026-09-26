@@ -868,7 +868,7 @@ func TestBuildDetailCtx(t *testing.T) {
 	parent.UIHistory = []cmdctx.UILink{{Verb: VerbGet, Noun: "detailnoun", Id: "grandparent-id"}}
 
 	detailCS := &spec.CommandSpec{
-		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun",
+		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun", Flags: []spec.Flag{{Name: "filter"}},
 	}
 	detail := buildDetailCtx(parent, detailCS, "child-id")
 
@@ -887,8 +887,30 @@ func TestBuildDetailCtx(t *testing.T) {
 	if detail.Context == nil {
 		t.Fatal("detail.Context is nil")
 	}
+	if provided, exists := detail.ProvidedFlags["filter"]; !exists || provided {
+		t.Fatalf("detail filter presence = (%t, %t), want (false, true)", provided, exists)
+	}
 	if len(detail.UIHistory) != 1 || detail.UIHistory[0].Id != "grandparent-id" {
 		t.Fatalf("detail.UIHistory = %+v, want parent's UIHistory carried forward", detail.UIHistory)
+	}
+}
+
+func TestBuildPickerCtx_SeedsUnprovidedSearch(t *testing.T) {
+	parent := &cmdctx.Ctx{}
+	listCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", Flags: []spec.Flag{{Name: "search"}, {Name: "status"}}}
+	picker := buildPickerCtx(parent, listCs)
+	if value, exists := picker.FlagValues["search"]; !exists || value != "" {
+		t.Fatalf("picker search = (%v, %t), want (empty string, true)", value, exists)
+	}
+	if provided, exists := picker.ProvidedFlags["search"]; !exists || provided {
+		t.Fatalf("picker search presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	if provided, exists := picker.ProvidedFlags["status"]; !exists || provided {
+		t.Fatalf("picker status presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	picker.SetFlag("search", "term")
+	if !picker.ProvidedFlags["search"] || picker.FlagValues["search"] != "term" {
+		t.Fatalf("picker search = (%v, %t), want (term, true)", picker.FlagValues["search"], picker.ProvidedFlags["search"])
 	}
 }
 

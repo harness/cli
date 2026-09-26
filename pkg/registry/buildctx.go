@@ -6,6 +6,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"time"
@@ -317,21 +318,26 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 // to "get", and injects the resolved id.
 func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx.Ctx {
 	goCtx, cancel := context.WithCancelCause(parent.Context)
+	provided := make(map[string]bool, len(cs.Flags))
+	for _, flag := range cs.Flags {
+		provided[flag.Name] = false
+	}
 	ctx := &cmdctx.Ctx{
-		Context:     goCtx,
-		CancelFn:    cancel,
-		Auth:        parent.Auth,
-		Verb:        cs.Verb,
-		VerbHandler: cs.VerbHandler,
-		Noun:        cs.Noun,
-		FieldsNoun:  cs.FieldsNoun,
-		Id:          id,
-		Level:       parent.Level,
-		IsPty:       parent.IsPty,
-		Resolver:    parent.Resolver,
-		FormatFlags: cmdctx.FormatFlags{Format: "text"},
-		FlagValues:  map[string]any{},
-		UIHistory:   parent.UIHistory,
+		Context:       goCtx,
+		CancelFn:      cancel,
+		Auth:          parent.Auth,
+		Verb:          cs.Verb,
+		VerbHandler:   cs.VerbHandler,
+		Noun:          cs.Noun,
+		FieldsNoun:    cs.FieldsNoun,
+		Id:            id,
+		Level:         parent.Level,
+		IsPty:         parent.IsPty,
+		Resolver:      parent.Resolver,
+		FormatFlags:   cmdctx.FormatFlags{Format: "text"},
+		FlagValues:    map[string]any{},
+		ProvidedFlags: provided,
+		UIHistory:     parent.UIHistory,
 	}
 	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
 	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
@@ -360,6 +366,15 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 	if fv == nil {
 		fv = map[string]any{}
 	}
+	provided := maps.Clone(link.ProvidedFlags)
+	if provided == nil {
+		provided = make(map[string]bool, len(targetCs.Flags))
+	}
+	for _, flag := range targetCs.Flags {
+		if _, exists := provided[flag.Name]; !exists {
+			provided[flag.Name] = false
+		}
+	}
 	goCtx, cancel := context.WithCancelCause(ctx.Context)
 	newCtx := &cmdctx.Ctx{
 		Context:       goCtx,
@@ -374,7 +389,7 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 		Resolver:      ctx.Resolver,
 		FormatFlags:   cmdctx.FormatFlags{Format: "text"},
 		FlagValues:    fv,
-		ProvidedFlags: link.ProvidedFlags,
+		ProvidedFlags: provided,
 		UIHistory:     ctx.UIHistory,
 	}
 	if link.Screen == cmdctx.ScreenDetailForGet {

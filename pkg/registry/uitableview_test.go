@@ -220,6 +220,37 @@ func TestCurrentScreenLink_NoSearchLeavesFlagValuesUnchanged(t *testing.T) {
 	}
 }
 
+func TestCurrentScreenLink_EmptySearchRemainsUnprovided(t *testing.T) {
+	ctx := &cmdctx.Ctx{FlagValues: map[string]any{"search": "old"}, ProvidedFlags: map[string]bool{"search": true}}
+	fm := uiTableModel{t: tui.NewTable(nil, 5, 40), hasSearch: true}
+	link := currentScreenLink(ctx, fm)
+	if value, exists := link.FlagValues["search"]; !exists || value != "" {
+		t.Fatalf("search = (%v, %t), want (empty string, true)", value, exists)
+	}
+	if provided, exists := link.ProvidedFlags["search"]; !exists || provided {
+		t.Fatalf("presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	if ctx.FlagValues["search"] != "old" || !ctx.ProvidedFlags["search"] {
+		t.Fatal("clearing search in link mutated the source context")
+	}
+}
+
+func TestSetUISearchFlag_EmptySearchSeedsUnprovidedFlag(t *testing.T) {
+	ctx := &cmdctx.Ctx{}
+	setUISearchFlag(ctx, "")
+	if value, exists := ctx.FlagValues["search"]; !exists || value != "" {
+		t.Fatalf("search = (%v, %t), want (empty string, true)", value, exists)
+	}
+	if provided, exists := ctx.ProvidedFlags["search"]; !exists || provided {
+		t.Fatalf("presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	setUISearchFlag(ctx, "term")
+	setUISearchFlag(ctx, "")
+	if ctx.FlagValues["search"] != "" || ctx.ProvidedFlags["search"] {
+		t.Fatalf("cleared search = (%v, %t), want (empty string, false)", ctx.FlagValues["search"], ctx.ProvidedFlags["search"])
+	}
+}
+
 func TestFinishUIExit_WantBack_PopsAndReplays(t *testing.T) {
 	ctx := &cmdctx.Ctx{
 		Resolver:  New(),
@@ -313,7 +344,7 @@ func TestBuildLinkCtx_TableScreen_CarriesOffsetToRestoreOffset(t *testing.T) {
 	ctx := &cmdctx.Ctx{Context: context.Background(), Resolver: New()}
 	link := &cmdctx.UILink{Verb: VerbList, Noun: "thing", Id: "parent-1", Screen: cmdctx.ScreenTable, Offset: 44,
 		FlagValues: map[string]any{"search": "foo"}, ProvidedFlags: map[string]bool{"search": true}}
-	targetCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", NoAuth: true}
+	targetCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", NoAuth: true, Flags: []spec.Flag{{Name: "search"}, {Name: "status"}}}
 
 	newCtx, err := buildLinkCtx(ctx, link, targetCs)
 	if err != nil {
@@ -327,6 +358,12 @@ func TestBuildLinkCtx_TableScreen_CarriesOffsetToRestoreOffset(t *testing.T) {
 	}
 	if !newCtx.ProvidedFlags["search"] || newCtx.FlagValues["search"] != "foo" {
 		t.Fatalf("replayed search = (%v, %v), want (true, foo)", newCtx.ProvidedFlags["search"], newCtx.FlagValues["search"])
+	}
+	if provided, exists := newCtx.ProvidedFlags["status"]; !exists || provided {
+		t.Fatalf("replayed status presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	if _, exists := link.ProvidedFlags["status"]; exists {
+		t.Fatal("buildLinkCtx mutated the saved link")
 	}
 }
 
