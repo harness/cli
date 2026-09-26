@@ -78,7 +78,7 @@ func TestEvalExprAny_Value(t *testing.T) {
 	}
 }
 
-func TestFlagPresenceFunctions(t *testing.T) {
+func TestFlagIfProvidedAndPresenceMap(t *testing.T) {
 	tests := []struct {
 		name     string
 		flags    map[string]any
@@ -93,15 +93,12 @@ func TestFlagPresenceFunctions(t *testing.T) {
 		{"absent nonempty default", map[string]any{"mode": "auto"}, map[string]bool{"mode": false}, `flagIfProvided("mode")`, nil, false},
 		{"explicit false", map[string]any{"enabled": false}, map[string]bool{"enabled": true}, `flagIfProvided("enabled")`, false, true},
 		{"explicit zero", map[string]any{"count": 0}, map[string]bool{"count": true}, `flagIfProvided("count")`, 0, true},
-		{"absent predicate", map[string]any{"comment": ""}, map[string]bool{"comment": false}, `flagProvided("comment")`, false, true},
-		{"present predicate", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `flagProvided("comment")`, true, true},
 		{"absent presence value", map[string]any{"comment": ""}, map[string]bool{"comment": false}, `providedFlags.comment`, false, true},
 		{"present empty presence value", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `providedFlags.comment`, true, true},
 		{"nonempty default presence value", map[string]any{"mode": "auto"}, map[string]bool{"mode": false}, `providedFlags.mode`, false, true},
 		{"explicit false presence value", map[string]any{"enabled": false}, map[string]bool{"enabled": true}, `providedFlags.enabled`, true, true},
 		{"hyphenated presence value", map[string]any{"no-cascade": false}, map[string]bool{"no-cascade": true}, `providedFlags["no-cascade"]`, true, true},
-		{"transformed absent", map[string]any{"action": ""}, map[string]bool{"action": false}, `flagProvided("action") ? [flags.action] : nil`, nil, false},
-		{"transformed present", map[string]any{"action": ""}, map[string]bool{"action": true}, `flagProvided("action") ? [flags.action] : nil`, []any{""}, true},
+		{"transformed absent", map[string]any{"action": ""}, map[string]bool{"action": false}, `providedFlags.action ? [flags.action] : nil`, nil, false},
 		{"transformed with presence value", map[string]any{"action": ""}, map[string]bool{"action": true}, `providedFlags.action ? [flags.action] : nil`, []any{""}, true},
 	}
 	for _, tc := range tests {

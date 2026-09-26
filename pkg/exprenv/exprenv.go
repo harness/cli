@@ -122,7 +122,6 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 		"providedFlags": providedFlags,
 	}
 	maps.Copy(env, BaseFuncs(ctx.IsPty && !isMachineFormat(flags)))
-	env["flagProvided"] = func(name string) bool { return providedFlags[name] }
 	env["flagIfProvided"] = func(name string) any {
 		if !providedFlags[name] {
 			return nil
