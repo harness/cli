@@ -86,6 +86,13 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 	if flags == nil {
 		flags = map[string]any{}
 	}
+	providedFlags := make(map[string]bool, len(flags)+len(ctx.ProvidedFlags))
+	for name := range flags {
+		providedFlags[name] = ctx.ProvidedFlags[name]
+	}
+	for name, provided := range ctx.ProvidedFlags {
+		providedFlags[name] = provided
+	}
 
 	env := map[string]any{
 		"ctx": map[string]any{
@@ -114,12 +121,13 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 				"ui_url":  uiURL,
 			}
 		}(),
-		"flags": flags,
+		"flags":         flags,
+		"providedFlags": providedFlags,
 	}
 	maps.Copy(env, BaseFuncs(ctx.IsPty && !isMachineFormat(flags)))
-	env["flagProvided"] = func(name string) bool { return ctx.ProvidedFlags[name] }
+	env["flagProvided"] = func(name string) bool { return providedFlags[name] }
 	env["flagIfProvided"] = func(name string) any {
-		if !ctx.ProvidedFlags[name] {
+		if !providedFlags[name] {
 			return nil
 		}
 		return flags[name]

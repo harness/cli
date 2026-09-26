@@ -95,8 +95,14 @@ func TestFlagPresenceFunctions(t *testing.T) {
 		{"explicit zero", map[string]any{"count": 0}, map[string]bool{"count": true}, `flagIfProvided("count")`, 0, true},
 		{"absent predicate", map[string]any{"comment": ""}, nil, `flagProvided("comment")`, false, true},
 		{"present predicate", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `flagProvided("comment")`, true, true},
+		{"absent presence value", map[string]any{"comment": ""}, nil, `providedFlags.comment`, false, true},
+		{"present empty presence value", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `providedFlags.comment`, true, true},
+		{"nonempty default presence value", map[string]any{"mode": "auto"}, nil, `providedFlags.mode`, false, true},
+		{"explicit false presence value", map[string]any{"enabled": false}, map[string]bool{"enabled": true}, `providedFlags.enabled`, true, true},
+		{"hyphenated presence value", map[string]any{"no-cascade": false}, map[string]bool{"no-cascade": true}, `providedFlags["no-cascade"]`, true, true},
 		{"transformed absent", map[string]any{"action": ""}, nil, `flagProvided("action") ? [flags.action] : nil`, nil, false},
 		{"transformed present", map[string]any{"action": ""}, map[string]bool{"action": true}, `flagProvided("action") ? [flags.action] : nil`, []any{""}, true},
+		{"transformed with presence value", map[string]any{"action": ""}, map[string]bool{"action": true}, `providedFlags.action ? [flags.action] : nil`, []any{""}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -106,6 +112,23 @@ func TestFlagPresenceFunctions(t *testing.T) {
 				t.Errorf("EvalExprAny(%q) = (%v, %t), want (%v, %t)", tc.expr, got, ok, tc.want, tc.wantOK)
 			}
 		})
+	}
+}
+
+func TestMake_ProvidedFlagsIncludesExplicitCoreFlags(t *testing.T) {
+	ctx := &cmdctx.Ctx{
+		FlagValues:    map[string]any{"comment": ""},
+		ProvidedFlags: map[string]bool{"timeout": true},
+	}
+	provided := Make(ctx)["providedFlags"].(map[string]bool)
+	if value, ok := provided["comment"]; !ok || value {
+		t.Errorf("providedFlags.comment = (%t, %t), want (false, true)", value, ok)
+	}
+	if !provided["timeout"] {
+		t.Error("explicit core flag should be present")
+	}
+	if _, ok := ctx.ProvidedFlags["comment"]; ok {
+		t.Error("Make should not mutate ctx.ProvidedFlags")
 	}
 }
 
