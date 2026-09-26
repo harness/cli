@@ -86,6 +86,10 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 	if flags == nil {
 		flags = map[string]any{}
 	}
+	providedFlags := maps.Clone(ctx.ProvidedFlags)
+	if providedFlags == nil {
+		providedFlags = map[string]bool{}
+	}
 
 	env := map[string]any{
 		"ctx": map[string]any{
@@ -114,9 +118,16 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 				"ui_url":  uiURL,
 			}
 		}(),
-		"flags": flags,
+		"flags":         flags,
+		"providedFlags": providedFlags,
 	}
 	maps.Copy(env, BaseFuncs(ctx.IsPty && !isMachineFormat(flags)))
+	env["flagIfProvided"] = func(name string) any {
+		if !providedFlags[name] {
+			return nil
+		}
+		return flags[name]
+	}
 	if ctx.Resolver != nil {
 		noun := ctx.Noun
 		if ctx.FieldsNoun != "" {

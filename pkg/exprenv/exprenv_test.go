@@ -4,7 +4,10 @@
 package exprenv
 
 import (
+	"reflect"
 	"testing"
+
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 func baseEnv() map[string]any {
@@ -72,6 +75,65 @@ func TestEvalExprAny_Value(t *testing.T) {
 	}
 	if result != "5000" {
 		t.Errorf("got %v, want %q", result, "5000")
+	}
+}
+
+func TestFlagIfProvidedAndPresenceMap(t *testing.T) {
+	tests := []struct {
+		name     string
+		flags    map[string]any
+		provided map[string]bool
+		expr     string
+		want     any
+		wantOK   bool
+	}{
+		{"absent empty", map[string]any{"comment": ""}, map[string]bool{"comment": false}, `flagIfProvided("comment")`, nil, false},
+		{"explicit empty", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `flagIfProvided("comment")`, "", true},
+		{"explicit value", map[string]any{"comment": "hello"}, map[string]bool{"comment": true}, `flagIfProvided("comment")`, "hello", true},
+		{"absent nonempty default", map[string]any{"mode": "auto"}, map[string]bool{"mode": false}, `flagIfProvided("mode")`, nil, false},
+		{"explicit false", map[string]any{"enabled": false}, map[string]bool{"enabled": true}, `flagIfProvided("enabled")`, false, true},
+		{"explicit zero", map[string]any{"count": 0}, map[string]bool{"count": true}, `flagIfProvided("count")`, 0, true},
+		{"absent presence value", map[string]any{"comment": ""}, map[string]bool{"comment": false}, `providedFlags.comment`, false, true},
+		{"present empty presence value", map[string]any{"comment": ""}, map[string]bool{"comment": true}, `providedFlags.comment`, true, true},
+		{"nonempty default presence value", map[string]any{"mode": "auto"}, map[string]bool{"mode": false}, `providedFlags.mode`, false, true},
+		{"explicit false presence value", map[string]any{"enabled": false}, map[string]bool{"enabled": true}, `providedFlags.enabled`, true, true},
+		{"hyphenated presence value", map[string]any{"no-cascade": false}, map[string]bool{"no-cascade": true}, `providedFlags["no-cascade"]`, true, true},
+		{"transformed absent", map[string]any{"action": ""}, map[string]bool{"action": false}, `providedFlags.action ? [flags.action] : nil`, nil, false},
+		{"transformed with presence value", map[string]any{"action": ""}, map[string]bool{"action": true}, `providedFlags.action ? [flags.action] : nil`, []any{""}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &cmdctx.Ctx{FlagValues: tc.flags, ProvidedFlags: tc.provided}
+			got, ok := EvalExprAny(Make(ctx), tc.expr)
+			if ok != tc.wantOK || !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("EvalExprAny(%q) = (%v, %t), want (%v, %t)", tc.expr, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestMake_ProvidedFlagsCopiesContext(t *testing.T) {
+	ctx := &cmdctx.Ctx{
+		FlagValues:    map[string]any{"comment": ""},
+		ProvidedFlags: map[string]bool{"comment": false, "timeout": true},
+	}
+	provided := Make(ctx)["providedFlags"].(map[string]bool)
+	if value, ok := provided["comment"]; !ok || value {
+		t.Errorf("providedFlags.comment = (%t, %t), want (false, true)", value, ok)
+	}
+	if !provided["timeout"] {
+		t.Error("explicit core flag should be present")
+	}
+	provided["comment"] = true
+	if ctx.ProvidedFlags["comment"] {
+		t.Error("mutating env should not change ctx.ProvidedFlags")
+	}
+}
+
+func TestMake_EmptyProvidedFlags(t *testing.T) {
+	provided := Make(&cmdctx.Ctx{})["providedFlags"].(map[string]bool)
+	if provided == nil {
+		t.Fatal("providedFlags should be an empty map, not nil")
 	}
 }
 

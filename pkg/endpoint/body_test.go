@@ -6,6 +6,8 @@ package endpoint
 import (
 	"testing"
 
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/exprenv"
 	"github.com/harness/cli/v3/pkg/spec"
 )
 
@@ -79,6 +81,20 @@ func TestBuildBody_NilSkipped(t *testing.T) {
 	}
 	if body["query_string"] != "find entity" {
 		t.Errorf("query_string = %v, want %q", body["query_string"], "find entity")
+	}
+}
+
+func TestBuildBody_FlagIfProvided(t *testing.T) {
+	ep := &spec.EndpointSpec{BodyParams: map[string]string{"comment": `flagIfProvided("comment")`}}
+	ctx := &cmdctx.Ctx{FlagValues: map[string]any{"comment": ""}}
+	if body := buildBody(ep, exprenv.Make(ctx)); len(body) != 0 {
+		t.Fatalf("omitted flag produced body %v, want empty object", body)
+	}
+	ctx.ProvidedFlags = map[string]bool{"comment": true}
+	if body := buildBody(ep, exprenv.Make(ctx)); body["comment"] != "" {
+		t.Errorf("explicit empty comment = %v, want empty string", body["comment"])
+	} else if _, ok := body["comment"]; !ok {
+		t.Error("explicit empty comment should be present in body")
 	}
 }
 

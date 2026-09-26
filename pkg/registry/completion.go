@@ -365,10 +365,7 @@ func injectSearchFlag(ctx *cmdctx.Ctx, listSpec *spec.CommandSpec, cspec *spec.C
 	}
 	for _, f := range listSpec.Flags {
 		if f.Name == "search" {
-			if ctx.FlagValues == nil {
-				ctx.FlagValues = map[string]any{}
-			}
-			ctx.FlagValues["search"] = toComplete
+			ctx.SetFlag("search", toComplete)
 			return
 		}
 	}

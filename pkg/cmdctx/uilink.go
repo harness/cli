@@ -27,6 +27,7 @@ type UILink struct {
 
 	Profile, Org, Project string
 	FlagValues            map[string]any
+	ProvidedFlags         map[string]bool
 
 	Screen UIScreenKind
 	// Offset is the absolute row index (page*pageSize + cursor row) the user

@@ -240,6 +240,52 @@ func TestBuildCtx_MigrateRejectsPositional(t *testing.T) {
 	}
 }
 
+func TestBuildCtx_ProvidedFlags(t *testing.T) {
+	r := New()
+	registerWorkflowExecute(t, r, "providedflags", &spec.CommandSpec{
+		Flags: []spec.Flag{
+			{Name: "comment"},
+			{Name: "mode", Default: "auto"},
+			{Name: "enabled", IsBool: true},
+		},
+	})
+	cs := r.GetSpec(VerbExecute, "providedflags")
+	tests := []struct {
+		name string
+		args []string
+		want map[string]bool
+	}{
+		{"omitted with defaults", nil, nil},
+		{"empty string supplied", []string{"--comment="}, map[string]bool{"comment": true}},
+		{"default overridden with empty", []string{"--mode="}, map[string]bool{"mode": true}},
+		{"explicit false", []string{"--enabled=false"}, map[string]bool{"enabled": true}},
+		{"multiple supplied", []string{"--comment=hello", "--mode=manual"}, map[string]bool{"comment": true, "mode": true}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := buildWorkflowTestCmd(t, r, cs)
+			if err := cmd.ParseFlags(tc.args); err != nil {
+				t.Fatalf("ParseFlags: %v", err)
+			}
+			ctx, err := buildCtx(cmd, cs, []string{"my-id"}, r)
+			if err != nil {
+				t.Fatalf("buildCtx: %v", err)
+			}
+			for _, flag := range cs.Flags {
+				if got, exists := ctx.ProvidedFlags[flag.Name]; !exists || got != tc.want[flag.Name] {
+					t.Errorf("ProvidedFlags[%q] = (%t, %t), want (%t, true)", flag.Name, got, exists, tc.want[flag.Name])
+				}
+			}
+			if _, exists := ctx.ProvidedFlags["timeout"]; !exists {
+				t.Error("omitted core flag timeout should have a false presence entry")
+			}
+			if got := ctx.FlagValues["mode"]; !ctx.ProvidedFlags["mode"] && got != "auto" {
+				t.Errorf("omitted mode = %v, want default auto", got)
+			}
+		})
+	}
+}
+
 func TestBuildCtx_WorkflowRequiredFlag(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "reqflag", &spec.CommandSpec{
@@ -822,7 +868,7 @@ func TestBuildDetailCtx(t *testing.T) {
 	parent.UIHistory = []cmdctx.UILink{{Verb: VerbGet, Noun: "detailnoun", Id: "grandparent-id"}}
 
 	detailCS := &spec.CommandSpec{
-		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun",
+		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun", Flags: []spec.Flag{{Name: "filter"}},
 	}
 	detail := buildDetailCtx(parent, detailCS, "child-id")
 
@@ -841,8 +887,30 @@ func TestBuildDetailCtx(t *testing.T) {
 	if detail.Context == nil {
 		t.Fatal("detail.Context is nil")
 	}
+	if provided, exists := detail.ProvidedFlags["filter"]; !exists || provided {
+		t.Fatalf("detail filter presence = (%t, %t), want (false, true)", provided, exists)
+	}
 	if len(detail.UIHistory) != 1 || detail.UIHistory[0].Id != "grandparent-id" {
 		t.Fatalf("detail.UIHistory = %+v, want parent's UIHistory carried forward", detail.UIHistory)
+	}
+}
+
+func TestBuildPickerCtx_SeedsUnprovidedSearch(t *testing.T) {
+	parent := &cmdctx.Ctx{}
+	listCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", Flags: []spec.Flag{{Name: "search"}, {Name: "status"}}}
+	picker := buildPickerCtx(parent, listCs)
+	if value, exists := picker.FlagValues["search"]; !exists || value != "" {
+		t.Fatalf("picker search = (%v, %t), want (empty string, true)", value, exists)
+	}
+	if provided, exists := picker.ProvidedFlags["search"]; !exists || provided {
+		t.Fatalf("picker search presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	if provided, exists := picker.ProvidedFlags["status"]; !exists || provided {
+		t.Fatalf("picker status presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	picker.SetFlag("search", "term")
+	if !picker.ProvidedFlags["search"] || picker.FlagValues["search"] != "term" {
+		t.Fatalf("picker search = (%v, %t), want (term, true)", picker.FlagValues["search"], picker.ProvidedFlags["search"])
 	}
 }
 

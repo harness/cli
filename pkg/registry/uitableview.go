@@ -5,6 +5,7 @@ package registry
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"syscall"
@@ -364,12 +365,9 @@ func (m uiTableModel) fetchPage(page int) tea.Cmd {
 	return func() tea.Msg {
 		if hasSearch {
 			ctxCopy := *ctx
-			fv := make(map[string]any, len(ctx.FlagValues))
-			for k, v := range ctx.FlagValues {
-				fv[k] = v
-			}
-			fv["search"] = searchTerm
-			ctxCopy.FlagValues = fv
+			ctxCopy.FlagValues = maps.Clone(ctx.FlagValues)
+			ctxCopy.ProvidedFlags = maps.Clone(ctx.ProvidedFlags)
+			setUISearchFlag(&ctxCopy, searchTerm)
 			ctx = &ctxCopy
 		}
 
@@ -520,15 +518,16 @@ func (m uiTableModel) buildUILink(verb, noun, id string) *cmdctx.UILink {
 		screen = cmdctx.ScreenTable
 	}
 	return &cmdctx.UILink{
-		Verb:       verb,
-		Noun:       noun,
-		Id:         id,
-		Level:      m.ctx.Level,
-		Profile:    profile,
-		Org:        org,
-		Project:    project,
-		FlagValues: m.ctx.FlagValues,
-		Screen:     screen,
+		Verb:          verb,
+		Noun:          noun,
+		Id:            id,
+		Level:         m.ctx.Level,
+		Profile:       profile,
+		Org:           org,
+		Project:       project,
+		FlagValues:    m.ctx.FlagValues,
+		ProvidedFlags: m.ctx.ProvidedFlags,
+		Screen:        screen,
 	}
 }
 
@@ -1263,31 +1262,44 @@ func currentScreenLink(ctx *cmdctx.Ctx, fm uiTableModel) cmdctx.UILink {
 		screen = cmdctx.ScreenDetailForGet
 		id = ctx.Id
 	}
-	fv := ctx.FlagValues
+	linkCtx := *ctx
 	if fm.hasSearch {
-		copied := make(map[string]any, len(ctx.FlagValues))
-		for k, v := range ctx.FlagValues {
-			copied[k] = v
-		}
-		copied["search"] = fm.searchTerm
-		fv = copied
+		linkCtx.FlagValues = maps.Clone(ctx.FlagValues)
+		linkCtx.ProvidedFlags = maps.Clone(ctx.ProvidedFlags)
+		setUISearchFlag(&linkCtx, fm.searchTerm)
 	}
 	link := cmdctx.UILink{
-		Verb:       ctx.Verb,
-		Noun:       ctx.Noun,
-		Id:         id,
-		Level:      ctx.Level,
-		Profile:    profile,
-		Org:        org,
-		Project:    project,
-		FlagValues: fv,
-		Screen:     screen,
+		Verb:          ctx.Verb,
+		Noun:          ctx.Noun,
+		Id:            id,
+		Level:         ctx.Level,
+		Profile:       profile,
+		Org:           org,
+		Project:       project,
+		FlagValues:    linkCtx.FlagValues,
+		ProvidedFlags: linkCtx.ProvidedFlags,
+		Screen:        screen,
 		// Offset is always captured from the underlying table, even mid detail-flip:
 		// "b" always resumes the list, never the detail overlay, and detailOnly
 		// screens (Case 4) never populate fm.t, so its Cursor() is a natural 0 there.
 		Offset: fm.page*fm.pageSize + fm.t.Cursor(),
 	}
 	return link
+}
+
+func setUISearchFlag(ctx *cmdctx.Ctx, term string) {
+	if term != "" {
+		ctx.SetFlag("search", term)
+		return
+	}
+	if ctx.FlagValues == nil {
+		ctx.FlagValues = map[string]any{}
+	}
+	if ctx.ProvidedFlags == nil {
+		ctx.ProvidedFlags = map[string]bool{}
+	}
+	ctx.FlagValues["search"] = ""
+	ctx.ProvidedFlags["search"] = false
 }
 
 // finishUIExit handles common post-Run() actions for the detail overlay: printing
@@ -1306,10 +1318,7 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 		ctx.Id = fm.launchUIId
 		// The handler (e.g. getPipelineLogHandler) branches on --ui itself; this ctx may be
 		// a picker-scoped ctx built for the "list" side that never had --ui set on it.
-		if ctx.FlagValues == nil {
-			ctx.FlagValues = map[string]any{}
-		}
-		ctx.FlagValues["ui"] = true
+		ctx.SetFlag("ui", true)
 		if err := ctx.Resolver.RunUIHandler(ctx, fm.launchUIHandlerFn); err != nil {
 			return err
 		}

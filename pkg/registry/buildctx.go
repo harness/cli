@@ -6,11 +6,13 @@ package registry
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
 	"github.com/harness/cli/v3/pkg/auth"
@@ -284,6 +286,8 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 	}
 	ctx.FlagValues = buildFlagValues(cmd.Flags(), cs)
+	ctx.ProvidedFlags = map[string]bool{}
+	cmd.Flags().VisitAll(func(f *pflag.Flag) { ctx.ProvidedFlags[f.Name] = f.Changed })
 	ctx.Resolver = r
 	if err := resolveFlagValues(ctx, cs); err != nil {
 		return nil, err
@@ -314,21 +318,26 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 // to "get", and injects the resolved id.
 func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx.Ctx {
 	goCtx, cancel := context.WithCancelCause(parent.Context)
+	provided := make(map[string]bool, len(cs.Flags))
+	for _, flag := range cs.Flags {
+		provided[flag.Name] = false
+	}
 	ctx := &cmdctx.Ctx{
-		Context:     goCtx,
-		CancelFn:    cancel,
-		Auth:        parent.Auth,
-		Verb:        cs.Verb,
-		VerbHandler: cs.VerbHandler,
-		Noun:        cs.Noun,
-		FieldsNoun:  cs.FieldsNoun,
-		Id:          id,
-		Level:       parent.Level,
-		IsPty:       parent.IsPty,
-		Resolver:    parent.Resolver,
-		FormatFlags: cmdctx.FormatFlags{Format: "text"},
-		FlagValues:  map[string]any{},
-		UIHistory:   parent.UIHistory,
+		Context:       goCtx,
+		CancelFn:      cancel,
+		Auth:          parent.Auth,
+		Verb:          cs.Verb,
+		VerbHandler:   cs.VerbHandler,
+		Noun:          cs.Noun,
+		FieldsNoun:    cs.FieldsNoun,
+		Id:            id,
+		Level:         parent.Level,
+		IsPty:         parent.IsPty,
+		Resolver:      parent.Resolver,
+		FormatFlags:   cmdctx.FormatFlags{Format: "text"},
+		FlagValues:    map[string]any{},
+		ProvidedFlags: provided,
+		UIHistory:     parent.UIHistory,
 	}
 	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
 	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
@@ -357,21 +366,31 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 	if fv == nil {
 		fv = map[string]any{}
 	}
+	provided := maps.Clone(link.ProvidedFlags)
+	if provided == nil {
+		provided = make(map[string]bool, len(targetCs.Flags))
+	}
+	for _, flag := range targetCs.Flags {
+		if _, exists := provided[flag.Name]; !exists {
+			provided[flag.Name] = false
+		}
+	}
 	goCtx, cancel := context.WithCancelCause(ctx.Context)
 	newCtx := &cmdctx.Ctx{
-		Context:     goCtx,
-		CancelFn:    cancel,
-		Auth:        resolved,
-		Verb:        targetCs.Verb,
-		VerbHandler: targetCs.VerbHandler,
-		Noun:        targetCs.Noun,
-		FieldsNoun:  targetCs.FieldsNoun,
-		Level:       link.Level,
-		IsPty:       ctx.IsPty,
-		Resolver:    ctx.Resolver,
-		FormatFlags: cmdctx.FormatFlags{Format: "text"},
-		FlagValues:  fv,
-		UIHistory:   ctx.UIHistory,
+		Context:       goCtx,
+		CancelFn:      cancel,
+		Auth:          resolved,
+		Verb:          targetCs.Verb,
+		VerbHandler:   targetCs.VerbHandler,
+		Noun:          targetCs.Noun,
+		FieldsNoun:    targetCs.FieldsNoun,
+		Level:         link.Level,
+		IsPty:         ctx.IsPty,
+		Resolver:      ctx.Resolver,
+		FormatFlags:   cmdctx.FormatFlags{Format: "text"},
+		FlagValues:    fv,
+		ProvidedFlags: provided,
+		UIHistory:     ctx.UIHistory,
 	}
 	if link.Screen == cmdctx.ScreenDetailForGet {
 		newCtx.Id = link.Id
