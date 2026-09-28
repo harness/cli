@@ -272,7 +272,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 			ctx.SetArgs = make(map[string]string, len(all))
 			for _, kv := range all {
 				k, v, ok := strings.Cut(kv, "=")
-				if !ok {
+				if !ok && !isBareSetMember(k, cs, r) {
 					return nil, fmt.Errorf("invalid value %q: expected key=value format", kv)
 				}
 				ctx.SetArgs[k] = v
@@ -311,6 +311,32 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 	}
 	return ctx, nil
+}
+
+func isBareSetMember(target string, cs *spec.CommandSpec, r *Registry) bool {
+	if cs.HandlerType != spec.HandlerEndpoint || cs.Endpoint == nil {
+		return false
+	}
+	ep := cs.Endpoint
+	if ep.CreateStrategy != spec.CreateStrategySetFields &&
+		ep.UpdateStrategy != spec.UpdateStrategyGetThenPut &&
+		ep.UpdateStrategy != spec.UpdateStrategyGetThenPatch {
+		return false
+	}
+	fieldID, member, found := strings.Cut(target, ".")
+	if !found || member == "" {
+		return false
+	}
+	noun := cs.Noun
+	if cs.FieldsNoun != "" {
+		noun = cs.FieldsNoun
+	}
+	for _, field := range MutableFields(r.GetNoun(noun)) {
+		if field.ID == fieldID && field.FieldType == "set" {
+			return true
+		}
+	}
+	return false
 }
 
 // buildDetailCtx constructs a minimal Ctx for a get-by-id drilldown from inside

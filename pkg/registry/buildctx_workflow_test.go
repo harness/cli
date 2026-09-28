@@ -627,6 +627,71 @@ func TestBuildCtx_SetArgs(t *testing.T) {
 	}
 }
 
+func TestBuildCtx_BareSetMember(t *testing.T) {
+	r := New()
+	for _, noun := range []spec.NounDef{
+		{Noun: "widget", NounAliases: []string{"widgets"}, Fields: []spec.FieldDef{
+			{ID: "modules", Expr: "it.modules", FieldType: "set", MutablePath: "modules"},
+			{ID: "tags", Expr: "it.tags", FieldType: "tags", MutablePath: "tags"},
+			{ID: "description", Expr: "it.description", MutablePath: "description"},
+			{ID: "readonly", Expr: "it.readonly", FieldType: "set"},
+		}},
+		{Noun: "config", NounAliases: []string{"configs"}, Fields: []spec.FieldDef{
+			{ID: "features", Expr: "it.features", FieldType: "set", MutablePath: "features"},
+		}},
+	} {
+		if err := r.RegisterNoun(noun); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		name, input, fieldsNoun, wantKey string
+		positional                       bool
+	}{
+		{name: "update", input: "modules.CD", wantKey: "modules.CD"},
+		{name: "legacy assignment", input: "modules.CD=", wantKey: "modules.CD"},
+		{name: "positional", input: "modules.CD", wantKey: "modules.CD", positional: true},
+		{name: "fields noun", input: "features.CI", fieldsNoun: "config", wantKey: "features.CI"},
+		{name: "empty scalar value", input: "description=", wantKey: "description"},
+		{name: "missing member", input: "modules"},
+		{name: "empty member", input: "modules."},
+		{name: "scalar without value", input: "description"},
+		{name: "map without value", input: "tags.env"},
+		{name: "read-only set", input: "readonly.CD"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := &spec.CommandSpec{Verb: VerbUpdate, Noun: "widget", FieldsNoun: tt.fieldsNoun,
+				HandlerType: spec.HandlerEndpoint, Endpoint: &spec.EndpointSpec{UpdateStrategy: spec.UpdateStrategyGetThenPut},
+				NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true}}
+			cmd := &cobra.Command{Use: "widget"}
+			r.bindEndpointCmdFlags(cmd, cs)
+			cmd.Flags().Float64("timeout", 0, "Command timeout in seconds")
+			args := []string{"widget-id", "--set", tt.input}
+			if tt.positional {
+				args = []string{"widget-id", tt.input}
+			}
+			if err := cmd.ParseFlags(args); err != nil {
+				t.Fatal(err)
+			}
+			ctx, err := buildCtx(cmd, cs, cmd.Flags().Args(), r)
+			if tt.wantKey == "" {
+				if err == nil || !strings.Contains(err.Error(), "key=value") {
+					t.Fatalf("buildCtx() error = %v, want key=value error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if value, ok := ctx.SetArgs[tt.wantKey]; !ok || value != "" {
+				t.Fatalf("SetArgs = %v, want %q with empty value", ctx.SetArgs, tt.wantKey)
+			}
+		})
+	}
+}
+
 func TestBuildCtx_SetArgsBadFormat(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "setbad", &spec.CommandSpec{

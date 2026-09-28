@@ -1074,7 +1074,7 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 	}
 	addFlag(cmd.Flags(), specOut)
 	if cs.BuiltinFlags.Set {
-		cmd.Flags().StringArray("set", nil, "Set a field value as key=value (repeatable)")
+		cmd.Flags().StringArray("set", nil, "Set a field as key=value or a set member as field.member (repeatable)")
 	}
 	if cs.BuiltinFlags.Del {
 		cmd.Flags().StringArray("del", nil, "Delete a field or field member (repeatable)")
