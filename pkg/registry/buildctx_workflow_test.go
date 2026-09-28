@@ -648,8 +648,10 @@ func TestBuildCtx_BareSetMember(t *testing.T) {
 	tests := []struct {
 		name, input, fieldsNoun, wantKey string
 		positional                       bool
+		noStrategy                       bool
 	}{
 		{name: "update", input: "modules.CD", wantKey: "modules.CD"},
+		{name: "no mutation strategy", input: "modules.CD", wantKey: "modules.CD", noStrategy: true},
 		{name: "legacy assignment", input: "modules.CD=", wantKey: "modules.CD"},
 		{name: "positional", input: "modules.CD", wantKey: "modules.CD", positional: true},
 		{name: "fields noun", input: "features.CI", fieldsNoun: "config", wantKey: "features.CI"},
@@ -662,8 +664,12 @@ func TestBuildCtx_BareSetMember(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ep := &spec.EndpointSpec{UpdateStrategy: spec.UpdateStrategyGetThenPut}
+			if tt.noStrategy {
+				ep.UpdateStrategy = ""
+			}
 			cs := &spec.CommandSpec{Verb: VerbUpdate, Noun: "widget", FieldsNoun: tt.fieldsNoun,
-				HandlerType: spec.HandlerEndpoint, Endpoint: &spec.EndpointSpec{UpdateStrategy: spec.UpdateStrategyGetThenPut},
+				HandlerType: spec.HandlerEndpoint, Endpoint: ep,
 				NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true}}
 			cmd := &cobra.Command{Use: "widget"}
 			r.bindEndpointCmdFlags(cmd, cs)

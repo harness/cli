@@ -317,12 +317,6 @@ func isBareSetMember(target string, cs *spec.CommandSpec, r *Registry) bool {
 	if cs.HandlerType != spec.HandlerEndpoint || cs.Endpoint == nil {
 		return false
 	}
-	ep := cs.Endpoint
-	if ep.CreateStrategy != spec.CreateStrategySetFields &&
-		ep.UpdateStrategy != spec.UpdateStrategyGetThenPut &&
-		ep.UpdateStrategy != spec.UpdateStrategyGetThenPatch {
-		return false
-	}
 	fieldID, member, found := strings.Cut(target, ".")
 	if !found || member == "" {
 		return false
