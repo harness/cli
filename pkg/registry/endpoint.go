@@ -968,7 +968,7 @@ func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs [
 			tagsMap[tagKey] = val
 			setDotPath(mutable, rel, tagsMap)
 		case "set":
-			if len(parts) < 2 {
+			if len(parts) < 2 || parts[1] == "" {
 				return fmt.Errorf("--set %s: set fields require a member (e.g. --set modules.CD)", key)
 			}
 			member := parts[1]

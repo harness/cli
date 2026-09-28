@@ -649,15 +649,17 @@ func TestBuildCtx_BareSetMember(t *testing.T) {
 		name, input, fieldsNoun, wantKey string
 		positional                       bool
 		noStrategy                       bool
+		workflow                         bool
 	}{
 		{name: "update", input: "modules.CD", wantKey: "modules.CD"},
 		{name: "no mutation strategy", input: "modules.CD", wantKey: "modules.CD", noStrategy: true},
+		{name: "workflow", input: "modules.CD", wantKey: "modules.CD", workflow: true},
 		{name: "legacy assignment", input: "modules.CD=", wantKey: "modules.CD"},
 		{name: "positional", input: "modules.CD", wantKey: "modules.CD", positional: true},
 		{name: "fields noun", input: "features.CI", fieldsNoun: "config", wantKey: "features.CI"},
 		{name: "empty scalar value", input: "description=", wantKey: "description"},
-		{name: "missing member", input: "modules"},
-		{name: "empty member", input: "modules."},
+		{name: "missing member", input: "modules", wantKey: "modules"},
+		{name: "empty member", input: "modules.", wantKey: "modules."},
 		{name: "scalar without value", input: "description"},
 		{name: "map without value", input: "tags.env"},
 		{name: "read-only set", input: "readonly.CD"},
@@ -672,7 +674,12 @@ func TestBuildCtx_BareSetMember(t *testing.T) {
 				HandlerType: spec.HandlerEndpoint, Endpoint: ep,
 				NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true}}
 			cmd := &cobra.Command{Use: "widget"}
-			r.bindEndpointCmdFlags(cmd, cs)
+			if tt.workflow {
+				cs.HandlerType, cs.Endpoint = spec.HandlerWorkflow, nil
+				r.bindWorkflowCmd(cmd, cs, func(*cmdctx.Ctx) error { return nil })
+			} else {
+				r.bindEndpointCmdFlags(cmd, cs)
+			}
 			cmd.Flags().Float64("timeout", 0, "Command timeout in seconds")
 			args := []string{"widget-id", "--set", tt.input}
 			if tt.positional {

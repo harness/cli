@@ -1366,9 +1366,11 @@ func TestApplyMutations(t *testing.T) {
 	})
 
 	t.Run("set_set_field_no_member_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, map[string]string{"modules": ""}, nil, fields)
-		if err == nil || !strings.Contains(err.Error(), "require a member") {
-			t.Fatalf("err = %v, want require a member", err)
+		for _, key := range []string{"modules", "modules."} {
+			err := applyMutations(map[string]any{}, map[string]string{key: ""}, nil, fields)
+			if err == nil || !strings.Contains(err.Error(), "require a member") {
+				t.Fatalf("--set %s: err = %v, want require a member", key, err)
+			}
 		}
 	})
 
