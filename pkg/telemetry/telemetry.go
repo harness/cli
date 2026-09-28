@@ -152,6 +152,9 @@ type CommandIntent struct {
 	// AuthSource is "profile" when auth came from config file, "env" when from env vars.
 	AuthSource string
 
+	// APIUrl is the Harness API base URL from the resolved profile, or "" if unset.
+	APIUrl string
+
 	// RunID correlates all API calls from this invocation. Mirrors hbase.RunID.
 	RunID string
 
@@ -171,6 +174,7 @@ type CommandError struct {
 	UserType   string
 	TokenKind  string
 	AuthSource string
+	APIUrl     string
 	RunID      string
 
 	Category   ErrorCategory
@@ -276,6 +280,7 @@ func RecordIntent(e CommandIntent) {
 		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
 		"flags", e.FlagsSet, "account", e.AccountID, "domain", e.UserDomain,
 		"user_id", e.UserID, "user_type", e.UserType, "token_kind", e.TokenKind, "auth_source", e.AuthSource,
+		"api_url", e.APIUrl,
 		"run_id", e.RunID, "os", e.Env.OS, "arch", e.Env.Arch,
 		"version", e.Env.Version, "is_tty", e.Env.IsTTY,
 		"is_pipeline", e.Env.IsPipelineExecution,
@@ -302,7 +307,7 @@ func RecordError(e CommandError) {
 		"verb", e.Verb, "noun", e.Noun, "module", e.Module,
 		"category", e.Category, "duration_ms", e.DurationMs,
 		"account", e.AccountID, "user_id", e.UserID, "user_type", e.UserType, "token_kind", e.TokenKind,
-		"auth_source", e.AuthSource, "run_id", e.RunID,
+		"auth_source", e.AuthSource, "api_url", e.APIUrl, "run_id", e.RunID,
 		"backend", activeBackend != nil)
 	if activeBackend == nil {
 		return

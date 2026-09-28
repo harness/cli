@@ -1232,7 +1232,7 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	return nil
 }
 
-func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, userType, tokenKind, authSource string) {
+func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, userType, tokenKind, authSource, apiURL string) {
 	if a == nil {
 		return
 	}
@@ -1246,6 +1246,7 @@ func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, u
 	} else {
 		authSource = "profile"
 	}
+	apiURL = a.APIUrl
 	return
 }
 
@@ -1271,7 +1272,7 @@ func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmd
 	}
 	var flags []string
 	cmd.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
-	accountID, userDomain, userID, userType, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	accountID, userDomain, userID, userType, tokenKind, authSource, apiURL := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordIntent(telemetry.CommandIntent{
 		Verb:       cs.Verb,
 		Noun:       cs.FullNoun(),
@@ -1283,6 +1284,7 @@ func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmd
 		UserType:   userType,
 		TokenKind:  tokenKind,
 		AuthSource: authSource,
+		APIUrl:     apiURL,
 		RunID:      hbase.RunID,
 		Env:        r.TelemetryEnv,
 	})
@@ -1292,7 +1294,7 @@ func (r *Registry) emitError(cs *spec.CommandSpec, ctx *cmdctx.Ctx, err error, s
 	if telemetry.Disabled() {
 		return
 	}
-	accountID, userDomain, userID, userType, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	accountID, userDomain, userID, userType, tokenKind, authSource, apiURL := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordError(telemetry.CommandError{
 		Verb:       cs.Verb,
 		Noun:       cs.FullNoun(),
@@ -1303,6 +1305,7 @@ func (r *Registry) emitError(cs *spec.CommandSpec, ctx *cmdctx.Ctx, err error, s
 		UserType:   userType,
 		TokenKind:  tokenKind,
 		AuthSource: authSource,
+		APIUrl:     apiURL,
 		RunID:      hbase.RunID,
 		Category:   telemetry.ClassifyError(err),
 		DurationMs: time.Since(start).Milliseconds(),
