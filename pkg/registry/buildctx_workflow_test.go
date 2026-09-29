@@ -754,7 +754,7 @@ func TestBuildCtx_MutationFlagsPreserveRawOperands(t *testing.T) {
 				t.Fatal(err)
 			}
 			cs := &spec.CommandSpec{Command: "update widget", Verb: VerbUpdate, Noun: "widget",
-				NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true, Del: true}}
+				NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true}}
 			cmd := &cobra.Command{Use: "widget"}
 			if workflow {
 				cs.HandlerType = spec.HandlerWorkflow
@@ -765,7 +765,7 @@ func TestBuildCtx_MutationFlagsPreserveRawOperands(t *testing.T) {
 			}
 			cmd.Flags().Float64("timeout", 0, "Command timeout in seconds")
 			if err := cmd.ParseFlags([]string{"id", "--set", "modules.CD", "--set=modules.CD=", "--set", "owner=user:a@x.com",
-				"--set", "name=a=b", "--del", "owners=", "--del=modules.CD", "description=positional"}); err != nil {
+				"--del", "owners=", "--add=modules.CI", "--set", "name=a=b", "--del=modules.CD", "description=positional"}); err != nil {
 				t.Fatal(err)
 			}
 			ctx, err := buildCtx(cmd, cs, cmd.Flags().Args(), r)
@@ -776,10 +776,11 @@ func TestBuildCtx_MutationFlagsPreserveRawOperands(t *testing.T) {
 				{Kind: cmdctx.MutationSet, Raw: "modules.CD", Key: "modules.CD"},
 				{Kind: cmdctx.MutationSet, Raw: "modules.CD=", Key: "modules.CD", HasValue: true},
 				{Kind: cmdctx.MutationSet, Raw: "owner=user:a@x.com", Key: "owner", Value: "user:a@x.com", HasValue: true},
-				{Kind: cmdctx.MutationSet, Raw: "name=a=b", Key: "name", Value: "a=b", HasValue: true},
-				{Kind: cmdctx.MutationSet, Raw: "description=positional", Key: "description", Value: "positional", HasValue: true},
 				{Kind: cmdctx.MutationDelete, Raw: "owners=", Key: "owners", HasValue: true},
+				{Kind: cmdctx.MutationAdd, Raw: "modules.CI", Key: "modules.CI"},
+				{Kind: cmdctx.MutationSet, Raw: "name=a=b", Key: "name", Value: "a=b", HasValue: true},
 				{Kind: cmdctx.MutationDelete, Raw: "modules.CD", Key: "modules.CD"},
+				{Kind: cmdctx.MutationSet, Raw: "description=positional", Key: "description", Value: "positional", HasValue: true},
 			}
 			if !reflect.DeepEqual(ctx.MutationFlags, want) {
 				t.Fatalf("MutationFlags = %#v, want %#v", ctx.MutationFlags, want)

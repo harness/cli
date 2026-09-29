@@ -37,19 +37,38 @@ func (r *Registry) ResolveFieldType(id string) (cmdctx.FieldTypeHandler, bool) {
 }
 
 func mutateScalar(_ spec.FieldDef, _ any, op cmdctx.FieldMutation) (any, bool, error) {
-	if op.Kind == cmdctx.MutationDelete {
+	switch op.Kind {
+	case cmdctx.MutationSet:
+		return op.Value, true, nil
+	case cmdctx.MutationDelete:
+		if op.HasValue {
+			return nil, false, fmt.Errorf("--del %s: scalar fields do not take a value", op.Raw)
+		}
 		return nil, true, nil
+	case cmdctx.MutationAdd:
+		return nil, false, fmt.Errorf("--add %s: scalar fields do not support addition", op.Key)
+	default:
+		return nil, false, fmt.Errorf("unknown mutation operation %q", op.Kind)
 	}
-	return op.Value, true, nil
 }
 
 func mutateTags(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
-	_, tag, found := strings.Cut(op.Key, ".")
+	if op.Kind != cmdctx.MutationSet && op.Kind != cmdctx.MutationAdd && op.Kind != cmdctx.MutationDelete {
+		return nil, false, fmt.Errorf("unknown mutation operation %q", op.Kind)
+	}
+	selector := op.Key
+	if op.Kind == cmdctx.MutationDelete && op.HasValue {
+		selector = op.Raw
+	}
+	_, tag, found := strings.Cut(selector, ".")
 	if !found {
 		if op.Kind == cmdctx.MutationDelete {
 			return nil, false, fmt.Errorf("--del %s: tag fields require a key (e.g. --del tags.key)", op.Key)
 		}
-		return nil, false, fmt.Errorf("--set %s: tag fields require a key (e.g. --set tags.key=value)", op.Key)
+		return nil, false, fmt.Errorf("--%s %s: tag fields require a key (e.g. --%s tags.key=value)", op.Kind, op.Key, op.Kind)
+	}
+	if op.Kind == cmdctx.MutationAdd && !op.HasValue {
+		return nil, false, fmt.Errorf("--add %s: tag fields require key=value", op.Key)
 	}
 	tags, _ := current.(map[string]any)
 	if op.Kind == cmdctx.MutationDelete {
@@ -64,15 +83,33 @@ func mutateTags(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, boo
 	if op.Kind == cmdctx.MutationDelete {
 		delete(next, tag)
 	} else {
+		if op.Kind == cmdctx.MutationAdd {
+			if existing, found := next[tag]; found {
+				if existing == op.Value {
+					return nil, false, nil
+				}
+				return nil, false, fmt.Errorf("--add %s: key already exists with a different value; use --set to overwrite it", op.Key)
+			}
+		}
 		next[tag] = op.Value
 	}
 	return next, true, nil
 }
 
 func mutateStringSet(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
-	_, member, found := strings.Cut(op.Key, ".")
-	if !found || (op.Kind == cmdctx.MutationSet && member == "") {
+	if op.Kind != cmdctx.MutationSet && op.Kind != cmdctx.MutationAdd && op.Kind != cmdctx.MutationDelete {
+		return nil, false, fmt.Errorf("unknown mutation operation %q", op.Kind)
+	}
+	selector := op.Key
+	if op.Kind == cmdctx.MutationDelete && op.HasValue {
+		selector = op.Raw
+	}
+	_, member, found := strings.Cut(selector, ".")
+	if !found || member == "" {
 		return nil, false, fmt.Errorf("--%s %s: set fields require a member (e.g. --%s modules.CD)", op.Kind, op.Key, op.Kind)
+	}
+	if op.Kind == cmdctx.MutationAdd && op.HasValue {
+		return nil, false, fmt.Errorf("--add %s: set members do not take a value", op.Key)
 	}
 	var arr []any
 	switch values := current.(type) {

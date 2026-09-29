@@ -658,8 +658,10 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 		name        string
 		setArgs     map[string]string
 		delArgs     []string
+		mutations   []cmdctx.FieldMutation
 		wantPresent map[string]string
 		wantAbsent  []string
+		wantError   string
 	}{
 		{
 			name:        "upsert_existing_key",
@@ -677,6 +679,25 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 			wantPresent: map[string]string{"env": "prod"},
 			wantAbsent:  []string{"team"},
 		},
+		{
+			name: "ordered_add_delete_and_set",
+			mutations: []cmdctx.FieldMutation{
+				{Kind: cmdctx.MutationAdd, Key: "region", Value: "us", HasValue: true},
+				{Kind: cmdctx.MutationAdd, Key: "env", Value: "prod", HasValue: true},
+				{Kind: cmdctx.MutationDelete, Key: "team", Raw: "team"},
+				{Kind: cmdctx.MutationSet, Key: "env", Value: "stage", HasValue: true},
+			},
+			wantPresent: map[string]string{"env": "stage", "region": "us"},
+			wantAbsent:  []string{"team"},
+		},
+		{
+			name: "add_conflict_prevents_write",
+			mutations: []cmdctx.FieldMutation{
+				{Kind: cmdctx.MutationAdd, Key: "env", Value: "stage", HasValue: true},
+				{Kind: cmdctx.MutationDelete, Key: "env", Raw: "env"},
+			},
+			wantError: "key already exists",
+		},
 	}
 
 	for _, tc := range tests {
@@ -685,6 +706,8 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 			ctx := testCtx(srv.URL, nil)
 			ctx.SetArgs = tc.setArgs
 			ctx.DelArgs = tc.delArgs
+			ctx.MutationFlags = tc.mutations
+			ctx.MutationOrderCaptured = len(tc.mutations) > 0
 			ctx.Resolver = testNounRegistry(t)
 
 			ep := &spec.EndpointSpec{
@@ -692,6 +715,12 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 				UpdateStrategy: spec.UpdateStrategyGetThenPutKV, UpdateBodyWrap: "metadata",
 			}
 			_, _, err := callEndpointFull(ctx, ep, nil)
+			if tc.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantError) || len(*caps) != 1 {
+					t.Fatalf("error = %v, server requests = %d; want GET only and %q", err, len(*caps), tc.wantError)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

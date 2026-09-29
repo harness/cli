@@ -150,8 +150,8 @@ func (m *MigrateFlag) UsageFragment(name string) string {
 // BuiltinFlags enables predefined system flags that have fixed registration and dispatch behavior.
 type BuiltinFlags struct {
 	Page bool `yaml:"page,omitempty"` // --page N (1-indexed); exposed in expr as integer flags.page = N-1
-	Set  bool `yaml:"set,omitempty"`  // --set key=value (repeatable); parsed into ctx.SetArgs
-	Del  bool `yaml:"del,omitempty"`  // --del key (repeatable); parsed into ctx.DelArgs
+	Set  bool `yaml:"set,omitempty"`  // Enables --set, --del, and --add; handlers decide which operations are valid.
+	Del  bool `yaml:"del,omitempty"`  // Retained for commands that only enable --del.
 	UI   bool `yaml:"ui,omitempty"`   // --ui launch interactive TUI (requires both stdin and stdout to be a TTY)
 }
 

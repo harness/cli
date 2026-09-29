@@ -265,36 +265,40 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 		ctx.Args = extra
 	}
-	if cs.BuiltinFlags.Set {
-		setVals, _ := cmd.Flags().GetStringArray("set")
-		// positional args after the id are also treated as key=value pairs
-		positional := args
-		if consumedIdArg {
-			positional = args[1:]
-		}
-		all := append(setVals, positional...)
-		if len(all) > 0 {
-			ctx.SetArgs = make(map[string]string, len(all))
-			for _, kv := range all {
-				k, v, ok := strings.Cut(kv, "=")
-				if !ok && !isBareSetField(k, cs, r) {
-					return nil, fmt.Errorf("invalid value %q: expected key=value format", kv)
+	if cs.BuiltinFlags.Set || cs.BuiltinFlags.Del {
+		ctx.MutationOrderCaptured = true
+		for _, op := range capturedMutationFlags(cmd) {
+			op.Key, op.Value, op.HasValue = strings.Cut(op.Raw, "=")
+			switch op.Kind {
+			case cmdctx.MutationSet:
+				if !op.HasValue && !isBareSetField(op.Key, cs, r) {
+					return nil, fmt.Errorf("invalid value %q: expected key=value format", op.Raw)
 				}
-				ctx.MutationFlags = append(ctx.MutationFlags, cmdctx.FieldMutation{
-					Kind: cmdctx.MutationSet, Raw: kv, Key: k, Value: v, HasValue: ok,
-				})
-				ctx.SetArgs[k] = v
+				if ctx.SetArgs == nil {
+					ctx.SetArgs = map[string]string{}
+				}
+				ctx.SetArgs[op.Key] = op.Value
+			case cmdctx.MutationDelete:
+				ctx.DelArgs = append(ctx.DelArgs, op.Raw)
 			}
+			ctx.MutationFlags = append(ctx.MutationFlags, op)
 		}
-	}
-	if cs.BuiltinFlags.Del {
-		delVals, _ := cmd.Flags().GetStringArray("del")
-		if len(delVals) > 0 {
-			ctx.DelArgs = delVals
-			for _, raw := range delVals {
+		if cs.BuiltinFlags.Set {
+			positional := args
+			if consumedIdArg {
+				positional = args[1:]
+			}
+			for _, raw := range positional {
 				key, value, hasValue := strings.Cut(raw, "=")
+				if !hasValue && !isBareSetField(key, cs, r) {
+					return nil, fmt.Errorf("invalid value %q: expected key=value format", raw)
+				}
+				if ctx.SetArgs == nil {
+					ctx.SetArgs = map[string]string{}
+				}
+				ctx.SetArgs[key] = value
 				ctx.MutationFlags = append(ctx.MutationFlags, cmdctx.FieldMutation{
-					Kind: cmdctx.MutationDelete, Raw: raw, Key: key, Value: value, HasValue: hasValue,
+					Kind: cmdctx.MutationSet, Raw: raw, Key: key, Value: value, HasValue: hasValue,
 				})
 			}
 		}

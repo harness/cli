@@ -134,7 +134,7 @@ func TestApplyMutations_ExistingNoWriteCases(t *testing.T) {
 	}
 }
 
-func TestApplyMutations_StillSetsBeforeDeleting(t *testing.T) {
+func TestLegacyMutationsStillSetBeforeDeleting(t *testing.T) {
 	r := New()
 	field := spec.FieldDef{ID: "name", Expr: "it.name", MutablePath: "name"}
 	m := map[string]any{"name": "old"}

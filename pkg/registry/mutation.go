@@ -50,6 +50,10 @@ func effectiveMutations(sets map[string]string, dels []string, captured []cmdctx
 // buildMutationBody constructs a new JSON-shaped body without modifying its inputs.
 func buildMutationBody(base map[string]any, fields map[string]spec.FieldDef, handlers map[string]cmdctx.FieldTypeHandler, ops []cmdctx.FieldMutation, wrap string, extra map[string]any) (map[string]any, error) {
 	mutable := cloneMutationMap(base)
+	working := map[string]any{}
+	initialized := map[string]bool{}
+	touched := map[string]bool{}
+	var touchOrder []string
 	for _, op := range ops {
 		fieldID, _, _ := strings.Cut(op.Key, ".")
 		field, found := fields[fieldID]
@@ -60,23 +64,37 @@ func buildMutationBody(base map[string]any, fields map[string]spec.FieldDef, han
 		if !found || handler.Mutate == nil {
 			return nil, fmt.Errorf("field %q: field_type %q has no registered mutator", field.ID, field.FieldType)
 		}
-		current := cloneMutationValue(getDotPathValue(mutable, field.MutablePath))
-		if handler.Normalize != nil {
-			var err error
-			current, err = handler.Normalize(field, current)
-			if err != nil {
-				return nil, err
+		current := working[fieldID]
+		if !initialized[fieldID] {
+			current = cloneMutationValue(getDotPathValue(mutable, field.MutablePath))
+			if handler.Normalize != nil {
+				var err error
+				current, err = handler.Normalize(field, current)
+				if err != nil {
+					return nil, err
+				}
 			}
+			working[fieldID] = current
+			initialized[fieldID] = true
 		}
-		next, write, err := handler.Mutate(field, current, op)
+		next, write, err := handler.Mutate(field, cloneMutationValue(current), op)
 		if err != nil {
 			return nil, err
 		}
-		if !write {
-			continue
+		if write {
+			working[fieldID] = next
+			if !touched[fieldID] {
+				touchOrder = append(touchOrder, fieldID)
+			}
+			touched[fieldID] = true
 		}
-		if handler.Encode != nil {
-			next, err = handler.Encode(field, next)
+	}
+	for _, fieldID := range touchOrder {
+		field := fields[fieldID]
+		next := working[fieldID]
+		if handler := handlers[field.FieldType]; handler.Encode != nil {
+			var err error
+			next, err = handler.Encode(field, cloneMutationValue(next))
 			if err != nil {
 				return nil, err
 			}

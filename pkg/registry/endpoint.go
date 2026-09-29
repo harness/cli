@@ -856,9 +856,30 @@ func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, p
 		}
 	}
 
-	maps.Copy(kvMap, ctx.SetArgs)
-	for _, k := range ctx.DelArgs {
-		delete(kvMap, k)
+	if ctx.MutationOrderCaptured {
+		for _, op := range ctx.MutationFlags {
+			switch op.Kind {
+			case cmdctx.MutationSet:
+				kvMap[op.Key] = op.Value
+			case cmdctx.MutationDelete:
+				delete(kvMap, op.Raw)
+			case cmdctx.MutationAdd:
+				if !op.HasValue {
+					return nil, fmt.Errorf("--add %s: expected key=value", op.Key)
+				}
+				if existing, found := kvMap[op.Key]; found && existing != op.Value {
+					return nil, fmt.Errorf("--add %s: key already exists with a different value; use --set to overwrite it", op.Key)
+				}
+				kvMap[op.Key] = op.Value
+			default:
+				return nil, fmt.Errorf("unknown mutation operation %q", op.Kind)
+			}
+		}
+	} else {
+		maps.Copy(kvMap, ctx.SetArgs)
+		for _, k := range ctx.DelArgs {
+			delete(kvMap, k)
+		}
 	}
 
 	// Rebuild as [{key, value}, ...].
@@ -909,6 +930,9 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 
 func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any) (map[string]any, error) {
 	ops := effectiveMutations(ctx.SetArgs, ctx.DelArgs, ctx.MutationFlags)
+	if ctx.MutationOrderCaptured {
+		ops = ctx.MutationFlags
+	}
 	if len(ops) > 0 && ctx.Resolver == nil {
 		return nil, fmt.Errorf("field type resolver is not available")
 	}

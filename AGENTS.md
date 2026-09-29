@@ -231,6 +231,12 @@ harness list pr_activity <repo_id>/<pr_number>
 The CLI reads auth from the active profile (typically `~/.harness/profiles.yaml`).
 For endpoint-backed create/update/execute commands, append the hidden `--preview-request` flag to inspect the assembled URL and body without sending the write (an update may still perform a preparatory GET).
 
+## Test selection
+
+Add tests for behavior with a plausible, non-obvious failure mode: interacting operations, ordering, branching rules, boundary cases, error handling, and exact request-body transformations. Prefer compact direct/table tests at the layer that owns that logic; run existing suites for the rest.
+
+Do not add tests for mechanical pass-through or framework guarantees (e.g. Cobra accepting a registered flag, a loop forwarding an element, or a handler receiving an operation explicitly supplied by the test). Do not build mock commands or HTTP servers just to reassert a body shape already covered by a direct mutation test. If you cannot name a realistic mistake the test would catch, omit it; redundant tests add maintenance and context cost.
+
 ## Current spec files
 
 | File | Commands |

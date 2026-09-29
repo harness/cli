@@ -63,6 +63,9 @@ func TestBuildMutationBody(t *testing.T) {
 	set := func(key, value string) cmdctx.FieldMutation {
 		return cmdctx.FieldMutation{Kind: cmdctx.MutationSet, Raw: key + "=" + value, Key: key, Value: value, HasValue: true}
 	}
+	add := func(key, value string, hasValue bool) cmdctx.FieldMutation {
+		return cmdctx.FieldMutation{Kind: cmdctx.MutationAdd, Key: key, Value: value, HasValue: hasValue}
+	}
 	del := func(key string) cmdctx.FieldMutation {
 		return cmdctx.FieldMutation{Kind: cmdctx.MutationDelete, Raw: key, Key: key}
 	}
@@ -88,6 +91,19 @@ func TestBuildMutationBody(t *testing.T) {
 			ops: []cmdctx.FieldMutation{set("nested.env", "staging")}, want: map[string]any{"config": map[string]any{"other": "keep", "tags": map[string]any{"env": "staging"}}}},
 		{name: "set_then_delete", base: map[string]any{"modules": []any{"CI"}}, ops: []cmdctx.FieldMutation{set("modules.CD", ""), del("modules.CD")}, want: map[string]any{"modules": []any{"CI"}}},
 		{name: "tag_value_with_equals", ops: []cmdctx.FieldMutation{set("tags.env", "a=b")}, want: map[string]any{"tags": map[string]any{"env": "a=b"}}},
+		{name: "add_tags_and_set_members", base: base, ops: []cmdctx.FieldMutation{add("tags.region", "us", true), add("modules.CD", "", false), add("modules.CE", "", false)},
+			want: map[string]any{"name": "keep", "tags": map[string]any{"env": "prod", "team": "ops", "region": "us"}, "modules": []any{"CI", "CE", "CD"}}},
+		{name: "add_existing_same_value", base: base, ops: []cmdctx.FieldMutation{add("tags.env", "prod", true), add("modules.CI", "", false)}, want: base},
+		{name: "add_empty_map_value", ops: []cmdctx.FieldMutation{add("tags.note", "", true)}, want: map[string]any{"tags": map[string]any{"note": ""}}},
+		{name: "add_map_conflict", base: base, ops: []cmdctx.FieldMutation{add("tags.env", "staging", true)}, wantError: "key already exists"},
+		{name: "add_map_missing_value", ops: []cmdctx.FieldMutation{add("tags.env", "", false)}, wantError: "key=value"},
+		{name: "add_set_with_value", ops: []cmdctx.FieldMutation{add("modules.CD", "x", true)}, wantError: "do not take a value"},
+		{name: "add_set_missing_member", ops: []cmdctx.FieldMutation{add("modules", "", false)}, wantError: "require a member"},
+		{name: "add_scalar", ops: []cmdctx.FieldMutation{add("name", "new", true)}, wantError: "do not support addition"},
+		{name: "delete_then_add", base: base, ops: []cmdctx.FieldMutation{del("tags.env"), add("tags.env", "staging", true)},
+			want: map[string]any{"name": "keep", "tags": map[string]any{"env": "staging", "team": "ops"}, "modules": []any{"CI", "CE"}}},
+		{name: "add_then_delete", base: base, ops: []cmdctx.FieldMutation{add("modules.CD", "", false), del("modules.CD")}, want: base},
+		{name: "intermediate_add_conflict_aborts", base: base, ops: []cmdctx.FieldMutation{add("tags.env", "wrong", true), del("tags.env")}, wantError: "key already exists"},
 		{name: "unknown_field", ops: []cmdctx.FieldMutation{set("bad", "x")}, wantError: "unknown or read-only"},
 		{name: "invalid_tag_set", base: base, ops: []cmdctx.FieldMutation{set("tags", "x")}, wantError: "tag fields require a key"},
 		{name: "invalid_tag_delete", base: base, ops: []cmdctx.FieldMutation{del("tags")}, wantError: "tag fields require a key"},
@@ -138,6 +154,41 @@ func TestBuildMutationBodyIsolatesHandlersAndResult(t *testing.T) {
 	got["widget"].(map[string]any)["nested"].(map[string]any)["items"].(map[string]any)["old"] = "after"
 	if base["nested"].(map[string]any)["items"].(map[string]any)["old"] != "keep" {
 		t.Fatalf("result aliases input: %#v", base)
+	}
+}
+
+func TestBuildMutationBodyNormalizesAndEncodesOnce(t *testing.T) {
+	field := spec.FieldDef{ID: "items", MutablePath: "items", FieldType: "example:items"}
+	base := map[string]any{"items": []any{map[string]any{"name": "seed", "id": "read-only"}}}
+	normalizes, encodes := 0, 0
+	handlers := map[string]cmdctx.FieldTypeHandler{"example:items": {
+		Normalize: func(_ spec.FieldDef, current any) (any, error) {
+			normalizes++
+			if normalizes > 1 {
+				t.Fatal("normalized an already-mutated field")
+			}
+			return []any{current.([]any)[0].(map[string]any)["name"]}, nil
+		},
+		Mutate: func(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
+			return append(current.([]any), op.Value), true, nil
+		},
+		Encode: func(_ spec.FieldDef, current any) (any, error) {
+			encodes++
+			out := []any{}
+			for _, name := range current.([]any) {
+				out = append(out, map[string]any{"name": name})
+			}
+			return out, nil
+		},
+	}}
+	ops := []cmdctx.FieldMutation{{Kind: cmdctx.MutationAdd, Key: "items", Value: "one"}, {Kind: cmdctx.MutationAdd, Key: "items", Value: "two"}}
+	got, err := buildMutationBody(base, map[string]spec.FieldDef{"items": field}, handlers, ops, "", nil)
+	want := map[string]any{"items": []any{map[string]any{"name": "seed"}, map[string]any{"name": "one"}, map[string]any{"name": "two"}}}
+	if err != nil || !reflect.DeepEqual(got, want) || normalizes != 1 || encodes != 1 {
+		t.Fatalf("body = %#v, error = %v, normalizes = %d, encodes = %d", got, err, normalizes, encodes)
+	}
+	if !reflect.DeepEqual(base, map[string]any{"items": []any{map[string]any{"name": "seed", "id": "read-only"}}}) {
+		t.Fatalf("input mutated: %#v", base)
 	}
 }
 
