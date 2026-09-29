@@ -139,6 +139,7 @@ update_body_wrap: project           # re-wraps the mutated object in PUT body
 
 Rules:
 - `update_body_pick` should match `yaml_pick_expr` on the corresponding `get` command — they describe the same subtree.
+- For get-then-PUT, pick the full resource subtree rather than enumerating today's fields: a positive field list can silently drop new API fields on PUT. PATCH may intentionally select only fields it sends.
 - Fields without `mutable_path` are read-only and do not appear in `--list-fields`.
 - `mutable_path` must not start with `it.` — the spec validator will reject it.
 
