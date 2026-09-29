@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -192,6 +193,90 @@ func TestBuildMutationBodyNormalizesAndEncodesOnce(t *testing.T) {
 	}
 }
 
+func TestBuildMutationBodyWithPickNormalizesPresentFieldsOnce(t *testing.T) {
+	field := spec.FieldDef{ID: "items", MutablePath: "nested.items", FieldType: "example:items"}
+	base := map[string]any{"nested": map[string]any{"items": "read", "other": "keep"}, "unknown": true}
+	count := 0
+	handlers := map[string]cmdctx.FieldTypeHandler{"example:items": {
+		Normalize: func(_ spec.FieldDef, current any) (any, error) {
+			count++
+			return current.(string) + ":normalized", nil
+		},
+		Mutate: func(_ spec.FieldDef, current any, _ cmdctx.FieldMutation) (any, bool, error) {
+			if current != "read:normalized" && current != "changed" {
+				t.Fatalf("mutation current = %v", current)
+			}
+			return "changed", true, nil
+		},
+	}}
+	fields := map[string]spec.FieldDef{field.ID: field}
+	ops := []cmdctx.FieldMutation{{Kind: cmdctx.MutationSet, Key: "items"}, {Kind: cmdctx.MutationSet, Key: "items"}}
+	got, err := buildMutationBodyWithPick(base, []spec.FieldDef{field}, fields, handlers, ops, "", nil, false)
+	want := map[string]any{"nested": map[string]any{"items": "changed", "other": "keep"}, "unknown": true}
+	if err != nil || count != 1 || !reflect.DeepEqual(got, want) {
+		t.Fatalf("body = %#v, normalizes = %d, error = %v, want %#v", got, count, err, want)
+	}
+	if base["nested"].(map[string]any)["items"] != "read" {
+		t.Fatalf("base mutated: %#v", base)
+	}
+}
+
+func TestBuildMutationBodyWithPickSkipsAbsentAndFailsOnInvalidValue(t *testing.T) {
+	field := spec.FieldDef{ID: "items", MutablePath: "nested.items", FieldType: "example:items"}
+	count := 0
+	handlers := map[string]cmdctx.FieldTypeHandler{"example:items": {
+		Normalize: func(_ spec.FieldDef, _ any) (any, error) {
+			count++
+			return nil, errors.New("invalid items")
+		},
+	}}
+	fields := map[string]spec.FieldDef{field.ID: field}
+	got, err := buildMutationBodyWithPick(map[string]any{"nested": map[string]any{"other": "keep"}}, []spec.FieldDef{field}, fields, handlers, nil, "", nil, false)
+	if err != nil || count != 0 || !reflect.DeepEqual(got, map[string]any{"nested": map[string]any{"other": "keep"}}) {
+		t.Fatalf("absent body = %#v, count = %d, error = %v", got, count, err)
+	}
+	got, err = buildMutationBodyWithPick(map[string]any{"nested": map[string]any{"items": nil}}, []spec.FieldDef{field}, fields, handlers, nil, "", nil, false)
+	if got != nil || err == nil || !strings.Contains(err.Error(), "field \"items\": normalizing picked value: invalid items") || count != 1 {
+		t.Fatalf("invalid body = %#v, count = %d, error = %v", got, count, err)
+	}
+}
+
+func TestBuildMutationBodyWithPickSparsePatch(t *testing.T) {
+	fields := map[string]spec.FieldDef{
+		"owner":   {ID: "owner", MutablePath: "config.owner"},
+		"modules": {ID: "modules", MutablePath: "modules", FieldType: "set"},
+		"tags":    {ID: "tags", MutablePath: "tags", FieldType: "tags"},
+		"other":   {ID: "other", MutablePath: "other", FieldType: "example:other"},
+	}
+	normalizes := 0
+	handlers := New().fieldTypes
+	handlers["example:other"] = cmdctx.FieldTypeHandler{
+		Normalize: func(_ spec.FieldDef, current any) (any, error) {
+			normalizes++
+			return current, nil
+		},
+	}
+	base := map[string]any{"config": map[string]any{"owner": "current", "untouched": true},
+		"modules": []any{"CI"}, "tags": map[string]any{"env": "prod"}, "other": "keep", "unknown": "keep"}
+	ops := []cmdctx.FieldMutation{
+		{Kind: cmdctx.MutationDelete, Raw: "owner", Key: "owner"},
+		{Kind: cmdctx.MutationDelete, Raw: "modules.CI", Key: "modules.CI"},
+		{Kind: cmdctx.MutationAdd, Raw: "tags.env=prod", Key: "tags.env", Value: "prod", HasValue: true},
+	}
+	got, err := buildMutationBodyWithPick(base, []spec.FieldDef{fields["other"]}, fields, handlers, ops, "widget", map[string]any{"audit.reason": "review", "audit.omitted": nil}, true)
+	want := map[string]any{"widget": map[string]any{"config": map[string]any{"owner": nil}, "modules": []any{}}, "audit": map[string]any{"reason": "review"}}
+	if err != nil || normalizes != 1 || !reflect.DeepEqual(got, want) {
+		t.Fatalf("PATCH body = %#v, normalizes = %d, error = %v, want %#v", got, normalizes, err, want)
+	}
+	if base["config"].(map[string]any)["owner"] != "current" {
+		t.Fatalf("base mutated: %#v", base)
+	}
+	got, err = buildMutationBodyWithPick(base, nil, fields, handlers, ops[2:], "", nil, true)
+	if err != nil || !reflect.DeepEqual(got, map[string]any{}) {
+		t.Fatalf("no-op PATCH body = %#v, error = %v", got, err)
+	}
+}
+
 func TestMutationBodyForCtxResolvesRegisteredTypes(t *testing.T) {
 	r := New()
 	if err := r.RegisterNoun(spec.NounDef{Noun: "widget", Fields: []spec.FieldDef{
@@ -202,9 +287,35 @@ func TestMutationBodyForCtxResolvesRegisteredTypes(t *testing.T) {
 	}
 	ctx := &cmdctx.Ctx{Resolver: r, Noun: "widget", SetArgs: map[string]string{"tags.env": "prod", "modules.CD": ""},
 		MutationFlags: []cmdctx.FieldMutation{{Kind: cmdctx.MutationSet, Raw: "modules.CD", Key: "modules.CD"}}}
-	got, err := mutationBodyForCtx(ctx, map[string]any{}, "widget", nil)
+	got, err := mutationBodyForCtx(ctx, map[string]any{}, "widget", nil, false, false)
 	want := map[string]any{"widget": map[string]any{"tags": map[string]any{"env": "prod"}, "modules": []any{"CD"}}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("body = %#v, error = %v, want %#v", got, err, want)
+	}
+}
+
+func TestMutationBodyForCtxNormalizesPickedFieldsWithoutMutations(t *testing.T) {
+	r := New()
+	r.Module("example").RegisterFieldType("items", cmdctx.FieldTypeHandler{
+		Normalize: func(_ spec.FieldDef, current any) (any, error) {
+			return current.(string) + ":normalized", nil
+		},
+		Mutate: mutateScalar,
+	})
+	if err := r.RegisterNoun(spec.NounDef{Noun: "widget", Fields: []spec.FieldDef{
+		{ID: "items", Expr: "it.nested.items", MutablePath: "nested.items", FieldType: "example:items"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &cmdctx.Ctx{Resolver: r, Noun: "widget"}
+	base := map[string]any{"nested": map[string]any{"items": "read"}}
+	for _, tc := range []struct {
+		picked bool
+		want   string
+	}{{picked: true, want: "read:normalized"}, {picked: false, want: "read"}} {
+		got, err := mutationBodyForCtx(ctx, base, "", nil, tc.picked, false)
+		if err != nil || got["nested"].(map[string]any)["items"] != tc.want {
+			t.Fatalf("picked = %t, body = %#v, error = %v, want %q", tc.picked, got, err, tc.want)
+		}
 	}
 }

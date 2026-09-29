@@ -793,7 +793,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, fmt.Errorf("get-then-%s: copying picked item: %w", strings.ToLower(method), err)
 	}
 
-	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams))
+	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH")
 	if err != nil {
 		return nil, err
 	}
@@ -919,7 +919,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		}
 	}
 
-	postBody, err := mutationBodyForCtx(ctx, base, ep.CreateBodyWrap, nil)
+	postBody, err := mutationBodyForCtx(ctx, base, ep.CreateBodyWrap, nil, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -928,7 +928,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 	return result, err
 }
 
-func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any) (map[string]any, error) {
+func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any, picked, sparsePatch bool) (map[string]any, error) {
 	ops := effectiveMutations(ctx.SetArgs, ctx.DelArgs, ctx.MutationFlags)
 	if ctx.MutationOrderCaptured {
 		ops = ctx.MutationFlags
@@ -938,15 +938,19 @@ func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra
 	}
 	fields := map[string]spec.FieldDef{}
 	handlers := map[string]cmdctx.FieldTypeHandler{}
-	for _, field := range MutableFields(resolveNounDef(ctx)) {
+	mutableFields := MutableFields(resolveNounDef(ctx))
+	for _, field := range mutableFields {
 		fields[field.ID] = field
-		if len(ops) > 0 {
+		if (len(ops) > 0 || picked) && ctx.Resolver != nil {
 			if handler, found := ctx.Resolver.ResolveFieldType(field.FieldType); found {
 				handlers[field.FieldType] = handler
 			}
 		}
 	}
-	return buildMutationBody(base, fields, handlers, ops, wrap, extra)
+	if !picked {
+		mutableFields = nil
+	}
+	return buildMutationBodyWithPick(base, mutableFields, fields, handlers, ops, wrap, extra, sparsePatch)
 }
 
 // getDotPathMap retrieves a map[string]any at a dot-separated path, or nil.

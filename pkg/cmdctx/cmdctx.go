@@ -136,15 +136,14 @@ type FieldMutation struct {
 
 // FieldTypeHandler prepares, changes, and serializes a mutable field's value.
 type FieldTypeHandler struct {
-	// Normalize prepares the current field value for mutation. It runs once before
-	// the field's first operation.
+	// Normalize prepares a field's current value for mutation or inclusion in a picked update body.
 	Normalize func(field spec.FieldDef, current any) (any, error)
 	// Mutate applies one operation to the prepared value. Returning write=true
 	// keeps next as the new value and marks the field for serialization.
-	Mutate    func(field spec.FieldDef, current any, op FieldMutation) (next any, write bool, err error)
+	Mutate func(field spec.FieldDef, current any, op FieldMutation) (next any, write bool, err error)
 	// Encode converts the final value into the request body's shape. It runs once
 	// after all operations on a field marked for serialization.
-	Encode    func(field spec.FieldDef, current any) (any, error)
+	Encode func(field spec.FieldDef, current any) (any, error)
 }
 
 // Resolver looks up registered handler functions by their fully-qualified ID.

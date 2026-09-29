@@ -317,10 +317,7 @@ func TestFMESpec_CreateFMEEnvironment(t *testing.T) {
 	}
 }
 
-// TestFMESpec_UpdateFMEEnvironment drives "update fme_environment --set name=..." through
-// the get-then-patch strategy and asserts the curated update_body_pick sends only
-// {name, isProduction} — not the full GET response (id/status/createdAt would break the
-// backend's Nulls.FAIL UpdateEnvironmentRequest if it ever tightened to reject unknowns).
+// TestFMESpec_UpdateFMEEnvironment checks that a name change sends no unchanged GET fields.
 func TestFMESpec_UpdateFMEEnvironment(t *testing.T) {
 	reg := registry.New()
 	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
@@ -372,11 +369,8 @@ func TestFMESpec_UpdateFMEEnvironment(t *testing.T) {
 	if !strings.Contains(gotBody, `"name":"Renamed"`) {
 		t.Fatalf("PATCH body missing mutated name: %s", gotBody)
 	}
-	if !strings.Contains(gotBody, `"isProduction":true`) {
-		t.Fatalf("PATCH body missing carried-over isProduction from GET: %s", gotBody)
-	}
-	if strings.Contains(gotBody, "status") || strings.Contains(gotBody, `"id"`) {
-		t.Fatalf("PATCH body should be curated to {name, isProduction} only, got: %s", gotBody)
+	if gotBody != `{"name":"Renamed"}` {
+		t.Fatalf("PATCH body = %s, want only changed name", gotBody)
 	}
 }
 
@@ -936,11 +930,7 @@ func TestFMESpec_CreateFeatureFlagDefinition(t *testing.T) {
 	}
 }
 
-// TestFMESpec_UpdateFeatureFlagDefinition drives "update feature_flag:definition --set
-// default_treatment=on" through the get-then-patch strategy: GET fetches the current
-// definition, --set mutates the picked subtree via the field's mutable_path, and PATCH sends
-// the merged body as application/merge-patch+json (the FME v4 API's required content type,
-// applied automatically by resolveContentType's PATCH default since the spec sets no override).
+// TestFMESpec_UpdateFeatureFlagDefinition checks that only the changed treatment is sent.
 func TestFMESpec_UpdateFeatureFlagDefinition(t *testing.T) {
 	reg := registry.New()
 	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
@@ -998,8 +988,8 @@ func TestFMESpec_UpdateFeatureFlagDefinition(t *testing.T) {
 	if !strings.Contains(gotBody, `"defaultTreatment":"on"`) {
 		t.Fatalf("PATCH body missing mutated defaultTreatment: %s", gotBody)
 	}
-	if !strings.Contains(gotBody, `"baselineTreatment":"off"`) {
-		t.Fatalf("PATCH body missing carried-over baselineTreatment from GET: %s", gotBody)
+	if gotBody != `{"defaultTreatment":"on"}` {
+		t.Fatalf("PATCH body = %s, want only changed defaultTreatment", gotBody)
 	}
 	// Neither --comment nor --title was passed, so their keys must be absent rather than
 	// null: under a merge patch, null is an instruction to delete the field.
@@ -1270,9 +1260,7 @@ func TestFMESpec_UpdateFeatureFlag(t *testing.T) {
 // sends {rolloutStatus: {id: ...}} — the v4 API rejects {rolloutStatus: {name: ...}}
 // (the shape documented in Confluence) with a 400 "Invalid json structure".
 //
-// It also guards the narrowed update_body_pick: setting only rollout_status must
-// carry the existing description through untouched, since the pick is what
-// re-sends it and a dropped key here would silently clear the field.
+// An unchanged description must be omitted, not sent as a deletion.
 func TestFMESpec_UpdateFeatureFlag_RolloutStatus(t *testing.T) {
 	reg := registry.New()
 	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
@@ -1307,8 +1295,8 @@ func TestFMESpec_UpdateFeatureFlag_RolloutStatus(t *testing.T) {
 	if !ok || rs["id"] != "rs-2" {
 		t.Fatalf("PATCH body = %v, want rolloutStatus.id=rs-2 (not rolloutStatus.name)", body)
 	}
-	if body["description"] != "old desc" {
-		t.Errorf("PATCH description = %v, want %q — a rollout_status-only update must not clear the description", body["description"], "old desc")
+	if _, present := body["description"]; present || len(body) != 1 {
+		t.Errorf("PATCH body = %v, want only rolloutStatus", body)
 	}
 }
 

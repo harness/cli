@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -617,9 +618,15 @@ func TestCallEndpointFull_Priority2_UpdateStrategies(t *testing.T) {
 			},
 		},
 		{
-			name:  "get_then_patch",
-			ep:    &spec.EndpointSpec{Path: "/widgets/w1", Method: "PATCH", UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it"},
-			resps: []string{getResp, `{}`}, checkCall: 1, wantMethod: "PATCH",
+			name:    "get_then_patch",
+			ep:      &spec.EndpointSpec{Path: "/widgets/w1", Method: "PATCH", UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it"},
+			setArgs: map[string]string{"name": "new"},
+			resps:   []string{getResp, `{}`}, checkCall: 1, wantMethod: "PATCH",
+			checkBody: func(t *testing.T, body []byte) {
+				if got := bodyMap(t, body); !reflect.DeepEqual(got, map[string]any{"name": "new"}) {
+					t.Fatalf("PATCH body = %#v, want only changed name", got)
+				}
+			},
 		},
 	}
 

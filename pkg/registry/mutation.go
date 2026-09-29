@@ -49,7 +49,28 @@ func effectiveMutations(sets map[string]string, dels []string, captured []cmdctx
 
 // buildMutationBody constructs a new JSON-shaped body without modifying its inputs.
 func buildMutationBody(base map[string]any, fields map[string]spec.FieldDef, handlers map[string]cmdctx.FieldTypeHandler, ops []cmdctx.FieldMutation, wrap string, extra map[string]any) (map[string]any, error) {
+	return buildMutationBodyWithPick(base, nil, fields, handlers, ops, wrap, extra, false)
+}
+
+func buildMutationBodyWithPick(base map[string]any, pickedFields []spec.FieldDef, fields map[string]spec.FieldDef, handlers map[string]cmdctx.FieldTypeHandler, ops []cmdctx.FieldMutation, wrap string, extra map[string]any, sparsePatch bool) (map[string]any, error) {
 	mutable := cloneMutationMap(base)
+	normalized := map[string]bool{}
+	for _, field := range pickedFields {
+		handler := handlers[field.FieldType]
+		if handler.Normalize == nil {
+			continue
+		}
+		current, present := getDotPathValuePresent(mutable, field.MutablePath)
+		if !present {
+			continue
+		}
+		next, err := handler.Normalize(field, cloneMutationValue(current))
+		if err != nil {
+			return nil, fmt.Errorf("field %q: normalizing picked value: %w", field.ID, err)
+		}
+		setDotPath(mutable, field.MutablePath, cloneMutationValue(next))
+		normalized[field.ID] = true
+	}
 	working := map[string]any{}
 	initialized := map[string]bool{}
 	touched := map[string]bool{}
@@ -67,7 +88,7 @@ func buildMutationBody(base map[string]any, fields map[string]spec.FieldDef, han
 		current := working[fieldID]
 		if !initialized[fieldID] {
 			current = cloneMutationValue(getDotPathValue(mutable, field.MutablePath))
-			if handler.Normalize != nil {
+			if handler.Normalize != nil && !normalized[fieldID] {
 				var err error
 				current, err = handler.Normalize(field, current)
 				if err != nil {
@@ -89,6 +110,10 @@ func buildMutationBody(base map[string]any, fields map[string]spec.FieldDef, han
 			touched[fieldID] = true
 		}
 	}
+	result := mutable
+	if sparsePatch {
+		result = map[string]any{}
+	}
 	for _, fieldID := range touchOrder {
 		field := fields[fieldID]
 		next := working[fieldID]
@@ -99,11 +124,11 @@ func buildMutationBody(base map[string]any, fields map[string]spec.FieldDef, han
 				return nil, err
 			}
 		}
-		setDotPath(mutable, field.MutablePath, cloneMutationValue(next))
+		setDotPath(result, field.MutablePath, cloneMutationValue(next))
 	}
-	body := mutable
+	body := result
 	if wrap != "" {
-		body = map[string]any{wrap: mutable}
+		body = map[string]any{wrap: result}
 	}
 	for path, value := range extra {
 		if value != nil {
@@ -145,13 +170,19 @@ func cloneMutationValue(value any) any {
 }
 
 func getDotPathValue(m map[string]any, path string) any {
+	value, _ := getDotPathValuePresent(m, path)
+	return value
+}
+
+func getDotPathValuePresent(m map[string]any, path string) (any, bool) {
 	first, rest, nested := strings.Cut(path, ".")
-	if !nested {
-		return m[first]
+	value, present := m[first]
+	if !present || !nested {
+		return value, present
 	}
-	child, _ := m[first].(map[string]any)
-	if child == nil {
-		return nil
+	child, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
 	}
-	return getDotPathValue(child, rest)
+	return getDotPathValuePresent(child, rest)
 }
