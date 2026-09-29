@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/endpoint"
@@ -1042,6 +1043,13 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 // bindEndpointCmdFlags registers all flags for an endpoint-backed command.
 func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec) {
 	ep := cs.Endpoint
+	if cs.VerbHandler != VerbList && cs.VerbHandler != VerbGet {
+		switch ep.Method {
+		case "POST", "PUT", "PATCH", "DELETE":
+			cmd.Flags().Bool("preview-request", false, "Print the write request without sending it")
+			cmd.Flags().MarkHidden("preview-request") //nolint:errcheck
+		}
+	}
 
 	switch cs.VerbHandler {
 	case VerbList:
@@ -1171,13 +1179,16 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 			return RunUIDetailForGet(ctx, cs)
 		}
 	}
-	if cs.ConfirmMode != spec.ConfirmNone {
+	if cs.ConfirmMode != spec.ConfirmNone && ctx.RequestPreview == nil {
 		if err := runConfirmGate(cs.ConfirmMode, cs.Verb, cs.Noun, ctx.Id, ctx.IsPty, cmdctx.GetBool(ctx.FlagValues, "force")); err != nil {
 			r.emitError(cs, ctx, err, start)
 			return err
 		}
 	}
 	result, err := RunEndpoint(ctx, cs.Endpoint)
+	if errors.Is(err, client.ErrRequestPreviewed) {
+		return nil
+	}
 	if err != nil {
 		r.emitError(cs, ctx, err, start)
 		return err

@@ -229,6 +229,7 @@ harness list pr_activity <repo_id>/<pr_number>
 ```
 
 The CLI reads auth from the active profile (typically `~/.harness/profiles.yaml`).
+For endpoint-backed create/update/execute commands, append the hidden `--preview-request` flag to inspect the assembled URL and body without sending the write (an update may still perform a preparatory GET).
 
 ## Current spec files
 

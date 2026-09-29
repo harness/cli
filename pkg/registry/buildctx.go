@@ -154,6 +154,11 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 			Raw:       rawFlag,
 		},
 	}
+	if cmd.Flags().Lookup("preview-request") != nil {
+		if preview, _ := cmd.Flags().GetBool("preview-request"); preview {
+			ctx.RequestPreview = cmd.OutOrStdout()
+		}
+	}
 	listFields, _ := cmd.Flags().GetBool("list-fields")
 	listColumns, _ := cmd.Flags().GetBool("list-columns")
 	uiFlag, _ := cmd.Flags().GetBool("ui")

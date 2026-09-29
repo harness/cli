@@ -130,6 +130,7 @@ var coreFlagTable = []CoreFlag{
 	{Name: "force", Bool: true},
 	{Name: "set"},
 	{Name: "del"},
+	{Name: "preview-request", Bool: true},
 	{Name: "from"},
 	{Name: "to"},
 }

@@ -4,6 +4,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -83,6 +84,7 @@ type Client struct {
 	ctx        context.Context
 	resolved   *auth.ResolvedAuth
 	http       *http.Client
+	previewOut io.Writer
 	cliCommand string // value for X-CLI-Command header; "completion" for completion requests
 	// NoAccountID, when true, omits the accountIdentifier query param from every
 	// request made by this Client. Set by callers that build requests via the
@@ -107,6 +109,7 @@ func New(cc *cmdctx.Ctx) *Client {
 		ctx:        cc.Context,
 		resolved:   cc.Auth,
 		http:       &http.Client{Timeout: 30 * time.Second},
+		previewOut: cc.RequestPreview,
 		cliCommand: cmd,
 	}
 }
@@ -174,6 +177,9 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := c.previewRequest(req); err != nil {
+		return nil, nil, err
+	}
 
 	start := time.Now()
 	resp, err := c.http.Do(req)
@@ -210,6 +216,9 @@ func (c *Client) DoRaw(r Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := c.previewRequest(req); err != nil {
+		return nil, err
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
@@ -227,6 +236,9 @@ func (c *Client) DoStream(r Request, timeout time.Duration) (*http.Response, err
 	if err != nil {
 		return nil, err
 	}
+	if err := c.previewRequest(req); err != nil {
+		return nil, err
+	}
 	hc := &http.Client{Timeout: timeout}
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -238,10 +250,54 @@ func (c *Client) DoStream(r Request, timeout time.Duration) (*http.Response, err
 	return resp, nil
 }
 
+var ErrRequestPreviewed = errors.New("request previewed")
+
+func isSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	}
+	return false
+}
+
+func (c *Client) previewRequest(req *http.Request) error {
+	if c.previewOut == nil || isSafeMethod(req.Method) {
+		return nil
+	}
+	var out bytes.Buffer
+	fmt.Fprintf(&out, "%s %s\n", req.Method, req.URL.String())
+	if req.Body != nil && req.GetBody != nil {
+		body, err := req.GetBody()
+		if err != nil {
+			return fmt.Errorf("reading request preview: %w", err)
+		}
+		defer body.Close()
+		data, err := io.ReadAll(body)
+		if err != nil {
+			return fmt.Errorf("reading request preview: %w", err)
+		}
+		if len(data) > 0 {
+			var pretty bytes.Buffer
+			if json.Indent(&pretty, data, "", "  ") == nil {
+				data = pretty.Bytes()
+			}
+			out.Write(data)
+			out.WriteByte('\n')
+		}
+	}
+	if _, err := c.previewOut.Write(out.Bytes()); err != nil {
+		return fmt.Errorf("writing request preview: %w", err)
+	}
+	return ErrRequestPreviewed
+}
+
 // buildRequest prepares an authenticated *http.Request from r, including token refresh.
 func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
-	if err := auth.CheckAndUpdateAccessToken(c.resolved, time.Now()); err != nil {
-		return nil, nil, err
+	// A previewed write must not refresh SSO credentials as a side effect.
+	if c.previewOut == nil || isSafeMethod(r.Method) {
+		if err := auth.CheckAndUpdateAccessToken(c.resolved, time.Now()); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	u, err := url.Parse(c.resolved.APIUrl + r.Path)

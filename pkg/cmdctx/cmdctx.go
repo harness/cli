@@ -272,6 +272,8 @@ type Ctx struct {
 	// its screen's own "b" key to behave like the rest of --ui's back
 	// navigation must set this to true before returning — it is not automatic.
 	UIWantBack bool
+
+	RequestPreview io.Writer // non-nil to preview the next unsafe HTTP request instead of sending it
 }
 
 func (c *Ctx) SetFlag(name string, value any) {
