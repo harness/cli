@@ -788,14 +788,9 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		}
 	}
 
-	// Round-trip through JSON to get a map[string]any for body construction.
-	b, err := json.Marshal(item)
+	base, err := jsonCopyMap(item)
 	if err != nil {
-		return nil, fmt.Errorf("get-then-%s: marshaling picked item: %w", strings.ToLower(method), err)
-	}
-	var base map[string]any
-	if err := json.Unmarshal(b, &base); err != nil {
-		return nil, fmt.Errorf("get-then-%s: unmarshaling picked item: %w", strings.ToLower(method), err)
+		return nil, fmt.Errorf("get-then-%s: copying picked item: %w", strings.ToLower(method), err)
 	}
 
 	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams))

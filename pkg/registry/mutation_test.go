@@ -12,6 +12,21 @@ import (
 	"github.com/harness/cli/v3/pkg/spec"
 )
 
+func TestJSONCopyMap(t *testing.T) {
+	input := map[string]any{"nested": map[string]any{"items": []any{"CI"}}}
+	copy, err := jsonCopyMap(input)
+	if err != nil || !reflect.DeepEqual(copy, input) {
+		t.Fatalf("copy = %#v, error = %v, want %#v", copy, err, input)
+	}
+	copy["nested"].(map[string]any)["items"].([]any)[0] = "CD"
+	if input["nested"].(map[string]any)["items"].([]any)[0] != "CI" {
+		t.Fatalf("copy aliases input: %#v", input)
+	}
+	if _, err := jsonCopyMap([]string{"not", "an", "object"}); err == nil {
+		t.Fatal("expected error for non-object JSON")
+	}
+}
+
 func TestEffectiveMutations(t *testing.T) {
 	captured := []cmdctx.FieldMutation{
 		{Kind: cmdctx.MutationSet, Raw: "modules.CD=", Key: "modules.CD", HasValue: true},

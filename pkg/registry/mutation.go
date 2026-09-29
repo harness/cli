@@ -4,12 +4,25 @@
 package registry
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/spec"
 )
+
+func jsonCopyMap(value any) (map[string]any, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling JSON: %w", err)
+	}
+	var copy map[string]any
+	if err := json.Unmarshal(data, &copy); err != nil {
+		return nil, fmt.Errorf("unmarshaling JSON object: %w", err)
+	}
+	return copy, nil
+}
 
 // effectiveMutations retains last-set-wins and set-before-delete precedence.
 func effectiveMutations(sets map[string]string, dels []string, captured []cmdctx.FieldMutation) []cmdctx.FieldMutation {
