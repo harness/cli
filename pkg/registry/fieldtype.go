@@ -56,14 +56,17 @@ func mutateTags(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, boo
 		if tags == nil {
 			return nil, false, nil
 		}
-		delete(tags, tag)
-		return tags, true, nil
 	}
-	if tags == nil {
-		tags = map[string]any{}
+	next := make(map[string]any, len(tags))
+	for key, value := range tags {
+		next[key] = value
 	}
-	tags[tag] = op.Value
-	return tags, true, nil
+	if op.Kind == cmdctx.MutationDelete {
+		delete(next, tag)
+	} else {
+		next[tag] = op.Value
+	}
+	return next, true, nil
 }
 
 func mutateStringSet(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
@@ -74,7 +77,7 @@ func mutateStringSet(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any
 	var arr []any
 	switch values := current.(type) {
 	case []any:
-		arr = values
+		arr = append([]any(nil), values...)
 	case []string:
 		for _, v := range values {
 			arr = append(arr, v)

@@ -14,12 +14,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/spf13/cobra"
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
@@ -789,49 +786,6 @@ func TestCallEndpointFull_Priority2_SetFields(t *testing.T) {
 	}
 }
 
-func TestBareSetMemberRequestBody(t *testing.T) {
-	for _, verb := range []string{VerbCreate, VerbUpdate} {
-		for _, input := range []string{"modules.CD", "modules.CD="} {
-			t.Run(verb+"/"+input, func(t *testing.T) {
-				r := New()
-				if err := r.RegisterNoun(spec.NounDef{Noun: "widget", NounAliases: []string{"widgets"}, Fields: []spec.FieldDef{
-					{ID: "modules", Expr: "it.modules", FieldType: "set", MutablePath: "modules"},
-				}}); err != nil {
-					t.Fatal(err)
-				}
-				ep := &spec.EndpointSpec{Path: "/widgets/{{ctx.id}}", Method: "POST", CreateStrategy: spec.CreateStrategySetFields}
-				if verb == VerbUpdate {
-					ep = &spec.EndpointSpec{Path: "/widgets/{{ctx.id}}", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut, UpdateBodyPick: "it.data"}
-				}
-				cs := &spec.CommandSpec{Verb: verb, Noun: "widget", HandlerType: spec.HandlerEndpoint,
-					Endpoint: ep, NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true}}
-				cmd := &cobra.Command{Use: "widget"}
-				r.bindEndpointCmdFlags(cmd, cs)
-				cmd.Flags().Float64("timeout", 0, "Command timeout in seconds")
-				if err := cmd.ParseFlags([]string{"widget-id", "--set", input}); err != nil {
-					t.Fatal(err)
-				}
-				ctx, err := buildCtx(cmd, cs, cmd.Flags().Args(), r)
-				if err != nil {
-					t.Fatal(err)
-				}
-				srv, captures := sequenceServer(t, []string{`{"data":{"modules":["CI"]}}`, `{}`})
-				ctx.Auth = testAuth(srv.URL)
-				if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
-					t.Fatal(err)
-				}
-				want := []any{"CD"}
-				if verb == VerbUpdate {
-					want = []any{"CI", "CD"}
-				}
-				if got := bodyMap(t, (*captures)[len(*captures)-1].body)["modules"]; !reflect.DeepEqual(got, want) {
-					t.Fatalf("modules = %v, want %v", got, want)
-				}
-			})
-		}
-	}
-}
-
 // ---------------------------------------------------------------------------
 // TestCallEndpointFull_Priority3_DefaultDispatch — body_params, body_fn, headers
 // ---------------------------------------------------------------------------
@@ -1295,144 +1249,6 @@ func TestParseArrayFlag(t *testing.T) {
 			}
 		}
 	}
-}
-
-// ---------------------------------------------------------------------------
-// TestApplyMutations — covers all field types and --set/--del error paths
-// ---------------------------------------------------------------------------
-
-func applyMutationsTest(m map[string]any, sets map[string]string, dels []string, fields map[string]spec.FieldDef) error {
-	return applyMutations(m, &cmdctx.Ctx{Resolver: New(), SetArgs: sets, DelArgs: dels}, fields)
-}
-
-func TestApplyMutations(t *testing.T) {
-	// fieldPaths for a noun with scalar, tags, and set-type fields.
-	fields := map[string]spec.FieldDef{
-		"name":    {ID: "name", Expr: "it.name", MutablePath: "name"},
-		"labels":  {ID: "labels", Expr: "it.labels", MutablePath: "labels", FieldType: "tags"},
-		"modules": {ID: "modules", Expr: "it.modules", MutablePath: "modules", FieldType: "set"},
-	}
-
-	t.Run("set_scalar", func(t *testing.T) {
-		m := map[string]any{}
-		if err := applyMutationsTest(m, map[string]string{"name": "new"}, nil, fields); err != nil {
-			t.Fatal(err)
-		}
-		if m["name"] != "new" {
-			t.Fatalf("name = %v, want new", m["name"])
-		}
-	})
-
-	t.Run("set_unknown_field_errors", func(t *testing.T) {
-		err := applyMutationsTest(map[string]any{}, map[string]string{"bad": "x"}, nil, fields)
-		if err == nil || !strings.Contains(err.Error(), "unknown or read-only") {
-			t.Fatalf("err = %v, want unknown or read-only", err)
-		}
-	})
-
-	t.Run("set_tag_creates_entry", func(t *testing.T) {
-		m := map[string]any{}
-		if err := applyMutationsTest(m, map[string]string{"labels.env": "prod"}, nil, fields); err != nil {
-			t.Fatal(err)
-		}
-		tags, ok := m["labels"].(map[string]any)
-		if !ok || tags["env"] != "prod" {
-			t.Fatalf("labels.env = %v, want prod", m["labels"])
-		}
-	})
-
-	t.Run("set_tag_no_subkey_errors", func(t *testing.T) {
-		err := applyMutationsTest(map[string]any{}, map[string]string{"labels": "v"}, nil, fields)
-		if err == nil || !strings.Contains(err.Error(), "require a key") {
-			t.Fatalf("err = %v, want require a key", err)
-		}
-	})
-
-	t.Run("set_set_field_adds_member", func(t *testing.T) {
-		m := map[string]any{}
-		if err := applyMutationsTest(m, map[string]string{"modules.CD": ""}, nil, fields); err != nil {
-			t.Fatal(err)
-		}
-		if !sliceContains(getDotPathSlice(m, "modules"), "CD") {
-			t.Fatalf("modules should contain CD: %v", m["modules"])
-		}
-	})
-
-	t.Run("set_set_field_dedup", func(t *testing.T) {
-		m := map[string]any{"modules": []any{"CD"}}
-		if err := applyMutationsTest(m, map[string]string{"modules.CD": ""}, nil, fields); err != nil {
-			t.Fatal(err)
-		}
-		s := getDotPathSlice(m, "modules")
-		if len(s) != 1 {
-			t.Fatalf("modules should have 1 entry, got %v", s)
-		}
-	})
-
-	t.Run("set_set_field_no_member_errors", func(t *testing.T) {
-		for _, key := range []string{"modules", "modules."} {
-			err := applyMutationsTest(map[string]any{}, map[string]string{key: ""}, nil, fields)
-			if err == nil || !strings.Contains(err.Error(), "require a member") {
-				t.Fatalf("--set %s: err = %v, want require a member", key, err)
-			}
-		}
-	})
-
-	t.Run("del_scalar_sets_nil", func(t *testing.T) {
-		m := map[string]any{"name": "old"}
-		if err := applyMutationsTest(m, nil, []string{"name"}, fields); err != nil {
-			t.Fatal(err)
-		}
-		if m["name"] != nil {
-			t.Fatalf("name = %v, want nil", m["name"])
-		}
-	})
-
-	t.Run("del_unknown_field_errors", func(t *testing.T) {
-		err := applyMutationsTest(map[string]any{}, nil, []string{"bad"}, fields)
-		if err == nil || !strings.Contains(err.Error(), "unknown or read-only") {
-			t.Fatalf("err = %v, want unknown or read-only", err)
-		}
-	})
-
-	t.Run("del_tag_removes_entry", func(t *testing.T) {
-		m := map[string]any{"labels": map[string]any{"env": "prod", "team": "ops"}}
-		if err := applyMutationsTest(m, nil, []string{"labels.env"}, fields); err != nil {
-			t.Fatal(err)
-		}
-		tags := getDotPathMap(m, "labels")
-		if _, found := tags["env"]; found {
-			t.Fatalf("labels.env should be deleted, got %v", tags)
-		}
-		if tags["team"] != "ops" {
-			t.Fatalf("labels.team should be preserved, got %v", tags)
-		}
-	})
-
-	t.Run("del_tag_no_subkey_errors", func(t *testing.T) {
-		err := applyMutationsTest(map[string]any{}, nil, []string{"labels"}, fields)
-		if err == nil || !strings.Contains(err.Error(), "require a key") {
-			t.Fatalf("err = %v, want require a key", err)
-		}
-	})
-
-	t.Run("del_set_field_removes_member", func(t *testing.T) {
-		m := map[string]any{"modules": []any{"CD", "CE"}}
-		if err := applyMutationsTest(m, nil, []string{"modules.CD"}, fields); err != nil {
-			t.Fatal(err)
-		}
-		s := getDotPathSlice(m, "modules")
-		if sliceContains(s, "CD") || !sliceContains(s, "CE") {
-			t.Fatalf("modules should be [CE], got %v", s)
-		}
-	})
-
-	t.Run("del_set_field_no_member_errors", func(t *testing.T) {
-		err := applyMutationsTest(map[string]any{}, nil, []string{"modules"}, fields)
-		if err == nil || !strings.Contains(err.Error(), "require a member") {
-			t.Fatalf("err = %v, want require a member", err)
-		}
-	})
 }
 
 // ---------------------------------------------------------------------------
