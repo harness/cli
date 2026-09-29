@@ -67,6 +67,7 @@ type Registry struct {
 	flagCompletionFns    map[string]FlagCompletionFn
 	flagResolveFns       map[string]cmdctx.FlagResolveFn
 	endpointValidatorFns map[string]cmdctx.EndpointValidatorFn
+	fieldTypes           map[string]cmdctx.FieldTypeHandler
 	initErrs             []string
 }
 
@@ -88,9 +89,11 @@ func New() *Registry {
 		flagCompletionFns:    map[string]FlagCompletionFn{},
 		flagResolveFns:       map[string]cmdctx.FlagResolveFn{},
 		endpointValidatorFns: map[string]cmdctx.EndpointValidatorFn{},
+		fieldTypes:           map[string]cmdctx.FieldTypeHandler{},
 	}
 	r.registerCoreFormatters()
 	r.registerCoreTransforms()
+	r.registerCoreFieldTypes()
 	return r
 }
 

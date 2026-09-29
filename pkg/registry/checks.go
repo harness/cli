@@ -22,6 +22,17 @@ func (r *Registry) CheckFunctions() error {
 	}
 	for noun, nd := range r.nouns {
 		errs = append(errs, r.checkUICommands(noun, nd)...)
+		for _, field := range nd.Fields {
+			if field.MutablePath == "" {
+				continue
+			}
+			handler, ok := r.ResolveFieldType(field.FieldType)
+			if !ok {
+				errs = append(errs, fmt.Sprintf("noun %q field %q: field_type %q not registered", noun, field.ID, field.FieldType))
+			} else if handler.Mutate == nil {
+				errs = append(errs, fmt.Sprintf("noun %q field %q: field_type %q has no mutator", noun, field.ID, field.FieldType))
+			}
+		}
 	}
 	errs = append(errs, r.checkModuleTypes()...)
 	if len(errs) > 0 {

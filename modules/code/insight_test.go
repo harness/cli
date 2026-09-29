@@ -605,3 +605,4 @@ func (s *moduleInitSpy) RegisterItemFn(string, cmdctx.ItemFn)                   
 func (s *moduleInitSpy) RegisterFlagCompletionFn(string, registry.FlagCompletionFn)     {}
 func (s *moduleInitSpy) RegisterFlagResolveFn(string, cmdctx.FlagResolveFn)             {}
 func (s *moduleInitSpy) RegisterEndpointValidatorFn(string, cmdctx.EndpointValidatorFn) {}
+func (s *moduleInitSpy) RegisterFieldType(string, cmdctx.FieldTypeHandler)              {}

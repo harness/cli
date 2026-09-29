@@ -5,6 +5,7 @@ package registry
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -740,6 +741,53 @@ func TestBuildCtx_DelArgs(t *testing.T) {
 	}
 	if len(ctx.DelArgs) != 2 || ctx.DelArgs[0] != "field1" {
 		t.Fatalf("DelArgs = %v, unexpected", ctx.DelArgs)
+	}
+}
+
+func TestBuildCtx_MutationFlagsPreserveRawOperands(t *testing.T) {
+	for _, workflow := range []bool{false, true} {
+		t.Run(fmt.Sprintf("workflow=%t", workflow), func(t *testing.T) {
+			r := New()
+			if err := r.RegisterNoun(spec.NounDef{Noun: "widget", Fields: []spec.FieldDef{
+				{ID: "modules", Expr: "it.modules", MutablePath: "modules", FieldType: "set"},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			cs := &spec.CommandSpec{Command: "update widget", Verb: VerbUpdate, Noun: "widget",
+				NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true, Del: true}}
+			cmd := &cobra.Command{Use: "widget"}
+			if workflow {
+				cs.HandlerType = spec.HandlerWorkflow
+				r.bindWorkflowCmd(cmd, cs, func(*cmdctx.Ctx) error { return nil })
+			} else {
+				cs.HandlerType, cs.Endpoint = spec.HandlerEndpoint, &spec.EndpointSpec{}
+				r.bindEndpointCmdFlags(cmd, cs)
+			}
+			cmd.Flags().Float64("timeout", 0, "Command timeout in seconds")
+			if err := cmd.ParseFlags([]string{"id", "--set", "modules.CD", "--set=modules.CD=", "--set", "owner=user:a@x.com",
+				"--set", "name=a=b", "--del", "owners=", "--del=modules.CD", "description=positional"}); err != nil {
+				t.Fatal(err)
+			}
+			ctx, err := buildCtx(cmd, cs, cmd.Flags().Args(), r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []cmdctx.FieldMutation{
+				{Kind: cmdctx.MutationSet, Raw: "modules.CD", Key: "modules.CD"},
+				{Kind: cmdctx.MutationSet, Raw: "modules.CD=", Key: "modules.CD", HasValue: true},
+				{Kind: cmdctx.MutationSet, Raw: "owner=user:a@x.com", Key: "owner", Value: "user:a@x.com", HasValue: true},
+				{Kind: cmdctx.MutationSet, Raw: "name=a=b", Key: "name", Value: "a=b", HasValue: true},
+				{Kind: cmdctx.MutationSet, Raw: "description=positional", Key: "description", Value: "positional", HasValue: true},
+				{Kind: cmdctx.MutationDelete, Raw: "owners=", Key: "owners", HasValue: true},
+				{Kind: cmdctx.MutationDelete, Raw: "modules.CD", Key: "modules.CD"},
+			}
+			if !reflect.DeepEqual(ctx.MutationFlags, want) {
+				t.Fatalf("MutationFlags = %#v, want %#v", ctx.MutationFlags, want)
+			}
+			if ctx.SetArgs["modules.CD"] != "" || ctx.SetArgs["description"] != "positional" || len(ctx.DelArgs) != 2 {
+				t.Fatalf("legacy args changed: SetArgs=%v DelArgs=%v", ctx.SetArgs, ctx.DelArgs)
+			}
+		})
 	}
 }
 

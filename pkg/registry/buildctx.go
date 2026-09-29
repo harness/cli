@@ -275,6 +275,9 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 				if !ok && !isBareSetField(k, cs, r) {
 					return nil, fmt.Errorf("invalid value %q: expected key=value format", kv)
 				}
+				ctx.MutationFlags = append(ctx.MutationFlags, cmdctx.FieldMutation{
+					Kind: cmdctx.MutationSet, Raw: kv, Key: k, Value: v, HasValue: ok,
+				})
 				ctx.SetArgs[k] = v
 			}
 		}
@@ -283,6 +286,12 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		delVals, _ := cmd.Flags().GetStringArray("del")
 		if len(delVals) > 0 {
 			ctx.DelArgs = delVals
+			for _, raw := range delVals {
+				key, value, hasValue := strings.Cut(raw, "=")
+				ctx.MutationFlags = append(ctx.MutationFlags, cmdctx.FieldMutation{
+					Kind: cmdctx.MutationDelete, Raw: raw, Key: key, Value: value, HasValue: hasValue,
+				})
+			}
 		}
 	}
 	ctx.FlagValues = buildFlagValues(cmd.Flags(), cs)

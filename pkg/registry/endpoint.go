@@ -796,7 +796,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		fieldPaths[f.ID] = f
 	}
 
-	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths); err != nil {
+	if err := applyMutations(mutable, ctx, fieldPaths); err != nil {
 		return nil, err
 	}
 
@@ -918,7 +918,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		fieldPaths[f.ID] = f
 	}
 
-	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths); err != nil {
+	if err := applyMutations(mutable, ctx, fieldPaths); err != nil {
 		return nil, err
 	}
 
@@ -931,90 +931,84 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 	return result, err
 }
 
-// applyMutations applies --set and --del operations to mutable in-place.
-// applyMutations applies --set and --del operations to mutable in-place.
-// fieldPaths maps field IDs to their FieldDef; fd.MutablePath is the dot-path
-// within mutable (relative to the update_body_pick subtree, no "it." prefix).
-func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs []string, fieldPaths map[string]spec.FieldDef) error {
-	// Build a map from user-facing field ID to its mutable_path within mutable.
-	idToRel := map[string]string{}
-	for id, fd := range fieldPaths {
-		idToRel[id] = fd.MutablePath
+// applyMutations retains the existing set-before-delete precedence and last-set-wins
+// behavior. The raw operands are retained separately for the later ordering change.
+func applyMutations(mutable map[string]any, ctx *cmdctx.Ctx, fields map[string]spec.FieldDef) error {
+	if len(ctx.SetArgs) == 0 && len(ctx.DelArgs) == 0 {
+		return nil
 	}
-
-	for key, val := range setArgs {
-		// key may be a field ID (e.g. "name"), a field.subkey (e.g. "tags.env"),
-		// or a set member (e.g. "modules.CD" for field_type=set).
-		parts := strings.SplitN(key, ".", 2)
-		fieldID := parts[0]
-
-		fd, known := fieldPaths[fieldID]
-		if !known {
-			return fmt.Errorf("unknown or read-only field %q; use --list-fields to see mutable fields", fieldID)
-		}
-		rel := idToRel[fieldID]
-
-		switch fd.FieldType {
-		case "tags":
-			if len(parts) < 2 {
-				return fmt.Errorf("--set %s: tag fields require a key (e.g. --%s tags.key=value)", key, "set")
-			}
-			tagKey := parts[1]
-			// Get or create the tags map.
-			tagsMap := getDotPathMap(mutable, rel)
-			if tagsMap == nil {
-				tagsMap = map[string]any{}
-			}
-			tagsMap[tagKey] = val
-			setDotPath(mutable, rel, tagsMap)
-		case "set":
-			if len(parts) < 2 || parts[1] == "" {
-				return fmt.Errorf("--set %s: set fields require a member (e.g. --set modules.CD)", key)
-			}
-			member := parts[1]
-			arr := getDotPathSlice(mutable, rel)
-			if !sliceContains(arr, member) {
-				arr = append(arr, member)
-			}
-			setDotPath(mutable, rel, arr)
-		default: // scalar
-			setDotPath(mutable, rel, val)
+	resolver, ok := ctx.Resolver.(cmdctx.FieldTypeResolver)
+	if !ok {
+		return fmt.Errorf("field type resolver is not available")
+	}
+	lastSet := map[string]cmdctx.FieldMutation{}
+	for _, op := range ctx.MutationFlags {
+		if op.Kind == cmdctx.MutationSet {
+			lastSet[op.Key] = op
 		}
 	}
-
-	for _, key := range delArgs {
-		parts := strings.SplitN(key, ".", 2)
-		fieldID := parts[0]
-
-		fd, known := fieldPaths[fieldID]
-		if !known {
+	apply := func(op cmdctx.FieldMutation) error {
+		fieldID, _, _ := strings.Cut(op.Key, ".")
+		field, found := fields[fieldID]
+		if !found {
 			return fmt.Errorf("unknown or read-only field %q; use --list-fields to see mutable fields", fieldID)
 		}
-		rel := idToRel[fieldID]
-
-		switch fd.FieldType {
-		case "tags":
-			if len(parts) < 2 {
-				return fmt.Errorf("--del %s: tag fields require a key (e.g. --del tags.key)", key)
+		handler, found := resolver.ResolveFieldType(field.FieldType)
+		if !found || handler.Mutate == nil {
+			return fmt.Errorf("field %q: field_type %q has no registered mutator", field.ID, field.FieldType)
+		}
+		current := getDotPathValue(mutable, field.MutablePath)
+		if handler.Normalize != nil {
+			var err error
+			current, err = handler.Normalize(field, current)
+			if err != nil {
+				return err
 			}
-			tagKey := parts[1]
-			tagsMap := getDotPathMap(mutable, rel)
-			if tagsMap != nil {
-				delete(tagsMap, tagKey)
-				setDotPath(mutable, rel, tagsMap)
+		}
+		next, write, err := handler.Mutate(field, current, op)
+		if err != nil {
+			return err
+		}
+		if write {
+			if handler.Encode != nil {
+				next, err = handler.Encode(field, next)
+				if err != nil {
+					return err
+				}
 			}
-		case "set":
-			if len(parts) < 2 {
-				return fmt.Errorf("--del %s: set fields require a member (e.g. --del modules.CD)", key)
-			}
-			member := parts[1]
-			arr := getDotPathSlice(mutable, rel)
-			setDotPath(mutable, rel, sliceRemove(arr, member))
-		default: // scalar
-			setDotPath(mutable, rel, nil)
+			setDotPath(mutable, field.MutablePath, next)
+		}
+		return nil
+	}
+	for key, value := range ctx.SetArgs {
+		op, found := lastSet[key]
+		if !found || op.Value != value {
+			op = cmdctx.FieldMutation{Kind: cmdctx.MutationSet, Raw: key + "=" + value, Key: key, Value: value, HasValue: true}
+		}
+		if err := apply(op); err != nil {
+			return err
+		}
+	}
+	for _, key := range ctx.DelArgs {
+		// Delete operands still treat '=' as part of the target until the separate grammar migration.
+		op := cmdctx.FieldMutation{Kind: cmdctx.MutationDelete, Raw: key, Key: key}
+		if err := apply(op); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func getDotPathValue(m map[string]any, path string) any {
+	first, rest, nested := strings.Cut(path, ".")
+	if !nested {
+		return m[first]
+	}
+	child, _ := m[first].(map[string]any)
+	if child == nil {
+		return nil
+	}
+	return getDotPathValue(child, rest)
 }
 
 // getDotPathMap retrieves a map[string]any at a dot-separated path, or nil.

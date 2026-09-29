@@ -118,6 +118,31 @@ type FlagResolveResult struct {
 // the CEL expression environment. Returning an error aborts the command.
 type FlagResolveFn func(ctx *Ctx, raw string) (*FlagResolveResult, error)
 
+type MutationKind string
+
+const (
+	MutationSet    MutationKind = "set"
+	MutationDelete MutationKind = "del"
+)
+
+type FieldMutation struct {
+	Kind     MutationKind
+	Raw      string // operand without the flag name or shell quotes
+	Key      string
+	Value    string
+	HasValue bool
+}
+
+type FieldTypeHandler struct {
+	Normalize func(field spec.FieldDef, current any) (any, error)
+	Mutate    func(field spec.FieldDef, current any, op FieldMutation) (next any, write bool, err error)
+	Encode    func(field spec.FieldDef, current any) (any, error)
+}
+
+type FieldTypeResolver interface {
+	ResolveFieldType(id string) (FieldTypeHandler, bool)
+}
+
 // Resolver looks up registered handler functions by their fully-qualified ID.
 // The registry implements this; commands receive it via Ctx.Resolver.
 type Resolver interface {
@@ -203,28 +228,29 @@ type PageMeta struct {
 // Auth is nil for management commands (version, etc.) that do not require credentials.
 // When Auth is non-nil, OrgID and ProjectID already reflect any --org/--project overrides.
 type Ctx struct {
-	Context      context.Context
-	CancelFn     context.CancelCauseFunc
-	Auth         *auth.ResolvedAuth
-	Verb         string
-	VerbHandler  string // behavioral dispatch verb; defaults to Verb when verb_handler is unset in spec
-	Noun         string
-	FieldsNoun   string // overrides Noun for field lookup when set (from spec fields_noun)
-	Id           string
-	ParentId     string            // optional parent-id arg for list commands (e.g. pipeline ID on "list execution")
-	MigrateFrom  string            // --from flag value (pair verbs, e.g. migrate: identifies the source endpoint)
-	MigrateTo    string            // --to flag value (pair verbs, e.g. migrate: identifies the destination endpoint)
-	SetArgs      map[string]string // --set key=value pairs for update verb (when HasSetArg set on spec)
-	DelArgs      []string          // --del key targets for update verb (when HasSetArg set on spec)
-	Args         []string          // extra positional args beyond [id] (when HasArgs set on spec)
-	IdParts      []string          // id split on "/" when id_parts > 1 on spec; length equals the number of actual parts
-	Level        string            // scope level: "account", "org", or "project" (empty when flag not present)
-	IsPty        bool              // true when stdout is an interactive terminal
-	IsCompletion bool              // true when this ctx was built for a shell completion request
-	Resolver     Resolver
-	GlobalFlags  GlobalFlags
-	FormatFlags  FormatFlags
-	PagingFlags  PagingFlags
+	Context       context.Context
+	CancelFn      context.CancelCauseFunc
+	Auth          *auth.ResolvedAuth
+	Verb          string
+	VerbHandler   string // behavioral dispatch verb; defaults to Verb when verb_handler is unset in spec
+	Noun          string
+	FieldsNoun    string // overrides Noun for field lookup when set (from spec fields_noun)
+	Id            string
+	ParentId      string            // optional parent-id arg for list commands (e.g. pipeline ID on "list execution")
+	MigrateFrom   string            // --from flag value (pair verbs, e.g. migrate: identifies the source endpoint)
+	MigrateTo     string            // --to flag value (pair verbs, e.g. migrate: identifies the destination endpoint)
+	SetArgs       map[string]string // --set key=value pairs for update verb (when HasSetArg set on spec)
+	DelArgs       []string          // --del key targets for update verb (when HasSetArg set on spec)
+	MutationFlags []FieldMutation   // set flags, positional sets, then delete flags; not original argv interleaving
+	Args          []string          // extra positional args beyond [id] (when HasArgs set on spec)
+	IdParts       []string          // id split on "/" when id_parts > 1 on spec; length equals the number of actual parts
+	Level         string            // scope level: "account", "org", or "project" (empty when flag not present)
+	IsPty         bool              // true when stdout is an interactive terminal
+	IsCompletion  bool              // true when this ctx was built for a shell completion request
+	Resolver      Resolver
+	GlobalFlags   GlobalFlags
+	FormatFlags   FormatFlags
+	PagingFlags   PagingFlags
 	// FlagValues holds typed flag values for this command, keyed by flag name. It contains:
 	//   - all flags declared in the spec (cs.Flags), typed as string/bool/[]string
 	//   - "page"         int    (0-indexed) when the spec declares builtin_flags.page
