@@ -139,14 +139,11 @@ type FieldTypeHandler struct {
 	Encode    func(field spec.FieldDef, current any) (any, error)
 }
 
-type FieldTypeResolver interface {
-	ResolveFieldType(id string) (FieldTypeHandler, bool)
-}
-
 // Resolver looks up registered handler functions by their fully-qualified ID.
 // The registry implements this; commands receive it via Ctx.Resolver.
 type Resolver interface {
 	ResolveTextFormatter(id string) TextFormatterFn
+	ResolveFieldType(id string) (FieldTypeHandler, bool)
 	ResolveBodyFn(id string) CreateBodyFn
 	ResolveQueryParamsFn(id string) QueryParamsFn
 	ResolveFlagResolveFn(id string) FlagResolveFn

@@ -937,8 +937,7 @@ func applyMutations(mutable map[string]any, ctx *cmdctx.Ctx, fields map[string]s
 	if len(ctx.SetArgs) == 0 && len(ctx.DelArgs) == 0 {
 		return nil
 	}
-	resolver, ok := ctx.Resolver.(cmdctx.FieldTypeResolver)
-	if !ok {
+	if ctx.Resolver == nil {
 		return fmt.Errorf("field type resolver is not available")
 	}
 	lastSet := map[string]cmdctx.FieldMutation{}
@@ -953,7 +952,7 @@ func applyMutations(mutable map[string]any, ctx *cmdctx.Ctx, fields map[string]s
 		if !found {
 			return fmt.Errorf("unknown or read-only field %q; use --list-fields to see mutable fields", fieldID)
 		}
-		handler, found := resolver.ResolveFieldType(field.FieldType)
+		handler, found := ctx.Resolver.ResolveFieldType(field.FieldType)
 		if !found || handler.Mutate == nil {
 			return fmt.Errorf("field %q: field_type %q has no registered mutator", field.ID, field.FieldType)
 		}
