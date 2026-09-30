@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 
 	adp "github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
@@ -31,6 +32,13 @@ type harAdapter struct {
 	client *client
 	reg    types.RegistryConfig
 	logger zerolog.Logger
+
+	// registryURLMu guards registryURLCache, which maps registry name → the
+	// URL returned by getRegistry (e.g. "https://host/oci/helmoci"). Populated
+	// by GetRegistry during the pre-migration step and read by GetOCIImagePath
+	// to derive the correct OCI path prefix without a second API call.
+	registryURLMu    sync.Mutex
+	registryURLCache map[string]string
 }
 
 func (f factory) Create(_ context.Context, cfg types.RegistryConfig) (adp.Adapter, error) {
@@ -41,9 +49,10 @@ func newAdapter(cfg types.RegistryConfig) (adp.Adapter, error) {
 	c := newClient(&cfg)
 	logger := log.With().Str("adapter", "HAR").Logger()
 	return &harAdapter{
-		client: c,
-		reg:    cfg,
-		logger: logger,
+		client:           c,
+		reg:              cfg,
+		logger:           logger,
+		registryURLCache: make(map[string]string),
 	}, nil
 }
 
@@ -60,7 +69,16 @@ func (a *harAdapter) GetConfig() types.RegistryConfig { return a.reg }
 func (a *harAdapter) ValidateCredentials() (bool, error) { return false, nil }
 
 func (a *harAdapter) GetRegistry(ctx context.Context, registry string) (types.RegistryInfo, error) {
-	return a.client.getRegistry(ctx, registry)
+	info, err := a.client.getRegistry(ctx, registry)
+	if err != nil {
+		return info, err
+	}
+	if info.URL != "" {
+		a.registryURLMu.Lock()
+		a.registryURLCache[registry] = info.URL
+		a.registryURLMu.Unlock()
+	}
+	return info, nil
 }
 
 func (a *harAdapter) CreateRegistryIfDoesntExist(_ string) (bool, error) { return false, nil }
@@ -142,7 +160,37 @@ func (a *harAdapter) GetOCIImagePath(registry string, _ string, image string) (s
 	if err != nil {
 		return "", fmt.Errorf("failed to parse [%s], err: %w", a.reg.Endpoint, err)
 	}
-	return util.GenOCIImagePath(parse.Host, strings.ToLower(a.reg.AccountID), registry, image), nil
+	return util.GenOCIImagePath(parse.Host, a.ociPrefixFromCache(registry), registry, image), nil
+}
+
+// ociPrefixFromCache derives the OCI path prefix (e.g. "oci" or lowercased
+// accountID) from the registry URL cached by GetRegistry during the pre-step.
+//
+// Example: URL "https://pkg.harness.io/oci/myreg", registry "myreg"
+// → strip scheme+host → "/oci/myreg" → strip last segment → "/oci" → "oci"
+//
+// Falls back to the lowercased accountID when no cached URL is available,
+// which preserves the behaviour on environments where VanityURLRegistryEnabled
+// is off and the pre-step was skipped (e.g. dry-run).
+func (a *harAdapter) ociPrefixFromCache(registry string) string {
+	a.registryURLMu.Lock()
+	registryURL := a.registryURLCache[registry]
+	a.registryURLMu.Unlock()
+
+	if registryURL != "" {
+		parsed, err := url.Parse(registryURL)
+		if err == nil {
+			// path is e.g. "/oci/helmoci" — strip the last segment (registry name)
+			// to get the prefix segment(s).
+			p := strings.TrimSuffix(parsed.Path, "/"+registry)
+			p = strings.Trim(p, "/")
+			if p != "" {
+				return p
+			}
+		}
+	}
+
+	return strings.ToLower(a.reg.AccountID)
 }
 
 func (a *harAdapter) AddNPMTag(registry string, name string, version string, uri string) error {
