@@ -254,6 +254,38 @@ nouns:
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
 
+  # v4 serializes change-request createdAt/modifiedAt as ISO-8601 strings (unlike the epoch
+  # seconds on other FME nouns), so they render as-is rather than through epochMs.
+  - noun: change_request
+    short_desc: A Harness FME change request (an approval workflow item for a flag or segment).
+    noun_aliases: [change_requests, cr]
+    fields:
+      - id: id
+        expr: it.id
+      - id: status
+        expr: it.status
+      - id: resource_type
+        label: Resource Type
+        expr: it.resourceType
+      - id: resource
+        expr: it.resourceName ?? it.resourceId
+      - id: segment_type
+        label: Segment Type
+        expr: it.segmentType ?? ""
+      - id: environment
+        expr: it.environment?.name ?? ""
+      - id: title
+        expr: it.title ?? ""
+        width_max: 60
+      - id: submitter
+        expr: it.createdBy?.name ?? it.createdBy?.email ?? it.createdBy?.id ?? ""
+      - id: approvers
+        expr: join(map(it.approvalConfig?.approvers ?? [], {#.name ?? #.email ?? #.id}), ", ")
+      - id: created
+        expr: it.createdAt ?? ""
+      - id: modified
+        expr: it.modifiedAt ?? ""
+
 commands:
   # ── feature_flag ─────────────────────────────────────────────────────────────
 
@@ -1271,3 +1303,54 @@ commands:
         total_expr: it.totalCount
         countable: true
       columns: [id, name, description]
+
+  # ── change_request ───────────────────────────────────────────────────────────
+
+  - command: list change_request
+    verb: list
+    noun: change_request
+    short: "List change requests: harness list change_request [--env <env-id>] [--mine] [--status REQUESTED]"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Filter by environment id (repeatable in the API; the CLI sends one value)
+        is_multi: true
+      - name: resource-type
+        description: "Filter by resource type: FEATURE_FLAG, SEGMENT"
+        completion_values: [FEATURE_FLAG, SEGMENT]
+      - name: segment-type
+        description: "Filter SEGMENT change requests by segment type: STANDARD, LARGE, RULE_BASED"
+        completion_values: [STANDARD, LARGE, RULE_BASED]
+      - name: status
+        description: "Filter by status (repeatable in the API; the CLI sends one value; default REQUESTED): REQUESTED, SCHEDULED, PROCESSING, PUBLISHED, REJECTED, WITHDRAWN, FAILED"
+        is_multi: true
+        completion_values: [REQUESTED, SCHEDULED, PROCESSING, PUBLISHED, REJECTED, WITHDRAWN, FAILED]
+      - name: mine
+        description: Only change requests pending my approval (or my team's)
+        is_bool: true
+      - name: submitted-by-me
+        description: Only change requests I submitted
+        is_bool: true
+    endpoint:
+      path: /fme/api/v4/change-requests
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: it.id
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env[0]
+        resource_type: flags["resource-type"]
+        segment_type: flags["segment-type"]
+        status: flags.status[0]
+        filter: 'flags.mine == true ? "APPROVALS" : (flags["submitted-by-me"] == true ? "SUBMISSIONS" : nil)'
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [id, status, resource_type, resource, environment, submitter, created]

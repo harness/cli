@@ -2899,3 +2899,175 @@ func TestFMESpec_CreateMetric_TagsOwners(t *testing.T) {
 		t.Fatalf("owner entry = %v, want {type: USER, email: bob@example.com}", entry)
 	}
 }
+
+// TestFMESpec_ListChangeRequests drives "list change_request" against the v4
+// /change-requests contract: path, every filter flag mapped to its query param,
+// --mine → filter=APPROVALS, multi-value flags sending only their first value,
+// and ISO timestamps / nested submitter and approvers rendering.
+func TestFMESpec_ListChangeRequests(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "change_request")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list change_request: command not found or missing endpoint spec")
+	}
+
+	fixture := `{"data":[{"id":"cr-1","status":"REQUESTED","resourceId":"ff-id","resourceType":"FEATURE_FLAG","resourceName":"my-flag","environment":{"id":"env-1","name":"Production"},"title":"Roll out","createdBy":{"id":"u1","type":"USER","name":"Alice","email":"alice@example.com"},"approvalConfig":{"approvers":[{"id":"u2","name":"Bob"},{"id":"u3","email":"carol@example.com"}]},"createdAt":"2026-08-30T12:00:00Z","modifiedAt":"2026-08-31T09:30:00Z"}],"limit":100,"offset":0,"totalCount":1}`
+	srv, path, query := fmeCaptureServerWithQuery(t, fixture)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "change_request"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{
+		"env":           []string{"env-1", "env-2"},
+		"resource-type": "SEGMENT",
+		"segment-type":  "STANDARD",
+		"status":        []string{"PUBLISHED", "REJECTED"},
+		"mine":          true,
+	}
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+
+	if *path != "/fme/api/v4/change-requests" {
+		t.Fatalf("request path = %q, want /fme/api/v4/change-requests", *path)
+	}
+	for _, want := range []string{"environment_id=env-1", "resource_type=SEGMENT", "segment_type=STANDARD", "status=PUBLISHED", "filter=APPROVALS", "account_id=acct"} {
+		if !strings.Contains(*query, want) {
+			t.Fatalf("query = %q, want %q", *query, want)
+		}
+	}
+	for _, unwanted := range []string{"env-2", "REJECTED"} {
+		if strings.Contains(*query, unwanted) {
+			t.Fatalf("query = %q, multi-value flags must send only the first value (found %q)", *query, unwanted)
+		}
+	}
+
+	body := fmeReadOut(t, ctx)
+	for _, want := range []string{"cr-1", "REQUESTED", "my-flag", "Production", "Alice", "2026-08-30T12:00:00Z"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("output missing %q: %s", want, body)
+		}
+	}
+}
+
+// TestFMESpec_ListChangeRequests_OmitsUnsetParams asserts optional filters are not
+// sent at all when their flags are unset, so the server applies its own defaults
+// (filter=ALL, status=REQUESTED) instead of receiving empty values.
+func TestFMESpec_ListChangeRequests_OmitsUnsetParams(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "change_request")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list change_request: command not found or missing endpoint spec")
+	}
+
+	srv, _, query := fmeCaptureServerWithQuery(t, `{"data":[],"limit":100,"offset":0,"totalCount":0}`)
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "change_request"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{}
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+	for _, unwanted := range []string{"environment_id", "resource_type", "segment_type", "status", "filter"} {
+		if strings.Contains(*query, unwanted) {
+			t.Fatalf("query = %q, %q must be omitted when its flag is unset", *query, unwanted)
+		}
+	}
+}
+
+// TestFMESpec_ListChangeRequests_SubmittedByMe asserts --submitted-by-me maps to
+// filter=SUBMISSIONS and that --mine wins when both are given.
+func TestFMESpec_ListChangeRequests_SubmittedByMe(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "change_request")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list change_request: command not found or missing endpoint spec")
+	}
+
+	for name, tc := range map[string]struct {
+		flags map[string]any
+		want  string
+	}{
+		"submitted-by-me": {map[string]any{"submitted-by-me": true}, "filter=SUBMISSIONS"},
+		"both-mine-wins":  {map[string]any{"mine": true, "submitted-by-me": true}, "filter=APPROVALS"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, _, query := fmeCaptureServerWithQuery(t, `{"data":[],"limit":100,"offset":0,"totalCount":0}`)
+			ctx := fmeTestCtx(t, srv.URL)
+			ctx.Noun = "change_request"
+			ctx.Resolver = reg
+			ctx.FormatFlags.Format = "json"
+			ctx.FlagValues = tc.flags
+			if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+				t.Fatalf("RunListEndpoint: %v", err)
+			}
+			if !strings.Contains(*query, tc.want) {
+				t.Fatalf("query = %q, want %q", *query, tc.want)
+			}
+		})
+	}
+}
+
+// TestFMESpec_ListChangeRequests_Pagination asserts offset/limit are sent as the
+// v4 page params and that a sparse item (no environment, submitter or approvers)
+// still renders instead of erroring.
+func TestFMESpec_ListChangeRequests_Pagination(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "change_request")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list change_request: command not found or missing endpoint spec")
+	}
+	if cs.Endpoint.Paging == nil || cs.Endpoint.Paging.PageSizeMax != 100 {
+		t.Fatalf("paging = %+v, want page_size_max 100", cs.Endpoint.Paging)
+	}
+
+	srv, _, query := fmeCaptureServerWithQuery(t, `{"data":[{"id":"cr-2","status":"PUBLISHED","resourceId":"seg-id","resourceType":"SEGMENT"}],"limit":10,"offset":20,"totalCount":21}`)
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "change_request"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{}
+	ctx.PagingFlags = cmdctx.PagingFlags{Offset: 20, Limit: 10}
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+	for _, want := range []string{"limit=10", "offset=20"} {
+		if !strings.Contains(*query, want) {
+			t.Fatalf("query = %q, want %q", *query, want)
+		}
+	}
+	if body := fmeReadOut(t, ctx); !strings.Contains(body, "cr-2") {
+		t.Fatalf("sparse item did not render: %s", body)
+	}
+}
+
+// TestFMESpec_ChangeRequestNounAliases asserts both documented aliases resolve to
+// the canonical change_request noun.
+func TestFMESpec_ChangeRequestNounAliases(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	for _, alias := range []string{"change_requests", "cr"} {
+		if got := reg.ResolveNounAlias(alias); got != "change_request" {
+			t.Fatalf("ResolveNounAlias(%q) = %q, want change_request", alias, got)
+		}
+	}
+}
