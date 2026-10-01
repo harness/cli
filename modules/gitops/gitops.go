@@ -162,11 +162,10 @@ func listGitopsAutocreateLog(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("no spec found for list gitops_autocreate_log")
 	}
 	if cmdctx.GetBool(ctx.FlagValues, "list-columns") {
-		w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+		w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 		if err != nil {
 			return err
 		}
-		defer closeW()
 		return registry.PrintFieldTable(w, ctx.Resolver.ResolveCommandFields(cs))
 	}
 	watch := cmdctx.GetBool(ctx.FlagValues, flagWatch)
@@ -357,11 +356,10 @@ func autocreateLogStringField(m map[string]any, name string) string {
 func printAutocreateLogDelta(ctx *cmdctx.Ctx, cs *spec.CommandSpec, fields []spec.FieldDef, delta []any) error {
 	switch strings.ToLower(ctx.FormatFlags.Format) {
 	case "json", "jsonl":
-		w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+		w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 		if err != nil {
 			return err
 		}
-		defer closeW()
 		enc := json.NewEncoder(w)
 		for _, item := range delta {
 			if err := enc.Encode(item); err != nil {

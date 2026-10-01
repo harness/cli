@@ -34,7 +34,7 @@ func runTimeout(secs float64, cancel context.CancelCauseFunc) {
 	time.Sleep(time.Duration(float64(time.Second) * secs))
 	cancel(&cmdctx.TimeoutError{Secs: secs})
 	time.Sleep(timeoutGracePeriod)
-	os.Exit(hbase.TimeoutExitCode)
+	hbase.Exit(hbase.TimeoutExitCode)
 }
 
 // parseScopePrefix inspects a raw id/parentId arg and returns the stripped value
