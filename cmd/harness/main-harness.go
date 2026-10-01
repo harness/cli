@@ -6,7 +6,6 @@ package main
 import (
 	_ "embed"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -40,14 +39,14 @@ func main() {
 
 	if !semver.IsValid("v" + hbase.Version) {
 		console.PrintError(fmt.Sprintf("invalid version %q: must be a valid semver (e.g. 1.2.3)", hbase.Version))
-		os.Exit(1)
+		hbase.Exit(1)
 	}
 
 	reg := registry.New()
 	reg.IsMainBinary = true
 	if err := specloader.LoadSpecs(reg); err != nil {
 		console.PrintError(err.Error())
-		os.Exit(1)
+		hbase.Exit(1)
 	}
 	code.ModuleInit(reg.Module("code"))
 	core.ModuleInit(reg.Module("core"))

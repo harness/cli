@@ -1202,11 +1202,10 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	start := time.Now()
 	if cmdctx.GetBool(ctx.FlagValues, "list-columns") {
 		fields := resolveFieldsForCommand(ctx, ep)
-		w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+		w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 		if err != nil {
 			return err
 		}
-		defer closeW()
 		return PrintFieldTable(w, fields)
 	}
 	if ep.Paging != nil {

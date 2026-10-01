@@ -273,6 +273,7 @@ Default to zero comments; most functions need none. If one is warranted, keep it
 
 ## Common pitfalls
 
+- Use `hbase.Exit()` rather than `os.Exit()` so shutdown cleanup hooks run.
 - **Binary not updated**: `task build` alone isn't enough — must `cp` to `~/.local/bin/harness`.
 - **`list` with `id_parts`**: Not supported. Use `requires_parentid: true` instead.
 - **Code API paths**: Use bare repo identifier in path (e.g. `/code/api/v1/repos/{{ctx.parentId}}/branches`). org/project go as query params automatically — do NOT prefix paths with `{{auth.account}}/{{auth.org}}/{{auth.project}}`.

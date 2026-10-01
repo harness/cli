@@ -53,11 +53,10 @@ func exportTemplateYaml(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("template %q exported as an empty document", ctx.Id)
 	}
 
-	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+	w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 	if err != nil {
 		return err
 	}
-	defer closeW()
 
 	if !bytes.HasSuffix(body, []byte("\n")) {
 		body = append(body, '\n')
