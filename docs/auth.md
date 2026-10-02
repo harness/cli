@@ -115,12 +115,13 @@ Both files live in `~/.harness/` which is created with `0700` permissions. No "a
 
 ## Token Format
 
-Two token types are supported:
+Three token types are supported:
 
 - **PAT** (Personal Access Token) — `pat.{AccountID}.{tokenID}.{secret}`
 - **SAT** (Service Account Token) — `sat.{AccountID}.{tokenID}.{secret}`
+- **SSO token** — a JWT (JSON Web Token) issued when you log in with `harness auth login --sso`. It is short-lived and refreshed automatically (see [SSO Mode](#sso-mode)).
 
-Both follow the same 4-segment dot-separated format. The account ID is extracted from the token at login and stored explicitly in `config.yaml` — it is not re-parsed at runtime.
+PATs and SATs follow the same 4-segment dot-separated format. The account ID is extracted from the token at login and stored explicitly in `config.yaml` — it is not re-parsed at runtime.
 
 ### SAT tokens and scope
 
