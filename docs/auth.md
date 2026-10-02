@@ -58,10 +58,17 @@ Sign in through your browser instead of creating a token:
 harness auth login --sso
 ```
 
-The CLI opens your browser, you sign in, and it saves a profile. Your Harness account must be enabled for SSO access. You can also choose "Login with SSO" in the interactive `harness auth login` wizard.
+When you run `harness auth login` interactively, "Login with SSO" is also one of the options in the menu; picking it does the same thing as `--sso`.
 
-- Tokens are short-lived and refreshed automatically. If your session eventually expires, re-run `harness auth login --sso`.
-- SSO works only with saved profiles (no env var equivalent). For CI, use `HARNESS_API_KEY`.
+**How it works:** the CLI opens your browser at `id.harness.io`, where you sign in and, if you belong to several accounts, choose which one to log into. When the browser login completes, you're logged in and the CLI saves a profile. Your Harness account must be enabled for SSO access.
+
+**Limitations:**
+
+- **SaaS only.** Login goes through `id.harness.io`, so SSO does not work with self-managed (SMP) installs. Use a PAT/SAT instead.
+- **Needs a local browser.** The CLI must stay running until the browser login finishes (don't `Ctrl-C` it), and the browser must be on the same machine. SSO login does not work from a remote machine, e.g. over SSH.
+- **Saved profiles only.** There is no env var equivalent. For CI, use `HARNESS_API_KEY`.
+
+**Sessions:** tokens are short-lived and refreshed automatically. If your session eventually expires, re-run `harness auth login --sso`.
 - Check your session with `harness auth sso_status`; force a refresh with `harness auth sso_refresh`.
 
 ---
