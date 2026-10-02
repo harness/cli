@@ -68,8 +68,7 @@ When you run `harness auth login` interactively, "Login with SSO" is also one of
 - **Needs a local browser.** The CLI must stay running until the browser login finishes (don't `Ctrl-C` it), and the browser must be on the same machine. SSO login does not work from a remote machine, e.g. over SSH.
 - **Saved profiles only.** There is no env var equivalent. For CI, use `HARNESS_API_KEY`.
 
-**Sessions:** tokens are short-lived and refreshed automatically. If your session eventually expires, re-run `harness auth login --sso`.
-- Check your session with `harness auth sso_status`; force a refresh with `harness auth sso_refresh`.
+**Sessions:** tokens are short-lived and refreshed automatically. If your session eventually expires, re-run `harness auth login --sso`. Check your session with `harness auth sso_status`; force a refresh with `harness auth sso_refresh`.
 
 ---
 
