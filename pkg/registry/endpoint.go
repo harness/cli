@@ -62,6 +62,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 	if method == "" {
 		method = "GET"
 	}
+	extraHeaders := evalRequestHeaders(ep, exprEnv)
 
 	// Priority 1: file body — wins over strategies when -f is provided.
 	if ep.FileBody != spec.FileBodyNone && cmdctx.GetString(ctx.FlagValues, "file") != "" {
@@ -95,6 +96,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 				QueryParams:     qp,
 				Body:            env,
 				BodyContentType: ct,
+				Headers:         extraHeaders,
 			})
 		}
 
@@ -120,6 +122,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 					QueryParams:     qp,
 					Body:            map[string]any{ep.FileBodyWrapAsString: body},
 					BodyContentType: "application/json",
+					Headers:         extraHeaders,
 				})
 			}
 			if ep.UpdateBodyWrap != "" {
@@ -133,6 +136,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 					QueryParams:     qp,
 					Body:            map[string]any{ep.UpdateBodyWrap: unwrapIfAlreadyWrapped(parsed, ep.UpdateBodyWrap)},
 					BodyContentType: ct,
+					Headers:         extraHeaders,
 				})
 			}
 			return c.DoRequest(client.Request{
@@ -141,10 +145,18 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 				QueryParams:     qp,
 				Body:            body,
 				BodyContentType: ct,
+				Headers:         extraHeaders,
 			})
 		}
 		if ep.FileBodyWrapAsString != "" {
-			return c.Post(path, qp, map[string]any{ep.FileBodyWrapAsString: body})
+			return c.DoRequest(client.Request{
+				Method:          method,
+				Path:            path,
+				QueryParams:     qp,
+				Body:            map[string]any{ep.FileBodyWrapAsString: body},
+				BodyContentType: "application/json",
+				Headers:         extraHeaders,
+			})
 		}
 		if ep.CreateBodyWrap != "" || len(ep.CreateBodyInit) > 0 {
 			var parsed map[string]any
@@ -168,11 +180,32 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 				}
 			}
 			if ep.CreateBodyWrap != "" {
-				return c.Post(path, qp, map[string]any{ep.CreateBodyWrap: inner})
+				return c.DoRequest(client.Request{
+					Method:          method,
+					Path:            path,
+					QueryParams:     qp,
+					Body:            map[string]any{ep.CreateBodyWrap: inner},
+					BodyContentType: ct,
+					Headers:         extraHeaders,
+				})
 			}
-			return c.Post(path, qp, inner)
+			return c.DoRequest(client.Request{
+				Method:          method,
+				Path:            path,
+				QueryParams:     qp,
+				Body:            inner,
+				BodyContentType: ct,
+				Headers:         extraHeaders,
+			})
 		}
-		return c.PostRaw(path, qp, body, ct)
+		return c.DoRequest(client.Request{
+			Method:          method,
+			Path:            path,
+			QueryParams:     qp,
+			Body:            body,
+			BodyContentType: ct,
+			Headers:         extraHeaders,
+		})
 	}
 
 	if ep.FileBody == spec.FileBodyRequired {
@@ -204,7 +237,6 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 			return nil, nil, err
 		}
 	}
-	extraHeaders := evalRequestHeaders(ep, exprEnv)
 	switch method {
 	case "POST", "PUT", "PATCH", "DELETE":
 		body, err := resolveBody(ep, ctx)
@@ -532,6 +564,9 @@ func renderListWithFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, items []any, f
 // runEndpointValidators runs all validators_endpoint declared on ep, in order.
 // Returns the first error encountered, or nil if all pass or none are declared.
 func runEndpointValidators(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, req cmdctx.EndpointRequest) error {
+	if err := validateBodyRequirements(ep, req.Body); err != nil {
+		return err
+	}
 	if len(ep.ValidatorsEndpoint) == 0 || ctx.Resolver == nil {
 		return nil
 	}
@@ -545,6 +580,123 @@ func runEndpointValidators(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, req cmdctx.En
 		}
 	}
 	return nil
+}
+
+func validateBodyRequirements(ep *spec.EndpointSpec, body any) error {
+	if len(ep.RequiredBodyFields) == 0 && len(ep.NonEmptyBodyFields) == 0 && len(ep.RequiredBodyWhen) == 0 && ep.MinBodyFields == 0 {
+		return nil
+	}
+
+	bodyMap, err := requestBodyMap(body)
+	if err != nil {
+		return err
+	}
+	if ep.MinBodyFields > 0 && len(bodyMap) < ep.MinBodyFields {
+		return fmt.Errorf("request body must include at least %d field(s)", ep.MinBodyFields)
+	}
+
+	if err := requireBodyFields(bodyMap, ep.RequiredBodyFields); err != nil {
+		return err
+	}
+	if err := requireNonEmptyBodyFields(bodyMap, ep.NonEmptyBodyFields); err != nil {
+		return err
+	}
+	for _, condition := range ep.RequiredBodyWhen {
+		value, found := bodyFieldValue(bodyMap, condition.Field)
+		actual := ""
+		if found && value != nil {
+			actual, _ = value.(string)
+		} else {
+			actual = condition.Default
+		}
+		if actual == condition.Equals {
+			if err := requireBodyFields(bodyMap, condition.RequiredFields); err != nil {
+				return fmt.Errorf("when %s=%q: %w", condition.Field, condition.Equals, err)
+			}
+		}
+	}
+	return nil
+}
+
+func requestBodyMap(body any) (map[string]any, error) {
+	switch value := body.(type) {
+	case nil:
+		return map[string]any{}, nil
+	case map[string]any:
+		return value, nil
+	case string:
+		var parsed any
+		if err := json.Unmarshal([]byte(value), &parsed); err != nil {
+			return nil, fmt.Errorf("parsing request body for required-field validation: %w", err)
+		}
+		if object, ok := parsed.(map[string]any); ok {
+			return object, nil
+		}
+	}
+	return nil, fmt.Errorf("request body must be a JSON object to validate required fields")
+}
+
+func requireNonEmptyBodyFields(body map[string]any, fields []string) error {
+	var empty []string
+	for _, field := range fields {
+		value, found := bodyFieldValue(body, field)
+		if !found || value == nil {
+			empty = append(empty, field)
+			continue
+		}
+		switch value := value.(type) {
+		case string:
+			if strings.TrimSpace(value) == "" {
+				empty = append(empty, field)
+			}
+		case []any:
+			if len(value) == 0 {
+				empty = append(empty, field)
+			}
+		case map[string]any:
+			if len(value) == 0 {
+				empty = append(empty, field)
+			}
+		}
+	}
+	if len(empty) > 0 {
+		return fmt.Errorf("request body field(s) must not be empty: %s", strings.Join(empty, ", "))
+	}
+	return nil
+}
+
+func requireBodyFields(body map[string]any, fields []string) error {
+	var missing []string
+	for _, field := range fields {
+		value, found := bodyFieldValue(body, field)
+		if !found || value == nil {
+			missing = append(missing, field)
+			continue
+		}
+		if text, ok := value.(string); ok && strings.TrimSpace(text) == "" {
+			missing = append(missing, field)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("request body is missing required field(s): %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func bodyFieldValue(body map[string]any, path string) (any, bool) {
+	var current any = body
+	for _, part := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		value, found := object[part]
+		if !found {
+			return nil, false
+		}
+		current = value
+	}
+	return current, true
 }
 
 // resolveBody builds the request body, preferring body_fn, then body_params+body, returning nil if none apply.
@@ -756,6 +908,10 @@ func resolveContentType(ep *spec.EndpointSpec, method string) string {
 //  6. PUT or PATCH the result (method determines verb and Content-Type)
 func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path, method string) (any, error) {
 	exprEnv := exprenv.Make(ctx)
+	extraHeaders := evalRequestHeaders(ep, exprEnv)
+	if ep.MinBodyFields > 0 && len(ctx.SetArgs) == 0 && len(ctx.DelArgs) == 0 && len(ctx.MutationFlags) == 0 {
+		return nil, fmt.Errorf("request body must include at least %d field(s)", ep.MinBodyFields)
+	}
 
 	getPath := path
 	if ep.GetPath != "" {
@@ -767,7 +923,12 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 	}
 
 	getQP := evalQueryParams(ctx, firstNonEmptyMap(ep.GetQueryParams, ep.QueryParams), true)
-	getResult, _, err := c.Get(getPath, getQP)
+	getResult, _, err := c.DoRequest(client.Request{
+		Method:      "GET",
+		Path:        getPath,
+		QueryParams: getQP,
+		Headers:     extraHeaders,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get-then-%s: GET failed: %w", strings.ToLower(method), err)
 	}
@@ -800,12 +961,19 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 
 	var updateBody any = body
 	updateQP := evalQueryParams(ctx, ep.QueryParams, true)
+	if err := runEndpointValidators(ctx, ep, cmdctx.EndpointRequest{
+		Method: method, Path: path, QueryParams: updateQP, Body: updateBody,
+		ContentType: resolveContentType(ep, method),
+	}); err != nil {
+		return nil, err
+	}
 	result, _, err := c.DoRequest(client.Request{
 		Method:          method,
 		Path:            path,
 		QueryParams:     updateQP,
 		Body:            updateBody,
 		BodyContentType: resolveContentType(ep, method),
+		Headers:         extraHeaders,
 	})
 	return result, err
 }
@@ -818,6 +986,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 //  4. Merge body_params with {<update_body_wrap>: [{key, value}, ...]} and PUT
 func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path string) (any, error) {
 	exprEnv := exprenv.Make(ctx)
+	extraHeaders := evalRequestHeaders(ep, exprEnv)
 
 	getPath := path
 	if ep.GetPath != "" {
@@ -829,7 +998,12 @@ func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, p
 	}
 
 	getQP := evalQueryParams(ctx, firstNonEmptyMap(ep.GetQueryParams, ep.QueryParams), true)
-	getResult, _, err := c.Get(getPath, getQP)
+	getResult, _, err := c.DoRequest(client.Request{
+		Method:      "GET",
+		Path:        getPath,
+		QueryParams: getQP,
+		Headers:     extraHeaders,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get-then-put-kv: GET failed: %w", err)
 	}
@@ -899,7 +1073,20 @@ func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, p
 		putBody["metadata"] = pairs
 	}
 	putQP := evalQueryParams(ctx, ep.QueryParams, true)
-	result, _, err := c.Put(path, putQP, putBody)
+	if err := runEndpointValidators(ctx, ep, cmdctx.EndpointRequest{
+		Method: "PUT", Path: path, QueryParams: putQP, Body: putBody,
+		ContentType: resolveContentType(ep, "PUT"),
+	}); err != nil {
+		return nil, err
+	}
+	result, _, err := c.DoRequest(client.Request{
+		Method:          "PUT",
+		Path:            path,
+		QueryParams:     putQP,
+		Body:            putBody,
+		BodyContentType: resolveContentType(ep, "PUT"),
+		Headers:         extraHeaders,
+	})
 	return result, err
 }
 
@@ -910,6 +1097,7 @@ func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, p
 //  4. POST the result
 func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path string) (any, error) {
 	exprEnv := exprenv.Make(ctx)
+	extraHeaders := evalRequestHeaders(ep, exprEnv)
 	base := map[string]any{}
 
 	// Seed initial values from create_body_init (evaluated as exprs).
@@ -924,7 +1112,20 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		return nil, err
 	}
 	postQP := evalQueryParams(ctx, ep.QueryParams, true)
-	result, _, err := c.Post(path, postQP, postBody)
+	if err := runEndpointValidators(ctx, ep, cmdctx.EndpointRequest{
+		Method: "POST", Path: path, QueryParams: postQP, Body: postBody,
+		ContentType: resolveContentType(ep, "POST"),
+	}); err != nil {
+		return nil, err
+	}
+	result, _, err := c.DoRequest(client.Request{
+		Method:          "POST",
+		Path:            path,
+		QueryParams:     postQP,
+		Body:            postBody,
+		BodyContentType: resolveContentType(ep, "POST"),
+		Headers:         extraHeaders,
+	})
 	return result, err
 }
 

@@ -29,12 +29,16 @@ help_text: |
   An eval_suite groups multiple evaluations that should run together. Trigger
   the whole suite with `execute eval_suite:run <suite_id>`.
 
+  An observability_eval applies evaluation metrics to sampled
+  production telemetry. Material edits create an immutable version; changing
+  its name, enabled state, or target association does not.
+
   ### Typical workflow
 
-    harness create eval_dataset --set name=smoke identifier=smoke
-    harness create eval_target  --set name=my-llm type=prompt
+    harness create eval_dataset --set name=smoke --set identifier=smoke
+    harness create eval_target  -f target.json
     harness create eval_metric_set --set name=basic
-    harness create evaluation   --set name=v1 dataset_id=<id> target_id=<id>
+    harness create evaluation   --set name=v1 --set dataset_id=<id> --set target_id=<id> --set metric_set_id=<id>
     harness execute evaluation:run <eval_id>
     harness list eval_run <eval_id>
 
@@ -67,6 +71,44 @@ nouns:
         expr: it.created
       - id: updated
         expr: it.updated
+
+  - noun: eval_dataset_item
+    short_desc: A single row in an AI Evals dataset.
+    noun_aliases: [eval_dataset_items]
+    fields:
+      - id: id
+        label: ID
+        expr: it.uuid
+      - id: item_identifier
+        label: Item
+        expr: it.item_identifier
+      - id: input
+        expr: it.input
+        mutable_path: input
+      - id: expected_output
+        expr: it.expected_output
+        mutable_path: expected_output
+      - id: context
+        expr: it.context
+        mutable_path: context
+      - id: expected_tools
+        expr: it.expected_tools
+        mutable_path: expected_tools
+      - id: expected_tool_calls
+        expr: it.expected_tool_calls
+        mutable_path: expected_tool_calls
+      - id: precomputed_output
+        expr: it.precomputed_output
+        mutable_path: precomputed_output
+      - id: metadata
+        expr: it.metadata
+        mutable_path: metadata
+      - id: comments
+        expr: it.comments
+        mutable_path: comments
+      - id: sort_order
+        expr: it.sort_order
+        mutable_path: sort_order
 
   - noun: evaluation
     short_desc: An AI Eval wiring a dataset, target, and metric set. Trigger runs via execute action run.
@@ -253,6 +295,40 @@ nouns:
       - id: judge_llm_connector_ref
         expr: it.judge_llm_connector_ref
         mutable_path: judge_llm_connector_ref
+      - id: judge_llm_config
+        expr: it.judge_llm_config
+        mutable_path: judge_llm_config
+      - id: tags
+        expr: it.tags
+        mutable_path: tags
+        field_type: set
+
+  - noun: eval_metric_set_entry
+    short_desc: A metric membership entry with its threshold and weight.
+    noun_aliases: [eval_metric_set_entries]
+    fields:
+      - id: id
+        label: ID
+        expr: it.id
+      - id: metric_id
+        label: Metric
+        expr: it.metric_id
+        mutable_path: metric_id
+      - id: threshold
+        expr: it.threshold
+        mutable_path: threshold
+      - id: weight
+        expr: it.weight
+        mutable_path: weight
+      - id: position
+        expr: it.position
+        mutable_path: position
+      - id: score_name
+        expr: it.score_name
+        mutable_path: score_name
+      - id: config
+        expr: it.config
+        mutable_path: config
 
   - noun: eval_target
     short_desc: An AI Evals target — the LLM endpoint under test.
@@ -274,6 +350,25 @@ nouns:
       - id: description
         expr: it.description
         mutable_path: description
+      - id: config
+        expr: it.config
+        mutable_path: config
+      - id: tags
+        expr: it.tags
+        mutable_path: tags
+        field_type: set
+      - id: is_active
+        expr: it.is_active
+        mutable_path: is_active
+      - id: env_secrets
+        expr: it.env_secrets
+        mutable_path: env_secrets
+      - id: storage_type
+        expr: it.storage_type
+        mutable_path: storage_type
+      - id: git_source
+        expr: it.git_source
+        mutable_path: git_source
 
   - noun: eval_suite
     short_desc: A named collection of evaluations run together.
@@ -289,6 +384,66 @@ nouns:
       - id: last_run_status
         label: Last Run
         expr: it.last_run_status
+      - id: triggered_by
+        expr: it.triggered_by
+        mutable_path: triggered_by
+      - id: trigger_type
+        expr: it.trigger_type
+        mutable_path: trigger_type
+      - id: suite_path
+        expr: it.suite_path
+        mutable_path: suite_path
+      - id: branch
+        expr: it.branch
+        mutable_path: branch
+      - id: run_inputs
+        expr: it.run_inputs
+        mutable_path: run_inputs
+      - id: input_set_id
+        expr: it.input_set_id
+        mutable_path: input_set_id
+      - id: per_eval_overrides
+        expr: it.per_eval_overrides
+        mutable_path: per_eval_overrides
+
+  - noun: observability_eval
+    short_desc: An observability eval for sampled production telemetry.
+    noun_aliases: [observability_evals]
+    fields:
+      - id: id
+        label: ID
+        expr: it.config_id
+      - id: name
+        expr: it.name
+        mutable_path: name
+      - id: enabled
+        expr: it.enabled
+        mutable_path: enabled
+      - id: target_id
+        label: Target
+        expr: it.target_id
+        mutable_path: target_id
+      - id: active_version
+        label: Version
+        expr: it.active_version
+      - id: scope
+        expr: it.scope
+        mutable_path: scope
+      - id: metric_set_id
+        label: Metric Set
+        expr: it.metric_set_id
+        mutable_path: metric_set_id
+      - id: selector_filters
+        expr: it.selector_filters
+        mutable_path: selector_filters
+      - id: sampling_percentage
+        label: Sampling
+        expr: it.sampling_percentage
+        mutable_path: sampling_percentage
+      - id: created
+        expr: it.created_at
+      - id: updated
+        expr: it.updated_at
 
 commands:
   # ── eval_dataset ──────────────────────────────────────────────────────────────
@@ -338,7 +493,7 @@ commands:
   - command: create eval_dataset
     verb: create
     noun: eval_dataset
-    short: "Create an AI Evals dataset: harness create eval_dataset --set name=... identifier=..."
+    short: "Create an AI Evals dataset: harness create eval_dataset --set name=... --set identifier=..."
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -347,9 +502,32 @@ commands:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset
       request_headers:
         Harness-Account: auth.account
+      file_body: optional
       create_strategy: set-fields
       create_body_wrap: ""
+      required_body_fields: [name, identifier]
       text_header: "\nCreated dataset {{it.identifier}}\n"
+
+  - command: update eval_dataset
+    verb: update
+    noun: eval_dataset
+    short: "Update an AI Evals dataset: use -f for complete nested item or metadata changes"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PUT
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated dataset {{ctx.id}}\n"
 
   - command: delete eval_dataset
     verb: delete
@@ -363,6 +541,129 @@ commands:
       request_headers:
         Harness-Account: auth.account
       item_expr: it
+
+  # ── eval_dataset_item ─────────────────────────────────────────────────────────
+
+  - command: list eval_dataset_item
+    verb: list
+    noun: eval_dataset_item
+    short: "List items in an AI Evals dataset: harness list eval_dataset_item <dataset-id>"
+    requires_parentid: true
+    parentid_label: dataset
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.parentId}}/items
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: ctx.parentId + "/" + it.uuid
+      query_params:
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 200
+        total_expr: it.total_elements
+      columns: [item_identifier, sort_order]
+
+  - command: get eval_dataset_item
+    verb: get
+    noun: eval_dataset_item
+    short: "Get an AI Evals dataset item by dataset-id/item-id"
+    id_parts: 2
+    id_label: "<dataset-id/item-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.idParts[0]}}/items/{{ctx.idParts[1]}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: create eval_dataset_item
+    verb: create
+    noun: eval_dataset_item
+    short: "Add an item to an AI Evals dataset: harness create eval_dataset_item <dataset-id> -f item.json"
+    requires_id: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}/items
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+      required_body_fields: [input]
+
+  - command: update eval_dataset_item
+    verb: update
+    noun: eval_dataset_item
+    short: "Replace an AI Evals dataset item: harness update eval_dataset_item <dataset-id/item-id> -f item.json"
+    id_parts: 2
+    id_label: "<dataset-id/item-id>"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PUT
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.idParts[0]}}/items/{{ctx.idParts[1]}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.idParts[0]}}/items/{{ctx.idParts[1]}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+
+  - command: delete eval_dataset_item
+    verb: delete
+    noun: eval_dataset_item
+    confirm_mode: prompt
+    short: "Delete an AI Evals dataset item by dataset-id/item-id"
+    id_parts: 2
+    id_label: "<dataset-id/item-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.idParts[0]}}/items/{{ctx.idParts[1]}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: execute eval_dataset_item:bulk_upsert
+    verb: execute
+    noun: eval_dataset_item
+    noun_variant: bulk_upsert
+    short: "Bulk upsert dataset items: harness execute eval_dataset_item:bulk_upsert <dataset-id> -f items.json"
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}/items/bulk
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+      required_body_fields: [items]
+      text_header: "\nUpdated dataset items\n"
+
+  - command: execute eval_dataset_item:bulk_delete
+    verb: execute
+    noun: eval_dataset_item
+    noun_variant: bulk_delete
+    short: "Bulk delete dataset items: harness execute eval_dataset_item:bulk_delete <dataset-id> -f item-ids.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}/items/bulk-delete
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+      required_body_fields: [item_ids]
+      non_empty_body_fields: [item_ids]
+      text_header: "\nDeleted dataset items\n"
 
   # ── evaluation ────────────────────────────────────────────────────────────────
 
@@ -422,7 +723,7 @@ commands:
   - command: create evaluation
     verb: create
     noun: evaluation
-    short: "Create an AI Eval: harness create evaluation --set name=... dataset_id=... target_id=..."
+    short: "Create an AI Eval: harness create evaluation --set name=... --set dataset_id=... --set target_id=... --set metric_set_id=..."
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -431,14 +732,21 @@ commands:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals
       request_headers:
         Harness-Account: auth.account
+      file_body: optional
       create_strategy: set-fields
       create_body_wrap: ""
+      required_body_fields: [name]
+      required_body_when:
+        - field: storage_type
+          equals: managed
+          default: managed
+          required_fields: [dataset_id, target_id, metric_set_id]
       text_header: "\nCreated eval {{it.id}}\n"
 
   - command: update evaluation
     verb: update
     noun: evaluation
-    short: "Update an AI Eval: harness update evaluation <id> --set dataset_id=... target_id=... metric_set_id=..."
+    short: "Update an AI Eval: harness update evaluation <id> --set dataset_id=... --set target_id=... --set metric_set_id=..."
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -449,6 +757,7 @@ commands:
       get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/{{ctx.id}}
       request_headers:
         Harness-Account: auth.account
+      file_body: optional
       update_strategy: get-then-patch
       update_body_pick: it
       update_body_wrap: ""
@@ -472,7 +781,7 @@ commands:
     verb: execute
     noun: evaluation
     noun_variant: run
-    short: "Trigger a new run for an evaluation: harness execute evaluation:run <eval_id> [--set sampling_strategy=... branch=... notes=...]"
+    short: "Trigger a new run for an evaluation: harness execute evaluation:run <eval_id> [--set sampling_strategy=... --set branch=... --set notes=...]"
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -481,6 +790,7 @@ commands:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/{{ctx.id}}/run
       request_headers:
         Harness-Account: auth.account
+      file_body: optional
       create_strategy: set-fields
       create_body_wrap: ""
       text_header: "\nTriggered run for eval {{ctx.id}}\n"
@@ -591,7 +901,7 @@ commands:
   - command: create eval_metric
     verb: create
     noun: eval_metric
-    short: "Create an AI Evals metric: harness create eval_metric --set name=... type=heuristic dimension=correctness kind=exact_match"
+    short: "Create an AI Evals metric: harness create eval_metric --set name=... --set type=heuristic --set dimension=correctness; use -f for nested config"
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -600,9 +910,24 @@ commands:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metrics
       request_headers:
         Harness-Account: auth.account
+      file_body: optional
       create_strategy: set-fields
       create_body_wrap: ""
+      required_body_fields: [name, type, dimension]
       text_header: "\nCreated metric {{it.id}}\n"
+
+  - command: update eval_metric
+    verb: update
+    noun: eval_metric
+    short: "Update an AI Evals metric: provide a PATCH body with -f"
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metrics/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+      min_body_fields: 1
 
   - command: delete eval_metric
     verb: delete
@@ -673,9 +998,32 @@ commands:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets
       request_headers:
         Harness-Account: auth.account
+      file_body: optional
       create_strategy: set-fields
       create_body_wrap: ""
+      required_body_fields: [name]
       text_header: "\nCreated metric set {{it.id}}\n"
+
+  - command: update eval_metric_set
+    verb: update
+    noun: eval_metric_set
+    short: "Update an AI Evals metric set: use -f for structured judge configuration"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.id}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: optional
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated metric set {{ctx.id}}\n"
 
   - command: delete eval_metric_set
     verb: delete
@@ -689,6 +1037,87 @@ commands:
       request_headers:
         Harness-Account: auth.account
       item_expr: it
+
+  # ── eval_metric_set_entry ────────────────────────────────────────────────────
+
+  - command: list eval_metric_set_entry
+    verb: list
+    noun: eval_metric_set_entry
+    short: "List metric entries in a metric set: harness list eval_metric_set_entry <set-id>"
+    requires_parentid: true
+    parentid_label: metric-set
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.parentId}}/metrics
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it
+      get_id_expr: ctx.parentId + "/" + it.id
+      paging:
+        paging_strategy: flat_list
+      columns: [metric_id, score_name, threshold, weight, position]
+
+  - command: create eval_metric_set_entry
+    verb: create
+    noun: eval_metric_set_entry
+    short: "Add a metric to a set: harness create eval_metric_set_entry <set-id> --set metric_id=... --set threshold=..."
+    requires_id: true
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.id}}/metrics
+      request_headers:
+        Harness-Account: auth.account
+      file_body: optional
+      create_strategy: set-fields
+      create_body_wrap: ""
+      required_body_fields: [metric_id, threshold]
+
+  - command: update eval_metric_set_entry
+    verb: update
+    noun: eval_metric_set_entry
+    short: "Update a metric-set entry by set-id/entry-id: provide a PATCH body with -f"
+    id_parts: 2
+    id_label: "<set-id/entry-id>"
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.idParts[0]}}/entries/{{ctx.idParts[1]}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+      min_body_fields: 1
+
+  - command: delete eval_metric_set_entry
+    verb: delete
+    noun: eval_metric_set_entry
+    confirm_mode: prompt
+    short: "Remove a metric-set entry by set-id/entry-id"
+    id_parts: 2
+    id_label: "<set-id/entry-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.idParts[0]}}/entries/{{ctx.idParts[1]}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: execute eval_metric_set:replace_metrics
+    verb: execute
+    noun: eval_metric_set
+    noun_variant: replace_metrics
+    short: "Replace metric-set entries: harness execute eval_metric_set:replace_metrics <set-id> -f entries.json"
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.id}}/metrics
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+      text_header: "\nReplaced metric-set entries\n"
 
   # ── eval_target ───────────────────────────────────────────────────────────────
 
@@ -730,7 +1159,7 @@ commands:
   - command: create eval_target
     verb: create
     noun: eval_target
-    short: "Create an AI Evals target: harness create eval_target --set name=... type=prompt"
+    short: "Create an AI Evals target: provide name, type, and config in target.json with -f"
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -739,9 +1168,37 @@ commands:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets
       request_headers:
         Harness-Account: auth.account
+      file_body: optional
       create_strategy: set-fields
       create_body_wrap: ""
+      required_body_fields: [name]
+      required_body_when:
+        - field: storage_type
+          equals: managed
+          default: managed
+          required_fields: [type, config]
       text_header: "\nCreated target {{it.id}}\n"
+
+  - command: update eval_target
+    verb: update
+    noun: eval_target
+    short: "Update an AI Evals target: use -f for nested target configuration"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: optional
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated target {{ctx.id}}\n"
 
   - command: delete eval_target
     verb: delete
@@ -755,6 +1212,22 @@ commands:
       request_headers:
         Harness-Account: auth.account
       item_expr: it
+
+  - command: execute eval_target:upload_outputs
+    verb: execute
+    noun: eval_target
+    noun_variant: upload_outputs
+    short: "Upload precomputed target outputs: harness execute eval_target:upload_outputs <target-id> -f outputs.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}/outputs
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+      required_body_fields: [items]
+      non_empty_body_fields: [items]
+      text_header: "\nUploaded target outputs\n"
 
   # ── eval_suite ────────────────────────────────────────────────────────────────
 
@@ -810,12 +1283,106 @@ commands:
     verb: execute
     noun: eval_suite
     noun_variant: run
-    short: "Trigger a run for an eval suite: harness execute eval_suite:run <suite_id>"
+    short: "Trigger a run for an eval suite: harness execute eval_suite:run <suite_id> [--set trigger_type=... --set branch=...]"
     handler_type: endpoint
+    flags_builtin:
+      set: true
     endpoint:
       method: POST
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/{{ctx.id}}/run
       request_headers:
         Harness-Account: auth.account
-      no_fields: true
+      file_body: optional
+      create_strategy: set-fields
+      create_body_wrap: ""
       text_header: "\nTriggered run for suite {{ctx.id}}\n"
+
+  # ── observability_eval ───────────────────────────────────────────────────────
+
+  - command: list observability_eval
+    verb: list
+    noun: observability_eval
+    short: "List observability evals"
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/online-eval-configs
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: it.config_id
+      query_params:
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 200
+        total_expr: it.total_elements
+      columns: [id, name, enabled, scope, sampling_percentage, active_version]
+
+  - command: get observability_eval
+    verb: get
+    noun: observability_eval
+    short: "Get an observability eval by ID"
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/online-eval-configs/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: create observability_eval
+    verb: create
+    noun: observability_eval
+    short: "Create an observability eval: use -f for selector filters"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/online-eval-configs
+      request_headers:
+        Harness-Account: auth.account
+      file_body: optional
+      create_strategy: set-fields
+      create_body_wrap: ""
+      required_body_fields: [name, scope, metric_set_id]
+      text_header: "\nCreated observability eval {{it.config_id}}\n"
+
+  - command: update observability_eval
+    verb: update
+    noun: observability_eval
+    short: "Update an observability eval; material edits create a new version"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/online-eval-configs/{{ctx.id}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/online-eval-configs/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: optional
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      min_body_fields: 1
+      item_expr: it
+      text_header: "\nUpdated observability eval {{ctx.id}}\n"
+
+  - command: delete observability_eval
+    verb: delete
+    noun: observability_eval
+    confirm_mode: prompt
+    short: "Permanently delete an observability eval"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/online-eval-configs/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
