@@ -270,4 +270,4 @@ harness auth token
 harness auth token --profile staging
 ```
 
-Does not require org/project to be configured. Only meaningful for PAT/SAT profiles: for an SSO profile it prints an empty line (use `auth env` to get the SSO access token).
+Does not require org/project to be configured. Prints PAT/SAT tokens only, never SSO JWTs: for an SSO profile it prints an empty line (use `auth env` to get the SSO access token).

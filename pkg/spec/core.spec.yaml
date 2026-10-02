@@ -223,7 +223,13 @@ commands:
   - command: auth token
     verb: auth
     noun: token
-    short: Print the active API token
+    short: Print the active PAT/SAT API token
+    long: |
+      Print the active profile's PAT or SAT API token to stdout.
+
+      Only PAT/SAT tokens are printed. SSO profiles use short-lived JWTs, which this
+      command does not print; use 'harness auth env' to get the SSO access token
+      (as HARNESS_API_JWT).
     no_auth: true
     handler_type: workflow
     workflow_id: token
