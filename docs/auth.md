@@ -4,11 +4,9 @@
 
 The modes target different primary use cases:
 
-- **Profile mode (PAT/SAT)** is for interactive use with a static token — a developer on their workstation, managing multiple accounts or environments.
-- **Profile mode (SSO)** is for interactive use with a browser login — no token to create or paste. A profile stores `auth_type: sso`; PAT/SAT profiles omit it.
+- **Profile mode** is for interactive use — a developer on their workstation, managing multiple accounts or environments.
 - **Env var mode** is for scripting and CI/CD — credentials injected by the runner, no config file on disk.
-
-SSO is only available as a saved profile; there is no env var equivalent. Use `HARNESS_API_KEY` in CI.
+- **SSO mode** is for interactive use when you sign in to Harness through your browser (SSO) instead of using an API token.
 
 ### Resolution Order
 
@@ -34,29 +32,7 @@ harness pipeline list --profile staging --project other-project
 
 ### Profile Mode
 
-Credentials are stored across two files in `~/.harness/`. Primary use case is interactive local development. The profile's `auth_type` decides whether it holds a PAT/SAT or SSO tokens.
-
-### SSO Mode
-
-Created with `harness auth login --sso` (or the "Login with SSO" row in the interactive login wizard). The account must be enabled for SSO access.
-
-Login runs an OAuth2 PKCE flow:
-
-1. Discover the authorization server at `https://id.harness.io` (`/.well-known/oauth-authorization-server`).
-2. Open the browser and listen for the callback on `http://localhost:57380/oauth/callback` (5 minute timeout).
-3. Exchange the code for an access token and a refresh token (both JWTs). Account ID, email, and the UI subdomain come from the access token's claims.
-4. On a TTY, show the org/project picker unless both `--org` and `--project` were given.
-5. Write the profile and tokens.
-
-Differences from PAT/SAT profiles:
-
-- **API URL** is the MCP gateway `https://mcp.harness.io/cli` (stored as `api_url`), not the account's app URL. `ui_url` holds the Harness UI base URL.
-- **Tokens** are stored as `sso_token` and `refresh_token` in `~/.harness/credentials`, not `token`.
-- **Auto-refresh** — when the access token is about to expire, the next command refreshes it with the refresh token and rewrites the credentials file. If the refresh token has also expired, the command fails with a hint to run `harness auth login --sso` again.
-- **Identity** — `email` is stored in the profile from the JWT; `auth status` does not call `currentUser` or check the PAT format, and shows refresh-token expiry.
-- **Env var mode ignores it** — `HARNESS_API_KEY` always wins over a default/`HARNESS_PROFILE` SSO profile (see Resolution Order).
-
-Overrides for testing: `HARNESS_SSO_AUTH_SERVER_URL`, `HARNESS_SSO_BASE_URL`, `HARNESS_SSO_CLIENT_ID`.
+Credentials are stored across two files in `~/.harness/`. Primary use case is interactive local development.
 
 ### Env Var Mode
 
@@ -73,6 +49,20 @@ Optional:
 - `HARNESS_ORG` — org context
 - `HARNESS_PROJECT` — project context
 - `HARNESS_REGISTRY_URL` — defaults to `https://pkg.harness.io` (override for self-hosted)
+
+### SSO Mode
+
+Sign in through your browser instead of creating a token:
+
+```
+harness auth login --sso
+```
+
+The CLI opens your browser, you sign in, and it saves a profile. Your Harness account must be enabled for SSO access. You can also choose "Login with SSO" in the interactive `harness auth login` wizard.
+
+- Tokens are short-lived and refreshed automatically. If your session eventually expires, re-run `harness auth login --sso`.
+- SSO works only with saved profiles (no env var equivalent). For CI, use `HARNESS_API_KEY`.
+- Check your session with `harness auth sso_status`; force a refresh with `harness auth sso_refresh`.
 
 ---
 
@@ -166,14 +156,12 @@ harness auth login --sso
 | `--project` | Default project ID to store in profile |
 | `--overwrite` | Overwrite existing profile without prompting |
 | `--no-validate` | Skip token validation against the API |
-| `--sso` | Log in through the browser (OAuth2 PKCE) instead of a token. Cannot be combined with `--api-url` or `--api-token`. `--org`/`--project` are honored and skip the picker when both are given. |
-| `--force-save` | With `--sso`, save the profile and tokens even if the org/project picker fails |
+| `--sso` | Log in through the browser instead of a token. Cannot be combined with `--api-url` or `--api-token`. |
+| `--force-save` | With `--sso`, save the profile even if the org/project picker fails |
 
 **Interactive flow** (stdin and stdout are TTYs and `--api-url` or `--api-token` is not provided):
 
-Runs a bubbletea TUI wizard. If the profile already exists and `--overwrite` is not passed, prompts to confirm overwrite before launching the wizard. The wizard handles URL entry, PAT entry, validation, and org/project pickers. The URL picker also has a "Login with SSO" row, which hands off to the same flow as `--sso`.
-
-**SSO flow** (`--sso`): see [SSO Mode](#sso-mode). Re-running `--sso` on an SSO profile whose refresh token has expired skips the overwrite prompt.
+Runs a bubbletea TUI wizard. If the profile already exists and `--overwrite` is not passed, prompts to confirm overwrite before launching the wizard. The wizard handles URL entry, PAT entry, validation, and org/project pickers. The URL picker also offers "Login with SSO" (same as `--sso`, see [SSO Mode](#sso-mode)).
 
 **Non-interactive flow** (all required values provided via flags, or not a TTY):
 
@@ -213,18 +201,16 @@ Performs these checks in sequence (stops on first failure):
 
 Token is never printed. Supports `--format json` for structured output.
 
-For SSO profiles, step 3 skips the PAT format check and `currentUser` call; the email comes from the stored JWT claims.
-
 ### `harness auth sso_status` / `harness auth sso_refresh`
 
-SSO profiles only (error otherwise).
+For SSO profiles only.
 
 ```
-harness auth sso_status    # access/refresh token expiry plus decoded JWT claims
-harness auth sso_refresh   # force a refresh now and print the new expiry
+harness auth sso_status    # show when your SSO session expires
+harness auth sso_refresh   # refresh your SSO session now
 ```
 
-`sso_refresh` requires a saved profile, not env var auth. Normal commands refresh automatically, so this is mainly for debugging.
+Commands refresh your session automatically, so you rarely need `sso_refresh`.
 
 ### `harness auth profiles`
 
@@ -259,7 +245,7 @@ harness auth env --profile staging
 harness auth env --export   # prefix each line with "export "
 ```
 
-Always outputs `HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`. For SSO profiles, `HARNESS_API_JWT` (the access token) is emitted instead of `HARNESS_API_KEY`; the CLI itself does not read `HARNESS_API_JWT` as input. Outputs `HARNESS_ORG`, `HARNESS_PROJECT`, and `HARNESS_REGISTRY_URL` only when they are set in the resolved profile.
+Always outputs `HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`. For SSO profiles, `HARNESS_API_JWT` is printed instead of `HARNESS_API_KEY`. Outputs `HARNESS_ORG`, `HARNESS_PROJECT`, and `HARNESS_REGISTRY_URL` only when they are set in the resolved profile.
 
 ### `harness auth token`
 
@@ -270,4 +256,4 @@ harness auth token
 harness auth token --profile staging
 ```
 
-Does not require org/project to be configured. Prints PAT/SAT tokens only, never SSO JWTs: for an SSO profile it prints an empty line (use `auth env` to get the SSO access token).
+Does not require org/project to be configured. Prints PAT/SAT tokens only, never SSO JWTs (use `auth env` for an SSO token).
