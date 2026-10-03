@@ -178,6 +178,12 @@ nouns:
         expr: epochMs(it.modifiedAt * 1000)
         field_type: ts
 
+  - noun: segment_key
+    short_desc: One membership key of a segment definition (used for field lookup only).
+    fields:
+      - id: key
+        expr: it.key
+
   - noun: traffic_type
     short_desc: Harness FME traffic type (read-only lookup).
     fields:
@@ -1061,6 +1067,150 @@ commands:
       body_params:
         comment: 'flags.comment != "" ? flags.comment : nil'
         title: 'flags.title != "" ? flags.title : nil'
+
+  # ── segment:definition:keys ───────────────────────────────────────────────────
+  # Membership keys live on the definition, not the segment, so every keys command is
+  # scoped to one environment with --env.
+
+  - command: list segment:definition:keys
+    verb: list
+    noun: segment
+    noun_variant: definition:keys
+    short: "List the membership keys of a segment definition: harness list segment:definition:keys <segment-name> --env <env-id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<segment-name>"
+    fields_noun: segment_key
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      path: /fme/api/v4/segment-definitions/{{ctx.parentId}}/keys
+      # The endpoint returns bare strings; wrap each one so it has a named field to render.
+      items_expr: 'map(it.data, ({key: #}))'
+      item_item_expr: it
+      get_id_expr: it.key
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [key]
+
+  - command: execute segment:definition:add-keys
+    verb: execute
+    noun: segment
+    noun_variant: definition:add-keys
+    short: "Add membership keys to a segment definition: harness execute segment:definition:add-keys <segment-name> --env <env-id> --key user-1 --key user-2 | --keys-file keys.txt"
+    long: |
+      Add membership keys to a segment definition in one call (up to 10000 keys).
+
+      Keys come from --key (repeatable), from --keys-file, or both.
+
+      To load keys from a file (for example a CSV the user hands you), use --keys-file <path>
+      and do NOT loop over the keys yourself. Use --keys-file - to read from stdin.
+        - Every cell is one key: one key per line, a single row like key1,key2,key3, or
+          several columns all work, and quoted cells may contain commas.
+        - Whitespace is trimmed, blank cells are skipped, and duplicates are dropped.
+        - The file must contain ONLY keys. There is no header handling: delete a header
+          row such as "key" or "user_id" first, or it will be added as a key.
+        - A file with no keys is an error; more than 10000 keys must be split across calls.
+
+      Example:
+        harness execute segment:definition:add-keys power-users --env <env-id> --keys-file keys.csv
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: key
+        description: "Membership key to add (repeatable: --key user-1 --key user-2). Optional when --keys-file is given"
+        is_multi: true
+      - name: keys-file
+        description: "Path to a file of keys to add, or - for stdin. One key per line or comma-separated (CSV); every cell is a key. No header row"
+        flag_resolve_fn: resolve_keys_file
+      - name: replace
+        description: Replace the whole membership with the given keys instead of adding to it
+        is_bool: true
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
+    endpoint:
+      method: POST
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}/keys
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+        # Only sent when asked for: the endpoint already defaults to replace=false.
+        replace: 'flags.replace ? "true" : ""'
+      validators_endpoint: [validate_segment_keys]
+      body_params:
+        keys: 'concat(flags["key"] ?? [], (flags["keys-file"] ?? "") != "" ? split(flags["keys-file"], "\n") : [])'
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
+      # The response echoes the submitted keys plus a governance result, not a segment, so
+      # there is no entity to render fields from.
+      no_fields: true
+      text_header: "\nAdded {{len(concat(flags[\"key\"] ?? [], (flags[\"keys-file\"] ?? \"\") != \"\" ? split(flags[\"keys-file\"], \"\\n\") : []))}} key(s) to {{ctx.id}} in {{flags.env}}\n"
+
+  - command: execute segment:definition:remove-keys
+    verb: execute
+    noun: segment
+    noun_variant: definition:remove-keys
+    # POST, not DELETE: the keys to remove travel in a body, and DELETE with a body is
+    # unreliable across HTTP clients, so v4 exposes this as .../keys/remove.
+    short: "Remove membership keys from a segment definition: harness execute segment:definition:remove-keys <segment-name> --env <env-id> --key user-1 | --keys-file keys.txt"
+    long: |
+      Remove membership keys from a segment definition in one call (up to 10000 keys).
+
+      Keys come from --key (repeatable), from --keys-file, or both. --keys-file takes the
+      same format as on add-keys: a path or - for stdin; every cell is a key; no header row.
+
+      Example:
+        harness execute segment:definition:remove-keys power-users --env <env-id> --keys-file keys.csv
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: key
+        description: "Membership key to remove (repeatable: --key user-1 --key user-2). Optional when --keys-file is given"
+        is_multi: true
+      - name: keys-file
+        description: "Path to a file of keys to remove, or - for stdin. One key per line or comma-separated (CSV); every cell is a key. No header row"
+        flag_resolve_fn: resolve_keys_file
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
+    endpoint:
+      method: POST
+      path: /fme/api/v4/segment-definitions/{{ctx.id}}/keys/remove
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      validators_endpoint: [validate_segment_keys]
+      body_params:
+        keys: 'concat(flags["key"] ?? [], (flags["keys-file"] ?? "") != "" ? split(flags["keys-file"], "\n") : [])'
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
+      # Same echo-plus-governance response shape as add-keys: nothing to render as fields.
+      no_fields: true
+      text_header: "\nRemoved {{len(concat(flags[\"key\"] ?? [], (flags[\"keys-file\"] ?? \"\") != \"\" ? split(flags[\"keys-file\"], \"\\n\") : []))}} key(s) from {{ctx.id}} in {{flags.env}}\n"
 
   # ── metric ────────────────────────────────────────────────────────────────────
   # tags/owners are read-only here: the object_set field type needed for incremental

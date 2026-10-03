@@ -14,4 +14,6 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterFieldType("owners", ownersFieldType)
 	reg.RegisterFieldType("tags", tagsFieldType)
 	reg.RegisterFieldType("flag_sets", flagSetsFieldType)
+	reg.RegisterFlagResolveFn(resolveKeysFileFnID, resolveKeysFile)
+	reg.RegisterEndpointValidatorFn(validateSegmentKeysID, validateSegmentKeys)
 }
