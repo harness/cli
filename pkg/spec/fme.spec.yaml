@@ -254,6 +254,165 @@ nouns:
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
 
+  - noun: experiment
+    short_desc: A Harness FME experiment run against a feature flag or AI Config.
+    noun_aliases: [experiments, exp]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: parent_type
+        label: Parent Type
+        expr: it.parent.type
+      - id: parent
+        expr: it.parent.name ?? it.parent.id
+      - id: description
+        expr: it.description ?? ""
+        mutable_path: description
+        width_max: 60
+      - id: hypothesis
+        expr: it.hypothesis ?? ""
+        mutable_path: hypothesis
+        width_max: 60
+      - id: environment
+        expr: it.environment.name
+      - id: traffic_type
+        label: Traffic Type
+        expr: it.trafficType.name
+      - id: start_at
+        label: Start At
+        expr: it.startAt
+        mutable_path: startAt
+      - id: end_at
+        label: End At
+        expr: it.endAt
+        mutable_path: endAt
+      - id: baseline_treatment
+        label: Baseline Treatment
+        expr: it.baselineTreatment
+        mutable_path: baselineTreatment
+      - id: comparison_treatments
+        label: Comparison Treatments
+        expr: join(it.comparisonTreatments, ", ")
+        mutable_path: comparisonTreatments
+        field_type: set
+      - id: key_metrics
+        label: Key Metrics
+        expr: join(map(it.keyMetrics, {#.name}), ", ")
+        mutable_path: keyMetrics
+        field_type: fme:metric_refs
+      - id: supporting_metrics
+        label: Supporting Metrics
+        expr: join(map(it.supportingMetrics, {#.name}), ", ")
+        mutable_path: supportingMetrics
+        field_type: fme:metric_refs
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+        mutable_path: tags
+        field_type: fme:tags
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
+        mutable_path: owners
+        field_type: fme:owners
+      - id: status
+        expr: it.status
+        mutable_path: status
+      - id: created
+        expr: it.createdAt
+      - id: modified
+        expr: it.modifiedAt
+
+  - noun: experiment_settings
+    short_desc: An experiment's statistical settings (used for field lookup only).
+    fields:
+      - id: id
+        expr: it.id
+      - id: source
+        expr: it.source
+      - id: statistical_test_type
+        label: Statistical Test Type
+        expr: it.statisticalTestType
+        mutable_path: statisticalTestType
+      - id: significance_threshold
+        label: Significance Threshold
+        expr: string(it.significanceThreshold)
+        mutable_path: significanceThreshold
+      - id: multiple_comparison_correction
+        label: Multiple Comparison Correction
+        expr: it.multipleComparisonCorrection
+        mutable_path: multipleComparisonCorrection
+      - id: minimum_sample_size
+        label: Minimum Sample Size
+        expr: string(it.minimumSampleSize)
+        mutable_path: minimumSampleSize
+      - id: review_period
+        label: Review Period
+        expr: it.reviewPeriod
+        mutable_path: reviewPeriod
+      - id: variance_reduction
+        label: Variance Reduction
+        expr: it.varianceReduction.method
+        mutable_path: varianceReduction.method
+
+  - noun: experiment_alerts
+    short_desc: An experiment's alerting configuration (used for field lookup only).
+    fields:
+      - id: id
+        expr: it.id
+      - id: is_enabled
+        label: Enabled
+        expr: string(it.isEnabled)
+        mutable_path: isEnabled
+
+  - noun: experiment_results
+    short_desc: A metric result for an experiment comparison (used for field lookup only, read-only).
+    fields:
+      - id: metric_id
+        label: Metric Id
+        expr: it.metricId.id
+      - id: metric_name
+        label: Metric Name
+        expr: it.metricId.name
+      - id: category
+        expr: it.category
+      - id: comparison
+        expr: it.comparison
+      - id: positive
+        expr: string(it.positive)
+      - id: value
+        expr: 'it.value == nil ? "" : string(it.value)'
+      - id: error_margin
+        label: Error Margin
+        expr: 'it.errorMargin == nil ? "" : string(it.errorMargin)'
+      - id: pvalue
+        label: P-Value
+        expr: 'it.pvalue == nil ? "" : string(it.pvalue)'
+      - id: metric_result_state
+        label: State
+        expr: it.metricResultState
+      - id: impact_lower
+        label: Impact Lower
+        expr: 'it.impactLower == nil ? "" : string(it.impactLower)'
+      - id: impact_upper
+        label: Impact Upper
+        expr: 'it.impactUpper == nil ? "" : string(it.impactUpper)'
+      - id: baseline_mean
+        label: Baseline Mean
+        expr: 'it.baselineMean == nil ? "" : string(it.baselineMean)'
+      - id: comparison_mean
+        label: Comparison Mean
+        expr: 'it.comparisonMean == nil ? "" : string(it.comparisonMean)'
+      - id: baseline_sample_size
+        label: Baseline Sample Size
+        expr: 'it.baselineSampleSize == nil ? "" : string(it.baselineSampleSize)'
+      - id: comparison_sample_size
+        label: Comparison Sample Size
+        expr: 'it.comparisonSampleSize == nil ? "" : string(it.comparisonSampleSize)'
+      - id: variance_reduction_method
+        label: Variance Reduction Method
+        expr: it.varianceReduction.method
+
 commands:
   # ── feature_flag ─────────────────────────────────────────────────────────────
 
@@ -1302,3 +1461,307 @@ commands:
         total_expr: it.totalCount
         countable: true
       columns: [id, name, description]
+
+  # ── experiment ────────────────────────────────────────────────────────────────
+
+  - command: list experiment
+    verb: list
+    noun: experiment
+    short: "List experiments for a parent: harness list experiment --parent-type feature_flag --parent-name my-flag"
+    handler_type: endpoint
+    flags:
+      - name: parent-type
+        description: "Parent kind (required): FEATURE_FLAG or AI_CONFIG"
+        required: true
+        completion_values: [FEATURE_FLAG, AI_CONFIG]
+      - name: parent-name
+        description: Filter by parent name
+      - name: env
+        description: Filter by environment identifier
+      - name: search
+        description: Filter by experiment name (partial match)
+      - name: status
+        description: "Filter by status (single value; the API defaults to ACTIVE if omitted): ACTIVE, PAUSED, ARCHIVED, COMPLETED"
+        completion_values: [ACTIVE, PAUSED, ARCHIVED, COMPLETED]
+      - name: tag
+        description: Filter by tag name (repeatable in the API; the CLI sends one value)
+        is_multi: true
+    endpoint:
+      path: /fme/api/v4/experiments
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: it.id
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        parent_type: flags["parent-type"]
+        parent_name: flags["parent-name"]
+        environment_id: flags.env
+        name: flags.search
+        status: flags.status
+        tags: flags.tag[0]
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [id, name, parent_type, parent, environment, status, start_at, end_at]
+
+  - command: get experiment
+    verb: get
+    noun: experiment
+    short: "Get experiment details by id (see the Name/Id columns from 'list experiment'): harness get experiment <experiment-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: create experiment
+    verb: create
+    noun: experiment
+    short: "Create an experiment: harness create experiment <name> --parent-type feature_flag --parent-name my-flag --env <env-id> --start-at ... --end-at ... --baseline-treatment off --comparison-treatment on --add owners.user:<email>, or -f experiment.yaml"
+    handler_type: endpoint
+    flags:
+      - name: parent-type
+        description: "Parent kind (required unless set via -f): FEATURE_FLAG or AI_CONFIG"
+        completion_values: [FEATURE_FLAG, AI_CONFIG]
+      - name: parent-id
+        description: Parent id (id and/or name is required)
+      - name: parent-name
+        description: Parent name (id and/or name is required)
+      - name: env
+        description: Environment identifier (required unless set via -f)
+      - name: description
+        description: Experiment description
+      - name: hypothesis
+        description: Experiment hypothesis
+      - name: start-at
+        description: Start time, RFC 3339 (required unless set via -f)
+      - name: end-at
+        description: End time, RFC 3339 (required unless set via -f)
+      - name: baseline-treatment
+        description: Baseline treatment name (required unless set via -f)
+      - name: comparison-treatment
+        description: Comparison treatment name; repeat for more than one (required, must exclude the baseline treatment)
+        is_multi: true
+      - name: key-metric
+        description: Key metric id; repeat for more than one (up to 10)
+        is_multi: true
+      - name: supporting-metric
+        description: Supporting metric id; repeat for more than one (up to 100)
+        is_multi: true
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /fme/api/v4/experiments
+      file_body: optional
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      create_strategy: set-fields
+      create_body_init:
+        name: ctx.id
+        parent.type: 'flags["parent-type"] != "" ? flags["parent-type"] : nil'
+        parent.id: 'flags["parent-id"] != "" ? flags["parent-id"] : nil'
+        parent.name: 'flags["parent-name"] != "" ? flags["parent-name"] : nil'
+        description: 'flags.description != "" ? flags.description : nil'
+        hypothesis: 'flags.hypothesis != "" ? flags.hypothesis : nil'
+        startAt: 'flags["start-at"] != "" ? flags["start-at"] : nil'
+        endAt: 'flags["end-at"] != "" ? flags["end-at"] : nil'
+        baselineTreatment: 'flags["baseline-treatment"] != "" ? flags["baseline-treatment"] : nil'
+        comparisonTreatments: flags["comparison-treatment"]
+        keyMetrics: flags["key-metric"]
+        supportingMetrics: flags["supporting-metric"]
+      create_body_wrap: ""
+      item_expr: it.entity
+      text_header: "\nCreated experiment {{it.name}}\n"
+
+  - command: update experiment
+    verb: update
+    noun: experiment
+    short: "Update an experiment by id: harness update experiment <experiment-id> --set description=foo"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: PATCH
+      path: /fme/api/v4/experiments/{{ctx.id}}
+      get_path: /fme/api/v4/experiments/{{ctx.id}}
+      update_strategy: get-then-patch
+      # v4's UpdateExperimentRequest rejects unknown properties (id/type/parent/environment/
+      # trafficType/createdAt/modifiedAt are all read-only and make it a 400). Pick only the
+      # writable fields the GET carries; the PATCH is an RFC 7396 merge patch, so anything
+      # omitted is left untouched. keyMetrics/supportingMetrics/owners are picked (not just
+      # the scalars) so --add/--del can preserve the other members of those collections.
+      update_body_pick: "{description: it.description, hypothesis: it.hypothesis, startAt: it.startAt, endAt: it.endAt, baselineTreatment: it.baselineTreatment, comparisonTreatments: it.comparisonTreatments, keyMetrics: it.keyMetrics, supportingMetrics: it.supportingMetrics, tags: it.tags, owners: it.owners, status: it.status}"
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated experiment {{ctx.id}}\n"
+
+  - command: delete experiment
+    verb: delete
+    noun: experiment
+    confirm_mode: prompt
+    short: "Delete an experiment by id: harness delete experiment <experiment-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/api/v4/experiments/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+
+  # ── experiment:settings ──────────────────────────────────────────────────────
+
+  - command: get experiment:settings
+    verb: get
+    noun: experiment
+    noun_variant: settings
+    short: "Get an experiment's statistical settings: harness get experiment:settings <experiment-id>"
+    handler_type: endpoint
+    fields_noun: experiment_settings
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.id}}/settings
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: update experiment:settings
+    verb: update
+    noun: experiment
+    noun_variant: settings
+    short: "Update an experiment's statistical settings: harness update experiment:settings <experiment-id> --set significance_threshold=0.1"
+    handler_type: endpoint
+    fields_noun: experiment_settings
+    flags_builtin:
+      set: true
+    endpoint:
+      method: PATCH
+      path: /fme/api/v4/experiments/{{ctx.id}}/settings
+      get_path: /fme/api/v4/experiments/{{ctx.id}}/settings
+      update_strategy: get-then-patch
+      # v4's UpdateExperimentSettingsRequest is an RFC 7396 merge patch (Content-Type
+      # application/merge-patch+json): omitted fields keep their existing value, explicit
+      # null is rejected for these scalars. The PATCH body this framework sends is sparse —
+      # only fields touched by --set are included (see update experiment for the same
+      # pattern) — so update_body_pick here only exists to exclude id/source (server-derived;
+      # echoing them back would 400) from ever being settable via --set.
+      update_body_pick: "{statisticalTestType: it.statisticalTestType, significanceThreshold: it.significanceThreshold, multipleComparisonCorrection: it.multipleComparisonCorrection, minimumSampleSize: it.minimumSampleSize, reviewPeriod: it.reviewPeriod, varianceReduction: it.varianceReduction}"
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated settings for experiment {{ctx.id}}\n"
+
+  - command: delete experiment:settings
+    verb: delete
+    noun: experiment
+    noun_variant: settings
+    confirm_mode: prompt
+    short: "Reset an experiment's settings to their defaults: harness delete experiment:settings <experiment-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/api/v4/experiments/{{ctx.id}}/settings
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+
+  # ── experiment:alerts ─────────────────────────────────────────────────────────
+
+  - command: get experiment:alerts
+    verb: get
+    noun: experiment
+    noun_variant: alerts
+    short: "Get an experiment's alerting configuration: harness get experiment:alerts <experiment-id>"
+    handler_type: endpoint
+    fields_noun: experiment_alerts
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.id}}/alerting
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: update experiment:alerts
+    verb: update
+    noun: experiment
+    noun_variant: alerts
+    short: "Update an experiment's alerting configuration: harness update experiment:alerts <experiment-id> --set is_enabled=true"
+    handler_type: endpoint
+    fields_noun: experiment_alerts
+    flags_builtin:
+      set: true
+    endpoint:
+      method: PATCH
+      path: /fme/api/v4/experiments/{{ctx.id}}/alerting
+      get_path: /fme/api/v4/experiments/{{ctx.id}}/alerting
+      update_strategy: get-then-patch
+      # v4 rejects both an omitted and an explicit null isEnabled with 400. isEnabled is
+      # the only mutable field here, so every real invocation passes --set is_enabled=...
+      # and this framework's sparse get-then-patch body already includes it in that case.
+      # Known gap: running this command with no --set at all sends an empty patch and gets
+      # a 400 from the backend rather than a client-side error — same class of limitation as
+      # any single-field PATCH resource on this framework, not specific to alerting.
+      update_body_pick: "{isEnabled: it.isEnabled}"
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated alerting config for experiment {{ctx.id}}\n"
+
+  # ── experiment:results ───────────────────────────────────────────────────────
+
+  - command: list experiment:results
+    verb: list
+    noun: experiment
+    noun_variant: results
+    short: "List metric results for an experiment: harness list experiment:results <experiment-id> [--metric-id <id>]"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<experiment-id>"
+    fields_noun: experiment_results
+    flags:
+      # ResultsResource only exposes a single filter (metric_ids, a JAX-RS Set<String>
+      # bound from repeated query params). There's no comparisons filter on this endpoint,
+      # and this CLI's query builder can only emit one value per param key, so multi-value
+      # metric filtering isn't supported yet — this flag is single-value only.
+      - name: metric-id
+        description: Filter by a single metric id
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.parentId}}/metric-results
+      items_expr: it.data
+      item_item_expr: it
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        metric_ids: flags["metric-id"]
+      columns: [metric_id, metric_name, category, comparison, baseline_mean, comparison_mean, value, pvalue, positive, impact_lower, impact_upper]

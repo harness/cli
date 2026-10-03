@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -3127,5 +3128,697 @@ func TestFMESpec_CreateMetric_TagsOwners(t *testing.T) {
 	entry := owners[0].(map[string]any)
 	if entry["type"] != "USER" || entry["email"] != "bob@example.com" {
 		t.Fatalf("owner entry = %v, want {type: USER, email: bob@example.com}", entry)
+	}
+}
+
+// ── experiment ──────────────────────────────────────────────────────────────
+
+func TestFMESpec_ListExperiment(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "experiment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list experiment: command not found or missing endpoint spec")
+	}
+
+	resp := `{"data":[{"name":"exp-1","parent":{"type":"FEATURE_FLAG","name":"my-flag"}}],"totalCount":1}`
+	srv, path, query := fmeCaptureServerWithQuery(t, resp)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{
+		"parent-type": "FEATURE_FLAG",
+		"parent-name": "my-flag",
+		"env":         "prod",
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if *path != "/fme/api/v4/experiments" {
+		t.Fatalf("path = %q, want /fme/api/v4/experiments", *path)
+	}
+	for k, want := range map[string]string{
+		"parent_type":    "FEATURE_FLAG",
+		"parent_name":    "my-flag",
+		"environment_id": "prod",
+	} {
+		if !strings.Contains(*query, k+"="+want) {
+			t.Fatalf("query = %q, want %s=%s", *query, k, want)
+		}
+	}
+}
+
+func TestFMESpec_GetExperiment(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("get", "experiment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("get experiment: command not found or missing endpoint spec")
+	}
+
+	srv, path := fmeCaptureServer(t, `{"name":"exp-1"}`)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if *path != "/fme/api/v4/experiments/exp-1" {
+		t.Fatalf("path = %q, want /fme/api/v4/experiments/exp-1", *path)
+	}
+}
+
+func TestFMESpec_CreateExperiment(t *testing.T) {
+	reg := registry.New()
+	fme.ModuleInit(reg.Module("fme"))
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("create", "experiment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("create experiment: command not found or missing endpoint spec")
+	}
+
+	srv, caps := fmeSequenceServer(t, []string{`{"entity":{"name":"new-exp"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "new-exp"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{
+		"parent-type":          "FEATURE_FLAG",
+		"parent-name":          "my-flag",
+		"env":                  "prod",
+		"start-at":             "2026-01-01T00:00:00Z",
+		"end-at":               "2026-02-01T00:00:00Z",
+		"baseline-treatment":   "off",
+		"comparison-treatment": []any{"on"},
+		"key-metric":           []any{"metric-1"},
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	got := (*caps)[0]
+	if got.method != "POST" || got.path != "/fme/api/v4/experiments" {
+		t.Fatalf("request = %s %s, want POST /fme/api/v4/experiments", got.method, got.path)
+	}
+	if !strings.Contains(got.rawQuery, "environment_id=prod") {
+		t.Fatalf("query = %q, want environment_id=prod", got.rawQuery)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(got.body, &body); err != nil {
+		t.Fatalf("unmarshal request body: %v", err)
+	}
+	if body["name"] != "new-exp" || body["baselineTreatment"] != "off" {
+		t.Fatalf("body = %v, want name=new-exp baselineTreatment=off", body)
+	}
+	parent, ok := body["parent"].(map[string]any)
+	if !ok || parent["type"] != "FEATURE_FLAG" || parent["name"] != "my-flag" {
+		t.Fatalf("body parent = %v, want {type: FEATURE_FLAG, name: my-flag}", body["parent"])
+	}
+	comparisons, ok := body["comparisonTreatments"].([]any)
+	if !ok || len(comparisons) != 1 || comparisons[0] != "on" {
+		t.Fatalf("body comparisonTreatments = %v, want [on]", body["comparisonTreatments"])
+	}
+	keyMetrics, ok := body["keyMetrics"].([]any)
+	if !ok || len(keyMetrics) != 1 || keyMetrics[0] != "metric-1" {
+		t.Fatalf("body keyMetrics = %v, want [metric-1]", body["keyMetrics"])
+	}
+}
+
+// TestFMESpec_UpdateExperiment asserts the get-then-patch body is narrowed to the fields
+// UpdateExperimentRequest accepts — read-only fields like id/type/parent/environment must
+// not leak into the PATCH (v4 rejects unknown properties).
+func TestFMESpec_UpdateExperiment(t *testing.T) {
+	reg := registry.New()
+	fme.ModuleInit(reg.Module("fme"))
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "experiment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update experiment: command not found or missing endpoint spec")
+	}
+
+	getResp := `{"id":"e1","name":"exp-1","description":"old desc","hypothesis":"h",` +
+		`"parent":{"type":"FEATURE_FLAG","id":"f1","name":"my-flag"},` +
+		`"environment":{"id":"env1","name":"prod"},"startAt":"2026-01-01T00:00:00Z",` +
+		`"endAt":"2026-02-01T00:00:00Z","baselineTreatment":"off",` +
+		`"comparisonTreatments":["on"],"keyMetrics":[{"id":"m1","name":"Metric 1"}],` +
+		`"supportingMetrics":[],"owners":[],"status":"ACTIVE"}`
+	srv, caps := fmeSequenceServer(t, []string{getResp, `{"entity":{"name":"exp-1"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.MutationOrderCaptured = true
+	ctx.MutationFlags = []cmdctx.FieldMutation{
+		{Kind: cmdctx.MutationSet, Key: "description", Value: "new desc", Raw: "description=new desc", HasValue: true},
+		{Kind: cmdctx.MutationAdd, Key: "key_metrics.m2", Raw: "key_metrics.m2"},
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if len(*caps) != 2 {
+		t.Fatalf("got %d requests, want 2 (GET, PATCH)", len(*caps))
+	}
+	patch := (*caps)[1]
+	if patch.method != "PATCH" {
+		t.Fatalf("2nd request method = %q, want PATCH", patch.method)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(patch.body, &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v", err)
+	}
+	for _, leaked := range []string{"id", "name", "type", "parent", "environment", "createdAt", "modifiedAt"} {
+		if _, present := body[leaked]; present {
+			t.Fatalf("PATCH body leaked read-only field %q: %v", leaked, body)
+		}
+	}
+	if body["description"] != "new desc" {
+		t.Fatalf("PATCH body[description] = %v, want %q", body["description"], "new desc")
+	}
+	keyMetrics, ok := body["keyMetrics"].([]any)
+	if !ok || len(keyMetrics) != 2 || keyMetrics[0] != "m1" || keyMetrics[1] != "m2" {
+		t.Fatalf("PATCH body keyMetrics = %v, want [m1 m2] (display name dropped, m2 added)", body["keyMetrics"])
+	}
+}
+
+func TestFMESpec_ListExperiment_TagFilter(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "experiment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list experiment: command not found or missing endpoint spec")
+	}
+
+	resp := `{"data":[{"name":"exp-1","parent":{"type":"FEATURE_FLAG","name":"my-flag"}}],"totalCount":1}`
+	srv, path, query := fmeCaptureServerWithQuery(t, resp)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{
+		"parent-type": "FEATURE_FLAG",
+		"parent-name": "my-flag",
+		"env":         "prod",
+		"tag":         []any{"my-tag"},
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if *path != "/fme/api/v4/experiments" {
+		t.Fatalf("path = %q, want /fme/api/v4/experiments", *path)
+	}
+	if !strings.Contains(*query, "tags=my-tag") {
+		t.Fatalf("query = %q, want tags=my-tag", *query)
+	}
+}
+
+// TestFMESpec_UpdateExperiment_Tags asserts --add/--del tags.<name> mutate the tags
+// collection correctly via the fme:tags field type (add appends {name}, del removes by name).
+func TestFMESpec_UpdateExperiment_Tags(t *testing.T) {
+	reg := registry.New()
+	fme.ModuleInit(reg.Module("fme"))
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "experiment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update experiment: command not found or missing endpoint spec")
+	}
+
+	getResp := `{"id":"e1","name":"exp-1","description":"old desc","hypothesis":"h",` +
+		`"parent":{"type":"FEATURE_FLAG","id":"f1","name":"my-flag"},` +
+		`"environment":{"id":"env1","name":"prod"},"startAt":"2026-01-01T00:00:00Z",` +
+		`"endAt":"2026-02-01T00:00:00Z","baselineTreatment":"off",` +
+		`"comparisonTreatments":["on"],"keyMetrics":[],` +
+		`"supportingMetrics":[],"owners":[],"status":"ACTIVE",` +
+		`"tags":[{"id":"t1","name":"keep-me"},{"id":"t2","name":"remove-me"}]}`
+	srv, caps := fmeSequenceServer(t, []string{getResp, `{"entity":{"name":"exp-1"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.MutationOrderCaptured = true
+	ctx.MutationFlags = []cmdctx.FieldMutation{
+		{Kind: cmdctx.MutationAdd, Key: "tags.new-tag", Raw: "tags.new-tag"},
+		{Kind: cmdctx.MutationDelete, Key: "tags.remove-me", Raw: "tags.remove-me"},
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if len(*caps) != 2 {
+		t.Fatalf("got %d requests, want 2 (GET, PATCH)", len(*caps))
+	}
+	patch := (*caps)[1]
+	if patch.method != "PATCH" {
+		t.Fatalf("2nd request method = %q, want PATCH", patch.method)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(patch.body, &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v", err)
+	}
+	tags, ok := body["tags"].([]any)
+	if !ok || len(tags) != 2 {
+		t.Fatalf("PATCH body tags = %v, want 2 entries (keep-me, new-tag)", body["tags"])
+	}
+	names := make([]string, 0, len(tags))
+	for _, item := range tags {
+		m, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("tag entry = %v, want object", item)
+		}
+		if _, present := m["id"]; present {
+			t.Fatalf("tag entry %v leaked read-only field %q", m, "id")
+		}
+		names = append(names, m["name"].(string))
+	}
+	if !slices.Contains(names, "keep-me") || !slices.Contains(names, "new-tag") || slices.Contains(names, "remove-me") {
+		t.Fatalf("PATCH body tags names = %v, want [keep-me new-tag] (remove-me deleted)", names)
+	}
+}
+
+func TestFMESpec_DeleteExperiment(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("delete", "experiment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("delete experiment: command not found or missing endpoint spec")
+	}
+
+	srv, caps := fmeSequenceServer(t, []string{`{}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	got := (*caps)[0]
+	if got.method != "DELETE" || got.path != "/fme/api/v4/experiments/exp-1" {
+		t.Fatalf("request = %s %s, want DELETE /fme/api/v4/experiments/exp-1", got.method, got.path)
+	}
+}
+
+// TestFMESpec_UpdateExperiment_AddDelOwners asserts --add/--del on experiment owners
+// round-trip through the fme:owners field type the same way segment/feature_flag do.
+func TestFMESpec_UpdateExperiment_AddDelOwners(t *testing.T) {
+	reg := registry.New()
+	fme.ModuleInit(reg.Module("fme"))
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "experiment")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update experiment: command not found or missing endpoint spec")
+	}
+
+	getResp := `{"id":"e1","name":"exp-1","description":"d","hypothesis":"h",` +
+		`"parent":{"type":"FEATURE_FLAG","id":"f1","name":"my-flag"},` +
+		`"environment":{"id":"env1","name":"prod"},"startAt":"2026-01-01T00:00:00Z",` +
+		`"endAt":"2026-02-01T00:00:00Z","baselineTreatment":"off",` +
+		`"comparisonTreatments":["on"],"keyMetrics":[],"supportingMetrics":[],` +
+		`"owners":[{"id":"u1","type":"USER","email":"alice@example.com"}],"status":"ACTIVE"}`
+	srv, caps := fmeSequenceServer(t, []string{getResp, `{"entity":{"name":"exp-1"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.MutationOrderCaptured = true
+	ctx.MutationFlags = []cmdctx.FieldMutation{
+		{Kind: cmdctx.MutationDelete, Key: "owners.user:alice@example.com", Raw: "owners.user:alice@example.com"},
+		{Kind: cmdctx.MutationAdd, Key: "owners.user:bob@example.com", Raw: "owners.user:bob@example.com"},
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	patch := (*caps)[1]
+	var body map[string]any
+	if err := json.Unmarshal(patch.body, &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v", err)
+	}
+	owners, ok := body["owners"].([]any)
+	if !ok || len(owners) != 1 {
+		t.Fatalf("PATCH body owners = %v, want 1 entry", body["owners"])
+	}
+	entry := owners[0].(map[string]any)
+	if entry["type"] != "USER" || entry["email"] != "bob@example.com" {
+		t.Fatalf("owner entry = %v, want {type: USER, email: bob@example.com}", entry)
+	}
+}
+
+// ── experiment:settings ──────────────────────────────────────────────────────
+
+func TestFMESpec_GetExperimentSettings(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("get", "experiment:settings")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("get experiment:settings: command not found or missing endpoint spec")
+	}
+
+	srv, path := fmeCaptureServer(t, `{"id":"exp-1","source":"OVERRIDE","statisticalTestType":"BAYESIAN"}`)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if *path != "/fme/api/v4/experiments/exp-1/settings" {
+		t.Fatalf("path = %q, want /fme/api/v4/experiments/exp-1/settings", *path)
+	}
+}
+
+// TestFMESpec_UpdateExperimentSettings asserts the get-then-patch body is sparse (only the
+// --set field is sent, same as update experiment) and that id/source can never appear in it —
+// they carry no mutable_path, so no --set key can target them.
+func TestFMESpec_UpdateExperimentSettings(t *testing.T) {
+	reg := registry.New()
+	fme.ModuleInit(reg.Module("fme"))
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "experiment:settings")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update experiment:settings: command not found or missing endpoint spec")
+	}
+
+	getResp := `{"id":"exp-1","source":"OVERRIDE","statisticalTestType":"BAYESIAN",` +
+		`"significanceThreshold":0.05,"multipleComparisonCorrection":"NONE",` +
+		`"minimumSampleSize":100,"reviewPeriod":"P7D","varianceReduction":{"method":"NONE"}}`
+	srv, caps := fmeSequenceServer(t, []string{getResp, `{"entity":{"id":"exp-1"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.FieldsNoun = "experiment_settings"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.MutationOrderCaptured = true
+	ctx.MutationFlags = []cmdctx.FieldMutation{
+		{Kind: cmdctx.MutationSet, Key: "significance_threshold", Value: "0.1", Raw: "significance_threshold=0.1", HasValue: true},
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if len(*caps) != 2 {
+		t.Fatalf("got %d requests, want 2 (GET, PATCH)", len(*caps))
+	}
+	patch := (*caps)[1]
+	if patch.method != "PATCH" || patch.path != "/fme/api/v4/experiments/exp-1/settings" {
+		t.Fatalf("2nd request = %s %s, want PATCH /fme/api/v4/experiments/exp-1/settings", patch.method, patch.path)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(patch.body, &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v", err)
+	}
+	for _, leaked := range []string{"id", "source"} {
+		if _, present := body[leaked]; present {
+			t.Fatalf("PATCH body leaked read-only field %q: %v", leaked, body)
+		}
+	}
+	// mutateScalar (the default handler for fields with no field_type) always writes the raw
+	// --set string, with no int/float coercion — the same behavior trafficAllocation and
+	// isProduction already have elsewhere in this spec. Not fixed here; out of scope for this
+	// ticket, tracked as a framework-wide gap.
+	if body["significanceThreshold"] != "0.1" {
+		t.Fatalf("PATCH body[significanceThreshold] = %v, want the string %q", body["significanceThreshold"], "0.1")
+	}
+	if _, present := body["statisticalTestType"]; present {
+		t.Fatalf("PATCH body[statisticalTestType] = %v, want absent (sparse patch — only --set fields are sent)", body["statisticalTestType"])
+	}
+}
+
+func TestFMESpec_DeleteExperimentSettings(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("delete", "experiment:settings")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("delete experiment:settings: command not found or missing endpoint spec")
+	}
+
+	srv, caps := fmeSequenceServer(t, []string{`{}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	got := (*caps)[0]
+	if got.method != "DELETE" || got.path != "/fme/api/v4/experiments/exp-1/settings" {
+		t.Fatalf("request = %s %s, want DELETE /fme/api/v4/experiments/exp-1/settings", got.method, got.path)
+	}
+}
+
+// ── experiment:alerts ────────────────────────────────────────────────────────
+
+func TestFMESpec_GetExperimentAlerts(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("get", "experiment:alerts")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("get experiment:alerts: command not found or missing endpoint spec")
+	}
+
+	srv, path := fmeCaptureServer(t, `{"id":"exp-1","isEnabled":true}`)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	if *path != "/fme/api/v4/experiments/exp-1/alerting" {
+		t.Fatalf("path = %q, want /fme/api/v4/experiments/exp-1/alerting", *path)
+	}
+}
+
+// TestFMESpec_UpdateExperimentAlerts_NoSet documents a known gap: since isEnabled is the
+// only mutable field and the get-then-patch body is sparse (only --set fields are sent, same
+// as update experiment), running this command with no --set at all sends an empty patch —
+// which the real v4 endpoint rejects with 400, since isEnabled may never be omitted there.
+// There is no client-side guard against this today; every real invocation is expected to
+// pass --set is_enabled=..., matching this command's --short example.
+func TestFMESpec_UpdateExperimentAlerts_NoSet(t *testing.T) {
+	reg := registry.New()
+	fme.ModuleInit(reg.Module("fme"))
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "experiment:alerts")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update experiment:alerts: command not found or missing endpoint spec")
+	}
+
+	getResp := `{"id":"exp-1","isEnabled":true}`
+	srv, caps := fmeSequenceServer(t, []string{getResp, `{"entity":{"id":"exp-1"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.FieldsNoun = "experiment_alerts"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.MutationOrderCaptured = true
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	patch := (*caps)[1]
+	var body map[string]any
+	if err := json.Unmarshal(patch.body, &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v", err)
+	}
+	if _, present := body["isEnabled"]; present {
+		t.Fatalf("PATCH body[isEnabled] = %v, want absent (sparse patch, no --set passed)", body["isEnabled"])
+	}
+}
+
+func TestFMESpec_UpdateExperimentAlerts_Set(t *testing.T) {
+	reg := registry.New()
+	fme.ModuleInit(reg.Module("fme"))
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("update", "experiment:alerts")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("update experiment:alerts: command not found or missing endpoint spec")
+	}
+
+	getResp := `{"id":"exp-1","isEnabled":false}`
+	srv, caps := fmeSequenceServer(t, []string{getResp, `{"entity":{"id":"exp-1"}}`})
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Id = "exp-1"
+	ctx.Noun = "experiment"
+	ctx.FieldsNoun = "experiment_alerts"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.MutationOrderCaptured = true
+	ctx.MutationFlags = []cmdctx.FieldMutation{
+		{Kind: cmdctx.MutationSet, Key: "is_enabled", Value: "true", Raw: "is_enabled=true", HasValue: true},
+	}
+
+	if _, err := registry.RunEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunEndpoint: %v", err)
+	}
+
+	patch := (*caps)[1]
+	var body map[string]any
+	if err := json.Unmarshal(patch.body, &body); err != nil {
+		t.Fatalf("unmarshal PATCH body: %v", err)
+	}
+	// mutateScalar writes the raw --set string, with no bool coercion — see the comment on
+	// TestFMESpec_UpdateExperimentSettings.
+	if body["isEnabled"] != "true" {
+		t.Fatalf("PATCH body[isEnabled] = %v, want the string %q", body["isEnabled"], "true")
+	}
+}
+
+// ── experiment:results ───────────────────────────────────────────────────────
+
+// TestFMESpec_ListExperimentResults asserts the parent-id arg maps to the experiment-id
+// path segment, null-valued numeric fields render as "" (not "<nil>"), and metric_id.name
+// resolves into the Metric Name column.
+func TestFMESpec_ListExperimentResults(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "experiment:results")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list experiment:results: command not found or missing endpoint spec")
+	}
+
+	fixture := `{"data":[` +
+		`{"metricId":{"id":"m1","name":"Conversion Rate"},"category":"KEY","comparison":"on",` +
+		`"positive":true,"value":0.12,"errorMargin":0.02,"pvalue":0.03,"metricResultState":"OK",` +
+		`"impactLower":0.01,"impactUpper":0.2,"baselineMean":0.5,"comparisonMean":0.56,` +
+		`"baselineSampleSize":1000,"comparisonSampleSize":1010},` +
+		`{"metricId":{"id":"m2","name":"Guardrail Latency"},"category":"GUARDRAIL","comparison":"on",` +
+		`"positive":false,"value":null,"errorMargin":null,"pvalue":null,"metricResultState":"NOT_ENOUGH_DATA",` +
+		`"impactLower":null,"impactUpper":null,"baselineMean":null,"comparisonMean":null,` +
+		`"baselineSampleSize":null,"comparisonSampleSize":null}` +
+		`],"calculatedAt":null}`
+	srv, path, query := fmeCaptureServerWithQuery(t, fixture)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "experiment"
+	ctx.ParentId = "exp-1"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+
+	if *path != "/fme/api/v4/experiments/exp-1/metric-results" {
+		t.Fatalf("path = %q, want /fme/api/v4/experiments/exp-1/metric-results", *path)
+	}
+	if strings.Contains(*query, "metric_ids=") {
+		t.Fatalf("query = %q, want no metric_ids param when --metric-id not passed", *query)
+	}
+
+	body := fmeReadOut(t, ctx)
+	for _, want := range []string{"Conversion Rate", "Guardrail Latency", "NOT_ENOUGH_DATA"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("output missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "<nil>") {
+		t.Fatalf("output contains literal <nil> for a null numeric field: %s", body)
+	}
+}
+
+// TestFMESpec_ListExperimentResults_MetricIdFilter asserts --metric-id maps to the
+// metric_ids query param (ResultsResource's only supported filter).
+func TestFMESpec_ListExperimentResults_MetricIdFilter(t *testing.T) {
+	reg := registry.New()
+	if _, err := LoadSpec(reg, "fme.spec.yaml", true); err != nil {
+		t.Fatalf("LoadSpec: %v", err)
+	}
+	cs := reg.GetSpec("list", "experiment:results")
+	if cs == nil || cs.Endpoint == nil {
+		t.Fatal("list experiment:results: command not found or missing endpoint spec")
+	}
+
+	srv, _, query := fmeCaptureServerWithQuery(t, `{"data":[]}`)
+
+	ctx := fmeTestCtx(t, srv.URL)
+	ctx.Noun = "experiment"
+	ctx.ParentId = "exp-1"
+	ctx.Resolver = reg
+	ctx.FormatFlags.Format = "json"
+	ctx.FlagValues = map[string]any{"metric-id": "m1"}
+
+	if err := registry.RunListEndpoint(ctx, cs.Endpoint); err != nil {
+		t.Fatalf("RunListEndpoint: %v", err)
+	}
+
+	if !strings.Contains(*query, "metric_ids=m1") {
+		t.Fatalf("query = %q, want metric_ids=m1", *query)
 	}
 }
