@@ -157,8 +157,9 @@ Available variables: `ctx.id`, `ctx.idParts[N]`, `ctx.parentId`, `auth.account`,
 
 ### id_parts vs requires_parentid
 
-- `id_parts: 2` → user passes `<a>/<b>`; available as `ctx.idParts[0]` and `ctx.idParts[1]`. Works for `get`/`execute`/`delete`.
-- `requires_parentid: true` → user passes the parent as a positional arg; available as `ctx.parentId`. Used for `list`/`create` where the sub-resource doesn't have its own id yet. **`id_parts` is NOT supported by `list`.**
+- `id_parts: 2` → user passes `<a>/<b>`; available as `ctx.idParts[0]` and `ctx.idParts[1]`. Works for `get`/`update`/`execute`/`delete`.
+- `requires_parentid: true` → user passes the parent as a positional arg; available as `ctx.parentId`. Used for `list`/`create` where the sub-resource doesn't have its own id yet.
+- For a `list`/`create` with a composite parent (e.g. `<repo_id>/<pr_number>`), combine them: `requires_parentid: true` + `id_parts: N`; the parent is split into `ctx.parentIdParts[0..N-1]` (see `list pr_reviewer` in `code.spec.yaml`).
 
 ### expr-lang tips
 
@@ -274,7 +275,7 @@ Default to zero comments; most functions need none. If one is warranted, keep it
 ## Common pitfalls
 
 - **Binary not updated**: `task build` alone isn't enough — must `cp` to `~/.local/bin/harness`.
-- **`list` with `id_parts`**: Not supported. Use `requires_parentid: true` instead.
+- **`list` with composite parent ids**: use `requires_parentid: true` with `id_parts: N` and read `ctx.parentIdParts[N]`, not `ctx.idParts`.
 - **Code API paths**: Use bare repo identifier in path (e.g. `/code/api/v1/repos/{{ctx.parentId}}/branches`). org/project go as query params automatically — do NOT prefix paths with `{{auth.account}}/{{auth.org}}/{{auth.project}}`.
 - **`columns` on `get`**: Ignored. Use `fields_subset` on the endpoint to filter `get` output.
 - **gRPC oneof fields**: Include all variants in `??` chain (entity_type, event_type, metric_type, view_type, relationship_type, config_type).
