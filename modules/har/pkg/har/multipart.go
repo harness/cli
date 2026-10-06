@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -52,7 +54,13 @@ const (
 	// Finalization happens server-side after completion is accepted, so the CLI polls for it.
 	pollInitialInterval = 500 * time.Millisecond
 	pollMaxInterval     = 5 * time.Second
-	pollTimeout         = 30 * time.Minute
+
+	// The registry re-reads the whole object to verify its digests, so finalization time grows with
+	// size. The poll deadline scales at finalizeTimeoutPerGiB (several times the observed rate) and
+	// never drops below minFinalizeTimeout, so a slow but healthy finalize is not reported as failed.
+	minFinalizeTimeout    = 30 * time.Minute
+	finalizeTimeoutPerGiB = 60 * time.Second
+	gibibyte              = 1 << 30
 
 	// abortTimeout bounds the best-effort abort issued when an upload fails or is cancelled.
 	abortTimeout = 15 * time.Second
@@ -227,7 +235,7 @@ func (u *multipartUploader) upload(
 	if err := u.completeUpload(localPath, size, session); err != nil {
 		return err
 	}
-	if err := u.pollUntilTerminal(relPath, session.UploadID); err != nil {
+	if err := u.pollUntilTerminal(relPath, session.UploadID, finalizeTimeout(size)); err != nil {
 		return err
 	}
 
@@ -655,35 +663,52 @@ func missingParts(err error) []int {
 // Completion is accepted asynchronously: the registry assembles the object and a background job
 // verifies the digest before the artifact becomes visible, so the upload is only really done once
 // the session reaches a terminal status.
-func (u *multipartUploader) pollUntilTerminal(relPath, uploadID string) error {
-	ctx, cancel := context.WithTimeout(u.ctx.Context, pollTimeout)
+func (u *multipartUploader) pollUntilTerminal(relPath, uploadID string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(u.ctx.Context, timeout)
 	defer cancel()
 
 	fmt.Fprintf(os.Stderr, "Finalizing %s ...\n", relPath)
 
+	timeoutErr := fmt.Errorf("upload did not finish finalizing within %s", timeout)
 	interval := pollInitialInterval
+	failing := false
 	for {
 		status, err := u.getUploadStatus(ctx, uploadID)
-		if err != nil {
+		switch {
+		case err == nil:
+			failing = false
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			return timeoutErr
+		case ctx.Err() == nil && transientStatusError(err):
+			// The server keeps finalizing regardless of whether this client is watching, so a
+			// network or server blip must not fail a push that is about to succeed; only the
+			// deadline ends the wait.
+			if !failing {
+				fmt.Fprintf(os.Stderr, "Warning: %v; still waiting for %s to finalize\n", err, relPath)
+				failing = true
+			}
+		default:
 			return err
 		}
 
-		switch status.Status {
-		case uploadStatusCompleted:
-			return nil
-		case uploadStatusFailed:
-			return fmt.Errorf("registry failed to finalize the upload: %s", derefOr(status.Error, "unknown error"))
-		case uploadStatusAborted:
-			return fmt.Errorf("the upload was aborted before it finished")
-		case uploadStatusOpen, uploadStatusFinalizing:
-			// Still working; fall through to wait.
-		default:
-			return fmt.Errorf("registry reported an unknown upload status %q", status.Status)
+		if err == nil {
+			switch status.Status {
+			case uploadStatusCompleted:
+				return nil
+			case uploadStatusFailed:
+				return fmt.Errorf("registry failed to finalize the upload: %s", derefOr(status.Error, "unknown error"))
+			case uploadStatusAborted:
+				return fmt.Errorf("the upload was aborted before it finished")
+			case uploadStatusOpen, uploadStatusFinalizing:
+				// Still working; fall through to wait.
+			default:
+				return fmt.Errorf("registry reported an unknown upload status %q", status.Status)
+			}
 		}
 
 		if err := sleepCtx(ctx, interval); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("upload did not finish finalizing within %s", pollTimeout)
+				return timeoutErr
 			}
 			return err
 		}
@@ -694,6 +719,38 @@ func (u *multipartUploader) pollUntilTerminal(relPath, uploadID string) error {
 			}
 		}
 	}
+}
+
+// transientStatusError reports whether a failed status check is worth repeating: no response arrived
+// (the retrying client gave up on a transport error or a run of 5xx/429), or the registry answered
+// with a 5xx or 429. Any other answer, such as 401, 403 or 404, is real and ends the wait.
+func transientStatusError(err error) bool {
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		// 501 is excluded: it means the endpoint or feature is unavailable, which waiting will not fix.
+		switch apiErr.StatusCode {
+		case http.StatusTooManyRequests:
+			return true
+		case http.StatusNotImplemented:
+			return false
+		default:
+			return apiErr.StatusCode >= http.StatusInternalServerError
+		}
+	}
+	var urlErr *url.Error
+	return errors.As(err, &urlErr)
+}
+
+// finalizeTimeout is how long to wait for the registry to finalize an object of size bytes.
+func finalizeTimeout(size int64) time.Duration {
+	gib := size / gibibyte
+	if size%gibibyte != 0 {
+		gib++
+	}
+	if gib > int64(math.MaxInt64/finalizeTimeoutPerGiB) {
+		return math.MaxInt64
+	}
+	return max(minFinalizeTimeout, time.Duration(gib)*finalizeTimeoutPerGiB)
 }
 
 func (u *multipartUploader) getUploadStatus(ctx context.Context, uploadID string) (*uploadStatusResponse, error) {

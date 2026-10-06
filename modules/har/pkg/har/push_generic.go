@@ -4,13 +4,16 @@
 package har
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
@@ -65,6 +68,9 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 	fmt.Fprintf(os.Stderr, "Found %d file(s) (%s) to upload to %s/%s in registry %q\n",
 		totalFiles, formatBytes(totalBytes), name, version, registry)
 
+	stopSignalWatch := cancelOnSignal(ctx)
+	defer stopSignalWatch()
+
 	client := newHTTPClient()
 
 	// The part semaphore is created once here, not per file: file-level concurrency multiplied by
@@ -86,6 +92,11 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 			if uploadErr := uploadGenericFile(
 				ctx, uploader, client, registry, name, version, job, noMultipart,
 			); uploadErr != nil {
+				// After a cancellation every in-flight part fails with the same error; report the
+				// reason once instead.
+				if ctx.Context.Err() != nil {
+					uploadErr = context.Cause(ctx.Context)
+				}
 				errs[i] = fmt.Errorf("failed to upload %s: %w", job.relPath, uploadErr)
 			}
 		}(i, job)
@@ -109,6 +120,29 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed %d file(s) to %s/%s in registry %q\n", totalFiles, name, version, registry)
 	return nil
+}
+
+// cancelOnSignal turns the first Ctrl-C or SIGTERM into a cancellation of the command context, so
+// uploads stop through their normal error path and open multipart sessions are aborted. Dying on the
+// signal instead leaves the session holding the path, and a retry fails with a path conflict until
+// the session expires. A second signal gets the default behaviour and exits at once.
+func cancelOnSignal(ctx *cmdctx.Ctx) (stop func()) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case sig := <-sigs:
+			signal.Stop(sigs)
+			fmt.Fprintf(os.Stderr, "\nReceived %s, cancelling uploads ...\n", sig)
+			ctx.CancelFn(fmt.Errorf("push interrupted by %s", sig))
+		case <-done:
+		}
+	}()
+	return func() {
+		signal.Stop(sigs)
+		close(done)
+	}
 }
 
 type genericUploadJob struct {
@@ -238,6 +272,10 @@ func uploadGenericFile(
 	if err != nil {
 		return fmt.Errorf("computing checksums for %q: %w", job.localPath, err)
 	}
+	// Hashing does not watch the context, so a cancel that arrived meanwhile is honoured here.
+	if ctx.Context.Err() != nil {
+		return context.Cause(ctx.Context)
+	}
 
 	if !noMultipart && job.size >= multipartThreshold {
 		mpErr := uploader.upload(name, version, job.relPath, job.localPath, job.size, sums)
@@ -277,7 +315,8 @@ func genericPutFile(
 		return err
 	}
 
-	req, err := http.NewRequest("PUT", uploadURL, f)
+	// The command context lets Ctrl-C or SIGTERM stop an in-flight single upload.
+	req, err := http.NewRequestWithContext(ctx.Context, http.MethodPut, uploadURL, f)
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}

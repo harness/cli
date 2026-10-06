@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -68,6 +70,7 @@ type fakeRegistry struct {
 	missingOnce    []int  // parts the first Complete reports as missing
 	finalStatus    string // status the poll endpoint reports once complete has been accepted
 	finalError     string
+	statusFailures []int // HTTP statuses the poll endpoint returns, in order, before reporting finalStatus
 }
 
 func newFakeRegistry(t *testing.T) *fakeRegistry {
@@ -251,6 +254,16 @@ func (f *fakeRegistry) serveComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeRegistry) serveStatus(w http.ResponseWriter, _ *http.Request) {
+	f.mu.Lock()
+	if len(f.statusFailures) > 0 {
+		status := f.statusFailures[0]
+		f.statusFailures = f.statusFailures[1:]
+		f.mu.Unlock()
+		writeAPIError(w, status, map[string]any{})
+		return
+	}
+	f.mu.Unlock()
+
 	resp := uploadStatusResponse{UploadID: "up-1", Status: f.finalStatus}
 	if f.finalError != "" {
 		resp.Error = &f.finalError
@@ -602,6 +615,93 @@ func TestMultipartUploadSurfacesFinalizeFailure(t *testing.T) {
 	}
 	if !f.aborted {
 		t.Error("expected a best-effort abort after a failed finalize")
+	}
+}
+
+func TestPollUntilTerminalTimesOut(t *testing.T) {
+	f := newFakeRegistry(t)
+	f.finalStatus = uploadStatusFinalizing
+	u := newMultipartUploader(multipartTestCtx(f.srv.URL), newHTTPClient(), "reg", 1)
+
+	err := u.pollUntilTerminal("big.bin", "up-1", 200*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected a timeout error while the session stays finalizing")
+	}
+	if !strings.Contains(err.Error(), "did not finish finalizing within 200ms") {
+		t.Errorf("error = %v, want it to name the deadline", err)
+	}
+}
+
+func TestPollUntilTerminalSurvivesTransientErrors(t *testing.T) {
+	f := newFakeRegistry(t)
+	f.statusFailures = []int{http.StatusServiceUnavailable, http.StatusTooManyRequests}
+	// A plain client so each blip reaches the poll loop instead of being absorbed by HTTP retries.
+	u := newMultipartUploader(multipartTestCtx(f.srv.URL), &http.Client{}, "reg", 1)
+
+	if err := u.pollUntilTerminal("big.bin", "up-1", time.Minute); err != nil {
+		t.Fatalf("pollUntilTerminal: %v, want success after the blips clear", err)
+	}
+}
+
+func TestPollUntilTerminalFailsOnNonTransientError(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusNotImplemented} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			f := newFakeRegistry(t)
+			f.statusFailures = []int{status}
+			u := newMultipartUploader(multipartTestCtx(f.srv.URL), &http.Client{}, "reg", 1)
+
+			err := u.pollUntilTerminal("big.bin", "up-1", time.Minute)
+			if apiErrorStatus(err) != status {
+				t.Errorf("error = %v, want HTTP %d surfaced immediately", err, status)
+			}
+		})
+	}
+}
+
+func TestTransientStatusError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"transport failure", &url.Error{Op: "Get", URL: "http://x", Err: errors.New("connection refused")}, true},
+		{"503", &apiError{StatusCode: http.StatusServiceUnavailable}, true},
+		{"429", &apiError{StatusCode: http.StatusTooManyRequests}, true},
+		{"501", &apiError{StatusCode: http.StatusNotImplemented}, false},
+		{"401", &apiError{StatusCode: http.StatusUnauthorized}, false},
+		{"404", &apiError{StatusCode: http.StatusNotFound}, false},
+		{"malformed body", errors.New("decoding upload status response: bad json"), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := transientStatusError(fmt.Errorf("checking upload status: %w", tc.err)); got != tc.want {
+				t.Errorf("transientStatusError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFinalizeTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		size int64
+		want time.Duration
+	}{
+		{"empty file gets the floor", 0, minFinalizeTimeout},
+		{"small file gets the floor", 64 << 20, minFinalizeTimeout},
+		{"at the floor boundary", 30 * gibibyte, 30 * time.Minute},
+		{"partial GiB rounds up", 30*gibibyte + 1, 31 * time.Minute},
+		{"100 GiB", 100 * gibibyte, 100 * time.Minute},
+		{"1 TiB", 1024 * gibibyte, 1024 * time.Minute},
+		{"5 TiB", 5 * 1024 * gibibyte, 5 * 1024 * time.Minute},
+		{"overflow saturates", math.MaxInt64, time.Duration(math.MaxInt64)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := finalizeTimeout(tc.size); got != tc.want {
+				t.Errorf("finalizeTimeout(%d) = %s, want %s", tc.size, got, tc.want)
+			}
+		})
 	}
 }
 
