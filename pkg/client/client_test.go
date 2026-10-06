@@ -26,6 +26,25 @@ func testClient(apiURL string) *Client {
 	}
 }
 
+func TestBuildRequest_CITokenUsesCIManagerHeader(t *testing.T) {
+	const rawJWT = "eyJhbGciOiJIUzI1NiJ9.payload.sig"
+	c := testClient("https://example.test")
+	c.resolved.AuthType = auth.AuthTypeCI
+	c.resolved.PATToken = ""
+	c.resolved.CIToken = rawJWT
+
+	req, _, err := c.buildRequest(Request{Method: "GET", Path: "/items"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("Authorization"); got != "CIManager "+rawJWT {
+		t.Fatalf("Authorization = %q", got)
+	}
+	if got := req.Header.Get("x-api-key"); got != "" {
+		t.Fatalf("x-api-key = %q, want empty", got)
+	}
+}
+
 func TestBuildRequest_AccountIdentifier(t *testing.T) {
 	tests := []struct {
 		name           string

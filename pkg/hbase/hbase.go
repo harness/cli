@@ -84,8 +84,10 @@ const (
 	EnvEnabledModules = "HARNESS_CLI_ENABLED_MODULES"
 
 	// Env var names for env-var auth mode.
-	EnvAPIKey      = "HARNESS_API_KEY"
-	EnvAPIJWT      = "HARNESS_API_JWT"
+	EnvAPIKey = "HARNESS_API_KEY"
+	EnvAPIJWT = "HARNESS_API_JWT"
+	// EnvCIToken carries a raw CI pipeline JWT for env-var auth.
+	EnvCIToken     = "HARNESS_CI_TOKEN"
 	EnvAccount     = "HARNESS_ACCOUNT"
 	EnvAPIURL      = "HARNESS_API_URL"
 	EnvOrg         = "HARNESS_ORG"

@@ -22,6 +22,7 @@ type AuthType = string
 const (
 	AuthTypePAT = "pat" // default; omitted from YAML for existing profiles
 	AuthTypeSSO = "sso" // OAuth2 JWT obtained via browser login
+	AuthTypeCI  = "ci"  // Harness CI pipeline JWT; env-var mode only, never stored in a profile
 )
 
 // UserType identifies the kind of principal a profile's token belongs to.

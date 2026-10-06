@@ -22,7 +22,12 @@ type AuthType = config.AuthType
 const (
 	AuthTypePAT = config.AuthTypePAT
 	AuthTypeSSO = config.AuthTypeSSO
+	AuthTypeCI  = config.AuthTypeCI
 )
+
+// ciManagerPrefix is the Authorization scheme for a Harness CI pipeline JWT.
+// The header value is this prefix plus the raw token, distinct from Bearer.
+const ciManagerPrefix = "CIManager "
 
 const SourceEnv = "env"
 
@@ -30,7 +35,7 @@ const SourceEnv = "env"
 // Credential fields are never printed; callers that display auth context must omit them.
 type ResolvedAuth struct {
 	Source          string   // "profile:<name>" or SourceEnv
-	AuthType        AuthType // AuthTypePAT or AuthTypeSSO
+	AuthType        AuthType // AuthTypePAT, AuthTypeSSO, or AuthTypeCI
 	ExplicitProfile string   // non-empty only when --profile flag was explicitly passed
 	APIUrl          string
 	UIUrl           string // Harness UI base URL; only set for SSO profiles (from JWT subdomain)
@@ -47,18 +52,34 @@ type ResolvedAuth struct {
 	PATToken     string // set when AuthType == AuthTypePAT
 	SSOToken     string // set when AuthType == AuthTypeSSO
 	RefreshToken string // set when AuthType == AuthTypeSSO
+	CIToken      string // raw CI pipeline JWT; set when AuthType == AuthTypeCI
 }
 
-// SetAuthHeader sets the appropriate Authorization or x-api-key header on req.
+// SetAuthHeader sets exactly one auth header on req.
+// PAT and SAT use x-api-key. SSO uses Authorization: Bearer.
+// A CI pipeline JWT uses Authorization: CIManager <token>.
 func (a *ResolvedAuth) SetAuthHeader(req *http.Request) {
-	if a.AuthType == AuthTypeSSO {
+	switch a.AuthType {
+	case AuthTypeSSO:
 		req.Header.Set("Authorization", "Bearer "+a.SSOToken)
-	} else {
+	case AuthTypeCI:
+		req.Header.Set("Authorization", ciManagerAuthorization(a.CIToken))
+	default:
 		req.Header.Set("x-api-key", a.PATToken)
 	}
 }
 
-// Load populates a ResolvedAuth following the 4-step resolution order from auth.md.
+// ciManagerAuthorization formats a CI pipeline JWT for the Authorization header.
+// A value that already includes the scheme is left unchanged.
+func ciManagerAuthorization(token string) string {
+	token = strings.TrimSpace(token)
+	if strings.HasPrefix(token, ciManagerPrefix) {
+		return token
+	}
+	return ciManagerPrefix + token
+}
+
+// Load populates a ResolvedAuth following the resolution order in docs/auth.md.
 // It never errors on missing optional fields — callers get whatever could be populated.
 // Use Validate to check that the result is complete enough to make API calls.
 func Load(profileFlag string) (*ResolvedAuth, error) {
@@ -71,16 +92,9 @@ func Load(profileFlag string) (*ResolvedAuth, error) {
 		r.ExplicitProfile = profileFlag
 		return r, nil
 	}
-	// 2. HARNESS_API_KEY → env var mode, no config file read
+	// 2. HARNESS_API_KEY → PAT/SAT env var mode. Takes precedence over HARNESS_CI_TOKEN.
 	if key := os.Getenv(hbase.EnvAPIKey); key != "" {
-		apiURL := os.Getenv(hbase.EnvAPIURL)
-		if apiURL == "" {
-			apiURL = hbase.DefaultAPIURL
-		}
-		registryURL := os.Getenv(hbase.EnvRegistryURL)
-		if registryURL == "" {
-			registryURL = hbase.DefaultRegistryURL
-		}
+		apiURL, registryURL := envURLs()
 		acct := os.Getenv(hbase.EnvAccount)
 		if acct == "" {
 			acct = AccountIDFromToken(key)
@@ -97,11 +111,26 @@ func Load(profileFlag string) (*ResolvedAuth, error) {
 			TokenKind:   TokenType(key),
 		}, nil
 	}
-	// 3. HARNESS_PROFILE env var → named profile from config
+	// 3. HARNESS_CI_TOKEN → CI pipeline JWT env var mode, no config file read.
+	if token := strings.TrimSpace(os.Getenv(hbase.EnvCIToken)); token != "" {
+		apiURL, registryURL := envURLs()
+		return &ResolvedAuth{
+			Source:      SourceEnv,
+			AuthType:    AuthTypeCI,
+			CIToken:     token,
+			AccountID:   os.Getenv(hbase.EnvAccount),
+			OrgID:       os.Getenv(hbase.EnvOrg),
+			ProjectID:   os.Getenv(hbase.EnvProject),
+			APIUrl:      apiURL,
+			RegistryURL: registryURL,
+			TokenKind:   TokenKindJWT,
+		}, nil
+	}
+	// 4. HARNESS_PROFILE env var → named profile from config
 	if name := os.Getenv(hbase.EnvProfile); name != "" {
 		return resolveProfile(name)
 	}
-	// 4. default profile
+	// 5. default profile
 	return resolveProfile("default")
 }
 
@@ -114,13 +143,33 @@ func (r *ResolvedAuth) LoginHint(cmd string) string {
 	return "harness auth " + cmd
 }
 
+func envURLs() (apiURL, registryURL string) {
+	apiURL = os.Getenv(hbase.EnvAPIURL)
+	if apiURL == "" {
+		apiURL = hbase.DefaultAPIURL
+	}
+	registryURL = os.Getenv(hbase.EnvRegistryURL)
+	if registryURL == "" {
+		registryURL = hbase.DefaultRegistryURL
+	}
+	return apiURL, registryURL
+}
+
 // Validate checks that a ResolvedAuth is complete enough to make API calls.
 func Validate(r *ResolvedAuth) error {
-	if r.AuthType == AuthTypeSSO {
+	switch r.AuthType {
+	case AuthTypeSSO:
 		if r.SSOToken == "" {
 			return fmt.Errorf("no token found for profile — run '%s' to re-authenticate", r.LoginHint("login --sso"))
 		}
-	} else {
+	case AuthTypeCI:
+		if strings.TrimSpace(r.CIToken) == "" {
+			return fmt.Errorf("no CI token — set %s", hbase.EnvCIToken)
+		}
+		if r.AccountID == "" {
+			return fmt.Errorf("account is required for a CI token — set %s", hbase.EnvAccount)
+		}
+	default:
 		if r.PATToken == "" {
 			return fmt.Errorf("no token found for profile — run '%s' to re-authenticate", r.LoginHint("login"))
 		}

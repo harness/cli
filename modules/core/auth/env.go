@@ -27,9 +27,12 @@ func EnvHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	var vars []struct{ k, v string }
-	if resolved.AuthType == auth.AuthTypeSSO {
+	switch resolved.AuthType {
+	case auth.AuthTypeSSO:
 		vars = append(vars, struct{ k, v string }{hbase.EnvAPIJWT, resolved.SSOToken})
-	} else {
+	case auth.AuthTypeCI:
+		vars = append(vars, struct{ k, v string }{hbase.EnvCIToken, resolved.CIToken})
+	default:
 		vars = append(vars, struct{ k, v string }{hbase.EnvAPIKey, resolved.PATToken})
 	}
 	vars = append(vars,

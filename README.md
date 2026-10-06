@@ -816,7 +816,8 @@ harness list pipeline --count       # just the total count
 
 | Variable                  | Description                                                                     |
 | ------------------------- | ------------------------------------------------------------------------------- |
-| `HARNESS_API_KEY`         | API token. Takes precedence over saved profile credentials.                     |
+| `HARNESS_API_KEY`         | PAT or SAT. Takes precedence over a CI token and saved profile credentials.     |
+| `HARNESS_CI_TOKEN`        | Raw Harness CI pipeline JWT. Sent as `Authorization: CIManager <token>`.        |
 | `HARNESS_ACCOUNT_ID`      | Account ID. Used together with `HARNESS_API_KEY` for env-var auth.              |
 | `HARNESS_PROFILE`         | Name of the saved profile to use. Same effect as `--profile <name>`.            |
 | `HARNESS_DEFAULT_ORG`     | Default org for commands that need one. Overridden by `--org`.                  |

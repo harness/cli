@@ -13,12 +13,14 @@ The modes target different primary use cases:
 Auth is resolved in this order (first match wins):
 
 1. `--profile <name>` flag — explicit profile, env vars ignored entirely
-2. `HARNESS_API_KEY` set — env var mode, no config file read
-3. `HARNESS_PROFILE` env var — use named profile from config file
-4. `default` profile in config file
+2. `HARNESS_API_KEY` set — PAT/SAT env var mode, no config file read
+3. `HARNESS_CI_TOKEN` set — Harness CI pipeline JWT env var mode, no config file read
+4. `HARNESS_PROFILE` env var — use named profile from config file
+5. `default` profile in config file
 
 If `--profile` is given and the named profile does not exist, it is an error.  
-If `--profile` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes.  
+If `--profile` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_CI_TOKEN`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes.  
+If both `HARNESS_API_KEY` and `HARNESS_CI_TOKEN` are set, `HARNESS_API_KEY` wins.  
 If no auth is resolved by any method, error with: `"not logged in — run 'harness auth login' to get started"`.
 
 ### Scope Overrides
@@ -36,12 +38,14 @@ Credentials are stored across two files in `~/.harness/`. Primary use case is in
 
 ### Env Var Mode
 
-When `HARNESS_API_KEY` is set (and `--profile` is not), env var mode is active. No config file is read.
+When `HARNESS_API_KEY` or `HARNESS_CI_TOKEN` is set (and `--profile` is not), env var mode is active. No config file is read.
+
+PAT/SAT (`HARNESS_API_KEY`) is sent as `x-api-key`. A CI pipeline JWT (`HARNESS_CI_TOKEN`) is the raw token, with no `CIManager ` prefix; requests send `Authorization: CIManager <token>` and do not send `x-api-key`. This is separate from an SSO JWT, which uses `Authorization: Bearer`.
 
 Required:
 
-- `HARNESS_API_KEY` — PAT token
-- `HARNESS_ACCOUNT` — Harness account identifier (inferred from token if not set)
+- `HARNESS_API_KEY` — PAT or SAT, or `HARNESS_CI_TOKEN` — raw CI pipeline JWT
+- `HARNESS_ACCOUNT` — Harness account identifier (inferred from a PAT/SAT if not set; required with `HARNESS_CI_TOKEN`)
 
 Optional:
 
@@ -254,7 +258,7 @@ harness auth env --profile staging
 harness auth env --export   # prefix each line with "export "
 ```
 
-Always outputs `HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`. For SSO profiles, `HARNESS_API_JWT` is printed instead of `HARNESS_API_KEY`. Outputs `HARNESS_ORG`, `HARNESS_PROJECT`, and `HARNESS_REGISTRY_URL` only when they are set in the resolved profile.
+Always outputs the active token var (`HARNESS_API_KEY`, `HARNESS_API_JWT`, or `HARNESS_CI_TOKEN`), plus `HARNESS_ACCOUNT` and `HARNESS_API_URL`. For SSO profiles, `HARNESS_API_JWT` is printed instead of `HARNESS_API_KEY`. Outputs `HARNESS_ORG`, `HARNESS_PROJECT`, and `HARNESS_REGISTRY_URL` only when they are set in the resolved profile.
 
 ### `harness auth token`
 
