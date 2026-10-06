@@ -326,30 +326,12 @@ func (r *Package) Migrate(ctx context.Context) error {
 	return nil
 }
 
-// migrateOCI copies a Docker/Helm-OCI image repository from source to
-// destination.
-//
-// When Overwrite is true, every tag is pushed unconditionally, so the fast
-// path is crane.CopyRepository, which copies every tag in parallel and is the
-// well-tested common case. Its weakness is all-or-nothing: it runs every tag
-// inside a single errgroup, so the first tag whose manifest cannot be fetched
-// (e.g. an orphaned tag whose manifest was garbage-collected at the source —
-// the registry answers MANIFEST_UNKNOWN) cancels the shared context and
-// aborts every remaining tag, marking the whole image as failed. If the bulk
-// copy fails, we fall back to copyTagsIndividually.
-//
-// When Overwrite is false, we skip the bulk fast path entirely: its no-clobber
-// check only tests whether a destination tag NAME exists, so it can never
-// detect a tag that was re-pointed to a different digest at the source (e.g.
-// a "latest" tag moved to a new image) — that tag would be skipped and go
-// stale at the destination forever. Instead we go straight to
-// copyTagsIndividually, which compares source/destination digests per tag and
-// pushes only when the tag is missing or its digest differs, so a moved tag
-// is corrected without needing Overwrite to be true.
-//
-// Either way, the image contributes exactly ONE stat: Success when at least
-// one tag migrated or every tag was already in sync/present, Fail on a
-// genuine per-tag failure, and Skip when there was nothing to do.
+// migrateOCI copies a Docker/Helm-OCI repository from source to destination.
+// Overwrite=true uses crane.CopyRepository (fast, parallel) with per-tag
+// fallback on failure. Overwrite=false skips the bulk path and goes straight
+// to per-tag digest comparison — crane's name-based no-clobber cannot detect
+// a tag re-pointed to a different digest, so digest comparison is required.
+// Either path records exactly one stat for the whole image.
 func (r *Package) migrateOCI(ctx context.Context, logger zerolog.Logger) {
 	srcImage, _ := r.srcAdapter.GetOCIImagePath(r.srcRegistry, r.sourcePackageHostname, r.pkg.Name)
 	dstImage, _ := r.destAdapter.GetOCIImagePath(r.destRegistry, "", r.pkg.Name)
@@ -453,23 +435,10 @@ type copyResult struct {
 	total    int
 }
 
-// copyTagsIndividually copies each tag of an image independently so one bad tag
-// cannot abort the rest, and so a tag whose source digest has changed (e.g. a
-// tag re-pointed to a different image) is still corrected at the destination.
-//
-// The tags are copied in parallel (bounded by the configured concurrency), but
-// — unlike the bulk path — a single tag's failure never cancels its siblings.
-// For each tag, the source and destination digests are compared (via a cheap
-// HEAD, crane.Digest) rather than relying on crane's name-based no-clobber:
-//   - destination tag missing, or its digest differs from the source → push
-//     (this is what corrects a moved tag without needing Overwrite).
-//   - destination digest already matches the source → skip, no push needed.
-//   - a tag whose SOURCE manifest is missing/orphaned is skipped.
-//   - any other error is a genuine failure.
-//
-// It returns a summary plus a non-nil error iff at least one tag genuinely
-// failed, so the caller can set a single image-level stat — this function does
-// NOT touch r.stats itself.
+// copyTagsIndividually copies tags in parallel with per-tag isolation: one
+// failed tag never cancels siblings. Skips by digest comparison rather than
+// name, so moved tags are corrected. Does not touch r.stats — returns a
+// summary and a non-nil error when at least one tag genuinely failed.
 func (r *Package) copyTagsIndividually(
 	ctx context.Context, logger zerolog.Logger, srcImage, dstImage string, craneOpts []crane.Option,
 ) (copyResult, error) {
@@ -597,19 +566,11 @@ func withoutNoClobber(craneOpts []crane.Option) []crane.Option {
 	return append(out, crane.WithNoClobber(false))
 }
 
-// isStaleSourceManifestErr reports whether err indicates that the SOURCE
-// manifest/blob a tag points at does not exist. These are the Docker registry
-// v2 error codes returned when a referenced manifest/blob is gone, plus a bare
-// 404 with no structured body. Such tags are safe to skip so the rest of the
-// image can migrate.
-//
-// crane.Copy pulls from the source (including lazy child-manifest fetches while
-// pushing a manifest list) and pushes to the destination, surfacing both as one
-// *transport.Error. So a not-found-class error is only treated as a stale SOURCE
-// manifest when the failing request targeted the source registry (srcHost); the
-// same code from the DESTINATION push is a genuine failure and must NOT be
-// swallowed. When the request host cannot be determined we fall back to the
-// error code/status alone.
+// isStaleSourceManifestErr reports whether err is a missing/orphaned SOURCE
+// manifest that is safe to skip. crane.Copy surfaces source-fetch and
+// destination-push errors as the same *transport.Error type, so we require
+// the failing request to target srcHost before treating it as a skippable
+// stale source — the same codes from a destination push must not be swallowed.
 func isStaleSourceManifestErr(err error, srcHost string) bool {
 	if err == nil {
 		return false
