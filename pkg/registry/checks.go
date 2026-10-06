@@ -417,36 +417,6 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 	if ep.FileBodyWrapAsString != "" && ep.FileBody == spec.FileBodyNone {
 		return fmt.Errorf("command %q: file_body_wrap_as_string requires file_body to be set", cs.Command)
 	}
-	if len(ep.RequiredBodyFields) > 0 || len(ep.NonEmptyBodyFields) > 0 || len(ep.RequiredBodyWhen) > 0 || ep.MinBodyFields != 0 {
-		method := ep.Method
-		if method == "" {
-			method = "GET"
-		}
-		switch method {
-		case "POST", "PUT", "PATCH":
-			// Request body validation is supported.
-		default:
-			return fmt.Errorf("command %q: body requirements are not allowed on %s requests", cs.Command, method)
-		}
-		if ep.MinBodyFields < 0 {
-			return fmt.Errorf("command %q: min_body_fields must not be negative", cs.Command)
-		}
-		for _, field := range append(append([]string{}, ep.RequiredBodyFields...), ep.NonEmptyBodyFields...) {
-			if strings.TrimSpace(field) == "" {
-				return fmt.Errorf("command %q: body requirement field must not be empty", cs.Command)
-			}
-		}
-		for _, condition := range ep.RequiredBodyWhen {
-			if strings.TrimSpace(condition.Field) == "" || strings.TrimSpace(condition.Equals) == "" || len(condition.RequiredFields) == 0 {
-				return fmt.Errorf("command %q: required_body_when requires field, equals, and required_fields", cs.Command)
-			}
-			for _, field := range condition.RequiredFields {
-				if strings.TrimSpace(field) == "" {
-					return fmt.Errorf("command %q: required_body_when required_fields must not contain an empty field", cs.Command)
-				}
-			}
-		}
-	}
 	return nil
 }
 

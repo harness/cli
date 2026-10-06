@@ -397,15 +397,6 @@ func (p *PagingSpec) IsCountable() bool {
 	return p.Countable || p.PagingStrategy == PagingStrategyFlatList
 }
 
-// RequiredBodyCondition applies additional required fields when Field equals Equals.
-// If Field is absent, Default is used when it is non-empty.
-type RequiredBodyCondition struct {
-	Field          string   `yaml:"field"`
-	Equals         string   `yaml:"equals"`
-	Default        string   `yaml:"default,omitempty"`
-	RequiredFields []string `yaml:"required_fields"`
-}
-
 // EndpointSpec describes a single Harness API call.
 //
 // Path is a template with {placeholders}. PathParams maps flag names to placeholder
@@ -528,16 +519,6 @@ type EndpointSpec struct {
 	// request is built but before it is sent. Each fn receives ctx and the materialized
 	// request; return a non-nil error to abort. Qualified by module at registration time.
 	ValidatorsEndpoint []string `yaml:"validators_endpoint,omitempty"`
-	// RequiredBodyFields must be present with non-null, non-empty values in write bodies.
-	// They are checked after --set or -f has materialized the request, before sending it.
-	RequiredBodyFields []string `yaml:"required_body_fields,omitempty"`
-	// NonEmptyBodyFields must contain a non-empty string, array, or object.
-	NonEmptyBodyFields []string `yaml:"non_empty_body_fields,omitempty"`
-	// RequiredBodyWhen adds fields that are required only for a matching body discriminator.
-	RequiredBodyWhen []RequiredBodyCondition `yaml:"required_body_when,omitempty"`
-	// MinBodyFields rejects write bodies with too few top-level fields. Explicit null values
-	// count as present so PATCH operations can intentionally clear nullable fields.
-	MinBodyFields int `yaml:"min_body_fields,omitempty"`
 	// Paging, when non-nil, enables framework-managed paging for list commands.
 	// Not allowed on any other verb. Exposes --offset, --limit, --all, and (when countable) --count.
 	Paging *PagingSpec `yaml:"paging,omitempty"`
