@@ -469,6 +469,46 @@ func TestValidateEndpointConstraints_FileBodyWrapRequiresFileBody(t *testing.T) 
 	}
 }
 
+func TestValidateEndpointConstraints_BodyRequirements(t *testing.T) {
+	tests := []struct {
+		name       string
+		endpoint   *spec.EndpointSpec
+		wantErrSub string
+	}{
+		{
+			name:       "requirements on GET",
+			endpoint:   &spec.EndpointSpec{Method: "GET", ItemExpr: "it", RequiredBodyFields: []string{"name"}},
+			wantErrSub: "not allowed on GET",
+		},
+		{
+			name:       "empty required field",
+			endpoint:   &spec.EndpointSpec{Method: "POST", RequiredBodyFields: []string{""}},
+			wantErrSub: "must not be empty",
+		},
+		{
+			name:       "incomplete conditional requirement",
+			endpoint:   &spec.EndpointSpec{Method: "POST", RequiredBodyWhen: []spec.RequiredBodyCondition{{Field: "storage_type", Equals: "managed"}}},
+			wantErrSub: "requires field, equals, and required_fields",
+		},
+		{
+			name:       "negative minimum body fields",
+			endpoint:   &spec.EndpointSpec{Method: "POST", MinBodyFields: -1},
+			wantErrSub: "min_body_fields must not be negative",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cs := &spec.CommandSpec{
+				Command: "create pipeline", Verb: VerbCreate, VerbHandler: VerbCreate, Noun: "pipeline", Module: "test",
+				HandlerType: spec.HandlerEndpoint, Endpoint: test.endpoint,
+			}
+			if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), test.wantErrSub) {
+				t.Fatalf("validateEndpointConstraints() error = %v, want %q", err, test.wantErrSub)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // validatePaging
 // ---------------------------------------------------------------------------
