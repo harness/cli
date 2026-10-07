@@ -293,6 +293,88 @@ nouns:
 	})
 }
 
+// TestMergeAuthOverride covers the module-default/command-level auth_override
+// precedence rule applied in loadSpecData: a command's own fields always win,
+// an unset field falls through to the module default, and auth_override_disabled
+// is an explicit opt-out that suppresses inheritance entirely.
+func TestMergeAuthOverride(t *testing.T) {
+	const nounYAML = `
+nouns:
+  - noun: thing
+    fields:
+      - id: identifier
+        expr: it.id
+`
+	endpointYAML := func(authOverrideBlock string) string {
+		return `
+spec_version: 1
+` + nounYAML + `
+auth_override:
+  token_env_var: MODULE_TOKEN
+  header: Authorization
+  prefix: "Bearer "
+commands:
+  - command: list thing
+    verb: list
+    noun: thing
+    short: List things
+    handler_type: endpoint
+    endpoint:
+      path: /api/things
+      items_expr: it
+      paging:
+        paging_strategy: flat_list
+` + authOverrideBlock
+	}
+
+	t.Run("no command block inherits module default wholesale", func(t *testing.T) {
+		reg := registry.New()
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML("")), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		if cs == nil || cs.Endpoint.AuthOverride == nil {
+			t.Fatal("expected inherited auth_override, got nil")
+		}
+		got := *cs.Endpoint.AuthOverride
+		want := spec.AuthOverrideSpec{TokenEnvVar: "MODULE_TOKEN", Header: "Authorization", Prefix: "Bearer "}
+		if got != want {
+			t.Errorf("AuthOverride = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("partial command block merges field-by-field, command wins", func(t *testing.T) {
+		reg := registry.New()
+		block := `
+      auth_override:
+        header: x-api-key
+`
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		got := *cs.Endpoint.AuthOverride
+		want := spec.AuthOverrideSpec{TokenEnvVar: "MODULE_TOKEN", Header: "x-api-key", Prefix: "Bearer "}
+		if got != want {
+			t.Errorf("AuthOverride = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("auth_override_disabled suppresses inheritance", func(t *testing.T) {
+		reg := registry.New()
+		block := `
+      auth_override_disabled: true
+`
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		if cs.Endpoint.AuthOverride != nil {
+			t.Errorf("AuthOverride = %+v, want nil (disabled)", cs.Endpoint.AuthOverride)
+		}
+	})
+}
+
 // parseAndLoad mirrors LoadSpec but accepts raw bytes instead of reading from
 // embed.FS, allowing unit tests to exercise the parse-and-register path.
 func parseAndLoad(reg *registry.Registry, name string, data []byte) error {
