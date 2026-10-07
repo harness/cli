@@ -3,7 +3,12 @@
 
 package auth
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+
+	"github.com/harness/cli/v3/pkg/hbase"
+)
 
 func TestNormalizeAPIURL(t *testing.T) {
 	cases := []struct {
@@ -76,5 +81,123 @@ func TestNormalizeThenValidateAPIURL(t *testing.T) {
 		if err := ValidateAPIURL(normalized); err != nil {
 			t.Errorf("NormalizeAPIURL(%q) = %q, which ValidateAPIURL rejected: %v", in, normalized, err)
 		}
+	}
+}
+
+// clearAuthEnv wipes every env var ResolveCommandOverride might read, so each
+// test case starts from a clean slate regardless of what the real environment
+// (or a previous subtest via t.Setenv) has set.
+func clearAuthEnv(t *testing.T) {
+	for _, v := range []string{
+		"PIPELINE_TOKEN", "CUSTOM_ACCOUNT", "CUSTOM_ORG", "CUSTOM_PROJECT", "CUSTOM_API_URL",
+		hbase.EnvAccount, hbase.EnvOrg, hbase.EnvProject, hbase.EnvAPIURL,
+	} {
+		t.Setenv(v, "")
+	}
+}
+
+func TestResolveCommandOverride(t *testing.T) {
+	t.Run("nil config never triggers", func(t *testing.T) {
+		clearAuthEnv(t)
+		r, triggered, err := ResolveCommandOverride(nil)
+		if r != nil || triggered || err != nil {
+			t.Fatalf("ResolveCommandOverride(nil) = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
+		}
+	})
+
+	t.Run("token env var unset does not trigger", func(t *testing.T) {
+		clearAuthEnv(t)
+		cfg := &CommandOverrideConfig{TokenEnvVar: "PIPELINE_TOKEN", Header: "Authorization"}
+		r, triggered, err := ResolveCommandOverride(cfg)
+		if r != nil || triggered || err != nil {
+			t.Fatalf("ResolveCommandOverride = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
+		}
+	})
+
+	t.Run("triggered but no account anywhere errors", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv("PIPELINE_TOKEN", "tok123")
+		cfg := &CommandOverrideConfig{TokenEnvVar: "PIPELINE_TOKEN", Header: "Authorization"}
+		r, triggered, err := ResolveCommandOverride(cfg)
+		if r != nil || !triggered || err == nil {
+			t.Fatalf("ResolveCommandOverride = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
+		}
+	})
+
+	t.Run("full override: custom account/org/project/api_url env vars, prefix applied", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv("PIPELINE_TOKEN", "tok123")
+		t.Setenv("CUSTOM_ACCOUNT", "acct1")
+		t.Setenv("CUSTOM_ORG", "org1")
+		t.Setenv("CUSTOM_PROJECT", "proj1")
+		t.Setenv("CUSTOM_API_URL", "https://ti.example.com")
+		cfg := &CommandOverrideConfig{
+			TokenEnvVar:   "PIPELINE_TOKEN",
+			Header:        "Authorization",
+			Prefix:        "Bearer ",
+			AccountEnvVar: "CUSTOM_ACCOUNT",
+			OrgEnvVar:     "CUSTOM_ORG",
+			ProjectEnvVar: "CUSTOM_PROJECT",
+			APIURLEnvVar:  "CUSTOM_API_URL",
+		}
+		r, triggered, err := ResolveCommandOverride(cfg)
+		if err != nil || !triggered || r == nil {
+			t.Fatalf("ResolveCommandOverride = (%v, %v, %v), want a resolved override", r, triggered, err)
+		}
+		want := &ResolvedAuth{
+			Source:         SourceEnv,
+			AccountID:      "acct1",
+			OrgID:          "org1",
+			ProjectID:      "proj1",
+			APIUrl:         "https://ti.example.com",
+			OverrideHeader: "Authorization",
+			OverrideValue:  "Bearer tok123",
+		}
+		if *r != *want {
+			t.Errorf("ResolvedAuth = %+v, want %+v", *r, *want)
+		}
+	})
+
+	t.Run("unset optional env vars fall back to standard HARNESS_* then built-in default URL", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv("PIPELINE_TOKEN", "tok123")
+		t.Setenv(hbase.EnvAccount, "standard-acct")
+		cfg := &CommandOverrideConfig{TokenEnvVar: "PIPELINE_TOKEN", Header: "x-api-key"}
+		r, triggered, err := ResolveCommandOverride(cfg)
+		if err != nil || !triggered || r == nil {
+			t.Fatalf("ResolveCommandOverride = (%v, %v, %v), want a resolved override", r, triggered, err)
+		}
+		if r.AccountID != "standard-acct" {
+			t.Errorf("AccountID = %q, want fallback to %s", r.AccountID, hbase.EnvAccount)
+		}
+		if r.OrgID != "" || r.ProjectID != "" {
+			t.Errorf("OrgID/ProjectID = %q/%q, want empty (optional, unset)", r.OrgID, r.ProjectID)
+		}
+		if r.APIUrl != hbase.DefaultAPIURL {
+			t.Errorf("APIUrl = %q, want built-in default %q", r.APIUrl, hbase.DefaultAPIURL)
+		}
+		if r.OverrideValue != "tok123" {
+			t.Errorf("OverrideValue = %q, want raw token (no prefix configured)", r.OverrideValue)
+		}
+	})
+}
+
+func TestSetAuthHeader_OverrideTakesPriority(t *testing.T) {
+	r := &ResolvedAuth{
+		AuthType:       AuthTypePAT,
+		PATToken:       "pat.acct.id.secret",
+		OverrideHeader: "x-api-key",
+		OverrideValue:  "CIManager tok123",
+	}
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	r.SetAuthHeader(req)
+	if got := req.Header.Get("x-api-key"); got != "CIManager tok123" {
+		t.Errorf("x-api-key header = %q, want %q", got, "CIManager tok123")
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization header = %q, want empty — override must fully replace, not stack", got)
 	}
 }
