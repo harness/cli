@@ -469,6 +469,28 @@ func TestValidateEndpointConstraints_FileBodyWrapRequiresFileBody(t *testing.T) 
 	}
 }
 
+func TestValidateEndpointConstraints_AuthOverrideMissingTokenEnvVar(t *testing.T) {
+	cs := &spec.CommandSpec{
+		Command: "get pipeline", Verb: VerbGet, VerbHandler: VerbGet, Noun: "pipeline", Module: "test",
+		HandlerType: spec.HandlerEndpoint,
+		Endpoint:    &spec.EndpointSpec{Method: "GET", ItemExpr: "it", AuthOverride: &spec.AuthOverrideSpec{Header: "Authorization"}},
+	}
+	if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "requires token_env_var") {
+		t.Fatalf("expected missing token_env_var error, got: %v", err)
+	}
+}
+
+func TestValidateEndpointConstraints_AuthOverrideMissingHeader(t *testing.T) {
+	cs := &spec.CommandSpec{
+		Command: "get pipeline", Verb: VerbGet, VerbHandler: VerbGet, Noun: "pipeline", Module: "test",
+		HandlerType: spec.HandlerEndpoint,
+		Endpoint:    &spec.EndpointSpec{Method: "GET", ItemExpr: "it", AuthOverride: &spec.AuthOverrideSpec{TokenEnvVar: "CI_TOKEN"}},
+	}
+	if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "requires header") {
+		t.Fatalf("expected missing header error, got: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // validatePaging
 // ---------------------------------------------------------------------------
