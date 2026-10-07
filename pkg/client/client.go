@@ -345,11 +345,7 @@ func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 	if c.cliCommand != "" {
 		req.Header.Set("X-CLI-Command", c.cliCommand)
 	}
-	if c.resolved.AuthType == auth.AuthTypeSSO {
-		req.Header.Set("Authorization", "Bearer "+c.resolved.SSOToken)
-	} else {
-		req.Header.Set("x-api-key", c.resolved.PATToken)
-	}
+	c.resolved.SetAuthHeader(req)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}

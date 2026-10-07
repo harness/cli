@@ -55,6 +55,23 @@ func TestBuildRequest_AccountIdentifier(t *testing.T) {
 	}
 }
 
+func TestBuildRequest_AuthOverrideReplacesNormalAuthHeader(t *testing.T) {
+	c := testClient("https://example.test")
+	c.resolved.OverrideHeader = "x-api-key"
+	c.resolved.OverrideValue = "CIManager tok123"
+
+	req, _, err := c.buildRequest(Request{Method: "GET", Path: "/items"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := req.Header.Get("x-api-key"); got != "CIManager tok123" {
+		t.Errorf("x-api-key = %q, want %q", got, "CIManager tok123")
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want empty — override must fully replace, not stack", got)
+	}
+}
+
 func TestDoRequest_AccountIdentifierOmittedOnWire(t *testing.T) {
 	var gotQuery url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
