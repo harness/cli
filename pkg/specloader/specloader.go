@@ -37,13 +37,14 @@ type specVersionOnly struct {
 }
 
 type specFile struct {
-	SpecVersion int                 `yaml:"spec_version"`
-	ModuleType  string              `yaml:"module_type"`
-	ModuleDesc  string              `yaml:"module_desc"`
-	ModuleCore  bool                `yaml:"module_core"`
-	HelpText    string              `yaml:"help_text"`
-	Nouns       []spec.NounDef      `yaml:"nouns"`
-	Commands    []*spec.CommandSpec `yaml:"commands"`
+	SpecVersion  int                    `yaml:"spec_version"`
+	ModuleType   string                 `yaml:"module_type"`
+	ModuleDesc   string                 `yaml:"module_desc"`
+	ModuleCore   bool                   `yaml:"module_core"`
+	HelpText     string                 `yaml:"help_text"`
+	AuthOverride *spec.AuthOverrideSpec `yaml:"auth_override,omitempty"`
+	Nouns        []spec.NounDef         `yaml:"nouns"`
+	Commands     []*spec.CommandSpec    `yaml:"commands"`
 	// Host-owned provenance, present only in ~/.harness/spec plugin specs.
 	Version     string `yaml:"version,omitempty"`
 	BinaryPath  string `yaml:"binary_path,omitempty"`
@@ -332,9 +333,53 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, enabled, fro
 			return fmt.Errorf("spec: %s command[%d] is nil", name, i)
 		}
 		cmd.SpecFile = name
+		if cmd.Endpoint != nil {
+			mergeAuthOverride(cmd.Endpoint, f.AuthOverride)
+		}
 		if err := mod.Register(cmd); err != nil {
 			return fmt.Errorf("spec: %s command[%d]: %w", name, i, err)
 		}
 	}
 	return nil
+}
+
+// mergeAuthOverride resolves ep.AuthOverride against the owning spec file's
+// module-level default. The command's own non-empty fields always win; any
+// field it leaves empty falls through to moduleDefault's. auth_override_disabled
+// is an explicit opt-out and takes priority over inheriting anything.
+func mergeAuthOverride(ep *spec.EndpointSpec, moduleDefault *spec.AuthOverrideSpec) {
+	if ep.AuthOverrideDisabled {
+		ep.AuthOverride = nil
+		return
+	}
+	if moduleDefault == nil {
+		return
+	}
+	if ep.AuthOverride == nil {
+		merged := *moduleDefault
+		ep.AuthOverride = &merged
+		return
+	}
+	authOverride := ep.AuthOverride
+	if authOverride.TokenEnvVar == "" {
+		authOverride.TokenEnvVar = moduleDefault.TokenEnvVar
+	}
+	if authOverride.Header == "" {
+		authOverride.Header = moduleDefault.Header
+	}
+	if authOverride.Prefix == "" {
+		authOverride.Prefix = moduleDefault.Prefix
+	}
+	if authOverride.AccountEnvVar == "" {
+		authOverride.AccountEnvVar = moduleDefault.AccountEnvVar
+	}
+	if authOverride.OrgEnvVar == "" {
+		authOverride.OrgEnvVar = moduleDefault.OrgEnvVar
+	}
+	if authOverride.ProjectEnvVar == "" {
+		authOverride.ProjectEnvVar = moduleDefault.ProjectEnvVar
+	}
+	if authOverride.APIURLEnvVar == "" {
+		authOverride.APIURLEnvVar = moduleDefault.APIURLEnvVar
+	}
 }

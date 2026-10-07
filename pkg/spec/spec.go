@@ -397,6 +397,30 @@ func (p *PagingSpec) IsCountable() bool {
 	return p.Countable || p.PagingStrategy == PagingStrategyFlatList
 }
 
+// AuthOverrideSpec declares a pipeline-injected credential override for a command
+// or, as a module-level default, for every command in a spec file. Presence of
+// TokenEnvVar in the process environment is the sole trigger: it supersedes normal
+// profile/env-var auth resolution for that one command, supplying the token (sent
+// on Header, optionally prefixed) and optionally its own account/org/project/API URL.
+// A command-level block merges field-by-field over a module-level default — see
+// EndpointSpec.AuthOverrideDisabled for opting a command out of an inherited default.
+type AuthOverrideSpec struct {
+	// TokenEnvVar names the env var whose presence triggers the override.
+	TokenEnvVar string `yaml:"token_env_var"`
+	// Header is the HTTP header the token is sent on, e.g. "Authorization" or "x-api-key".
+	Header string `yaml:"header"`
+	// Prefix is prepended to the token value, e.g. "Bearer " or "CIManager ".
+	Prefix string `yaml:"prefix,omitempty"`
+	// AccountEnvVar overrides which env var supplies the account ID; falls back to HARNESS_ACCOUNT.
+	AccountEnvVar string `yaml:"account_env_var,omitempty"`
+	// OrgEnvVar overrides which env var supplies the org ID; falls back to HARNESS_ORG.
+	OrgEnvVar string `yaml:"org_env_var,omitempty"`
+	// ProjectEnvVar overrides which env var supplies the project ID; falls back to HARNESS_PROJECT.
+	ProjectEnvVar string `yaml:"project_env_var,omitempty"`
+	// APIURLEnvVar overrides which env var supplies the API base URL; falls back to HARNESS_API_URL.
+	APIURLEnvVar string `yaml:"api_url_env_var,omitempty"`
+}
+
 // EndpointSpec describes a single Harness API call.
 //
 // Path is a template with {placeholders}. PathParams maps flag names to placeholder
@@ -562,6 +586,13 @@ type EndpointSpec struct {
 	// Qualified by module at registration time. Not allowed on VerbList commands
 	// (they already have items_expr for this).
 	ListTransformFn string `yaml:"list_transform_fn,omitempty"`
+	// AuthOverride declares a pipeline-injected credential override for this command.
+	// Merged at load time with the owning spec file's module-level default (see
+	// specloader), so by registration this already reflects the final, resolved config.
+	AuthOverride *AuthOverrideSpec `yaml:"auth_override,omitempty"`
+	// AuthOverrideDisabled opts this command out of an inherited module-level
+	// auth_override default. Has no effect if the command declares its own auth_override.
+	AuthOverrideDisabled bool `yaml:"auth_override_disabled,omitempty"`
 }
 
 // CommandSpec fully describes one CLI command.
