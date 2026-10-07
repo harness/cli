@@ -348,16 +348,15 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, enabled, fro
 // field it leaves empty falls through to moduleDefault's. auth_override_disabled
 // is an explicit opt-out and takes priority over inheriting anything.
 func mergeAuthOverride(ep *spec.EndpointSpec, moduleDefault *spec.AuthOverrideSpec) {
-	if ep.AuthOverrideDisabled {
-		ep.AuthOverride = nil
+	if ep.AuthOverride == nil {
+		if ep.AuthOverrideDisabled || moduleDefault == nil {
+			return
+		}
+		merged := *moduleDefault
+		ep.AuthOverride = &merged
 		return
 	}
 	if moduleDefault == nil {
-		return
-	}
-	if ep.AuthOverride == nil {
-		merged := *moduleDefault
-		ep.AuthOverride = &merged
 		return
 	}
 	authOverride := ep.AuthOverride

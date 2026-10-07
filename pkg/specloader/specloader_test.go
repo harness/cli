@@ -373,6 +373,27 @@ commands:
 			t.Errorf("AuthOverride = %+v, want nil (disabled)", cs.Endpoint.AuthOverride)
 		}
 	})
+
+	t.Run("disabled is ignored when command declares its own auth_override", func(t *testing.T) {
+		reg := registry.New()
+		block := `
+      auth_override_disabled: true
+      auth_override:
+        header: x-api-key
+`
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		if cs.Endpoint.AuthOverride == nil {
+			t.Fatal("expected the command's own auth_override to survive, got nil")
+		}
+		got := *cs.Endpoint.AuthOverride
+		want := spec.AuthOverrideSpec{TokenEnvVar: "MODULE_TOKEN", Header: "x-api-key", Prefix: "Bearer "}
+		if got != want {
+			t.Errorf("AuthOverride = %+v, want %+v", got, want)
+		}
+	})
 }
 
 // parseAndLoad mirrors LoadSpec but accepts raw bytes instead of reading from
