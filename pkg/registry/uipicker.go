@@ -142,25 +142,27 @@ func parseProvidedId(id string, totalSteps int) (doneParts []string, allDone boo
 func buildPickerCtx(getCtx *cmdctx.Ctx, listCs *spec.CommandSpec) *cmdctx.Ctx {
 	goCtx, cancel := getCtx.Context, getCtx.CancelFn
 	fv := map[string]any{}
+	provided := make(map[string]bool, len(listCs.Flags))
 	for _, f := range listCs.Flags {
+		provided[f.Name] = false
 		if f.Name == "search" {
 			fv["search"] = ""
-			break
 		}
 	}
 	return &cmdctx.Ctx{
-		Context:     goCtx,
-		CancelFn:    cancel,
-		Auth:        getCtx.Auth,
-		Verb:        listCs.Verb,
-		VerbHandler: listCs.VerbHandler,
-		Noun:        listCs.Noun,
-		FieldsNoun:  listCs.FieldsNoun,
-		Level:       getCtx.Level,
-		IsPty:       getCtx.IsPty,
-		Resolver:    getCtx.Resolver,
-		FormatFlags: cmdctx.FormatFlags{},
-		FlagValues:  fv,
-		UIHistory:   getCtx.UIHistory,
+		Context:       goCtx,
+		CancelFn:      cancel,
+		Auth:          getCtx.Auth,
+		Verb:          listCs.Verb,
+		VerbHandler:   listCs.VerbHandler,
+		Noun:          listCs.Noun,
+		FieldsNoun:    listCs.FieldsNoun,
+		Level:         getCtx.Level,
+		IsPty:         getCtx.IsPty,
+		Resolver:      getCtx.Resolver,
+		FormatFlags:   cmdctx.FormatFlags{},
+		FlagValues:    fv,
+		ProvidedFlags: provided,
+		UIHistory:     getCtx.UIHistory,
 	}
 }

@@ -6,11 +6,13 @@ package registry
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
 	"github.com/harness/cli/v3/pkg/auth"
@@ -152,6 +154,11 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 			Raw:       rawFlag,
 		},
 	}
+	if cmd.Flags().Lookup("preview-request") != nil {
+		if preview, _ := cmd.Flags().GetBool("preview-request"); preview {
+			ctx.RequestPreview = cmd.OutOrStdout()
+		}
+	}
 	listFields, _ := cmd.Flags().GetBool("list-fields")
 	listColumns, _ := cmd.Flags().GetBool("list-columns")
 	uiFlag, _ := cmd.Flags().GetBool("ui")
@@ -258,32 +265,47 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 		ctx.Args = extra
 	}
-	if cs.BuiltinFlags.Set {
-		setVals, _ := cmd.Flags().GetStringArray("set")
-		// positional args after the id are also treated as key=value pairs
-		positional := args
-		if consumedIdArg {
-			positional = args[1:]
-		}
-		all := append(setVals, positional...)
-		if len(all) > 0 {
-			ctx.SetArgs = make(map[string]string, len(all))
-			for _, kv := range all {
-				k, v, ok := strings.Cut(kv, "=")
-				if !ok {
-					return nil, fmt.Errorf("invalid value %q: expected key=value format", kv)
+	if cs.BuiltinFlags.Set || cs.BuiltinFlags.Del {
+		ctx.MutationOrderCaptured = true
+		for _, op := range capturedMutationFlags(cmd) {
+			op.Key, op.Value, op.HasValue = strings.Cut(op.Raw, "=")
+			switch op.Kind {
+			case cmdctx.MutationSet:
+				if !op.HasValue && !isBareSetField(op.Key, cs, r) {
+					return nil, fmt.Errorf("invalid value %q: expected key=value format", op.Raw)
 				}
-				ctx.SetArgs[k] = v
+				if ctx.SetArgs == nil {
+					ctx.SetArgs = map[string]string{}
+				}
+				ctx.SetArgs[op.Key] = op.Value
+			case cmdctx.MutationDelete:
+				ctx.DelArgs = append(ctx.DelArgs, op.Raw)
+			}
+			ctx.MutationFlags = append(ctx.MutationFlags, op)
+		}
+		if cs.BuiltinFlags.Set {
+			positional := args
+			if consumedIdArg {
+				positional = args[1:]
+			}
+			for _, raw := range positional {
+				key, value, hasValue := strings.Cut(raw, "=")
+				if !hasValue && !isBareSetField(key, cs, r) {
+					return nil, fmt.Errorf("invalid value %q: expected key=value format", raw)
+				}
+				if ctx.SetArgs == nil {
+					ctx.SetArgs = map[string]string{}
+				}
+				ctx.SetArgs[key] = value
+				ctx.MutationFlags = append(ctx.MutationFlags, cmdctx.FieldMutation{
+					Kind: cmdctx.MutationSet, Raw: raw, Key: key, Value: value, HasValue: hasValue,
+				})
 			}
 		}
 	}
-	if cs.BuiltinFlags.Del {
-		delVals, _ := cmd.Flags().GetStringArray("del")
-		if len(delVals) > 0 {
-			ctx.DelArgs = delVals
-		}
-	}
 	ctx.FlagValues = buildFlagValues(cmd.Flags(), cs)
+	ctx.ProvidedFlags = map[string]bool{}
+	cmd.Flags().VisitAll(func(f *pflag.Flag) { ctx.ProvidedFlags[f.Name] = f.Changed })
 	ctx.Resolver = r
 	if err := resolveFlagValues(ctx, cs); err != nil {
 		return nil, err
@@ -309,26 +331,45 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 	return ctx, nil
 }
 
+func isBareSetField(target string, cs *spec.CommandSpec, r *Registry) bool {
+	fieldID, _, _ := strings.Cut(target, ".")
+	noun := cs.Noun
+	if cs.FieldsNoun != "" {
+		noun = cs.FieldsNoun
+	}
+	for _, field := range MutableFields(r.GetNoun(noun)) {
+		if field.ID == fieldID {
+			return field.FieldType == "set"
+		}
+	}
+	return false
+}
+
 // buildDetailCtx constructs a minimal Ctx for a get-by-id drilldown from inside
 // the TUI. It copies auth and scope from the parent list ctx, overrides the verb/noun
 // to "get", and injects the resolved id.
 func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx.Ctx {
 	goCtx, cancel := context.WithCancelCause(parent.Context)
+	provided := make(map[string]bool, len(cs.Flags))
+	for _, flag := range cs.Flags {
+		provided[flag.Name] = false
+	}
 	ctx := &cmdctx.Ctx{
-		Context:     goCtx,
-		CancelFn:    cancel,
-		Auth:        parent.Auth,
-		Verb:        cs.Verb,
-		VerbHandler: cs.VerbHandler,
-		Noun:        cs.Noun,
-		FieldsNoun:  cs.FieldsNoun,
-		Id:          id,
-		Level:       parent.Level,
-		IsPty:       parent.IsPty,
-		Resolver:    parent.Resolver,
-		FormatFlags: cmdctx.FormatFlags{Format: "text"},
-		FlagValues:  map[string]any{},
-		UIHistory:   parent.UIHistory,
+		Context:       goCtx,
+		CancelFn:      cancel,
+		Auth:          parent.Auth,
+		Verb:          cs.Verb,
+		VerbHandler:   cs.VerbHandler,
+		Noun:          cs.Noun,
+		FieldsNoun:    cs.FieldsNoun,
+		Id:            id,
+		Level:         parent.Level,
+		IsPty:         parent.IsPty,
+		Resolver:      parent.Resolver,
+		FormatFlags:   cmdctx.FormatFlags{Format: "text"},
+		FlagValues:    map[string]any{},
+		ProvidedFlags: provided,
+		UIHistory:     parent.UIHistory,
 	}
 	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
 	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
@@ -357,21 +398,31 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 	if fv == nil {
 		fv = map[string]any{}
 	}
+	provided := maps.Clone(link.ProvidedFlags)
+	if provided == nil {
+		provided = make(map[string]bool, len(targetCs.Flags))
+	}
+	for _, flag := range targetCs.Flags {
+		if _, exists := provided[flag.Name]; !exists {
+			provided[flag.Name] = false
+		}
+	}
 	goCtx, cancel := context.WithCancelCause(ctx.Context)
 	newCtx := &cmdctx.Ctx{
-		Context:     goCtx,
-		CancelFn:    cancel,
-		Auth:        resolved,
-		Verb:        targetCs.Verb,
-		VerbHandler: targetCs.VerbHandler,
-		Noun:        targetCs.Noun,
-		FieldsNoun:  targetCs.FieldsNoun,
-		Level:       link.Level,
-		IsPty:       ctx.IsPty,
-		Resolver:    ctx.Resolver,
-		FormatFlags: cmdctx.FormatFlags{Format: "text"},
-		FlagValues:  fv,
-		UIHistory:   ctx.UIHistory,
+		Context:       goCtx,
+		CancelFn:      cancel,
+		Auth:          resolved,
+		Verb:          targetCs.Verb,
+		VerbHandler:   targetCs.VerbHandler,
+		Noun:          targetCs.Noun,
+		FieldsNoun:    targetCs.FieldsNoun,
+		Level:         link.Level,
+		IsPty:         ctx.IsPty,
+		Resolver:      ctx.Resolver,
+		FormatFlags:   cmdctx.FormatFlags{Format: "text"},
+		FlagValues:    fv,
+		ProvidedFlags: provided,
+		UIHistory:     ctx.UIHistory,
 	}
 	if link.Screen == cmdctx.ScreenDetailForGet {
 		newCtx.Id = link.Id

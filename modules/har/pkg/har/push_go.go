@@ -127,6 +127,8 @@ func pushGoArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed Go module %s to %s\n", version, ctx.Id)
+	modulePath, _ := parseModulePath(modData)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, modulePath, version)
 	return nil
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/endpoint"
@@ -67,6 +68,7 @@ type Registry struct {
 	flagCompletionFns    map[string]FlagCompletionFn
 	flagResolveFns       map[string]cmdctx.FlagResolveFn
 	endpointValidatorFns map[string]cmdctx.EndpointValidatorFn
+	fieldTypes           map[string]cmdctx.FieldTypeHandler
 	initErrs             []string
 }
 
@@ -88,9 +90,11 @@ func New() *Registry {
 		flagCompletionFns:    map[string]FlagCompletionFn{},
 		flagResolveFns:       map[string]cmdctx.FlagResolveFn{},
 		endpointValidatorFns: map[string]cmdctx.EndpointValidatorFn{},
+		fieldTypes:           map[string]cmdctx.FieldTypeHandler{},
 	}
 	r.registerCoreFormatters()
 	r.registerCoreTransforms()
+	r.registerCoreFieldTypes()
 	return r
 }
 
@@ -970,9 +974,13 @@ func (r *Registry) bindExternalCmd(cmd *cobra.Command, cs *spec.CommandSpec) {
 
 // bindWorkflowCmd wires flags and RunE for a workflow-backed command.
 func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn WorkflowFn) {
-	addFlags(cmd.Flags(), specFormat, specJson, specYaml, specOut, specRaw)
-	if cs.VerbHandler == VerbList {
-		addFlags(cmd.Flags(), specColumns, specNoHeaders, specListColumns)
+	switch {
+	case cs.VerbHandler == VerbList:
+		addFlags(cmd.Flags(), specFormatList, specJson, specOut, specRaw, specColumns, specNoHeaders, specListColumns)
+	case cs.VerbHandler == VerbGet && cs.Endpoint != nil && cs.Endpoint.YamlPickExpr != "":
+		addFlags(cmd.Flags(), specFormatYaml, specJson, specYaml, specOut, specRaw)
+	default:
+		addFlags(cmd.Flags(), specFormat, specJson, specOut, specRaw)
 	}
 	if verbRegistry[cs.Verb].NounPair {
 		if cs.MigrateFrom.EffectivePresence() != spec.MigratePresenceNone {
@@ -982,12 +990,7 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 			cmd.Flags().String("to", "", cs.MigrateTo.EffectiveLabel("Destination identifier to migrate to"))
 		}
 	}
-	if cs.BuiltinFlags.Set {
-		cmd.Flags().StringArray("set", nil, "Set a field value as key=value (repeatable)")
-	}
-	if cs.BuiltinFlags.Del {
-		cmd.Flags().StringArray("del", nil, "Delete a field or field member (repeatable)")
-	}
+	registerMutationFlags(cmd, cs)
 	if cs.BuiltinFlags.UI {
 		addFlag(cmd.Flags(), specUI)
 	}
@@ -1035,12 +1038,23 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 // bindEndpointCmdFlags registers all flags for an endpoint-backed command.
 func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec) {
 	ep := cs.Endpoint
+	if cs.VerbHandler != VerbList && cs.VerbHandler != VerbGet {
+		switch ep.Method {
+		case "POST", "PUT", "PATCH", "DELETE":
+			cmd.Flags().Bool("preview-request", false, "Print the write request without sending it")
+			cmd.Flags().MarkHidden("preview-request") //nolint:errcheck
+		}
+	}
 
 	switch cs.VerbHandler {
 	case VerbList:
-		addFlags(cmd.Flags(), specFormat, specJson, specYaml, specColumns, specNoHeaders, specRaw, specListColumns)
+		addFlags(cmd.Flags(), specFormatList, specJson, specColumns, specNoHeaders, specRaw, specListColumns)
 	case VerbGet:
-		addFlags(cmd.Flags(), specFormat, specJson, specYaml, specRaw, specFields, specListFields)
+		if ep.YamlPickExpr != "" {
+			addFlags(cmd.Flags(), specFormatYaml, specJson, specYaml, specRaw, specFields, specListFields)
+		} else {
+			addFlags(cmd.Flags(), specFormat, specJson, specRaw, specFields, specListFields)
+		}
 		cmd.RegisterFlagCompletionFunc("fields", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			fields := r.ResolveCommandFields(cs)
 			ids := make([]string, 0, len(fields))
@@ -1051,26 +1065,21 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 		})
 	case VerbUpdate:
 		if cs.BuiltinFlags.Set {
-			addFlags(cmd.Flags(), specFormat, specJson, specYaml, specListFields)
+			addFlags(cmd.Flags(), specFormat, specJson, specListFields)
 		} else {
-			addFlags(cmd.Flags(), specFormat, specJson, specYaml)
+			addFlags(cmd.Flags(), specFormat, specJson)
 		}
 	case VerbCreate:
 		if ep.CreateStrategy == spec.CreateStrategySetFields {
-			addFlags(cmd.Flags(), specFormat, specJson, specYaml, specListFields)
+			addFlags(cmd.Flags(), specFormat, specJson, specListFields)
 		} else {
-			addFlags(cmd.Flags(), specFormat, specJson, specYaml)
+			addFlags(cmd.Flags(), specFormat, specJson)
 		}
 	default:
-		addFlags(cmd.Flags(), specFormat, specJson, specYaml)
+		addFlags(cmd.Flags(), specFormat, specJson)
 	}
 	addFlag(cmd.Flags(), specOut)
-	if cs.BuiltinFlags.Set {
-		cmd.Flags().StringArray("set", nil, "Set a field value as key=value (repeatable)")
-	}
-	if cs.BuiltinFlags.Del {
-		cmd.Flags().StringArray("del", nil, "Delete a field or field member (repeatable)")
-	}
+	registerMutationFlags(cmd, cs)
 	if ep.FileBody == spec.FileBodyRequired {
 		addFlag(cmd.Flags(), specFile)
 		cmd.MarkFlagRequired("file")
@@ -1160,13 +1169,16 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 			return RunUIDetailForGet(ctx, cs)
 		}
 	}
-	if cs.ConfirmMode != spec.ConfirmNone {
+	if cs.ConfirmMode != spec.ConfirmNone && ctx.RequestPreview == nil {
 		if err := runConfirmGate(cs.ConfirmMode, cs.Verb, cs.Noun, ctx.Id, ctx.IsPty, cmdctx.GetBool(ctx.FlagValues, "force")); err != nil {
 			r.emitError(cs, ctx, err, start)
 			return err
 		}
 	}
 	result, err := RunEndpoint(ctx, cs.Endpoint)
+	if errors.Is(err, client.ErrRequestPreviewed) {
+		return nil
+	}
 	if err != nil {
 		r.emitError(cs, ctx, err, start)
 		return err
@@ -1224,7 +1236,7 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	return nil
 }
 
-func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, userType, tokenKind, authSource string) {
+func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, userType, tokenKind, authSource, apiURL string) {
 	if a == nil {
 		return
 	}
@@ -1238,6 +1250,7 @@ func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, u
 	} else {
 		authSource = "profile"
 	}
+	apiURL = a.APIUrl
 	return
 }
 
@@ -1263,7 +1276,7 @@ func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmd
 	}
 	var flags []string
 	cmd.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
-	accountID, userDomain, userID, userType, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	accountID, userDomain, userID, userType, tokenKind, authSource, apiURL := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordIntent(telemetry.CommandIntent{
 		Verb:       cs.Verb,
 		Noun:       cs.FullNoun(),
@@ -1275,6 +1288,7 @@ func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmd
 		UserType:   userType,
 		TokenKind:  tokenKind,
 		AuthSource: authSource,
+		APIUrl:     apiURL,
 		RunID:      hbase.RunID,
 		Env:        r.TelemetryEnv,
 	})
@@ -1284,7 +1298,7 @@ func (r *Registry) emitError(cs *spec.CommandSpec, ctx *cmdctx.Ctx, err error, s
 	if telemetry.Disabled() {
 		return
 	}
-	accountID, userDomain, userID, userType, tokenKind, authSource := authTelemetryFields(telemetryAuth(cs, ctx))
+	accountID, userDomain, userID, userType, tokenKind, authSource, apiURL := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordError(telemetry.CommandError{
 		Verb:       cs.Verb,
 		Noun:       cs.FullNoun(),
@@ -1295,6 +1309,7 @@ func (r *Registry) emitError(cs *spec.CommandSpec, ctx *cmdctx.Ctx, err error, s
 		UserType:   userType,
 		TokenKind:  tokenKind,
 		AuthSource: authSource,
+		APIUrl:     apiURL,
 		RunID:      hbase.RunID,
 		Category:   telemetry.ClassifyError(err),
 		DurationMs: time.Since(start).Milliseconds(),

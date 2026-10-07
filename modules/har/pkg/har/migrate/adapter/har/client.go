@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arapi"
-	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/har/arpkg"
+	"github.com/harness/cli/modules/har/pkg/har/genapi/ar"
+	"github.com/harness/cli/modules/har/pkg/har/genapi/ar_pkg"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
@@ -54,7 +54,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	username := reg.Credentials.Username
 	token := reg.Credentials.Password
 
-	withXApiKey := func(c *arapi.Client) error {
+	withXApiKey := func(c *ar.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
 			req.Header.Set("User-Agent", util.UserAgentString())
@@ -62,7 +62,7 @@ func newClient(reg *types.RegistryConfig) *client {
 		})
 		return nil
 	}
-	withXApiKeyPkg := func(c *arpkg.Client) error {
+	withXApiKeyPkg := func(c *ar_pkg.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
 			req.Header.Set("User-Agent", util.UserAgentString())
@@ -71,11 +71,11 @@ func newClient(reg *types.RegistryConfig) *client {
 		return nil
 	}
 
-	arClient, _ := arapi.NewClientWithResponses(reg.APIBaseURL+"/gateway/har/api/v1",
-		arapi.WithHTTPClient(retryingHTTPClient()),
+	arClient, _ := ar.NewClientWithResponses(reg.APIBaseURL+"/gateway/har/api/v1",
+		ar.WithHTTPClient(retryingHTTPClient()),
 		withXApiKey)
 
-	pkgClient, _ := arpkg.NewClientWithResponses(reg.Endpoint, withXApiKeyPkg)
+	pkgClient, _ := ar_pkg.NewClientWithResponses(reg.Endpoint, withXApiKeyPkg)
 
 	return &client{
 		client: &http2.Client{
@@ -95,13 +95,13 @@ func newClient(reg *types.RegistryConfig) *client {
 }
 
 type client struct {
-	apiClient *arapi.ClientWithResponses
+	apiClient *ar.ClientWithResponses
 	client    *http2.Client
 	url       string
 	insecure  bool
 	username  string
 	password  string
-	pkgClient *arpkg.ClientWithResponses
+	pkgClient *ar_pkg.ClientWithResponses
 	accountID string
 }
 
@@ -725,7 +725,7 @@ func (c *client) artifactFileExists(
 
 	for {
 		response, err := c.apiClient.GetArtifactFilesWithResponse(ctx, registryRef, pkg, version,
-			&arapi.GetArtifactFilesParams{
+			&ar.GetArtifactFilesParams{
 				Page:      &page,
 				Size:      &size,
 				SortOrder: nil,
@@ -761,7 +761,7 @@ func (c *client) artifactGetFilesForVersion(
 	var allFileNames []string
 	for {
 		response, err := c.apiClient.GetArtifactFilesWithResponse(ctx, registryRef, pkg, version,
-			&arapi.GetArtifactFilesParams{
+			&ar.GetArtifactFilesParams{
 				Page:      &page,
 				Size:      &size,
 				SortOrder: nil,
@@ -793,9 +793,9 @@ func (c *client) getRegistry(
 	page := int64(0)
 	size := int64(100)
 	for {
-		descendants := arapi.GetAllRegistriesParamsScopeDescendants
+		descendants := ar.GetAllRegistriesParamsScopeDescendants
 		response, err := c.apiClient.GetAllRegistriesWithResponse(ctx, c.accountID,
-			&arapi.GetAllRegistriesParams{
+			&ar.GetAllRegistriesParams{
 				Page:       &page,
 				Size:       &size,
 				SearchTerm: &registry,
@@ -838,7 +838,7 @@ func (c *client) artifactVersionExists(
 
 	for {
 		response, err := c.apiClient.GetAllArtifactVersionsWithResponse(ctx, registryRef, pkg,
-			&arapi.GetAllArtifactVersionsParams{
+			&ar.GetAllArtifactVersionsParams{
 				Page:       &page,
 				Size:       &size,
 				SortOrder:  nil,
@@ -854,7 +854,7 @@ func (c *client) artifactVersionExists(
 		if response.StatusCode() != http2.StatusOK {
 			return false, fmt.Errorf("failed to get artifact versions: %s", response.Status())
 		}
-		var data arapi.ListArtifactVersion
+		var data ar.ListArtifactVersion
 
 		if response.JSON200 == nil {
 			return false, fmt.Errorf("failed to get artifact 200 response: %s", response.Status())
@@ -1051,6 +1051,114 @@ func (c *client) uploadPuppetFile(
 	return nil
 }
 
+// uploadRubyFile streams a Ruby gem (.gem) to HAR via the Ruby push API.
+// Do not send checksum headers; the server generates sidecar metadata on push.
+func (c *client) uploadRubyFile(
+	registry string,
+	f *types.File,
+	file io.ReadCloser,
+) error {
+	if c.pkgClient == nil {
+		return fmt.Errorf("ruby upload: pkg client is not configured")
+	}
+
+	resp, err := c.pkgClient.UploadRubyPackageWithBodyWithResponse(
+		context.Background(),
+		c.accountID,
+		registry,
+		"application/octet-stream",
+		file,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to upload Ruby gem '%s': %w", f.Name, err)
+	}
+
+	switch resp.StatusCode() {
+	case http2.StatusOK, http2.StatusCreated:
+		return nil
+	case http2.StatusConflict:
+		return types.ErrArtifactAlreadyExists
+	default:
+		return fmt.Errorf("failed to upload Ruby gem '%s', status code: %d, response: %s",
+			f.Name, resp.StatusCode(), string(resp.Body))
+	}
+}
+
+// uploadTerraformFile routes a Terraform file to the correct HAR endpoint.
+// Modules (.tar.gz/.tgz) go to PUT /terraform/v1/modules/{ns}/{name}/{provider}/{ver}.
+// Providers (.zip) go to PUT /terraform/v1/providers/{ns}/{type}/{ver}/{filename}.
+// The pkg argument is "ns/name/provider" for modules or "ns/type" for providers.
+func (c *client) uploadTerraformFile(
+	registry string,
+	f *types.File,
+	pkg string,
+	version string,
+	file io.ReadCloser,
+) error {
+	ctx := context.Background()
+	lower := strings.ToLower(f.Name)
+
+	// Route by pkg segment count: modules have "ns/name/provider" (3 parts),
+	// providers have "ns/type" (2 parts). This handles both Layout A (.tar.gz/.tgz)
+	// and Layout B (.zip) modules unambiguously.
+	pkgParts := strings.SplitN(pkg, "/", 3)
+	isModule := len(pkgParts) == 3
+
+	if isModule && (strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") || strings.HasSuffix(lower, ".zip")) {
+		// Module upload: pkg = "ns/name/provider"
+		ns, name, provider := pkgParts[0], pkgParts[1], pkgParts[2]
+		resp, err := c.pkgClient.UploadTerraformModuleWithBodyWithResponse(
+			ctx,
+			c.accountID,
+			registry,
+			ns, name, provider, version,
+			"application/octet-stream",
+			file,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to upload Terraform module '%s': %w", f.Name, err)
+		}
+		if resp.StatusCode() == http2.StatusConflict {
+			return types.ErrArtifactAlreadyExists
+		}
+		if resp.StatusCode() < 200 || resp.StatusCode() > 299 {
+			return fmt.Errorf("failed to upload Terraform module '%s', status: %d, response: %s",
+				f.Name, resp.StatusCode(), string(resp.Body))
+		}
+		return nil
+	}
+
+	if !isModule && strings.HasSuffix(lower, ".zip") {
+		// Provider upload: pkg = "ns/type"
+		parts := strings.SplitN(pkg, "/", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("terraform provider package name must be ns/type, got: %s", pkg)
+		}
+		ns, typeName := parts[0], parts[1]
+		resp, err := c.pkgClient.UploadTerraformProviderWithBodyWithResponse(
+			ctx,
+			c.accountID,
+			registry,
+			ns, typeName, version, f.Name,
+			"application/octet-stream",
+			file,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to upload Terraform provider '%s': %w", f.Name, err)
+		}
+		if resp.StatusCode() == http2.StatusConflict {
+			return types.ErrArtifactAlreadyExists
+		}
+		if resp.StatusCode() < 200 || resp.StatusCode() > 299 {
+			return fmt.Errorf("failed to upload Terraform provider '%s', status: %d, response: %s",
+				f.Name, resp.StatusCode(), string(resp.Body))
+		}
+		return nil
+	}
+
+	return fmt.Errorf("unsupported Terraform file extension for '%s': must be .tar.gz, .tgz, or .zip", f.Name)
+}
+
 func (c *client) uploadConanFile(
 	registry string,
 	file io.ReadCloser,
@@ -1124,7 +1232,7 @@ func (c *client) buildExistingIndex(ctx context.Context, registryRef string, con
 	var artifactNames []string
 	for {
 		resp, err := c.apiClient.GetAllArtifactsByRegistryWithResponse(ctx, registryRef,
-			&arapi.GetAllArtifactsByRegistryParams{Page: &page, Size: &size})
+			&ar.GetAllArtifactsByRegistryParams{Page: &page, Size: &size})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list artifacts for index: %w", err)
 		}
@@ -1149,7 +1257,7 @@ func (c *client) buildExistingIndex(ctx context.Context, registryRef string, con
 		p := int64(0)
 		for {
 			resp, err := c.apiClient.GetAllArtifactVersionsWithResponse(ctx, registryRef, name,
-				&arapi.GetAllArtifactVersionsParams{Page: &p, Size: &size})
+				&ar.GetAllArtifactVersionsParams{Page: &p, Size: &size})
 			if err != nil {
 				log.Warn().Err(err).Str("artifact", name).Msg("buildExistingIndex: failed to list versions, skipping artifact")
 				break

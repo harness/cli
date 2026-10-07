@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -617,9 +618,15 @@ func TestCallEndpointFull_Priority2_UpdateStrategies(t *testing.T) {
 			},
 		},
 		{
-			name:  "get_then_patch",
-			ep:    &spec.EndpointSpec{Path: "/widgets/w1", Method: "PATCH", UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it"},
-			resps: []string{getResp, `{}`}, checkCall: 1, wantMethod: "PATCH",
+			name:    "get_then_patch",
+			ep:      &spec.EndpointSpec{Path: "/widgets/w1", Method: "PATCH", UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it"},
+			setArgs: map[string]string{"name": "new"},
+			resps:   []string{getResp, `{}`}, checkCall: 1, wantMethod: "PATCH",
+			checkBody: func(t *testing.T, body []byte) {
+				if got := bodyMap(t, body); !reflect.DeepEqual(got, map[string]any{"name": "new"}) {
+					t.Fatalf("PATCH body = %#v, want only changed name", got)
+				}
+			},
 		},
 	}
 
@@ -658,8 +665,10 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 		name        string
 		setArgs     map[string]string
 		delArgs     []string
+		mutations   []cmdctx.FieldMutation
 		wantPresent map[string]string
 		wantAbsent  []string
+		wantError   string
 	}{
 		{
 			name:        "upsert_existing_key",
@@ -677,6 +686,25 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 			wantPresent: map[string]string{"env": "prod"},
 			wantAbsent:  []string{"team"},
 		},
+		{
+			name: "ordered_add_delete_and_set",
+			mutations: []cmdctx.FieldMutation{
+				{Kind: cmdctx.MutationAdd, Key: "region", Value: "us", HasValue: true},
+				{Kind: cmdctx.MutationAdd, Key: "env", Value: "prod", HasValue: true},
+				{Kind: cmdctx.MutationDelete, Key: "team", Raw: "team"},
+				{Kind: cmdctx.MutationSet, Key: "env", Value: "stage", HasValue: true},
+			},
+			wantPresent: map[string]string{"env": "stage", "region": "us"},
+			wantAbsent:  []string{"team"},
+		},
+		{
+			name: "add_conflict_prevents_write",
+			mutations: []cmdctx.FieldMutation{
+				{Kind: cmdctx.MutationAdd, Key: "env", Value: "stage", HasValue: true},
+				{Kind: cmdctx.MutationDelete, Key: "env", Raw: "env"},
+			},
+			wantError: "key already exists",
+		},
 	}
 
 	for _, tc := range tests {
@@ -685,6 +713,8 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 			ctx := testCtx(srv.URL, nil)
 			ctx.SetArgs = tc.setArgs
 			ctx.DelArgs = tc.delArgs
+			ctx.MutationFlags = tc.mutations
+			ctx.MutationOrderCaptured = len(tc.mutations) > 0
 			ctx.Resolver = testNounRegistry(t)
 
 			ep := &spec.EndpointSpec{
@@ -692,6 +722,12 @@ func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 				UpdateStrategy: spec.UpdateStrategyGetThenPutKV, UpdateBodyWrap: "metadata",
 			}
 			_, _, err := callEndpointFull(ctx, ep, nil)
+			if tc.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantError) || len(*caps) != 1 {
+					t.Fatalf("error = %v, server requests = %d; want GET only and %q", err, len(*caps), tc.wantError)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -918,6 +954,36 @@ func TestCallEndpointFull_Priority3_DefaultDispatch(t *testing.T) {
 				if qv(t, cap.rawQuery).Get("missing") != "" {
 					t.Fatalf("empty expr param should be omitted, got %q", cap.rawQuery)
 				}
+			}
+		})
+	}
+}
+
+// TestCallEndpointFull_NoAccountID verifies accountIdentifier is set by default
+// and omitted when the endpoint opts out via no_account_id.
+func TestCallEndpointFull_NoAccountID(t *testing.T) {
+	tests := []struct {
+		name string
+		ep   *spec.EndpointSpec
+		want bool // want accountIdentifier present
+	}{
+		{name: "default_present", ep: &spec.EndpointSpec{Path: "/items"}, want: true},
+		{name: "suppressed", ep: &spec.EndpointSpec{Path: "/items", NoAccountID: true}, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, cap := captureServer(t, `{}`)
+			r := New()
+			ctx := testCtx(srv.URL, nil)
+			ctx.Resolver = r
+
+			if _, _, err := callEndpointFull(ctx, tc.ep, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := qv(t, cap.rawQuery).Get("accountIdentifier") != ""
+			if got != tc.want {
+				t.Fatalf("accountIdentifier present = %v, want %v (query=%q)", got, tc.want, cap.rawQuery)
 			}
 		})
 	}
@@ -1222,143 +1288,28 @@ func TestParseArrayFlag(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestApplyMutations — covers all field types and --set/--del error paths
-// ---------------------------------------------------------------------------
-
-func TestApplyMutations(t *testing.T) {
-	// fieldPaths for a noun with scalar, tags, and set-type fields.
-	fields := map[string]spec.FieldDef{
-		"name":    {ID: "name", Expr: "it.name", MutablePath: "name"},
-		"labels":  {ID: "labels", Expr: "it.labels", MutablePath: "labels", FieldType: "tags"},
-		"modules": {ID: "modules", Expr: "it.modules", MutablePath: "modules", FieldType: "set"},
-	}
-
-	t.Run("set_scalar", func(t *testing.T) {
-		m := map[string]any{}
-		if err := applyMutations(m, map[string]string{"name": "new"}, nil, fields); err != nil {
-			t.Fatal(err)
-		}
-		if m["name"] != "new" {
-			t.Fatalf("name = %v, want new", m["name"])
-		}
-	})
-
-	t.Run("set_unknown_field_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, map[string]string{"bad": "x"}, nil, fields)
-		if err == nil || !strings.Contains(err.Error(), "unknown or read-only") {
-			t.Fatalf("err = %v, want unknown or read-only", err)
-		}
-	})
-
-	t.Run("set_tag_creates_entry", func(t *testing.T) {
-		m := map[string]any{}
-		if err := applyMutations(m, map[string]string{"labels.env": "prod"}, nil, fields); err != nil {
-			t.Fatal(err)
-		}
-		tags, ok := m["labels"].(map[string]any)
-		if !ok || tags["env"] != "prod" {
-			t.Fatalf("labels.env = %v, want prod", m["labels"])
-		}
-	})
-
-	t.Run("set_tag_no_subkey_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, map[string]string{"labels": "v"}, nil, fields)
-		if err == nil || !strings.Contains(err.Error(), "require a key") {
-			t.Fatalf("err = %v, want require a key", err)
-		}
-	})
-
-	t.Run("set_set_field_adds_member", func(t *testing.T) {
-		m := map[string]any{}
-		if err := applyMutations(m, map[string]string{"modules.CD": ""}, nil, fields); err != nil {
-			t.Fatal(err)
-		}
-		if !sliceContains(getDotPathSlice(m, "modules"), "CD") {
-			t.Fatalf("modules should contain CD: %v", m["modules"])
-		}
-	})
-
-	t.Run("set_set_field_dedup", func(t *testing.T) {
-		m := map[string]any{"modules": []any{"CD"}}
-		if err := applyMutations(m, map[string]string{"modules.CD": ""}, nil, fields); err != nil {
-			t.Fatal(err)
-		}
-		s := getDotPathSlice(m, "modules")
-		if len(s) != 1 {
-			t.Fatalf("modules should have 1 entry, got %v", s)
-		}
-	})
-
-	t.Run("set_set_field_no_member_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, map[string]string{"modules": ""}, nil, fields)
-		if err == nil || !strings.Contains(err.Error(), "require a member") {
-			t.Fatalf("err = %v, want require a member", err)
-		}
-	})
-
-	t.Run("del_scalar_sets_nil", func(t *testing.T) {
-		m := map[string]any{"name": "old"}
-		if err := applyMutations(m, nil, []string{"name"}, fields); err != nil {
-			t.Fatal(err)
-		}
-		if m["name"] != nil {
-			t.Fatalf("name = %v, want nil", m["name"])
-		}
-	})
-
-	t.Run("del_unknown_field_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, nil, []string{"bad"}, fields)
-		if err == nil || !strings.Contains(err.Error(), "unknown or read-only") {
-			t.Fatalf("err = %v, want unknown or read-only", err)
-		}
-	})
-
-	t.Run("del_tag_removes_entry", func(t *testing.T) {
-		m := map[string]any{"labels": map[string]any{"env": "prod", "team": "ops"}}
-		if err := applyMutations(m, nil, []string{"labels.env"}, fields); err != nil {
-			t.Fatal(err)
-		}
-		tags := getDotPathMap(m, "labels")
-		if _, found := tags["env"]; found {
-			t.Fatalf("labels.env should be deleted, got %v", tags)
-		}
-		if tags["team"] != "ops" {
-			t.Fatalf("labels.team should be preserved, got %v", tags)
-		}
-	})
-
-	t.Run("del_tag_no_subkey_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, nil, []string{"labels"}, fields)
-		if err == nil || !strings.Contains(err.Error(), "require a key") {
-			t.Fatalf("err = %v, want require a key", err)
-		}
-	})
-
-	t.Run("del_set_field_removes_member", func(t *testing.T) {
-		m := map[string]any{"modules": []any{"CD", "CE"}}
-		if err := applyMutations(m, nil, []string{"modules.CD"}, fields); err != nil {
-			t.Fatal(err)
-		}
-		s := getDotPathSlice(m, "modules")
-		if sliceContains(s, "CD") || !sliceContains(s, "CE") {
-			t.Fatalf("modules should be [CE], got %v", s)
-		}
-	})
-
-	t.Run("del_set_field_no_member_errors", func(t *testing.T) {
-		err := applyMutations(map[string]any{}, nil, []string{"modules"}, fields)
-		if err == nil || !strings.Contains(err.Error(), "require a member") {
-			t.Fatalf("err = %v, want require a member", err)
-		}
-	})
-}
-
-// ---------------------------------------------------------------------------
 // TestRunGetThenUpdate — GetPath override, UpdateBodyPick miss, ItemExpr fallback, GET error
 // ---------------------------------------------------------------------------
 
 func TestRunGetThenUpdate(t *testing.T) {
 	getResp := `{"data":{"name":"old"},"name":"old"}`
+
+	t.Run("invalid_mutation_does_not_write", func(t *testing.T) {
+		srv, caps := sequenceServer(t, []string{getResp})
+		ctx := testCtx(srv.URL, nil)
+		ctx.Noun = "widget"
+		ctx.Resolver = testNounRegistry(t)
+		ctx.SetArgs = map[string]string{"unknown": "value"}
+		ep := &spec.EndpointSpec{Path: "/widgets/w1", Method: "PATCH",
+			UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it.data"}
+		_, _, err := callEndpointFull(ctx, ep, nil)
+		if err == nil || !strings.Contains(err.Error(), "unknown or read-only") {
+			t.Fatalf("error = %v, want unknown field", err)
+		}
+		if len(*caps) != 1 || (*caps)[0].method != "GET" {
+			t.Fatalf("requests = %v, want GET only", *caps)
+		}
+	})
 
 	t.Run("get_path_override", func(t *testing.T) {
 		srv, caps := sequenceServer(t, []string{getResp, `{}`})
@@ -2139,4 +2090,63 @@ func TestRunListEndpoint(t *testing.T) {
 			t.Fatalf("err = %v, want 'unknown format'", err)
 		}
 	})
+}
+
+func TestCallEndpointFull_RequestHeadersPropagate(t *testing.T) {
+	hdrs := map[string]string{"X-Test-Acct": "auth.account", "X-Test-Empty": `""`}
+	jsonFile := func(t *testing.T) map[string]any {
+		return map[string]any{"file": tempFile(t, `{"name":"n"}`, ".json")}
+	}
+	tests := []struct {
+		name     string
+		ep       *spec.EndpointSpec
+		flags    func(t *testing.T) map[string]any
+		setArgs  map[string]string
+		resps    []string
+		wantReqs []string // methods; every request must carry the headers
+	}{
+		{name: "file_raw_post", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", FileBody: spec.FileBodyOptional}, flags: jsonFile, wantReqs: []string{"POST"}},
+		{name: "file_create_wrap", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", FileBody: spec.FileBodyOptional, CreateBodyWrap: "widget"}, flags: jsonFile, wantReqs: []string{"POST"}},
+		{name: "file_string_wrap_post", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", FileBody: spec.FileBodyOptional, FileBodyWrapAsString: "yaml"}, flags: jsonFile, wantReqs: []string{"POST"}},
+		{name: "file_put_wrap", ep: &spec.EndpointSpec{Path: "/w", Method: "PUT", FileBody: spec.FileBodyOptional, UpdateBodyWrap: "widget"}, flags: jsonFile, wantReqs: []string{"PUT"}},
+		{name: "file_patch_plain", ep: &spec.EndpointSpec{Path: "/w", Method: "PATCH", FileBody: spec.FileBodyOptional}, flags: jsonFile, wantReqs: []string{"PATCH"}},
+		{name: "file_put_string_wrap", ep: &spec.EndpointSpec{Path: "/w", Method: "PUT", FileBody: spec.FileBodyOptional, FileBodyWrapAsString: "yaml"}, flags: jsonFile, wantReqs: []string{"PUT"}},
+		{name: "file_yaml_envelope", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", FileBody: spec.FileBodyOptional, FileBodyYamlEnvelope: "widget"}, flags: jsonFile, wantReqs: []string{"POST"}},
+		{name: "set_fields", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", CreateStrategy: spec.CreateStrategySetFields}, setArgs: map[string]string{"name": "n"}, wantReqs: []string{"POST"}},
+		{name: "get_then_put", ep: &spec.EndpointSpec{Path: "/w", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut, UpdateBodyPick: "it"}, resps: []string{`{"name":"o"}`, `{}`}, wantReqs: []string{"GET", "PUT"}},
+		{name: "get_then_patch", ep: &spec.EndpointSpec{Path: "/w", Method: "PATCH", UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it"}, resps: []string{`{"name":"o"}`, `{}`}, wantReqs: []string{"GET", "PATCH"}},
+		{name: "get_then_put_kv", ep: &spec.EndpointSpec{Path: "/w", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPutKV}, resps: []string{`[]`, `{}`}, wantReqs: []string{"GET", "PUT"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, caps := sequenceServer(t, tc.resps)
+			var flags map[string]any
+			if tc.flags != nil {
+				flags = tc.flags(t)
+			}
+			ctx := testCtx(srv.URL, flags)
+			ctx.Noun = "widget"
+			ctx.SetArgs = tc.setArgs
+			ctx.Resolver = testNounRegistry(t)
+			tc.ep.RequestHeaders = hdrs
+
+			if _, _, err := callEndpointFull(ctx, tc.ep, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(*caps) != len(tc.wantReqs) {
+				t.Fatalf("requests = %d, want %d", len(*caps), len(tc.wantReqs))
+			}
+			for i, got := range *caps {
+				if got.method != tc.wantReqs[i] {
+					t.Fatalf("req[%d] method = %q, want %q", i, got.method, tc.wantReqs[i])
+				}
+				if v := got.header.Get("X-Test-Acct"); v != "acct" {
+					t.Fatalf("req[%d] X-Test-Acct = %q, want acct", i, v)
+				}
+				if _, ok := got.header["X-Test-Empty"]; ok {
+					t.Fatalf("req[%d] sent header for empty expression", i)
+				}
+			}
+		})
+	}
 }

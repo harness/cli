@@ -979,6 +979,7 @@ func TestAuthTelemetryFields(t *testing.T) {
 		wantAccountID  string
 		wantTokenKind  string
 		wantAuthSource string
+		wantAPIUrl     string
 	}{
 		{
 			name:  "nil_input_returns_empty_strings",
@@ -991,10 +992,12 @@ func TestAuthTelemetryFields(t *testing.T) {
 				Email:     "user@example.com",
 				TokenKind: auth.TokenKindPAT,
 				Source:    auth.SourceEnv,
+				APIUrl:    "https://app.harness.io/gateway",
 			},
 			wantAccountID:  "acc123",
 			wantTokenKind:  "pat",
 			wantAuthSource: "env",
+			wantAPIUrl:     "https://app.harness.io/gateway",
 		},
 		{
 			name:           "profile_source",
@@ -1005,7 +1008,7 @@ func TestAuthTelemetryFields(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			accountID, _, _, _, tokenKind, authSource := authTelemetryFields(tc.input)
+			accountID, _, _, _, tokenKind, authSource, apiURL := authTelemetryFields(tc.input)
 			if accountID != tc.wantAccountID {
 				t.Errorf("accountID = %q, want %q", accountID, tc.wantAccountID)
 			}
@@ -1014,6 +1017,9 @@ func TestAuthTelemetryFields(t *testing.T) {
 			}
 			if authSource != tc.wantAuthSource {
 				t.Errorf("authSource = %q, want %q", authSource, tc.wantAuthSource)
+			}
+			if apiURL != tc.wantAPIUrl {
+				t.Errorf("apiURL = %q, want %q", apiURL, tc.wantAPIUrl)
 			}
 		})
 	}

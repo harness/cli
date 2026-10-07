@@ -57,6 +57,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 	}
 
 	c := client.New(ctx)
+	c.NoAccountID = ep.NoAccountID
 	method := ep.Method
 	if method == "" {
 		method = "GET"
@@ -68,6 +69,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 		if err != nil {
 			return nil, nil, err
 		}
+		fileHeaders := evalRequestHeaders(ep, exprEnv)
 
 		// CD-style DTO envelope: the -f file may be given as the raw resource YAML
 		// (wrapped or flat) rather than the API's {identifier, ..., yaml: "..."} shape.
@@ -94,6 +96,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 				QueryParams:     qp,
 				Body:            env,
 				BodyContentType: ct,
+				Headers:         fileHeaders,
 			})
 		}
 
@@ -119,6 +122,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 					QueryParams:     qp,
 					Body:            map[string]any{ep.FileBodyWrapAsString: body},
 					BodyContentType: "application/json",
+					Headers:         fileHeaders,
 				})
 			}
 			if ep.UpdateBodyWrap != "" {
@@ -132,6 +136,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 					QueryParams:     qp,
 					Body:            map[string]any{ep.UpdateBodyWrap: unwrapIfAlreadyWrapped(parsed, ep.UpdateBodyWrap)},
 					BodyContentType: ct,
+					Headers:         fileHeaders,
 				})
 			}
 			return c.DoRequest(client.Request{
@@ -140,10 +145,11 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 				QueryParams:     qp,
 				Body:            body,
 				BodyContentType: ct,
+				Headers:         fileHeaders,
 			})
 		}
 		if ep.FileBodyWrapAsString != "" {
-			return c.Post(path, qp, map[string]any{ep.FileBodyWrapAsString: body})
+			return c.DoRequest(client.Request{Method: "POST", Path: path, QueryParams: qp, Body: map[string]any{ep.FileBodyWrapAsString: body}, Headers: fileHeaders})
 		}
 		if ep.CreateBodyWrap != "" || len(ep.CreateBodyInit) > 0 {
 			var parsed map[string]any
@@ -167,11 +173,11 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 				}
 			}
 			if ep.CreateBodyWrap != "" {
-				return c.Post(path, qp, map[string]any{ep.CreateBodyWrap: inner})
+				return c.DoRequest(client.Request{Method: "POST", Path: path, QueryParams: qp, Body: map[string]any{ep.CreateBodyWrap: inner}, Headers: fileHeaders})
 			}
-			return c.Post(path, qp, inner)
+			return c.DoRequest(client.Request{Method: "POST", Path: path, QueryParams: qp, Body: inner, Headers: fileHeaders})
 		}
-		return c.PostRaw(path, qp, body, ct)
+		return c.DoRequest(client.Request{Method: "POST", Path: path, QueryParams: qp, Body: body, BodyContentType: ct, Headers: fileHeaders})
 	}
 
 	if ep.FileBody == spec.FileBodyRequired {
@@ -589,14 +595,29 @@ func evalQueryParams(ctx *cmdctx.Ctx, exprs map[string]string, withScope bool, e
 // evalBodyParams evaluates a dot-path→expr map against ctx, returning a nested map[string]any.
 // Dot-path keys (e.g. "config.type") create nested objects via setDotPath.
 func evalBodyParams(ctx *cmdctx.Ctx, exprs map[string]string) map[string]any {
-	exprEnv := exprenv.Make(ctx)
 	body := make(map[string]any)
+	mergeBodyParams(exprenv.Make(ctx), body, exprs)
+	return body
+}
+
+// mergeBodyParams writes each non-nil body_params result into dst, so it can add to a body
+// that already has content (e.g. a subtree picked from a GET). Expressions evaluating to
+// nil are skipped rather than written as null: a caller that omitted the flag wants the key
+// absent, and under a merge patch null means "delete this field".
+func mergeBodyParams(env map[string]any, dst map[string]any, exprs map[string]string) {
+	for dotPath, result := range evalBodyParamValues(env, exprs) {
+		setDotPath(dst, dotPath, result)
+	}
+}
+
+func evalBodyParamValues(env map[string]any, exprs map[string]string) map[string]any {
+	values := make(map[string]any)
 	for dotPath, exprStr := range exprs {
-		if result, ok := exprenv.EvalExprAny(exprEnv, exprStr); ok && result != nil {
-			setDotPath(body, dotPath, result)
+		if result, ok := exprenv.EvalExprAny(env, exprStr); ok && result != nil {
+			values[dotPath] = result
 		}
 	}
-	return body
+	return values
 }
 
 // parseArrayFlag parses a string flag value as []string.
@@ -736,7 +757,8 @@ func resolveContentType(ep *spec.EndpointSpec, method string) string {
 //  2. Extract ep.UpdateBodyPick subtree from the response
 //  3. Apply --set/--del mutations using noun field paths
 //  4. Re-wrap under ep.UpdateBodyWrap key (if set)
-//  5. PUT or PATCH the result (method determines verb and Content-Type)
+//  5. Merge ep.BodyParams for write-only fields the GET cannot supply
+//  6. PUT or PATCH the result (method determines verb and Content-Type)
 func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path, method string) (any, error) {
 	exprEnv := exprenv.Make(ctx)
 
@@ -750,7 +772,8 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 	}
 
 	getQP := evalQueryParams(ctx, firstNonEmptyMap(ep.GetQueryParams, ep.QueryParams), true)
-	getResult, _, err := c.Get(getPath, getQP)
+	extraHeaders := evalRequestHeaders(ep, exprEnv)
+	getResult, _, err := c.DoRequest(client.Request{Method: "GET", Path: getPath, QueryParams: getQP, Headers: extraHeaders})
 	if err != nil {
 		return nil, fmt.Errorf("get-then-%s: GET failed: %w", strings.ToLower(method), err)
 	}
@@ -771,30 +794,17 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		}
 	}
 
-	// Round-trip through JSON to get a map[string]any we can mutate.
-	b, err := json.Marshal(item)
+	base, err := jsonCopyMap(item)
 	if err != nil {
-		return nil, fmt.Errorf("get-then-%s: marshaling picked item: %w", strings.ToLower(method), err)
-	}
-	var mutable map[string]any
-	if err := json.Unmarshal(b, &mutable); err != nil {
-		return nil, fmt.Errorf("get-then-%s: unmarshaling picked item: %w", strings.ToLower(method), err)
+		return nil, fmt.Errorf("get-then-%s: copying picked item: %w", strings.ToLower(method), err)
 	}
 
-	// Build a fieldID→FieldDef map from the noun's mutable fields for --set/--del resolution.
-	fieldPaths := map[string]spec.FieldDef{}
-	for _, f := range MutableFields(resolveNounDef(ctx)) {
-		fieldPaths[f.ID] = f
-	}
-
-	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths); err != nil {
+	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH")
+	if err != nil {
 		return nil, err
 	}
 
-	var updateBody any = mutable
-	if ep.UpdateBodyWrap != "" {
-		updateBody = map[string]any{ep.UpdateBodyWrap: mutable}
-	}
+	var updateBody any = body
 	updateQP := evalQueryParams(ctx, ep.QueryParams, true)
 	result, _, err := c.DoRequest(client.Request{
 		Method:          method,
@@ -802,6 +812,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		QueryParams:     updateQP,
 		Body:            updateBody,
 		BodyContentType: resolveContentType(ep, method),
+		Headers:         extraHeaders,
 	})
 	return result, err
 }
@@ -825,7 +836,8 @@ func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, p
 	}
 
 	getQP := evalQueryParams(ctx, firstNonEmptyMap(ep.GetQueryParams, ep.QueryParams), true)
-	getResult, _, err := c.Get(getPath, getQP)
+	extraHeaders := evalRequestHeaders(ep, exprEnv)
+	getResult, _, err := c.DoRequest(client.Request{Method: "GET", Path: getPath, QueryParams: getQP, Headers: extraHeaders})
 	if err != nil {
 		return nil, fmt.Errorf("get-then-put-kv: GET failed: %w", err)
 	}
@@ -852,9 +864,30 @@ func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, p
 		}
 	}
 
-	maps.Copy(kvMap, ctx.SetArgs)
-	for _, k := range ctx.DelArgs {
-		delete(kvMap, k)
+	if ctx.MutationOrderCaptured {
+		for _, op := range ctx.MutationFlags {
+			switch op.Kind {
+			case cmdctx.MutationSet:
+				kvMap[op.Key] = op.Value
+			case cmdctx.MutationDelete:
+				delete(kvMap, op.Raw)
+			case cmdctx.MutationAdd:
+				if !op.HasValue {
+					return nil, fmt.Errorf("--add %s: expected key=value", op.Key)
+				}
+				if existing, found := kvMap[op.Key]; found && existing != op.Value {
+					return nil, fmt.Errorf("--add %s: key already exists with a different value; use --set to overwrite it", op.Key)
+				}
+				kvMap[op.Key] = op.Value
+			default:
+				return nil, fmt.Errorf("unknown mutation operation %q", op.Kind)
+			}
+		}
+	} else {
+		maps.Copy(kvMap, ctx.SetArgs)
+		for _, k := range ctx.DelArgs {
+			delete(kvMap, k)
+		}
 	}
 
 	// Rebuild as [{key, value}, ...].
@@ -874,7 +907,7 @@ func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, p
 		putBody["metadata"] = pairs
 	}
 	putQP := evalQueryParams(ctx, ep.QueryParams, true)
-	result, _, err := c.Put(path, putQP, putBody)
+	result, _, err := c.DoRequest(client.Request{Method: "PUT", Path: path, QueryParams: putQP, Body: putBody, Headers: extraHeaders})
 	return result, err
 }
 
@@ -885,118 +918,47 @@ func runGetThenPutKV(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, p
 //  4. POST the result
 func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path string) (any, error) {
 	exprEnv := exprenv.Make(ctx)
-	mutable := map[string]any{}
+	base := map[string]any{}
 
 	// Seed initial values from create_body_init (evaluated as exprs).
 	for dotPath, exprStr := range ep.CreateBodyInit {
 		if result, ok := exprenv.EvalExprAny(exprEnv, exprStr); ok {
-			setDotPath(mutable, dotPath, result)
+			setDotPath(base, dotPath, result)
 		}
 	}
 
-	// Build fieldID→FieldDef map from the noun's mutable fields.
-	fieldPaths := map[string]spec.FieldDef{}
-	for _, f := range MutableFields(resolveNounDef(ctx)) {
-		fieldPaths[f.ID] = f
-	}
-
-	if err := applyMutations(mutable, ctx.SetArgs, ctx.DelArgs, fieldPaths); err != nil {
+	postBody, err := mutationBodyForCtx(ctx, base, ep.CreateBodyWrap, nil, false, false)
+	if err != nil {
 		return nil, err
 	}
-
-	var postBody any = mutable
-	if ep.CreateBodyWrap != "" {
-		postBody = map[string]any{ep.CreateBodyWrap: mutable}
-	}
 	postQP := evalQueryParams(ctx, ep.QueryParams, true)
-	result, _, err := c.Post(path, postQP, postBody)
+	result, _, err := c.DoRequest(client.Request{Method: "POST", Path: path, QueryParams: postQP, Body: postBody, Headers: evalRequestHeaders(ep, exprEnv)})
 	return result, err
 }
 
-// applyMutations applies --set and --del operations to mutable in-place.
-// applyMutations applies --set and --del operations to mutable in-place.
-// fieldPaths maps field IDs to their FieldDef; fd.MutablePath is the dot-path
-// within mutable (relative to the update_body_pick subtree, no "it." prefix).
-func applyMutations(mutable map[string]any, setArgs map[string]string, delArgs []string, fieldPaths map[string]spec.FieldDef) error {
-	// Build a map from user-facing field ID to its mutable_path within mutable.
-	idToRel := map[string]string{}
-	for id, fd := range fieldPaths {
-		idToRel[id] = fd.MutablePath
+func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any, picked, sparsePatch bool) (map[string]any, error) {
+	ops := effectiveMutations(ctx.SetArgs, ctx.DelArgs, ctx.MutationFlags)
+	if ctx.MutationOrderCaptured {
+		ops = ctx.MutationFlags
 	}
-
-	for key, val := range setArgs {
-		// key may be a field ID (e.g. "name"), a field.subkey (e.g. "tags.env"),
-		// or a set member (e.g. "modules.CD" for field_type=set).
-		parts := strings.SplitN(key, ".", 2)
-		fieldID := parts[0]
-
-		fd, known := fieldPaths[fieldID]
-		if !known {
-			return fmt.Errorf("unknown or read-only field %q; use --list-fields to see mutable fields", fieldID)
-		}
-		rel := idToRel[fieldID]
-
-		switch fd.FieldType {
-		case "tags":
-			if len(parts) < 2 {
-				return fmt.Errorf("--set %s: tag fields require a key (e.g. --%s tags.key=value)", key, "set")
+	if len(ops) > 0 && ctx.Resolver == nil {
+		return nil, fmt.Errorf("field type resolver is not available")
+	}
+	fields := map[string]spec.FieldDef{}
+	handlers := map[string]cmdctx.FieldTypeHandler{}
+	mutableFields := MutableFields(resolveNounDef(ctx))
+	for _, field := range mutableFields {
+		fields[field.ID] = field
+		if (len(ops) > 0 || picked) && ctx.Resolver != nil {
+			if handler, found := ctx.Resolver.ResolveFieldType(field.FieldType); found {
+				handlers[field.FieldType] = handler
 			}
-			tagKey := parts[1]
-			// Get or create the tags map.
-			tagsMap := getDotPathMap(mutable, rel)
-			if tagsMap == nil {
-				tagsMap = map[string]any{}
-			}
-			tagsMap[tagKey] = val
-			setDotPath(mutable, rel, tagsMap)
-		case "set":
-			if len(parts) < 2 {
-				return fmt.Errorf("--set %s: set fields require a member (e.g. --set modules.CD)", key)
-			}
-			member := parts[1]
-			arr := getDotPathSlice(mutable, rel)
-			if !sliceContains(arr, member) {
-				arr = append(arr, member)
-			}
-			setDotPath(mutable, rel, arr)
-		default: // scalar
-			setDotPath(mutable, rel, val)
 		}
 	}
-
-	for _, key := range delArgs {
-		parts := strings.SplitN(key, ".", 2)
-		fieldID := parts[0]
-
-		fd, known := fieldPaths[fieldID]
-		if !known {
-			return fmt.Errorf("unknown or read-only field %q; use --list-fields to see mutable fields", fieldID)
-		}
-		rel := idToRel[fieldID]
-
-		switch fd.FieldType {
-		case "tags":
-			if len(parts) < 2 {
-				return fmt.Errorf("--del %s: tag fields require a key (e.g. --del tags.key)", key)
-			}
-			tagKey := parts[1]
-			tagsMap := getDotPathMap(mutable, rel)
-			if tagsMap != nil {
-				delete(tagsMap, tagKey)
-				setDotPath(mutable, rel, tagsMap)
-			}
-		case "set":
-			if len(parts) < 2 {
-				return fmt.Errorf("--del %s: set fields require a member (e.g. --del modules.CD)", key)
-			}
-			member := parts[1]
-			arr := getDotPathSlice(mutable, rel)
-			setDotPath(mutable, rel, sliceRemove(arr, member))
-		default: // scalar
-			setDotPath(mutable, rel, nil)
-		}
+	if !picked {
+		mutableFields = nil
 	}
-	return nil
+	return buildMutationBodyWithPick(base, mutableFields, fields, handlers, ops, wrap, extra, sparsePatch)
 }
 
 // getDotPathMap retrieves a map[string]any at a dot-separated path, or nil.

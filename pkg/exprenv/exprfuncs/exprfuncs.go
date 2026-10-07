@@ -8,6 +8,7 @@ package exprfuncs
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -413,4 +414,16 @@ func IsBlank(v any) bool {
 	}
 	s, ok := v.(string)
 	return ok && s == ""
+}
+
+// Env returns the value of the named environment variable, or def (default "")
+// when it is unset or empty.
+func Env(name string, def ...string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	if len(def) > 0 {
+		return def[0]
+	}
+	return ""
 }

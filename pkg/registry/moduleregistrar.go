@@ -15,7 +15,7 @@ import (
 type WorkflowFn func(ctx *cmdctx.Ctx) error
 
 // ModuleRegistrar is the interface passed to each module's ModuleInit. All
-// IDs passed to RegisterWorkflow and RegisterTextFormatter are short (no colon)
+// IDs passed to RegisterWorkflow, RegisterTextFormatter, and RegisterFieldType are short (no colon)
 // and are automatically namespaced as "module:id". Register stamps the module
 // name onto spec.Module and rewrites WorkflowID / TextFormatter to their
 // fully-qualified form.
@@ -36,6 +36,7 @@ type ModuleRegistrar interface {
 	RegisterFlagCompletionFn(shortID string, fn FlagCompletionFn)
 	RegisterFlagResolveFn(shortID string, fn cmdctx.FlagResolveFn)
 	RegisterEndpointValidatorFn(shortID string, fn cmdctx.EndpointValidatorFn)
+	RegisterFieldType(shortID string, handler cmdctx.FieldTypeHandler)
 }
 
 // moduleRegistrar is the concrete impl returned by Registry.Module.
@@ -187,6 +188,12 @@ func (m *moduleRegistrar) RegisterFlagResolveFn(shortID string, fn cmdctx.FlagRe
 func (m *moduleRegistrar) RegisterEndpointValidatorFn(shortID string, fn cmdctx.EndpointValidatorFn) {
 	if q := m.qualify(shortID, fmt.Sprintf("endpoint_validator_fn %q", shortID), false); q != "" {
 		m.reg.RegisterEndpointValidatorFn(q, fn)
+	}
+}
+
+func (m *moduleRegistrar) RegisterFieldType(shortID string, handler cmdctx.FieldTypeHandler) {
+	if q := m.qualify(shortID, fmt.Sprintf("field type %q", shortID), false); q != "" {
+		m.reg.RegisterFieldType(q, handler)
 	}
 }
 

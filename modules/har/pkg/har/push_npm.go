@@ -308,5 +308,6 @@ func pushNpmArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed %s@%s to %s\n", pkg.Name, pkg.Version, ctx.Id)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, pkg.Name, pkg.Version)
 	return nil
 }

@@ -118,10 +118,39 @@ type FlagResolveResult struct {
 // the CEL expression environment. Returning an error aborts the command.
 type FlagResolveFn func(ctx *Ctx, raw string) (*FlagResolveResult, error)
 
+type MutationKind string
+
+const (
+	MutationSet    MutationKind = "set"
+	MutationAdd    MutationKind = "add"
+	MutationDelete MutationKind = "del"
+)
+
+type FieldMutation struct {
+	Kind     MutationKind
+	Raw      string // operand without the flag name or shell quotes
+	Key      string
+	Value    string
+	HasValue bool
+}
+
+// FieldTypeHandler prepares, changes, and serializes a mutable field's value.
+type FieldTypeHandler struct {
+	// Normalize prepares a field's current value for mutation or inclusion in a picked update body.
+	Normalize func(field spec.FieldDef, current any) (any, error)
+	// Mutate applies one operation to the prepared value. Returning write=true
+	// keeps next as the new value and marks the field for serialization.
+	Mutate func(field spec.FieldDef, current any, op FieldMutation) (next any, write bool, err error)
+	// Encode converts the final value into the request body's shape. It runs once
+	// after all operations on a field marked for serialization.
+	Encode func(field spec.FieldDef, current any) (any, error)
+}
+
 // Resolver looks up registered handler functions by their fully-qualified ID.
 // The registry implements this; commands receive it via Ctx.Resolver.
 type Resolver interface {
 	ResolveTextFormatter(id string) TextFormatterFn
+	ResolveFieldType(id string) (FieldTypeHandler, bool)
 	ResolveBodyFn(id string) CreateBodyFn
 	ResolveQueryParamsFn(id string) QueryParamsFn
 	ResolveFlagResolveFn(id string) FlagResolveFn
@@ -203,28 +232,30 @@ type PageMeta struct {
 // Auth is nil for management commands (version, etc.) that do not require credentials.
 // When Auth is non-nil, OrgID and ProjectID already reflect any --org/--project overrides.
 type Ctx struct {
-	Context      context.Context
-	CancelFn     context.CancelCauseFunc
-	Auth         *auth.ResolvedAuth
-	Verb         string
-	VerbHandler  string // behavioral dispatch verb; defaults to Verb when verb_handler is unset in spec
-	Noun         string
-	FieldsNoun   string // overrides Noun for field lookup when set (from spec fields_noun)
-	Id           string
-	ParentId     string            // optional parent-id arg for list commands (e.g. pipeline ID on "list execution")
-	MigrateFrom  string            // --from flag value (pair verbs, e.g. migrate: identifies the source endpoint)
-	MigrateTo    string            // --to flag value (pair verbs, e.g. migrate: identifies the destination endpoint)
-	SetArgs      map[string]string // --set key=value pairs for update verb (when HasSetArg set on spec)
-	DelArgs      []string          // --del key targets for update verb (when HasSetArg set on spec)
-	Args         []string          // extra positional args beyond [id] (when HasArgs set on spec)
-	IdParts      []string          // id split on "/" when id_parts > 1 on spec; length equals the number of actual parts
-	Level        string            // scope level: "account", "org", or "project" (empty when flag not present)
-	IsPty        bool              // true when stdout is an interactive terminal
-	IsCompletion bool              // true when this ctx was built for a shell completion request
-	Resolver     Resolver
-	GlobalFlags  GlobalFlags
-	FormatFlags  FormatFlags
-	PagingFlags  PagingFlags
+	Context               context.Context
+	CancelFn              context.CancelCauseFunc
+	Auth                  *auth.ResolvedAuth
+	Verb                  string
+	VerbHandler           string // behavioral dispatch verb; defaults to Verb when verb_handler is unset in spec
+	Noun                  string
+	FieldsNoun            string // overrides Noun for field lookup when set (from spec fields_noun)
+	Id                    string
+	ParentId              string            // optional parent-id arg for list commands (e.g. pipeline ID on "list execution")
+	MigrateFrom           string            // --from flag value (pair verbs, e.g. migrate: identifies the source endpoint)
+	MigrateTo             string            // --to flag value (pair verbs, e.g. migrate: identifies the destination endpoint)
+	SetArgs               map[string]string // --set key=value pairs for update verb (when HasSetArg set on spec)
+	DelArgs               []string          // --del key targets for update verb (when HasSetArg set on spec)
+	MutationFlags         []FieldMutation   // explicit flags in parse order, followed by positional sets
+	MutationOrderCaptured bool              // use MutationFlags rather than the legacy SetArgs/DelArgs views
+	Args                  []string          // extra positional args beyond [id] (when HasArgs set on spec)
+	IdParts               []string          // id split on "/" when id_parts > 1 on spec; length equals the number of actual parts
+	Level                 string            // scope level: "account", "org", or "project" (empty when flag not present)
+	IsPty                 bool              // true when stdout is an interactive terminal
+	IsCompletion          bool              // true when this ctx was built for a shell completion request
+	Resolver              Resolver
+	GlobalFlags           GlobalFlags
+	FormatFlags           FormatFlags
+	PagingFlags           PagingFlags
 	// FlagValues holds typed flag values for this command, keyed by flag name. It contains:
 	//   - all flags declared in the spec (cs.Flags), typed as string/bool/[]string
 	//   - "page"         int    (0-indexed) when the spec declares builtin_flags.page
@@ -233,7 +264,8 @@ type Ctx struct {
 	//   - "list-columns" bool   when the flag exists (list commands)
 	//   - "list-fields"  bool   when the flag exists (get/update commands)
 	//   - "profile", "org", "project" string when no_auth: true (the handler owns auth resolution)
-	FlagValues map[string]any
+	FlagValues    map[string]any
+	ProvidedFlags map[string]bool
 	// UIHistory is the --ui back-navigation stack: one UILink pushed per Hop
 	// (link/up/view), popped by the "b" key. Session-lifetime only.
 	UIHistory []UILink
@@ -248,6 +280,24 @@ type Ctx struct {
 	// its screen's own "b" key to behave like the rest of --ui's back
 	// navigation must set this to true before returning — it is not automatic.
 	UIWantBack bool
+
+	RequestPreview io.Writer // non-nil to preview the next unsafe HTTP request instead of sending it
+}
+
+func (c *Ctx) SetFlag(name string, value any) {
+	if c.FlagValues == nil {
+		c.FlagValues = map[string]any{}
+	}
+	if c.ProvidedFlags == nil {
+		c.ProvidedFlags = map[string]bool{}
+	}
+	c.FlagValues[name] = value
+	c.ProvidedFlags[name] = true
+}
+
+func (c *Ctx) RemoveFlag(name string) {
+	delete(c.FlagValues, name)
+	delete(c.ProvidedFlags, name)
 }
 
 // ScopedAuth returns Auth adjusted for Level: "org" clears ProjectID, "account"

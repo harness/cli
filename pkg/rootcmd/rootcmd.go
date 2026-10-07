@@ -180,6 +180,7 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 	}
 	root.SilenceUsage = true
 	root.SilenceErrors = true
+	root.SetUsageTemplate(usageTemplate)
 
 	root.PersistentFlags().BoolFunc("debug", "Enable debug logging", func(string) error {
 		if !isCompletionInvocation() {

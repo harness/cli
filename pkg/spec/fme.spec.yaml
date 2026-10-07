@@ -1,5 +1,5 @@
 spec_version: 1
-module_type: hidden
+module_type: builtin
 module_desc: Harness FME — Feature flags and targeting definitions
 help_text: |
   ## Feature Management & Experimentation (fme)
@@ -27,6 +27,15 @@ nouns:
       - id: rollout_status
         label: Rollout Status
         expr: it.rolloutStatus.name ?? ""
+        mutable_path: rolloutStatus.id
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+        mutable_path: tags
+        field_type: fme:tags
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
+        mutable_path: owners
+        field_type: fme:owners
       - id: created
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
@@ -35,6 +44,8 @@ nouns:
     short_desc: A Harness FME environment (distinct from the CD "environment" noun).
     noun_aliases: [fme_environments, fme_env]
     fields:
+      - id: id
+        expr: it.id
       - id: name
         expr: it.name
         mutable_path: name
@@ -58,11 +69,121 @@ nouns:
       - id: traffic_type
         label: Traffic Type
         expr: it.trafficType.name
+      - id: segment_type
+        label: Segment Type
+        expr: it.segmentType
+      - id: status
+        expr: it.status
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+        mutable_path: tags
+        field_type: fme:tags
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
+        mutable_path: owners
+        field_type: fme:owners
+      - id: created
+        expr: epochMs(it.createdAt * 1000)
+        field_type: ts
+
+  - noun: metric
+    short_desc: A Harness FME metric definition (addressed by id, not name).
+    noun_aliases: [metrics]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: description
+        expr: it.description ?? ""
+        mutable_path: description
+        width_max: 60
+      - id: traffic_type
+        label: Traffic Type
+        expr: it.trafficType.name
+      - id: format
+        expr: it.format
+        mutable_path: format
+      - id: aggregation
+        expr: it.aggregation
+        mutable_path: aggregation
+      - id: is_positive
+        label: Positive
+        expr: string(it.isPositive)
+        mutable_path: isPositive
+      - id: spread
+        expr: it.spread ?? ""
+        mutable_path: spread
+      - id: base_event_types
+        label: Base Event Types
+        expr: join(map(it.baseEventTypes, {#.eventTypeId}), ", ")
+      - id: filter_event_type
+        label: Filter Event Type
+        expr: 'it.filterEventType == nil ? "" : it.filterEventType.eventTypeId'
+        mutable_path: filterEventType.eventTypeId
+      - id: filter_aggregation
+        label: Filter Aggregation
+        expr: 'it.filterEventType == nil ? "" : (it.filterEventType.filterAggregation ?? "")'
+        mutable_path: filterEventType.filterAggregation
+      - id: cap_metric_value
+        label: Cap (Metric Value)
+        expr: 'it.cap == nil ? "" : string(it.cap.metricValueCap ?? 0)'
+        mutable_path: cap.metricValueCap
+      - id: cap_base_event_count
+        label: Cap (Base Event Count)
+        expr: 'it.cap == nil ? "" : string(it.cap.baseEventCountCap ?? 0)'
+        mutable_path: cap.baseEventCountCap
+      - id: cap_base_event_sum
+        label: Cap (Base Event Sum)
+        expr: 'it.cap == nil ? "" : string(it.cap.baseEventSumCap ?? 0)'
+        mutable_path: cap.baseEventSumCap
+      - id: cap_base_event_value
+        label: Cap (Base Event Value)
+        expr: 'it.cap == nil ? "" : string(it.cap.baseEventValueCap ?? 0)'
+        mutable_path: cap.baseEventValueCap
+      - id: cap_filter_event_count
+        label: Cap (Filter Event Count)
+        expr: 'it.cap == nil ? "" : string(it.cap.filterEventCountCap ?? 0)'
+        mutable_path: cap.filterEventCountCap
+      - id: cap_filter_event_sum
+        label: Cap (Filter Event Sum)
+        expr: 'it.cap == nil ? "" : string(it.cap.filterEventSumCap ?? 0)'
+        mutable_path: cap.filterEventSumCap
+      - id: cap_filter_event_value
+        label: Cap (Filter Event Value)
+        expr: 'it.cap == nil ? "" : string(it.cap.filterEventValueCap ?? 0)'
+        mutable_path: cap.filterEventValueCap
+      - id: cap_granularity
+        label: Cap Granularity
+        expr: 'it.cap == nil ? "" : (it.cap.granularity ?? "")'
+        mutable_path: cap.granularity
+      - id: trigger_event_type
+        label: Trigger Event Type
+        expr: 'it.triggerEventType == nil ? "" : it.triggerEventType.eventTypeId'
+        mutable_path: triggerEventType.eventTypeId
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+        mutable_path: tags
+        field_type: fme:tags
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
+        mutable_path: owners
+        field_type: fme:owners
       - id: status
         expr: it.status
       - id: created
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
+      - id: modified
+        expr: epochMs(it.modifiedAt * 1000)
+        field_type: ts
+
+  - noun: segment_key
+    short_desc: A membership key of a segment definition, scoped to one environment.
+    noun_aliases: [segment_keys, seg_key]
+    fields:
+      - id: key
+        expr: it.key
 
   - noun: traffic_type
     short_desc: Harness FME traffic type (read-only lookup).
@@ -71,6 +192,18 @@ nouns:
         expr: it.id
       - id: name
         expr: it.name
+
+  # An event type has no name or description by design: the events pipeline records neither,
+  # so the id *is* the event name. Only event types with events in the last 30 days are visible.
+  - noun: event_type
+    short_desc: A Harness FME event type (read-only lookup for a metric's event types).
+    noun_aliases: [event_types]
+    fields:
+      - id: id
+        expr: it.id
+      - id: traffic_types
+        label: Traffic Types
+        expr: join(map(it.trafficTypes, {#.name}), ", ")
 
   - noun: rollout_status
     short_desc: Harness FME rollout status (read-only lookup).
@@ -90,6 +223,11 @@ nouns:
       - id: default_treatment
         label: Default Treatment
         expr: it.defaultTreatment
+        mutable_path: defaultTreatment
+      - id: baseline_treatment
+        label: Baseline Treatment
+        expr: it.baselineTreatment ?? ""
+        mutable_path: baselineTreatment
       - id: traffic_allocation
         label: Traffic Allocation
         expr: string(it.trafficAllocation)
@@ -97,6 +235,11 @@ nouns:
       - id: is_killed
         label: Killed
         expr: string(it.isKilled)
+      - id: flag_sets
+        label: Flag Sets
+        expr: join(map(it.flagSets, {#.id}), ", ")
+        mutable_path: flagSets
+        field_type: fme:flag_sets
       - id: created
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
@@ -117,6 +260,165 @@ nouns:
       - id: created
         expr: epochMs(it.createdAt * 1000)
         field_type: ts
+
+  - noun: experiment
+    short_desc: A Harness FME experiment run against a feature flag or AI Config.
+    noun_aliases: [experiments, exp]
+    fields:
+      - id: id
+        expr: it.id
+      - id: name
+        expr: it.name
+      - id: parent_type
+        label: Parent Type
+        expr: it.parent.type
+      - id: parent
+        expr: it.parent.name ?? it.parent.id
+      - id: description
+        expr: it.description ?? ""
+        mutable_path: description
+        width_max: 60
+      - id: hypothesis
+        expr: it.hypothesis ?? ""
+        mutable_path: hypothesis
+        width_max: 60
+      - id: environment
+        expr: it.environment.name
+      - id: traffic_type
+        label: Traffic Type
+        expr: it.trafficType.name
+      - id: start_at
+        label: Start At
+        expr: it.startAt
+        mutable_path: startAt
+      - id: end_at
+        label: End At
+        expr: it.endAt
+        mutable_path: endAt
+      - id: baseline_treatment
+        label: Baseline Treatment
+        expr: it.baselineTreatment
+        mutable_path: baselineTreatment
+      - id: comparison_treatments
+        label: Comparison Treatments
+        expr: join(it.comparisonTreatments, ", ")
+        mutable_path: comparisonTreatments
+        field_type: set
+      - id: key_metrics
+        label: Key Metrics
+        expr: join(map(it.keyMetrics, {#.name}), ", ")
+        mutable_path: keyMetrics
+        field_type: fme:metric_refs
+      - id: supporting_metrics
+        label: Supporting Metrics
+        expr: join(map(it.supportingMetrics, {#.name}), ", ")
+        mutable_path: supportingMetrics
+        field_type: fme:metric_refs
+      - id: tags
+        expr: join(map(it.tags, {#.name}), ", ")
+        mutable_path: tags
+        field_type: fme:tags
+      - id: owners
+        expr: join(map(it.owners, {#.name}), ", ")
+        mutable_path: owners
+        field_type: fme:owners
+      - id: status
+        expr: it.status
+        mutable_path: status
+      - id: created
+        expr: it.createdAt
+      - id: modified
+        expr: it.modifiedAt
+
+  - noun: experiment_settings
+    short_desc: An experiment's statistical settings (used for field lookup only).
+    fields:
+      - id: id
+        expr: it.id
+      - id: source
+        expr: it.source
+      - id: statistical_test_type
+        label: Statistical Test Type
+        expr: it.statisticalTestType
+        mutable_path: statisticalTestType
+      - id: significance_threshold
+        label: Significance Threshold
+        expr: string(it.significanceThreshold)
+        mutable_path: significanceThreshold
+      - id: multiple_comparison_correction
+        label: Multiple Comparison Correction
+        expr: it.multipleComparisonCorrection
+        mutable_path: multipleComparisonCorrection
+      - id: minimum_sample_size
+        label: Minimum Sample Size
+        expr: string(it.minimumSampleSize)
+        mutable_path: minimumSampleSize
+      - id: review_period
+        label: Review Period
+        expr: it.reviewPeriod
+        mutable_path: reviewPeriod
+      - id: variance_reduction
+        label: Variance Reduction
+        expr: it.varianceReduction.method
+        mutable_path: varianceReduction.method
+
+  - noun: experiment_alerts
+    short_desc: An experiment's alerting configuration (used for field lookup only).
+    fields:
+      - id: id
+        expr: it.id
+      - id: is_enabled
+        label: Enabled
+        expr: string(it.isEnabled)
+        mutable_path: isEnabled
+
+  - noun: experiment_results
+    short_desc: A metric result for an experiment comparison (used for field lookup only, read-only).
+    fields:
+      - id: metric_id
+        label: Metric Id
+        expr: it.metricId.id
+      - id: metric_name
+        label: Metric Name
+        expr: it.metricId.name
+      - id: category
+        expr: it.category
+      - id: comparison
+        expr: it.comparison
+      - id: positive
+        expr: string(it.positive)
+      - id: value
+        expr: 'it.value == nil ? "" : string(it.value)'
+      - id: error_margin
+        label: Error Margin
+        expr: 'it.errorMargin == nil ? "" : string(it.errorMargin)'
+      - id: pvalue
+        label: P-Value
+        expr: 'it.pvalue == nil ? "" : string(it.pvalue)'
+      - id: metric_result_state
+        label: State
+        expr: it.metricResultState
+      - id: impact_lower
+        label: Impact Lower
+        expr: 'it.impactLower == nil ? "" : string(it.impactLower)'
+      - id: impact_upper
+        label: Impact Upper
+        expr: 'it.impactUpper == nil ? "" : string(it.impactUpper)'
+      - id: baseline_mean
+        label: Baseline Mean
+        expr: 'it.baselineMean == nil ? "" : string(it.baselineMean)'
+      - id: comparison_mean
+        label: Comparison Mean
+        expr: 'it.comparisonMean == nil ? "" : string(it.comparisonMean)'
+      - id: baseline_sample_size
+        label: Baseline Sample Size
+        expr: 'it.baselineSampleSize == nil ? "" : string(it.baselineSampleSize)'
+      - id: comparison_sample_size
+        label: Comparison Sample Size
+        expr: 'it.comparisonSampleSize == nil ? "" : string(it.comparisonSampleSize)'
+      - id: variance_reduction_method
+        label: Variance Reduction Method
+        expr: it.varianceReduction.method
 
 commands:
   # ── feature_flag ─────────────────────────────────────────────────────────────
@@ -142,7 +444,7 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         name: flags.search
-        rollout_statuses: flags.status
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -170,16 +472,16 @@ commands:
   - command: create feature_flag
     verb: create
     noun: feature_flag
-    short: "Create a feature flag: harness create ff <name> --traffic-type user"
+    short: "Create a feature flag: harness create ff <name> --traffic-type user (or -f ff.json)"
     handler_type: endpoint
     flags:
       - name: traffic-type
-        description: Traffic type for the feature flag (e.g. user, account)
-        required: true
+        description: Traffic type for the feature flag (e.g. user, account); required unless supplied via -f
     flags_builtin:
       set: true
     endpoint:
       method: POST
+      file_body: optional
       path: /fme/api/v4/feature-flags
       query_params:
         account_id: auth.account
@@ -196,17 +498,25 @@ commands:
   - command: update feature_flag
     verb: update
     noun: feature_flag
-    short: "Update a feature flag: harness update ff <name> --set description=foo"
+    short: "Update a feature flag: harness update ff <name> --set description=foo (or -f patch.json)"
     handler_type: endpoint
     flags_builtin:
       set: true
       del: true
     endpoint:
       method: PATCH
+      file_body: optional
       path: /fme/api/v4/feature-flags/{{ctx.id}}
       get_path: /fme/api/v4/feature-flags/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      # v4's UpdateFeatureFlagRequest accepts only description/tags/owners/rolloutStatus
+      # and rejects unknown properties, so the GET response cannot be echoed back —
+      # id/name/trafficType/status/createdAt all make it a 400. Pick the writable
+      # fields the GET carries; rolloutStatus is created by --set via its mutable_path,
+      # and the PATCH is an RFC 7396 merge patch, so anything omitted is left untouched.
+      # tags/owners are picked (not just description) so --add/--del owners.* and
+      # --add/--del tags.* can preserve the other members of the collection.
+      update_body_pick: "{description: it.description, tags: it.tags, owners: it.owners}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
@@ -219,8 +529,13 @@ commands:
     verb: delete
     noun: feature_flag
     confirm_mode: prompt
-    short: Delete a feature flag (must have no active definitions)
+    short: "Delete a feature flag (must have no active definitions): harness delete feature_flag <name> [--comment <text>] [--title <text>]"
     handler_type: endpoint
+    flags:
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: DELETE
       path: /fme/api/v4/feature-flags/{{ctx.id}}
@@ -228,6 +543,12 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+      # comment/title travel as a JSON body (not query params): the v4 resource takes
+      # @Valid ArchiveUnarchiveRequest with no @QueryParam, unlike segment:definition's delete.
+      # Omitted (not sent as null/empty) when unset, same reasoning as feature_flag:definition update.
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
 
   - command: execute feature_flag:archive
     verb: execute
@@ -238,6 +559,8 @@ commands:
     flags:
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flags/{{ctx.id}}/archive
@@ -247,6 +570,7 @@ commands:
         project_identifier: auth.project
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nArchived feature flag {{ctx.id}}\n"
 
@@ -259,6 +583,8 @@ commands:
     flags:
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flags/{{ctx.id}}/unarchive
@@ -268,6 +594,7 @@ commands:
         project_identifier: auth.project
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nUnarchived feature flag {{ctx.id}}\n"
 
@@ -286,7 +613,7 @@ commands:
       path: /fme/api/v4/feature-flag-definitions
       items_expr: it.data
       item_item_expr: it
-      get_id_expr: it.environment.id
+      get_id_expr: it.featureFlag.name
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -350,23 +677,37 @@ commands:
     verb: update
     noun: feature_flag
     noun_variant: definition
-    short: "Update a flag definition: harness update ff:definition <name> --env <env-id> --set trafficAllocation=80"
+    short: "Update a flag definition: harness update ff:definition <name> --env <env-id> --set traffic_allocation=80 (or -f body.json for treatments/rules/defaultRule)"
     handler_type: endpoint
     fields_noun: feature_flag_definition
     flags:
       - name: env
         description: Environment identifier (required)
         required: true
+      - name: comment
+        description: Audit comment (metadata only — not stored on or returned by the definition)
+      - name: title
+        description: Audit title (metadata only — not stored on or returned by the definition)
     flags_builtin:
       set: true
       del: true
     endpoint:
       method: PATCH
+      file_body: optional
       path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
       get_path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      # flagSets is picked (not just the three scalars) so --add/--del flag_sets.* can
+      # preserve the other members of the collection, same reasoning as tags/owners.
+      update_body_pick: '{trafficAllocation: it.trafficAllocation, defaultTreatment: it.defaultTreatment, baselineTreatment: it.baselineTreatment, flagSets: it.flagSets}'
       update_body_wrap: ""
+      # comment/title are write-only: v4 accepts them as audit metadata but never stores or
+      # returns them, so there is nothing in the GET for update_body_pick to select. As
+      # body_params they are omitted entirely when the flag is unset — putting them in the
+      # pick sent "comment": null, which a merge patch reads as "delete this field".
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
@@ -408,6 +749,8 @@ commands:
         required: true
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}/kill
@@ -418,6 +761,7 @@ commands:
         environment_id: flags.env
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nKilled feature flag {{ctx.id}} in {{flags.env}}\n"
 
@@ -434,6 +778,8 @@ commands:
         required: true
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}/restore
@@ -444,6 +790,7 @@ commands:
         environment_id: flags.env
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nRestored feature flag {{ctx.id}} in {{flags.env}}\n"
 
@@ -460,6 +807,8 @@ commands:
         required: true
       - name: comment
         description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: POST
       path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}/reallocate
@@ -470,6 +819,7 @@ commands:
         environment_id: flags.env
       body_params:
         comment: flags.comment
+        title: flags.title
       item_expr: it.entity
       text_header: "\nReallocated traffic for {{ctx.id}} in {{flags.env}}\n"
 
@@ -499,7 +849,7 @@ commands:
         page_size_max: 100
         total_expr: it.totalCount
         countable: true
-      columns: [name, production, status]
+      columns: [id, name, production, status]
 
   - command: get fme_environment
     verb: get
@@ -554,7 +904,7 @@ commands:
       path: /fme/api/v4/environments/{{ctx.id}}
       get_path: /fme/api/v4/environments/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      update_body_pick: '{name: it.name, isProduction: it.isProduction}'
       update_body_wrap: ""
       query_params:
         account_id: auth.account
@@ -567,8 +917,13 @@ commands:
     verb: delete
     noun: fme_environment
     confirm_mode: prompt
-    short: Delete (archive) an FME environment
+    short: "Delete (archive) an FME environment: harness delete fme_environment <id> [--comment <text>] [--title <text>]"
     handler_type: endpoint
+    flags:
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: DELETE
       path: /fme/api/v4/environments/{{ctx.id}}
@@ -576,14 +931,29 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+      # comment/title travel as a JSON body (not query params): the v4 resource takes
+      # @Valid ArchiveUnarchiveRequest with no @QueryParam, unlike segment:definition's delete.
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
 
   # ── segment ──────────────────────────────────────────────────────────────────
 
   - command: list segment
     verb: list
     noun: segment
-    short: List segments
+    short: "List segments of one type: harness list segment --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      # v4 keeps the three segment kinds in disjoint collections and rejects a list call
+      # without segment_type, so there is no "all segments" query to default to.
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
+      - name: status
+        description: "Filter by status: ACTIVE, ARCHIVED (default ACTIVE)"
+        completion_values: [ACTIVE, ARCHIVED]
     endpoint:
       path: /fme/api/v4/segments
       items_expr: it.data
@@ -593,6 +963,8 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -606,32 +978,41 @@ commands:
   - command: get segment
     verb: get
     noun: segment
-    short: "Get segment details: harness get segment <name>"
+    short: "Get segment details: harness get segment <name> --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     endpoint:
       path: /fme/api/v4/segments/{{ctx.id}}
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
       item_expr: it
       yaml_pick_expr: it
 
   - command: create segment
     verb: create
     noun: segment
-    short: "Create a segment: harness create segment <name> --traffic-type user"
+    short: "Create a segment: harness create segment <name> --traffic-type user --segment-type STANDARD (or -f segment.json)"
     handler_type: endpoint
     flags:
       - name: traffic-type
-        description: Traffic type for the segment (e.g. user, account)
-        required: true
+        description: Traffic type for the segment (e.g. user, account); required unless supplied via -f
+      - name: segment-type
+        description: "Segment type: STANDARD, LARGE, RULE_BASED; required unless supplied via -f"
+        completion_values: [STANDARD, LARGE, RULE_BASED]
       - name: description
         description: Segment description
     flags_builtin:
       set: true
     endpoint:
       method: POST
+      file_body: optional
       path: /fme/api/v4/segments
       query_params:
         account_id: auth.account
@@ -641,6 +1022,7 @@ commands:
       create_body_init:
         name: ctx.id
         trafficType: flags["traffic-type"]
+        segmentType: flags["segment-type"]
         description: 'flags.description != "" ? flags.description : nil'
       create_body_wrap: ""
       item_expr: it.entity
@@ -649,22 +1031,37 @@ commands:
   - command: update segment
     verb: update
     noun: segment
-    short: "Update a segment: harness update segment <name> --set description=foo"
+    short: "Update a segment: harness update segment <name> --segment-type STANDARD --set description=foo (or -f patch.json)"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     flags_builtin:
       set: true
       del: true
     endpoint:
       method: PATCH
+      # --segment-type stays required: true here (unlike create) because it's a query-param
+      # used to route to the right partition (segment_type below), not a body field a file
+      # could supply instead — so it carries no -f collision risk.
+      file_body: optional
       path: /fme/api/v4/segments/{{ctx.id}}
       get_path: /fme/api/v4/segments/{{ctx.id}}
       update_strategy: get-then-patch
-      update_body_pick: it
+      # The v4 PATCH accepts only description/tags/owners, so the GET response cannot be
+      # echoed back: id/name/trafficType/status/segmentType are all rejected. Pick the
+      # writable fields the GET carries; tags/owners are included (not just description)
+      # so --add/--del can preserve other collection members under merge-PATCH's
+      # whole-array-replace semantics.
+      update_body_pick: "{description: it.description, tags: it.tags, owners: it.owners}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
       item_expr: it.entity
       text_header: "\nUpdated segment {{ctx.id}}\n"
 
@@ -672,8 +1069,13 @@ commands:
     verb: delete
     noun: segment
     confirm_mode: prompt
-    short: Delete (archive) a segment
+    short: "Delete (archive) a segment: harness delete segment <name> --segment-type STANDARD"
     handler_type: endpoint
+    flags:
+      - name: segment-type
+        description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
+        required: true
+        completion_values: [STANDARD, LARGE, RULE_BASED]
     endpoint:
       method: DELETE
       path: /fme/api/v4/segments/{{ctx.id}}
@@ -681,6 +1083,7 @@ commands:
         account_id: auth.account
         organization_identifier: auth.org
         project_identifier: auth.project
+        segment_type: flags["segment-type"]
 
   # ── segment:definition ─────────────────────────────────────────────────────────
 
@@ -695,6 +1098,9 @@ commands:
       - name: env
         description: Environment identifier (required)
         required: true
+      - name: status
+        description: "Filter by status: ACTIVE, ARCHIVED (default ACTIVE)"
+        completion_values: [ACTIVE, ARCHIVED]
     endpoint:
       path: /fme/api/v4/segment-definitions
       items_expr: it.data
@@ -705,6 +1111,7 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
+        status: flags.status
       paging:
         paging_strategy: offset_limit
         page_index_param: offset
@@ -796,12 +1203,16 @@ commands:
     noun: segment
     noun_variant: definition
     confirm_mode: prompt
-    short: Delete (archive) a segment definition from an environment
+    short: "Delete (archive) a segment definition from an environment: harness delete segment:definition <segment-name> --env <env-id> [--comment <text>] [--title <text>]"
     handler_type: endpoint
     flags:
       - name: env
         description: Environment identifier (required)
         required: true
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: DELETE
       path: /fme/api/v4/segment-definitions/{{ctx.id}}
@@ -810,6 +1221,303 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
+      # comment/title travel as a JSON body (not query params): FME-19742 changed this
+      # resource's delete() to take @Valid SegmentDefinitionDeleteRequest with no
+      # @QueryParam, same as feature_flag/environment delete.
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
+
+  # ── segment_key ───────────────────────────────────────────────────────────────
+  # Membership keys live on the segment definition, so every command is scoped to one
+  # environment with --env. The first positional is the segment name.
+
+  - command: list segment_key
+    verb: list
+    noun: segment_key
+    short: "List the membership keys of a segment: harness list segment_key <segment-name> --env <env-id>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<segment-name>"
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      path: /fme/api/v4/segment-definitions/{{ctx.parentId}}/keys
+      # The endpoint returns bare strings; wrap each one so it has a named field to render.
+      items_expr: 'map(it.data, ({key: #}))'
+      item_item_expr: it
+      get_id_expr: it.key
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [key]
+
+  - command: update segment_key
+    verb: update
+    noun: segment_key
+    short: "Add or remove membership keys of a segment: harness update segment_key <segment-name> --env <env-id> --key user-1 | --keys-file keys.txt [--remove]"
+    long: |
+      Add membership keys to a segment, or remove them with --remove, in one call (up to
+      10000 keys).
+
+      Keys come from --key (repeatable), from --keys-file, or both.
+
+      To load keys from a file (for example a CSV the user hands you), use --keys-file <path>
+      and do NOT loop over the keys yourself. Use --keys-file - to read from stdin.
+        - Every cell is one key: one key per line, a single row like key1,key2,key3, or
+          several columns all work, and quoted cells may contain commas.
+        - Whitespace is trimmed, blank cells are skipped, and duplicates are dropped.
+        - The file must contain ONLY keys. There is no header handling: delete a header
+          row such as "key" or "user_id" first, or it will be added as a key.
+        - A file with no keys is an error; more than 10000 keys must be split across calls.
+
+      Examples:
+        harness update segment_key power-users --env <env-id> --keys-file keys.csv
+        harness update segment_key power-users --env <env-id> --keys-file keys.csv --remove
+        harness update segment_key power-users --env <env-id> --keys-file keys.csv --replace
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: key
+        description: "Membership key (repeatable: --key user-1 --key user-2). Optional when --keys-file is given"
+        is_multi: true
+      - name: keys-file
+        description: "Path to a file of keys, or - for stdin. One key per line or comma-separated (CSV); every cell is a key. No header row"
+        flag_resolve_fn: resolve_keys_file
+      - name: remove
+        description: Remove the given keys from the segment instead of adding them
+        is_bool: true
+      - name: replace
+        description: Replace the whole membership with the given keys instead of adding to it (cannot be combined with --remove)
+        is_bool: true
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
+    endpoint:
+      method: POST
+      # POST for both, not DELETE: the keys to remove travel in a body, and DELETE with a
+      # body is unreliable across HTTP clients, so v4 exposes removal as .../keys/remove.
+      path: '/fme/api/v4/segment-definitions/{{ctx.id}}/keys{{(flags["remove"] ?? false) ? "/remove" : ""}}'
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+        # Only sent when asked for: the endpoint already defaults to replace=false.
+        replace: 'flags.replace ? "true" : ""'
+      validators_endpoint: [validate_segment_keys]
+      body_params:
+        keys: 'concat(flags["key"] ?? [], (flags["keys-file"] ?? "") != "" ? split(flags["keys-file"], "\n") : [])'
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
+      # The response echoes the submitted keys plus a governance result, not a segment, so
+      # there is no entity to render fields from.
+      no_fields: true
+      text_header: "\n{{(flags[\"remove\"] ?? false) ? \"Removed\" : \"Added\"}} {{len(concat(flags[\"key\"] ?? [], (flags[\"keys-file\"] ?? \"\") != \"\" ? split(flags[\"keys-file\"], \"\\n\") : []))}} key(s) {{(flags[\"remove\"] ?? false) ? \"from\" : \"to\"}} {{ctx.id}} in {{flags.env}}\n"
+
+  # ── metric ────────────────────────────────────────────────────────────────────
+  # tags/owners are read-only here: the object_set field type needed for incremental
+  # --set/--del mutation of them is still under discussion in cli#244. Once that lands,
+  # update metric can pick them up without changing this command's other behavior.
+
+  - command: list metric
+    verb: list
+    noun: metric
+    short: List metrics
+    handler_type: endpoint
+    flags:
+      - name: name
+        description: Filter by name (partial match)
+      - name: traffic-type-id
+        description: Filter by traffic type id
+      - name: event-type-id
+        description: Filter by base event type id (repeatable in the API; the CLI sends one value)
+        is_multi: true
+      - name: tag
+        description: Filter by tag name (repeatable in the API; the CLI sends one value)
+        is_multi: true
+      - name: id
+        description: Filter to specific metric ids (repeatable in the API; the CLI sends one value)
+        is_multi: true
+      - name: sort-order
+        description: "Sort direction by name: ASCENDING (default) or DESCENDING"
+        completion_values: [ASCENDING, DESCENDING]
+    endpoint:
+      path: /fme/api/v4/metrics
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: it.id
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        name: flags.name
+        traffic_type_id: flags["traffic-type-id"]
+        event_type_ids: 'flags["event-type-id"][0]'
+        tags: flags.tag[0]
+        ids: flags.id[0]
+        sort_order: flags["sort-order"]
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [id, name, traffic_type, format, aggregation, status]
+
+  - command: get metric
+    verb: get
+    noun: metric
+    short: "Get a metric by id: harness get metric <metric-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /fme/api/v4/metrics/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: create metric
+    verb: create
+    noun: metric
+    short: "Create a metric: harness create metric <name> --traffic-type user --event-type signup --set format=NUMBER --set aggregation=COUNT --set isPositive=true (or -f metric.json)"
+    handler_type: endpoint
+    flags:
+      - name: traffic-type
+        description: Traffic type for the metric (e.g. user, account); required unless supplied via -f
+      - name: event-type
+        description: Base event type id (repeatable; at least one is required unless supplied via -f)
+        is_multi: true
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      file_body: optional
+      path: /fme/api/v4/metrics
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      create_strategy: set-fields
+      create_body_init:
+        name: ctx.id
+        trafficType: flags["traffic-type"]
+        baseEventTypes: 'map(flags["event-type"], ({eventTypeId: #}))'
+      create_body_wrap: ""
+      item_expr: it.entity
+      text_header: "\nCreated metric {{it.name}}\n"
+
+  - command: update metric
+    verb: update
+    noun: metric
+    short: "Update a metric: harness update metric <metric-id> --set description=foo (or -f patch.json)"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
+    endpoint:
+      method: PATCH
+      file_body: optional
+      path: /fme/api/v4/metrics/{{ctx.id}}
+      get_path: /fme/api/v4/metrics/{{ctx.id}}
+      update_strategy: get-then-patch
+      # name/trafficType are immutable (rejected by the API) and stay out of this pick.
+      # baseEventTypes is left out too: it's an array of {eventTypeId, propertyFilters} and
+      # there's no flag/mutable_path for it yet, so a stale copy is safer than a silent no-op.
+      # filterEventType, cap, and triggerEventType ARE update_body_pick-able per
+      # UpdateMetricRequest.java, and are picked here (not omitted) so a scalar --set on one
+      # field of any of them doesn't drop the rest of that object out of the merge-patch.
+      # tags/owners are picked for the same reason, as with feature_flag/segment.
+      update_body_pick: "{description: it.description, format: it.format, aggregation: it.aggregation, isPositive: it.isPositive, spread: it.spread, filterEventType: it.filterEventType, cap: it.cap, triggerEventType: it.triggerEventType, tags: it.tags, owners: it.owners}"
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated metric {{ctx.id}}\n"
+
+  - command: delete metric
+    verb: delete
+    noun: metric
+    confirm_mode: prompt
+    short: "Delete a metric by id (hard delete, no archive/restore): harness delete metric <metric-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/api/v4/metrics/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+
+  # ── event_type ───────────────────────────────────────────────────────────────
+  # Read-only lookup: discovers valid event type ids for metric's --event-type /
+  # base_event_types before they're referenced on create.
+
+  - command: list event_type
+    verb: list
+    noun: event_type
+    short: List FME event types
+    handler_type: endpoint
+    flags:
+      - name: name
+        description: Filter by name (partial match)
+      - name: traffic-type
+        description: Filter by traffic type, as an id or name
+    endpoint:
+      path: /fme/api/v4/event-types
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: it.id
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        name: flags.name
+        traffic_type: flags["traffic-type"]
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [id, traffic_types]
+
+  - command: get event_type
+    verb: get
+    noun: event_type
+    short: "Get an event type by id: harness get event_type <event-type-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /fme/api/v4/event-types/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
 
   # ── traffic_type ──────────────────────────────────────────────────────────────
 
@@ -862,3 +1570,307 @@ commands:
         total_expr: it.totalCount
         countable: true
       columns: [id, name, description]
+
+  # ── experiment ────────────────────────────────────────────────────────────────
+
+  - command: list experiment
+    verb: list
+    noun: experiment
+    short: "List experiments for a parent: harness list experiment --parent-type feature_flag --parent-name my-flag"
+    handler_type: endpoint
+    flags:
+      - name: parent-type
+        description: "Parent kind (required): FEATURE_FLAG or AI_CONFIG"
+        required: true
+        completion_values: [FEATURE_FLAG, AI_CONFIG]
+      - name: parent-name
+        description: Filter by parent name
+      - name: env
+        description: Filter by environment identifier
+      - name: search
+        description: Filter by experiment name (partial match)
+      - name: status
+        description: "Filter by status (single value; the API defaults to ACTIVE if omitted): ACTIVE, PAUSED, ARCHIVED, COMPLETED"
+        completion_values: [ACTIVE, PAUSED, ARCHIVED, COMPLETED]
+      - name: tag
+        description: Filter by tag name (repeatable in the API; the CLI sends one value)
+        is_multi: true
+    endpoint:
+      path: /fme/api/v4/experiments
+      items_expr: it.data
+      item_item_expr: it
+      get_id_expr: it.id
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        parent_type: flags["parent-type"]
+        parent_name: flags["parent-name"]
+        environment_id: flags.env
+        name: flags.search
+        status: flags.status
+        tags: flags.tag[0]
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: offset
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.totalCount
+        countable: true
+      columns: [id, name, parent_type, parent, environment, status, start_at, end_at]
+
+  - command: get experiment
+    verb: get
+    noun: experiment
+    short: "Get experiment details by id (see the Name/Id columns from 'list experiment'): harness get experiment <experiment-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: create experiment
+    verb: create
+    noun: experiment
+    short: "Create an experiment: harness create experiment <name> --parent-type feature_flag --parent-name my-flag --env <env-id> --start-at ... --end-at ... --baseline-treatment off --comparison-treatment on --add owners.user:<email>, or -f experiment.yaml"
+    handler_type: endpoint
+    flags:
+      - name: parent-type
+        description: "Parent kind (required unless set via -f): FEATURE_FLAG or AI_CONFIG"
+        completion_values: [FEATURE_FLAG, AI_CONFIG]
+      - name: parent-id
+        description: Parent id (id and/or name is required)
+      - name: parent-name
+        description: Parent name (id and/or name is required)
+      - name: env
+        description: Environment identifier (required unless set via -f)
+      - name: description
+        description: Experiment description
+      - name: hypothesis
+        description: Experiment hypothesis
+      - name: start-at
+        description: Start time, RFC 3339 (required unless set via -f)
+      - name: end-at
+        description: End time, RFC 3339 (required unless set via -f)
+      - name: baseline-treatment
+        description: Baseline treatment name (required unless set via -f)
+      - name: comparison-treatment
+        description: Comparison treatment name; repeat for more than one (required, must exclude the baseline treatment)
+        is_multi: true
+      - name: key-metric
+        description: Key metric id; repeat for more than one (up to 10)
+        is_multi: true
+      - name: supporting-metric
+        description: Supporting metric id; repeat for more than one (up to 100)
+        is_multi: true
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      path: /fme/api/v4/experiments
+      file_body: optional
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      create_strategy: set-fields
+      create_body_init:
+        name: ctx.id
+        parent.type: 'flags["parent-type"] != "" ? flags["parent-type"] : nil'
+        parent.id: 'flags["parent-id"] != "" ? flags["parent-id"] : nil'
+        parent.name: 'flags["parent-name"] != "" ? flags["parent-name"] : nil'
+        description: 'flags.description != "" ? flags.description : nil'
+        hypothesis: 'flags.hypothesis != "" ? flags.hypothesis : nil'
+        startAt: 'flags["start-at"] != "" ? flags["start-at"] : nil'
+        endAt: 'flags["end-at"] != "" ? flags["end-at"] : nil'
+        baselineTreatment: 'flags["baseline-treatment"] != "" ? flags["baseline-treatment"] : nil'
+        comparisonTreatments: flags["comparison-treatment"]
+        keyMetrics: flags["key-metric"]
+        supportingMetrics: flags["supporting-metric"]
+      create_body_wrap: ""
+      item_expr: it.entity
+      text_header: "\nCreated experiment {{it.name}}\n"
+
+  - command: update experiment
+    verb: update
+    noun: experiment
+    short: "Update an experiment by id: harness update experiment <experiment-id> --set description=foo"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: PATCH
+      path: /fme/api/v4/experiments/{{ctx.id}}
+      get_path: /fme/api/v4/experiments/{{ctx.id}}
+      update_strategy: get-then-patch
+      # v4's UpdateExperimentRequest rejects unknown properties (id/type/parent/environment/
+      # trafficType/createdAt/modifiedAt are all read-only and make it a 400). Pick only the
+      # writable fields the GET carries; the PATCH is an RFC 7396 merge patch, so anything
+      # omitted is left untouched. keyMetrics/supportingMetrics/owners are picked (not just
+      # the scalars) so --add/--del can preserve the other members of those collections.
+      update_body_pick: "{description: it.description, hypothesis: it.hypothesis, startAt: it.startAt, endAt: it.endAt, baselineTreatment: it.baselineTreatment, comparisonTreatments: it.comparisonTreatments, keyMetrics: it.keyMetrics, supportingMetrics: it.supportingMetrics, tags: it.tags, owners: it.owners, status: it.status}"
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated experiment {{ctx.id}}\n"
+
+  - command: delete experiment
+    verb: delete
+    noun: experiment
+    confirm_mode: prompt
+    short: "Delete an experiment by id: harness delete experiment <experiment-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/api/v4/experiments/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+
+  # ── experiment:settings ──────────────────────────────────────────────────────
+
+  - command: get experiment:settings
+    verb: get
+    noun: experiment
+    noun_variant: settings
+    short: "Get an experiment's statistical settings: harness get experiment:settings <experiment-id>"
+    handler_type: endpoint
+    fields_noun: experiment_settings
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.id}}/settings
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: update experiment:settings
+    verb: update
+    noun: experiment
+    noun_variant: settings
+    short: "Update an experiment's statistical settings: harness update experiment:settings <experiment-id> --set significance_threshold=0.1"
+    handler_type: endpoint
+    fields_noun: experiment_settings
+    flags_builtin:
+      set: true
+    endpoint:
+      method: PATCH
+      path: /fme/api/v4/experiments/{{ctx.id}}/settings
+      get_path: /fme/api/v4/experiments/{{ctx.id}}/settings
+      update_strategy: get-then-patch
+      # v4's UpdateExperimentSettingsRequest is an RFC 7396 merge patch (Content-Type
+      # application/merge-patch+json): omitted fields keep their existing value, explicit
+      # null is rejected for these scalars. The PATCH body this framework sends is sparse —
+      # only fields touched by --set are included (see update experiment for the same
+      # pattern) — so update_body_pick here only exists to exclude id/source (server-derived;
+      # echoing them back would 400) from ever being settable via --set.
+      update_body_pick: "{statisticalTestType: it.statisticalTestType, significanceThreshold: it.significanceThreshold, multipleComparisonCorrection: it.multipleComparisonCorrection, minimumSampleSize: it.minimumSampleSize, reviewPeriod: it.reviewPeriod, varianceReduction: it.varianceReduction}"
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated settings for experiment {{ctx.id}}\n"
+
+  - command: delete experiment:settings
+    verb: delete
+    noun: experiment
+    noun_variant: settings
+    confirm_mode: prompt
+    short: "Reset an experiment's settings to their defaults: harness delete experiment:settings <experiment-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/api/v4/experiments/{{ctx.id}}/settings
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+
+  # ── experiment:alerts ─────────────────────────────────────────────────────────
+
+  - command: get experiment:alerts
+    verb: get
+    noun: experiment
+    noun_variant: alerts
+    short: "Get an experiment's alerting configuration: harness get experiment:alerts <experiment-id>"
+    handler_type: endpoint
+    fields_noun: experiment_alerts
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.id}}/alerting
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: update experiment:alerts
+    verb: update
+    noun: experiment
+    noun_variant: alerts
+    short: "Update an experiment's alerting configuration: harness update experiment:alerts <experiment-id> --set is_enabled=true"
+    handler_type: endpoint
+    fields_noun: experiment_alerts
+    flags_builtin:
+      set: true
+    endpoint:
+      method: PATCH
+      path: /fme/api/v4/experiments/{{ctx.id}}/alerting
+      get_path: /fme/api/v4/experiments/{{ctx.id}}/alerting
+      update_strategy: get-then-patch
+      # v4 rejects both an omitted and an explicit null isEnabled with 400. isEnabled is
+      # the only mutable field here, so every real invocation passes --set is_enabled=...
+      # and this framework's sparse get-then-patch body already includes it in that case.
+      # Known gap: running this command with no --set at all sends an empty patch and gets
+      # a 400 from the backend rather than a client-side error — same class of limitation as
+      # any single-field PATCH resource on this framework, not specific to alerting.
+      update_body_pick: "{isEnabled: it.isEnabled}"
+      update_body_wrap: ""
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it.entity
+      text_header: "\nUpdated alerting config for experiment {{ctx.id}}\n"
+
+  # ── experiment:results ───────────────────────────────────────────────────────
+
+  - command: list experiment:results
+    verb: list
+    noun: experiment
+    noun_variant: results
+    short: "List metric results for an experiment: harness list experiment:results <experiment-id> [--metric-id <id>]"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<experiment-id>"
+    fields_noun: experiment_results
+    flags:
+      # ResultsResource only exposes a single filter (metric_ids, a JAX-RS Set<String>
+      # bound from repeated query params). There's no comparisons filter on this endpoint,
+      # and this CLI's query builder can only emit one value per param key, so multi-value
+      # metric filtering isn't supported yet — this flag is single-value only.
+      - name: metric-id
+        description: Filter by a single metric id
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.parentId}}/metric-results
+      items_expr: it.data
+      item_item_expr: it
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        metric_ids: flags["metric-id"]
+      columns: [metric_id, metric_name, category, comparison, baseline_mean, comparison_mean, value, pvalue, positive, impact_lower, impact_upper]

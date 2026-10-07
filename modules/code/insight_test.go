@@ -27,7 +27,10 @@ import (
 
 type noopResolver struct{}
 
-func (noopResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn           { return nil }
+func (noopResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn { return nil }
+func (noopResolver) ResolveFieldType(string) (cmdctx.FieldTypeHandler, bool) {
+	return cmdctx.FieldTypeHandler{}, false
+}
 func (noopResolver) ResolveBodyFn(id string) cmdctx.CreateBodyFn                     { return nil }
 func (noopResolver) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn             { return nil }
 func (noopResolver) ResolveFlagResolveFn(id string) cmdctx.FlagResolveFn             { return nil }
@@ -605,3 +608,4 @@ func (s *moduleInitSpy) RegisterItemFn(string, cmdctx.ItemFn)                   
 func (s *moduleInitSpy) RegisterFlagCompletionFn(string, registry.FlagCompletionFn)     {}
 func (s *moduleInitSpy) RegisterFlagResolveFn(string, cmdctx.FlagResolveFn)             {}
 func (s *moduleInitSpy) RegisterEndpointValidatorFn(string, cmdctx.EndpointValidatorFn) {}
+func (s *moduleInitSpy) RegisterFieldType(string, cmdctx.FieldTypeHandler)              {}

@@ -123,6 +123,7 @@ func pushSwiftArtifact(ctx *cmdctx.Ctx) error {
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed %s to %s/%s/%s/%s\n",
 		filepath.Base(localFile), registry, scope, packageName, version)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, packageName, version)
 	return nil
 }
 

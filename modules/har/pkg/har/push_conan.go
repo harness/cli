@@ -146,6 +146,7 @@ func pushConanArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed Conan package %s to registry %q\n", ref.display(), registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, ref.Name, ref.Version)
 	return nil
 }
 

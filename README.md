@@ -659,6 +659,35 @@ Run JMeter, Locust, and k6 load tests against your services. A **loadtest** is a
 </details>
 
 <details open>
+<summary><b>Feature Management & Experimentation (<code>fme</code>)</b></summary>
+
+Manage feature flags, segments, metrics, and their per-environment definitions. Segments require `--segment-type STANDARD|LARGE|RULE_BASED`, and `--env` takes the environment ID (not the name) shown by `list fme_environment`. `create feature_flag:definition` takes its body from `-f`, and `create segment:definition` takes `--description`; neither supports `--set`.
+
+| Noun                        | list | get | create | update | delete | execute |
+| --------------------------- | :--: | :-: | :----: | :----: | :----: | :-----: |
+| `feature_flag` (alias `ff`) |  ✓   |  ✓  |   S    |   S    |   ✓    |         |
+| `feature_flag:archive`      |      |     |        |        |        |    ✓    |
+| `feature_flag:unarchive`    |      |     |        |        |        |    ✓    |
+| `feature_flag:definition`   |  ✓   |  ✓  |   ✓    |   S    |   ✓    |         |
+| `feature_flag:kill`         |      |     |        |        |        |    ✓    |
+| `feature_flag:restore`      |      |     |        |        |        |    ✓    |
+| `feature_flag:reallocate`   |      |     |        |        |        |    ✓    |
+| `fme_environment`           |  ✓   |  ✓  |   S    |   S    |   ✓    |         |
+| `segment` (alias `seg`)     |  ✓   |  ✓  |   S    |   S    |   ✓    |         |
+| `segment:definition`        |  ✓   |  ✓  |   ✓    |   S    |   ✓    |         |
+| `metric`                    |  ✓   |  ✓  |   S    |   S    |   ✓    |         |
+| `event_type`                |  ✓   |  ✓  |        |        |        |         |
+| `traffic_type`              |  ✓   |     |        |        |        |         |
+| `rollout_status`            |  ✓   |     |        |        |        |         |
+
+```sh
+harness create segment my-seg --segment-type STANDARD --traffic-type user
+harness create segment:definition my-seg --env <env-id> --description "initial"
+```
+
+</details>
+
+<details open>
 <summary><b>Governance (OPA policies)</b></summary>
 
 | Noun                | list | get | create | update | delete |

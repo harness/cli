@@ -150,8 +150,8 @@ func (m *MigrateFlag) UsageFragment(name string) string {
 // BuiltinFlags enables predefined system flags that have fixed registration and dispatch behavior.
 type BuiltinFlags struct {
 	Page bool `yaml:"page,omitempty"` // --page N (1-indexed); exposed in expr as integer flags.page = N-1
-	Set  bool `yaml:"set,omitempty"`  // --set key=value (repeatable); parsed into ctx.SetArgs
-	Del  bool `yaml:"del,omitempty"`  // --del key (repeatable); parsed into ctx.DelArgs
+	Set  bool `yaml:"set,omitempty"`  // Enables --set, --del, and --add; handlers decide which operations are valid.
+	Del  bool `yaml:"del,omitempty"`  // Retained for commands that only enable --del.
 	UI   bool `yaml:"ui,omitempty"`   // --ui launch interactive TUI (requires both stdin and stdout to be a TTY)
 }
 
@@ -415,6 +415,10 @@ type EndpointSpec struct {
 	// BodyParams maps dot-path in the JSON body → expr-lang expression.
 	// Supports nested paths: {"config.type": "flags.type"} sets body["config"]["type"].
 	// Expressions have access to ctx, auth, flags, coalesce(), formatTags(), etc.
+	// An expression returning nil contributes no key at all.
+	// On the get-then-* update strategies these are merged into the body after
+	// update_body_pick and update_body_wrap, which is how a write-only field is declared:
+	// one the API accepts on write but never returns, so the pick cannot source it.
 	BodyParams map[string]string `yaml:"body_params,omitempty"`
 	// RequestHeaders maps HTTP header name → expr-lang expression.
 	// Headers are evaluated against the command context (auth, flags, ctx) and injected
@@ -456,6 +460,9 @@ type EndpointSpec struct {
 	// NoFields, when true, suppresses all field rendering (noun fields and fields_extra).
 	// Use with text_header/text_footer for commands whose response has no displayable fields.
 	NoFields bool `yaml:"no_fields,omitempty"`
+	// NoAccountID, when true, omits the accountIdentifier query param that is otherwise
+	// set on every request. Use for endpoints that reject or don't expect it.
+	NoAccountID bool `yaml:"no_account_id,omitempty"`
 	// FieldsSubset lists field IDs from the noun that this command's API actually returns.
 	// When set, --list-columns only advertises these IDs.
 	FieldsSubset []string `yaml:"fields_subset,omitempty"`

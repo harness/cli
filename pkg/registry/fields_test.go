@@ -96,6 +96,9 @@ func (tr *testResolver) GetSpecsForModule(module string) []*spec.CommandSpec { r
 func (tr *testResolver) ResolveTextFormatter(id string) cmdctx.TextFormatterFn {
 	return nil
 }
+func (tr *testResolver) ResolveFieldType(string) (cmdctx.FieldTypeHandler, bool) {
+	return cmdctx.FieldTypeHandler{}, false
+}
 func (tr *testResolver) ResolveBodyFn(id string) cmdctx.CreateBodyFn             { return nil }
 func (tr *testResolver) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn     { return nil }
 func (tr *testResolver) ResolveFetchFn(id string) (cmdctx.FetchFn, error)        { return nil, nil }

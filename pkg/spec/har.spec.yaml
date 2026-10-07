@@ -218,6 +218,8 @@ commands:
         description: "Maximum number of multipart parts uploaded concurrently across all files (default: 8)"
       - name: no-multipart
         description: "Disable parallel multipart upload and always use a single upload request per file"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:maven
     verb: push
@@ -239,6 +241,8 @@ commands:
         required: true
       - name: max-concurrent-uploads
         description: "Maximum number of concurrent file uploads (default: 4, use 1 for sequential)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:npm
     verb: push
@@ -254,6 +258,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_npm
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:python
     verb: push
@@ -272,6 +279,8 @@ commands:
     flags:
       - name: max-concurrent-uploads
         description: "Maximum number of concurrent file uploads (default: 4, use 1 for sequential)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:nuget
     verb: push
@@ -317,6 +326,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_cargo
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:go
     verb: push
@@ -342,6 +354,8 @@ commands:
         description: "Path to pre-built .info file (skips local generation when all three go file flags are set)"
       - name: zip-file
         description: "Path to pre-built .zip file (skips local generation when all three go file flags are set)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:conda
     verb: push
@@ -372,6 +386,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_dart
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:composer
     verb: push
@@ -402,6 +419,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_ruby
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:swift
     verb: push
@@ -420,6 +440,8 @@ commands:
     flags:
       - name: metadata-path
         description: "Path to metadata JSON file (optional)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:puppet
     verb: push
@@ -435,6 +457,9 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_puppet
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:debian
     verb: push
@@ -483,6 +508,8 @@ commands:
         description: "Conan package ID (PKGID, 40-char SHA-1); required with --package-dir"
       - name: package-revision
         description: "Package revision (PREV). Defaults to the MD5 of the package's conanmanifest.txt"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:helm
     verb: push
@@ -537,6 +564,8 @@ commands:
         description: "Module provider, e.g. aws (required for module uploads)"
       - name: version
         description: "Module version, SemVer 2.0.0 (required for module uploads)"
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: delete artifact
     verb: delete
@@ -1112,6 +1141,89 @@ commands:
     noun: registry
     noun_variant: migrate
     short: Migrate artifacts from a source registry into Harness using a config file
+    long: |
+      Migrate artifacts from a source registry to a Harness Artifact Registry.
+
+      This command reads a YAML configuration file that defines the source and
+      destination registries, credentials, and artifact mappings.
+
+      Example configuration file (config.yaml):
+
+        version: 1.0.0
+        concurrency: 5
+        overwrite: false
+
+        source:
+          endpoint: https://source-registry.example.com
+          type: JFROG                    # Supported: JFROG, NEXUS, HARBOR, HAR
+          credentials:
+            username: source_user
+            password: source_password
+          insecure: false
+
+        destination:
+          endpoint: https://pkg.harness.io
+          type: HAR
+          credentials:
+            username: harness_user
+            password: harness_api_key
+
+        mappings:
+          - artifactType: DOCKER
+            sourceRegistry: docker-repo
+            destinationRegistry: harness-docker-repo
+
+          - artifactType: MAVEN
+            sourceRegistry: maven-releases
+            destinationRegistry: harness-maven
+            # MAVEN identity is derived from file paths, so filter via files (see note below).
+            packageFilters:
+              - files: [my-artifact-1.0.0.jar, my-artifact-1.1.0.pom]
+
+          - artifactType: PYTHON
+            sourceRegistry: pypi-local
+            destinationRegistry: harness-pypi
+            packageFilters:
+              - package: requests
+                versions: [2.28.0, 2.29.0]
+                files: [requests-2.28.0-py3-none-any.whl]
+
+      Supported artifact types:
+        DOCKER, HELM, HELM_LEGACY, GENERIC, PYTHON, MAVEN, NPM, NUGET, RPM, GO,
+        CONDA, COMPOSER, DART, RAW, SWIFT, DEBIAN, CONAN, PUPPET, HELM_HTTP,
+        RUBY, CRAN, TERRAFORM
+
+      Package Filtering (packageFilters, opt-in):
+        An allow-list: when set, only the named packages (and optionally specific
+        versions/files) are migrated; when omitted, everything migrates.
+
+        Supported packageFilters granularity by type:
+          - package name only: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, DEBIAN,
+            CONDA, COMPOSER, SWIFT, CONAN, CRAN, TERRAFORM
+          - package name + versions: GO
+          - package name + versions + files: GENERIC, RAW, MAVEN, PYTHON, NUGET,
+            NPM, DART, PUPPET, RUBY
+
+        For synthetic-identity types (MAVEN, NPM, GENERIC, RAW), filter via the
+        files field rather than package names, since package/version names are
+        derived from file paths.
+
+      Include/Exclude Patterns (includePatterns / excludePatterns, mutually exclusive):
+        Glob patterns (* and ** wildcards) applied at a type-dependent granularity:
+          - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, TERRAFORM
+          - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, CRAN
+        Setting them for PUPPET or DEBIAN currently has no effect (silently ignored,
+        not rejected at config load).
+
+      Output and automation flags:
+        --summary      prints condensed per-status counts instead of the full per-file table.
+        --result-file  writes one JSON-lines record per migrated coordinate (status,
+                       reason, error) for scripts/CI to consume, even when the run fails.
+
+      Environment variables can be used in the config file using ${VAR_NAME} syntax.
+
+      Usage example:
+        harness execute registry:migrate --config config.yaml
     no_id: true
     flags_builtin:
     handler_type: workflow
@@ -1128,6 +1240,13 @@ commands:
       - name: dry-run
         description: "Dry run — discover files without uploading, write report to ./dry-run-output/"
         is_bool: true
+      - name: pkg-url
+        description: "Destination package registry base URL (overrides config; defaults to the resolved auth registry URL)"
+      - name: summary
+        description: "Print a condensed status summary instead of the full per-file table"
+        is_bool: true
+      - name: result-file
+        description: "Path to a JSON-lines file to write one per-coordinate result record (overrides config)"
 
   - command: configure registry:npm
     verb: configure

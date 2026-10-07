@@ -73,6 +73,7 @@ func BuildRequest(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (*client.Request, erro
 		Method:      method,
 		Path:        path,
 		QueryParams: qp,
+		NoAccountID: ep.NoAccountID,
 	}
 	if len(ep.BodyParams) > 0 {
 		req.Body = buildBody(ep, exprEnv)

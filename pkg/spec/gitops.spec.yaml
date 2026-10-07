@@ -256,6 +256,64 @@ nouns:
       - id: updated
         expr: it.lastModifiedAt
 
+  - noun: gitops_argo_project
+    short_desc: "Argo CD AppProjects visible on a GitOps agent (including unmapped)."
+    noun_aliases: [gitops_argo_projects]
+    multi_level: true
+    fields:
+      - id: name
+        expr: it.metadata.name
+      - id: description
+        expr: it.spec.description ?? ""
+        width_max: 60
+      - id: created
+        expr: it.metadata.creationTimestamp
+
+  - noun: gitops_app_project_mapping
+    short_desc: "Harness to Argo AppProject mappings on a GitOps agent."
+    noun_aliases: [gitops_app_project_mappings]
+    multi_level: true
+    fields:
+      - id: name
+        label: Argo project
+        expr: it.ArgoProjectName
+      - id: org_id
+        expr: it.orgIdentifier
+      - id: project_id
+        expr: it.projectIdentifier
+      - id: auto_create
+        label: Auto-create
+        expr: it.autoCreateServiceEnv
+
+  - noun: gitops_autocreate_log
+    short_desc: "Auto-create outcome logs for services, environments, and cluster links (e.g. after import)."
+    noun_aliases: [gitops_autocreate_logs]
+    multi_level: true
+    fields:
+      - id: resource_type
+        label: Type
+        expr: it.resourceType
+      - id: resource_ref
+        label: Resource
+        expr: it.resourceRef
+        width_max: 40
+      - id: status
+        expr: it.status
+      - id: application
+        label: Application
+        expr: it.application.name ?? ""
+        width_max: 32
+      - id: org_id
+        expr: it.orgIdentifier
+      - id: project_id
+        expr: it.projectIdentifier
+      - id: failure_reason
+        label: Failure reason
+        expr: it.failureReason ?? ""
+        width_max: 48
+      - id: created
+        expr: it.createdAt
+
 commands:
   - command: list gitops_agent
     verb: list
@@ -374,6 +432,47 @@ commands:
       - name: output_file
         description: "Output file name"
         required: true
+
+  - command: execute gitops_agent:import
+    verb: execute
+    noun: gitops_agent
+    noun_variant: import
+    requires_id: true
+    id_label: "<agent>"
+    short: "Import Argo CD entities for mapped AppProjects: harness execute gitops_agent:import <agent> --argo-project-names <name>[,<name>…] | -f import.yaml [--watch] [--level account|org|project]"
+    long: |
+      Imports applications, clusters, repositories, and related agent data for the
+      given Argo AppProject names. Create mappings first
+      (create gitops_app_project_mapping). --argo-project-names and -f are mutually
+      exclusive; one is required. -f YAML:
+        argoProjectNames:
+          - my-argo-project
+      Values are Argo AppProject names (API field projectNames), not Harness projects.
+      Auto-create, if enabled on the mapping, continues asynchronously after return.
+      With planned auto-create, an interactive terminal asks to watch logs; --watch
+      starts watching without prompting. Watch stops when log total reaches the
+      planned auto-create counts, or after root --timeout / 2m default.
+    handler_type: workflow
+    workflow_id: gitops_agent_import
+    flags:
+      - name: argo-project-names
+        description: "Comma-separated Argo AppProject names to import (must already be mapped)"
+        is_array: true
+      - name: file
+        short: f
+        description: "YAML with argoProjectNames: [<argo-appproject>, ...] (mutually exclusive with --argo-project-names)"
+      - name: watch
+        description: "After import, watch auto-create logs without prompting (implies full fetch)"
+        is_bool: true
+    endpoint:
+      method: POST
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.id : (ctx.level == "org" ? "org." + ctx.id : ctx.id)}}/reconcile/import'
+      body_fn: gitops_agent_import_body
+      query_params:
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      no_fields: true
+      text_formatter: gitops_agent_import_summary
 
   - command: list gitops_application
     verb: list
@@ -930,3 +1029,148 @@ commands:
       item_expr: it
       fields_subset: [identifier, name, agent, project, generators]
       text_header: "\nDeleted gitops application set {{ctx.id}}\n"
+
+  - command: list gitops_argo_project
+    verb: list
+    noun: gitops_argo_project
+    short: "List Argo CD AppProjects on a GitOps agent: harness list gitops_argo_project <agent> [--level account|org|project]"
+    requires_parentid: true
+    parentid_label: "<agent>"
+    completion_noun: gitops_agent
+    handler_type: endpoint
+    endpoint:
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.parentId : (ctx.level == "org" ? "org." + ctx.parentId : ctx.parentId)}}/projects'
+      items_expr: it.items ?? []
+      get_id_expr: "-"
+      query_params:
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      paging:
+        paging_strategy: flat_list
+      columns: [name, description, created]
+
+  - command: list gitops_app_project_mapping
+    verb: list
+    noun: gitops_app_project_mapping
+    short: "List Harness to Argo AppProject mappings on a GitOps agent: harness list gitops_app_project_mapping <agent> [--level account|org|project]"
+    requires_parentid: true
+    parentid_label: "<agent>"
+    completion_noun: gitops_agent
+    handler_type: endpoint
+    endpoint:
+      path: '/gitops/api/v2/agents/{{ctx.level == "account" ? "account." + ctx.parentId : (ctx.level == "org" ? "org." + ctx.parentId : ctx.parentId)}}/appprojectsmappings'
+      items_expr: it.appProjectMappings ?? []
+      get_id_expr: "-"
+      query_params:
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      paging:
+        paging_strategy: flat_list
+      columns: [name, org_id, project_id, auto_create]
+
+  - command: list gitops_autocreate_log
+    verb: list
+    noun: gitops_autocreate_log
+    short: "List auto-create logs for an import: harness list gitops_autocreate_log <agent> --import-request-id <id> [--level account|org|project] [--offset|--limit|--all|--count] [--watch [--timeout <secs>]]"
+    requires_parentid: true
+    parentid_label: "<agent>"
+    completion_noun: gitops_agent
+    handler_type: workflow
+    workflow_id: list_gitops_autocreate_log
+    flags:
+      - name: import-request-id
+        description: "Import request id from execute gitops_agent:import (required)"
+        required: true
+      - name: watch
+        description: "Poll logs every 10s; print status + new/changed rows only. Stops after --timeout or 2m default; implies --all"
+        is_bool: true
+      # Redeclared: endpoint list auto-binds these; workflow bind does not.
+      - name: offset
+        description: "Skip the first N items (incompatible with --all and --watch)"
+      - name: limit
+        description: "Max items to return (incompatible with --all and --watch)"
+      - name: all
+        description: "Fetch all pages (incompatible with --offset and --limit; OK with --watch)"
+        is_bool: true
+      - name: count
+        description: "Print total item count and exit (incompatible with --offset, --limit, --all, --watch)"
+        is_bool: true
+    endpoint:
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.parentId : (ctx.level == "org" ? "org." + ctx.parentId : ctx.parentId)}}/autocreate-logs'
+      items_expr: it.logs ?? []
+      get_id_expr: "-"
+      query_params:
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+        importRequestId: flags["import-request-id"]
+      paging:
+        paging_strategy: offset_limit
+        page_index_param: skip
+        page_size_param: limit
+        page_size_default: 100
+        page_size_max: 1000
+        total_expr: it.total ?? 0
+        countable: true
+      columns: [resource_type, resource_ref, status, application, org_id, project_id, created, failure_reason]
+
+  - command: create gitops_app_project_mapping
+    verb: create
+    noun: gitops_app_project_mapping
+    requires_id: true
+    id_label: "<agent>"
+    short: "Create a Harness to Argo AppProject mapping: harness create gitops_app_project_mapping <agent> --set argoproject=<name> org=<org> project=<project> [autoCreateServiceEnv=true|false] | -f mappings.yaml [--level account|org|project]"
+    completion_noun: gitops_agent
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    flags:
+      - name: file
+        short: f
+        description: "YAML file of mappings (mappings: [{argoproject, org, project, autoCreateServiceEnv?}]); mutually exclusive with --set"
+    endpoint:
+      method: POST
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.id : (ctx.level == "org" ? "org." + ctx.id : ctx.id)}}/appprojectsmapping'
+      body_fn: create_app_project_mapping_body
+      query_params:
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      no_fields: true
+      text_header: "\nCreated app project mapping(s) on agent {{ctx.id}}\n"
+
+  - command: delete gitops_app_project_mapping
+    verb: delete
+    noun: gitops_app_project_mapping
+    id_parts: 2
+    id_label: "<agent/argoproject>"
+    short: "Delete a Harness to Argo AppProject mapping: harness delete gitops_app_project_mapping <agent/argoproject> --set org=<org> project=<project> [--level account|org|project]"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: DELETE
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.idParts[0] : (ctx.level == "org" ? "org." + ctx.idParts[0] : ctx.idParts[0])}}/appprojectsmapping/{{ctx.idParts[1]}}'
+      query_params:
+        orgIdentifier: 'ctx.setArgs.org != "" ? ctx.setArgs.org : nil'
+        projectIdentifier: 'ctx.setArgs.project != "" ? ctx.setArgs.project : nil'
+      body_fn: delete_app_project_mapping_body
+      no_fields: true
+      text_header: "\nDeleted mapping {{ctx.idParts[1]}} on agent {{ctx.idParts[0]}}\n"
+
+  - command: update gitops_app_project_mapping
+    verb: update
+    noun: gitops_app_project_mapping
+    id_parts: 2
+    id_label: "<agent/argoproject>"
+    short: "Update a Harness to Argo AppProject mapping (autoCreateServiceEnv only): harness update gitops_app_project_mapping <agent/argoproject> --set org=<org> project=<project> autoCreateServiceEnv=true|false [--level account|org|project]"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: PUT
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.idParts[0] : (ctx.level == "org" ? "org." + ctx.idParts[0] : ctx.idParts[0])}}/appprojectsmapping'
+      body_fn: update_app_project_mapping_body
+      query_params:
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      no_fields: true
+      text_header: "\nUpdated mapping {{ctx.idParts[1]}} on agent {{ctx.idParts[0]}}\n"

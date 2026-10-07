@@ -5,6 +5,7 @@ package registry
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -78,6 +79,7 @@ func TestBuildCtx_WorkflowFormatFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := buildWorkflowTestCmd(t, r, cs)
+			addFlag(cmd.Flags(), specYaml)
 			cmd.SetArgs(tt.args)
 			if err := cmd.ParseFlags(tt.args); err != nil {
 				t.Fatalf("ParseFlags: %v", err)
@@ -239,6 +241,52 @@ func TestBuildCtx_MigrateRejectsPositional(t *testing.T) {
 	}
 }
 
+func TestBuildCtx_ProvidedFlags(t *testing.T) {
+	r := New()
+	registerWorkflowExecute(t, r, "providedflags", &spec.CommandSpec{
+		Flags: []spec.Flag{
+			{Name: "comment"},
+			{Name: "mode", Default: "auto"},
+			{Name: "enabled", IsBool: true},
+		},
+	})
+	cs := r.GetSpec(VerbExecute, "providedflags")
+	tests := []struct {
+		name string
+		args []string
+		want map[string]bool
+	}{
+		{"omitted with defaults", nil, nil},
+		{"empty string supplied", []string{"--comment="}, map[string]bool{"comment": true}},
+		{"default overridden with empty", []string{"--mode="}, map[string]bool{"mode": true}},
+		{"explicit false", []string{"--enabled=false"}, map[string]bool{"enabled": true}},
+		{"multiple supplied", []string{"--comment=hello", "--mode=manual"}, map[string]bool{"comment": true, "mode": true}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := buildWorkflowTestCmd(t, r, cs)
+			if err := cmd.ParseFlags(tc.args); err != nil {
+				t.Fatalf("ParseFlags: %v", err)
+			}
+			ctx, err := buildCtx(cmd, cs, []string{"my-id"}, r)
+			if err != nil {
+				t.Fatalf("buildCtx: %v", err)
+			}
+			for _, flag := range cs.Flags {
+				if got, exists := ctx.ProvidedFlags[flag.Name]; !exists || got != tc.want[flag.Name] {
+					t.Errorf("ProvidedFlags[%q] = (%t, %t), want (%t, true)", flag.Name, got, exists, tc.want[flag.Name])
+				}
+			}
+			if _, exists := ctx.ProvidedFlags["timeout"]; !exists {
+				t.Error("omitted core flag timeout should have a false presence entry")
+			}
+			if got := ctx.FlagValues["mode"]; !ctx.ProvidedFlags["mode"] && got != "auto" {
+				t.Errorf("omitted mode = %v, want default auto", got)
+			}
+		})
+	}
+}
+
 func TestBuildCtx_WorkflowRequiredFlag(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "reqflag", &spec.CommandSpec{
@@ -358,6 +406,7 @@ func TestBuildCtx_WorkflowYamlSetsFormat(t *testing.T) {
 	registerWorkflowExecute(t, r, "yamlfmt", &spec.CommandSpec{})
 	cs := r.GetSpec(VerbExecute, "yamlfmt")
 	cmd := buildWorkflowTestCmd(t, r, cs)
+	addFlag(cmd.Flags(), specYaml)
 	if err := cmd.ParseFlags([]string{"--yaml"}); err != nil {
 		t.Fatalf("ParseFlags: %v", err)
 	}
@@ -579,6 +628,84 @@ func TestBuildCtx_SetArgs(t *testing.T) {
 	}
 }
 
+func TestBuildCtx_BareSetMember(t *testing.T) {
+	r := New()
+	for _, noun := range []spec.NounDef{
+		{Noun: "widget", NounAliases: []string{"widgets"}, Fields: []spec.FieldDef{
+			{ID: "modules", Expr: "it.modules", FieldType: "set", MutablePath: "modules"},
+			{ID: "tags", Expr: "it.tags", FieldType: "tags", MutablePath: "tags"},
+			{ID: "description", Expr: "it.description", MutablePath: "description"},
+			{ID: "readonly", Expr: "it.readonly", FieldType: "set"},
+		}},
+		{Noun: "config", NounAliases: []string{"configs"}, Fields: []spec.FieldDef{
+			{ID: "features", Expr: "it.features", FieldType: "set", MutablePath: "features"},
+		}},
+	} {
+		if err := r.RegisterNoun(noun); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		name, input, fieldsNoun, wantKey string
+		positional                       bool
+		noStrategy                       bool
+		workflow                         bool
+	}{
+		{name: "update", input: "modules.CD", wantKey: "modules.CD"},
+		{name: "no mutation strategy", input: "modules.CD", wantKey: "modules.CD", noStrategy: true},
+		{name: "workflow", input: "modules.CD", wantKey: "modules.CD", workflow: true},
+		{name: "legacy assignment", input: "modules.CD=", wantKey: "modules.CD"},
+		{name: "positional", input: "modules.CD", wantKey: "modules.CD", positional: true},
+		{name: "fields noun", input: "features.CI", fieldsNoun: "config", wantKey: "features.CI"},
+		{name: "empty scalar value", input: "description=", wantKey: "description"},
+		{name: "missing member", input: "modules", wantKey: "modules"},
+		{name: "empty member", input: "modules.", wantKey: "modules."},
+		{name: "scalar without value", input: "description"},
+		{name: "map without value", input: "tags.env"},
+		{name: "read-only set", input: "readonly.CD"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ep := &spec.EndpointSpec{UpdateStrategy: spec.UpdateStrategyGetThenPut}
+			if tt.noStrategy {
+				ep.UpdateStrategy = ""
+			}
+			cs := &spec.CommandSpec{Verb: VerbUpdate, Noun: "widget", FieldsNoun: tt.fieldsNoun,
+				HandlerType: spec.HandlerEndpoint, Endpoint: ep,
+				NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true}}
+			cmd := &cobra.Command{Use: "widget"}
+			if tt.workflow {
+				cs.HandlerType, cs.Endpoint = spec.HandlerWorkflow, nil
+				r.bindWorkflowCmd(cmd, cs, func(*cmdctx.Ctx) error { return nil })
+			} else {
+				r.bindEndpointCmdFlags(cmd, cs)
+			}
+			cmd.Flags().Float64("timeout", 0, "Command timeout in seconds")
+			args := []string{"widget-id", "--set", tt.input}
+			if tt.positional {
+				args = []string{"widget-id", tt.input}
+			}
+			if err := cmd.ParseFlags(args); err != nil {
+				t.Fatal(err)
+			}
+			ctx, err := buildCtx(cmd, cs, cmd.Flags().Args(), r)
+			if tt.wantKey == "" {
+				if err == nil || !strings.Contains(err.Error(), "key=value") {
+					t.Fatalf("buildCtx() error = %v, want key=value error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if value, ok := ctx.SetArgs[tt.wantKey]; !ok || value != "" {
+				t.Fatalf("SetArgs = %v, want %q with empty value", ctx.SetArgs, tt.wantKey)
+			}
+		})
+	}
+}
+
 func TestBuildCtx_SetArgsBadFormat(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "setbad", &spec.CommandSpec{
@@ -614,6 +741,54 @@ func TestBuildCtx_DelArgs(t *testing.T) {
 	}
 	if len(ctx.DelArgs) != 2 || ctx.DelArgs[0] != "field1" {
 		t.Fatalf("DelArgs = %v, unexpected", ctx.DelArgs)
+	}
+}
+
+func TestBuildCtx_MutationFlagsPreserveRawOperands(t *testing.T) {
+	for _, workflow := range []bool{false, true} {
+		t.Run(fmt.Sprintf("workflow=%t", workflow), func(t *testing.T) {
+			r := New()
+			if err := r.RegisterNoun(spec.NounDef{Noun: "widget", Fields: []spec.FieldDef{
+				{ID: "modules", Expr: "it.modules", MutablePath: "modules", FieldType: "set"},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			cs := &spec.CommandSpec{Command: "update widget", Verb: VerbUpdate, Noun: "widget",
+				NoAuth: true, BuiltinFlags: spec.BuiltinFlags{Set: true}}
+			cmd := &cobra.Command{Use: "widget"}
+			if workflow {
+				cs.HandlerType = spec.HandlerWorkflow
+				r.bindWorkflowCmd(cmd, cs, func(*cmdctx.Ctx) error { return nil })
+			} else {
+				cs.HandlerType, cs.Endpoint = spec.HandlerEndpoint, &spec.EndpointSpec{}
+				r.bindEndpointCmdFlags(cmd, cs)
+			}
+			cmd.Flags().Float64("timeout", 0, "Command timeout in seconds")
+			if err := cmd.ParseFlags([]string{"id", "--set", "modules.CD", "--set=modules.CD=", "--set", "owner=user:a@x.com",
+				"--del", "owners=", "--add=modules.CI", "--set", "name=a=b", "--del=modules.CD", "description=positional"}); err != nil {
+				t.Fatal(err)
+			}
+			ctx, err := buildCtx(cmd, cs, cmd.Flags().Args(), r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []cmdctx.FieldMutation{
+				{Kind: cmdctx.MutationSet, Raw: "modules.CD", Key: "modules.CD"},
+				{Kind: cmdctx.MutationSet, Raw: "modules.CD=", Key: "modules.CD", HasValue: true},
+				{Kind: cmdctx.MutationSet, Raw: "owner=user:a@x.com", Key: "owner", Value: "user:a@x.com", HasValue: true},
+				{Kind: cmdctx.MutationDelete, Raw: "owners=", Key: "owners", HasValue: true},
+				{Kind: cmdctx.MutationAdd, Raw: "modules.CI", Key: "modules.CI"},
+				{Kind: cmdctx.MutationSet, Raw: "name=a=b", Key: "name", Value: "a=b", HasValue: true},
+				{Kind: cmdctx.MutationDelete, Raw: "modules.CD", Key: "modules.CD"},
+				{Kind: cmdctx.MutationSet, Raw: "description=positional", Key: "description", Value: "positional", HasValue: true},
+			}
+			if !reflect.DeepEqual(ctx.MutationFlags, want) {
+				t.Fatalf("MutationFlags = %#v, want %#v", ctx.MutationFlags, want)
+			}
+			if ctx.SetArgs["modules.CD"] != "" || ctx.SetArgs["description"] != "positional" || len(ctx.DelArgs) != 2 {
+				t.Fatalf("legacy args changed: SetArgs=%v DelArgs=%v", ctx.SetArgs, ctx.DelArgs)
+			}
+		})
 	}
 }
 
@@ -820,7 +995,7 @@ func TestBuildDetailCtx(t *testing.T) {
 	parent.UIHistory = []cmdctx.UILink{{Verb: VerbGet, Noun: "detailnoun", Id: "grandparent-id"}}
 
 	detailCS := &spec.CommandSpec{
-		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun",
+		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun", Flags: []spec.Flag{{Name: "filter"}},
 	}
 	detail := buildDetailCtx(parent, detailCS, "child-id")
 
@@ -839,8 +1014,30 @@ func TestBuildDetailCtx(t *testing.T) {
 	if detail.Context == nil {
 		t.Fatal("detail.Context is nil")
 	}
+	if provided, exists := detail.ProvidedFlags["filter"]; !exists || provided {
+		t.Fatalf("detail filter presence = (%t, %t), want (false, true)", provided, exists)
+	}
 	if len(detail.UIHistory) != 1 || detail.UIHistory[0].Id != "grandparent-id" {
 		t.Fatalf("detail.UIHistory = %+v, want parent's UIHistory carried forward", detail.UIHistory)
+	}
+}
+
+func TestBuildPickerCtx_SeedsUnprovidedSearch(t *testing.T) {
+	parent := &cmdctx.Ctx{}
+	listCs := &spec.CommandSpec{Verb: VerbList, Noun: "thing", Flags: []spec.Flag{{Name: "search"}, {Name: "status"}}}
+	picker := buildPickerCtx(parent, listCs)
+	if value, exists := picker.FlagValues["search"]; !exists || value != "" {
+		t.Fatalf("picker search = (%v, %t), want (empty string, true)", value, exists)
+	}
+	if provided, exists := picker.ProvidedFlags["search"]; !exists || provided {
+		t.Fatalf("picker search presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	if provided, exists := picker.ProvidedFlags["status"]; !exists || provided {
+		t.Fatalf("picker status presence = (%t, %t), want (false, true)", provided, exists)
+	}
+	picker.SetFlag("search", "term")
+	if !picker.ProvidedFlags["search"] || picker.FlagValues["search"] != "term" {
+		t.Fatalf("picker search = (%v, %t), want (term, true)", picker.FlagValues["search"], picker.ProvidedFlags["search"])
 	}
 }
 

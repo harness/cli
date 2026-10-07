@@ -108,6 +108,7 @@ func pushPuppetArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed Puppet module '%s@%s' to registry '%s'\n", meta.Name, meta.Version, registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, meta.Name, meta.Version)
 	return nil
 }
 

@@ -210,6 +210,7 @@ func pushMavenArtifact(ctx *cmdctx.Ctx) error {
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed Maven artifact %s:%s:%s to %s\n",
 		coords.GroupID, coords.ArtifactID, coords.Version, registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, coords.GroupID+":"+coords.ArtifactID, coords.Version)
 	return nil
 }
 

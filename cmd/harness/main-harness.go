@@ -15,6 +15,7 @@ import (
 	"github.com/harness/cli/v3/modules/code"
 	"github.com/harness/cli/v3/modules/core"
 	"github.com/harness/cli/v3/modules/core/mgmt"
+	"github.com/harness/cli/v3/modules/fme"
 	"github.com/harness/cli/v3/modules/gitops"
 	"github.com/harness/cli/v3/modules/iacm"
 	"github.com/harness/cli/v3/modules/pipeline"
@@ -50,6 +51,7 @@ func main() {
 	}
 	code.ModuleInit(reg.Module("code"))
 	core.ModuleInit(reg.Module("core"))
+	fme.ModuleInit(reg.Module("fme"))
 	gitops.ModuleInit(reg.Module("gitops"))
 	pipeline.ModuleInit(reg.Module("pipeline"))
 	platform.ModuleInit(reg.Module("platform"))

@@ -121,6 +121,7 @@ func pushDartArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Successfully pushed Dart package '%s@%s' to registry '%s'\n", pkgName, pkgVersion, registry)
+	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, pkgName, pkgVersion)
 	return nil
 }
 
