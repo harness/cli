@@ -1,0 +1,10 @@
+# Core CLI team owns everything by default. Module paths below are unowned
+# (lighter review). Later lines take precedence. See docs/contributing.md.
+
+*                         @sawka-harness @BlueLabelscotch @mohitsuman
+
+/modules/
+/pkg/spec/*.spec.yaml
+
+/modules/core/            @sawka-harness @BlueLabelscotch @mohitsuman
+/pkg/spec/core.spec.yaml  @sawka-harness @BlueLabelscotch @mohitsuman
