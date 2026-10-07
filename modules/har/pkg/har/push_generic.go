@@ -115,6 +115,11 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 		}
 	}
 	if failed > 0 {
+		// A --timeout expiry must surface as the timeout error itself so the CLI exits with the
+		// documented timeout code instead of a generic failure.
+		if cause := context.Cause(ctx.Context); cmdctx.IsTimeout(cause) {
+			return cause
+		}
 		return fmt.Errorf("%d of %d file(s) failed to upload", failed, len(jobs))
 	}
 
