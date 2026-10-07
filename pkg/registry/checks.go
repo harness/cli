@@ -417,6 +417,14 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 	if ep.FileBodyWrapAsString != "" && ep.FileBody == spec.FileBodyNone {
 		return fmt.Errorf("command %q: file_body_wrap_as_string requires file_body to be set", cs.Command)
 	}
+	if ep.AuthOverride != nil {
+		if ep.AuthOverride.TokenEnvVar == "" {
+			return fmt.Errorf("command %q: auth_override requires token_env_var", cs.Command)
+		}
+		if ep.AuthOverride.Header == "" {
+			return fmt.Errorf("command %q: auth_override requires header", cs.Command)
+		}
+	}
 	return nil
 }
 
