@@ -99,6 +99,24 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 	}, nil
 }
 
+// toOverrideConfig translates a command's merged spec.AuthOverrideSpec into the
+// plain auth.CommandOverrideConfig ResolveCommandOverride expects. pkg/auth must
+// not import pkg/spec, so this conversion lives here, where both are already imported.
+func toOverrideConfig(s *spec.AuthOverrideSpec) *auth.CommandOverrideConfig {
+	if s == nil {
+		return nil
+	}
+	return &auth.CommandOverrideConfig{
+		TokenEnvVar:   s.TokenEnvVar,
+		Header:        s.Header,
+		Prefix:        s.Prefix,
+		AccountEnvVar: s.AccountEnvVar,
+		OrgEnvVar:     s.OrgEnvVar,
+		ProjectEnvVar: s.ProjectEnvVar,
+		APIURLEnvVar:  s.APIURLEnvVar,
+	}
+}
+
 // buildCtx constructs a Ctx from a cobra command, resolving auth and global flags.
 func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Registry) (*cmdctx.Ctx, error) {
 	formatFlag, _ := cmd.Flags().GetString("format")
@@ -252,9 +270,32 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		profileFlag, _ := cmd.Flags().GetString("profile")
 		orgFlag, _ := cmd.Flags().GetString("org")
 		projectFlag, _ := cmd.Flags().GetString("project")
-		resolved, err := auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
-		if err != nil {
-			return nil, err
+
+		// An explicit --profile always wins and skips the override entirely — same
+		// rule as the global auth env vars (see docs/auth.md).
+		var resolved *auth.ResolvedAuth
+		if profileFlag == "" && cs.Endpoint != nil && cs.Endpoint.AuthOverride != nil {
+			overrideResolved, triggered, err := auth.ResolveCommandOverride(toOverrideConfig(cs.Endpoint.AuthOverride))
+			if err != nil {
+				return nil, err
+			}
+			if triggered {
+				resolved = overrideResolved
+			}
+		}
+		if resolved != nil {
+			if orgFlag != "" {
+				resolved.OrgID = orgFlag
+			}
+			if projectFlag != "" {
+				resolved.ProjectID = projectFlag
+			}
+		} else {
+			var err error
+			resolved, err = auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
+			if err != nil {
+				return nil, err
+			}
 		}
 		ctx.Auth = resolved
 	}
