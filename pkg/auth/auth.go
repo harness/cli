@@ -47,10 +47,21 @@ type ResolvedAuth struct {
 	PATToken     string // set when AuthType == AuthTypePAT
 	SSOToken     string // set when AuthType == AuthTypeSSO
 	RefreshToken string // set when AuthType == AuthTypeSSO
+
+	// OverrideHeader/OverrideValue are set when a command's auth_override fired
+	// (see ResolveCommandOverride). Non-empty OverrideHeader takes priority over
+	// AuthType/PATToken/SSOToken in SetAuthHeader — the two are never combined.
+	OverrideHeader string
+	OverrideValue  string
 }
 
-// SetAuthHeader sets the appropriate Authorization or x-api-key header on req.
+// SetAuthHeader sets the auth header on req: the auth_override header/value when
+// one fired, otherwise the normal Authorization (SSO) or x-api-key (PAT) header.
 func (a *ResolvedAuth) SetAuthHeader(req *http.Request) {
+	if a.OverrideHeader != "" {
+		req.Header.Set(a.OverrideHeader, a.OverrideValue)
+		return
+	}
 	if a.AuthType == AuthTypeSSO {
 		req.Header.Set("Authorization", "Bearer "+a.SSOToken)
 	} else {
@@ -179,6 +190,61 @@ func ResolveWithOverrides(profileFlag, orgOverride, projectOverride string) (*Re
 		r.ProjectID = projectOverride
 	}
 	return r, nil
+}
+
+// CommandOverrideConfig is the fully-merged (module default + command-level)
+// auth_override for one command. See spec.AuthOverrideSpec — this is pkg/spec's
+// shape translated into a plain struct so pkg/auth doesn't import pkg/spec.
+type CommandOverrideConfig struct {
+	TokenEnvVar   string
+	Header        string
+	Prefix        string
+	AccountEnvVar string
+	OrgEnvVar     string
+	ProjectEnvVar string
+	APIURLEnvVar  string
+}
+
+func coalesceEnvVar(name, fallback string) string {
+	if name == "" {
+		return fallback
+	}
+	return name
+}
+
+// ResolveCommandOverride checks whether cfg's token env var is set. If not, it
+// returns (nil, false, nil) and the caller should fall through to Resolve/
+// ResolveWithOverrides unchanged. If set, it builds a standalone ResolvedAuth
+// entirely from the override's own env vars — never touching the profile or
+// HARNESS_API_KEY path — falling back per-field to the standard HARNESS_ACCOUNT/
+// HARNESS_ORG/HARNESS_PROJECT/HARNESS_API_URL env vars, and erroring if no
+// account can be resolved.
+func ResolveCommandOverride(cfg *CommandOverrideConfig) (*ResolvedAuth, bool, error) {
+	if cfg == nil || os.Getenv(cfg.TokenEnvVar) == "" {
+		return nil, false, nil
+	}
+	token := os.Getenv(cfg.TokenEnvVar)
+
+	accountEnvVar := coalesceEnvVar(cfg.AccountEnvVar, hbase.EnvAccount)
+	account := os.Getenv(accountEnvVar)
+	if account == "" {
+		return nil, true, fmt.Errorf("no account — set %s", accountEnvVar)
+	}
+
+	apiURL := os.Getenv(coalesceEnvVar(cfg.APIURLEnvVar, hbase.EnvAPIURL))
+	if apiURL == "" {
+		apiURL = hbase.DefaultAPIURL
+	}
+
+	return &ResolvedAuth{
+		Source:         SourceEnv,
+		AccountID:      account,
+		OrgID:          os.Getenv(coalesceEnvVar(cfg.OrgEnvVar, hbase.EnvOrg)),
+		ProjectID:      os.Getenv(coalesceEnvVar(cfg.ProjectEnvVar, hbase.EnvProject)),
+		APIUrl:         apiURL,
+		OverrideHeader: cfg.Header,
+		OverrideValue:  cfg.Prefix + token,
+	}, true, nil
 }
 
 func resolveProfile(name string) (*ResolvedAuth, error) {
