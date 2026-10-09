@@ -36,7 +36,7 @@ func MaybeRunBackgroundUpdateCheck() {
 		return
 	}
 	release.RunBackgroundCheck()
-	os.Exit(0)
+	hbase.Exit(0)
 }
 
 // MaybeRunPostInstall exits if this invocation is an installer's post-install
@@ -53,7 +53,7 @@ func MaybeRunPostInstall() {
 		Env:         telemetry.NewEnv(),
 	})
 	flush()
-	os.Exit(0)
+	hbase.Exit(0)
 }
 
 // MaybeRunPostUpgrade exits if this invocation is install cli's post-upgrade
@@ -65,7 +65,7 @@ func MaybeRunPostUpgrade() {
 	if firstArg() != hbase.PostUpgradeFlag {
 		return
 	}
-	os.Exit(0)
+	hbase.Exit(0)
 }
 
 // MaybeCheckSpecs runs spec validation and exits if HARNESS_CHECKSPECS=1, otherwise returns immediately.
@@ -75,7 +75,7 @@ func MaybeCheckSpecs(reg *registry.Registry) {
 	}
 	if err := reg.CheckFunctions(); err != nil {
 		console.PrintError(err.Error())
-		os.Exit(1)
+		hbase.Exit(1)
 	}
 	for _, w := range reg.CheckWarnings() {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
@@ -85,7 +85,7 @@ func MaybeCheckSpecs(reg *registry.Registry) {
 		names = append(names, m.Name)
 	}
 	fmt.Printf("specs ok [%s]\n", strings.Join(names, ", "))
-	os.Exit(0)
+	hbase.Exit(0)
 }
 
 // SetupAndExecutePluginRootCmd is like SetupAndExecuteRootCmd but adds hidden
@@ -195,7 +195,9 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 		root.AddCommand(cmd)
 	}
 
-	if err := root.Execute(); err != nil {
+	err := root.Execute()
+	_ = hbase.Cleanup()
+	if err != nil {
 		// Only suggest an alternative command when cobra itself couldn't dispatch
 		// (i.e. no runnable command was found). If cobra found and ran a command
 		// handler, the error came from the handler — show it as-is.
@@ -209,16 +211,16 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 		if !commandResolved {
 			if suggestion := reg.SuggestRootCommand(os.Args[1:]); suggestion != "" {
 				console.PrintError(suggestion)
-				os.Exit(1)
+				hbase.Exit(1)
 			}
 		}
 		if msg := err.Error(); msg != "" {
 			console.PrintError(msg)
 		}
 		if cmdctx.IsTimeout(err) {
-			os.Exit(hbase.TimeoutExitCode)
+			hbase.Exit(hbase.TimeoutExitCode)
 		}
-		os.Exit(1)
+		hbase.Exit(1)
 	}
 }
 

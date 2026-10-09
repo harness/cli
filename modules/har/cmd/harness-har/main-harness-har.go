@@ -4,13 +4,12 @@
 package main
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
 
 	"github.com/harness/cli/modules/har/pkg/har"
 
 	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/registry"
 	"github.com/harness/cli/v3/pkg/rootcmd"
 	"github.com/harness/cli/v3/pkg/specloader"
@@ -21,7 +20,7 @@ func main() {
 	specBytes, err := specloader.LoadSpec(reg, "har.spec.yaml", true)
 	if err != nil {
 		console.PrintError(err.Error())
-		os.Exit(1)
+		hbase.Exit(1)
 	}
 	har.ModuleInit(reg.Module("har"))
 	rootcmd.MaybeCheckSpecs(reg)

@@ -286,11 +286,10 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 	// Handle --list-fields: print field table and exit without hitting the API.
 	if cmdctx.GetBool(ctx.FlagValues, "list-fields") {
 		fields := resolveFieldsForCommand(ctx, ep)
-		w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+		w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 		if err != nil {
 			return nil, err
 		}
-		defer closeW()
 		if ctx.VerbHandler == VerbUpdate || ep.CreateStrategy == spec.CreateStrategySetFields {
 			return nil, PrintMutableFieldTable(w, MutableFields(resolveNounDef(ctx)))
 		}
@@ -338,11 +337,10 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 		if textFmt == nil {
 			return nil, nil
 		}
-		w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+		w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 		if err != nil {
 			return nil, err
 		}
-		defer closeW()
 		return nil, textFmt(w, extractutil.MakeDataAccessor(exprEnv, nil))
 	}
 
@@ -366,11 +364,10 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 			}
 			return result, format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, parsed, "", "", nil, nil, exprEnv)
 		}
-		w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+		w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 		if err != nil {
 			return nil, err
 		}
-		defer closeW()
 		fmt.Fprint(w, s)
 		return result, nil
 	}
@@ -378,11 +375,10 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 	if ctx.VerbHandler == VerbDelete {
 		if ep.TextHeader != "" || ep.TextFooter != "" {
 			textFmt := buildDeclTextFmt(nil, ep, exprEnv)
-			w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+			w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 			if err != nil {
 				return nil, err
 			}
-			defer closeW()
 			return nil, textFmt(w, extractutil.MakeDataAccessor(exprEnv, nil))
 		}
 		return nil, nil
@@ -492,11 +488,10 @@ func fetchCompletionItems(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) ([]any, error)
 }
 
 func renderCount(ctx *cmdctx.Ctx, n int64) error {
-	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+	w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 	if err != nil {
 		return err
 	}
-	defer closeW()
 	fmt.Fprintln(w, n)
 	return nil
 }

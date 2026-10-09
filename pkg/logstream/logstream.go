@@ -703,11 +703,10 @@ func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style 
 	hc := &http.Client{Timeout: 90 * time.Minute}
 	fmtFlag := ctx.FormatFlags.Format
 
-	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+	w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 	if err != nil {
 		return err
 	}
-	defer closeW()
 
 	skipTypes := BaseSkipStepTypes
 	if len(extraSkipTypes) > 0 {

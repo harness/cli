@@ -63,11 +63,10 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 	prefixFlag := cmdctx.GetString(ctx.FlagValues, "logkey-prefix")
 	logkeyFlag := cmdctx.GetString(ctx.FlagValues, "logkey")
 
-	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+	w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 	if err != nil {
 		return err
 	}
-	defer closeW()
 
 	if logkeyFlag != "" {
 		hasContent, fetchErr := logstream.FetchAndPrintLog(hc, a, logkeyFlag, fmtFlag, ctx.IsPty, w)
