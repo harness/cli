@@ -118,12 +118,12 @@ func TestResolvePipelineAuth(t *testing.T) {
 		}
 	})
 
-	t.Run("triggered with nil cfg errors: command does not support pipeline auth", func(t *testing.T) {
+	t.Run("nil cfg never triggers, even inside a pipeline — command just isn't pipeline-auth-aware", func(t *testing.T) {
 		clearAuthEnv(t)
 		t.Setenv(hbase.EnvPipelineID, "pipe1")
 		r, triggered, err := ResolvePipelineAuth(nil, noopEvalHeaders)
-		if r != nil || !triggered || err == nil {
-			t.Fatalf("ResolvePipelineAuth(nil) = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
+		if r != nil || triggered || err != nil {
+			t.Fatalf("ResolvePipelineAuth(nil) = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
 		}
 	})
 
