@@ -206,12 +206,10 @@ type PipelineAuthConfig struct {
 	Headers           map[string]string
 }
 
-// ResolvePipelineAuth resolves pipeline mode, triggered solely by
-// hbase.EnvPipelineID (injected by real pipeline infra, never exported
-// manually). Returns (nil, false, nil) when not running in a pipeline. Once
-// triggered it never falls through to profile/env-var auth — every missing
-// piece is a hard error, since pipeline scope and credentials are fixed by
-// the platform, not negotiable per-command.
+// ResolvePipelineAuth resolves pipeline mode, triggered by hbase.EnvPipelineID.
+// Returns (nil, false, nil) when not in a pipeline, or when cfg is nil (command
+// has no pipeline_auth block, so it falls through to normal auth). With a
+// non-nil cfg, every missing piece is a hard error — no fallthrough.
 //
 // evalHeaders evaluates cfg.Headers's expr-lang expressions against the
 // resolved token; pkg/auth cannot import pkg/exprenv (see pkg/registry/

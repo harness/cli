@@ -140,7 +140,11 @@ func TestBuildCtx_PipelineAuthFallsThroughWhenPipelineIDUnset(t *testing.T) {
 	}
 }
 
-func TestBuildCtx_PipelineAuthTriggeredWithoutBlockErrors(t *testing.T) {
+// TestBuildCtx_PipelineAuthFallsThroughWhenCommandHasNoBlock covers a command
+// with no pipeline_auth running inside a pipeline (HARNESS_PIPELINEID set):
+// it must not error, just fall through to normal profile/env resolution —
+// pipeline-auth-agnostic commands still work inside a pipeline.
+func TestBuildCtx_PipelineAuthFallsThroughWhenCommandHasNoBlock(t *testing.T) {
 	clearPipelineAuthTestEnv(t)
 	setPipelineScopeEnv(t)
 
@@ -149,8 +153,8 @@ func TestBuildCtx_PipelineAuthTriggeredWithoutBlockErrors(t *testing.T) {
 	cmd := pipelineAuthTestCmd(t, r, cs)
 
 	_, err := buildCtx(cmd, cs, nil, r)
-	if err == nil || !strings.Contains(err.Error(), "does not support pipeline auth") {
-		t.Fatalf("error = %v, want \"does not support pipeline auth\"", err)
+	if err == nil || !strings.Contains(err.Error(), "not logged in") {
+		t.Fatalf("error = %v, want the normal 'not logged in' fallback error (no pipeline_auth block means no pipeline auth, not an error)", err)
 	}
 }
 
