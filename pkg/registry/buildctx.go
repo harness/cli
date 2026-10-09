@@ -65,7 +65,11 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 	profileFlag, _ := cmd.Flags().GetString("profile")
 	orgFlag, _ := cmd.Flags().GetString("org")
 	projectFlag, _ := cmd.Flags().GetString("project")
-	resolved, err := auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
+	var pa *spec.PipelineAuthSpec
+	if cs := r.GetSpec(verb, noun); cs != nil {
+		pa = cs.PipelineAuth
+	}
+	resolved, err := resolveAuthForCommand(pa, profileFlag, orgFlag, projectFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +114,27 @@ func toPipelineAuthConfig(s *spec.PipelineAuthSpec) *auth.PipelineAuthConfig {
 		RegistryURLEnvVar: s.RegistryURLEnvVar,
 		Headers:           s.Headers,
 	}
+}
+
+// resolveAuthForCommand is the one auth-resolution path shared by every real
+// or simulated command invocation (execution, completion, --ui replay,
+// telemetry tagging): an explicit --profile always wins and skips pipeline
+// auth entirely; otherwise pipeline auth is attempted first and, once
+// triggered, --org/--project are rejected since pipeline scope is fixed.
+func resolveAuthForCommand(pa *spec.PipelineAuthSpec, profileFlag, orgFlag, projectFlag string) (*auth.ResolvedAuth, error) {
+	if profileFlag == "" {
+		pipelineResolved, triggered, err := auth.ResolvePipelineAuth(toPipelineAuthConfig(pa), exprenv.EvalHeaders)
+		if err != nil {
+			return nil, err
+		}
+		if triggered {
+			if orgFlag != "" || projectFlag != "" {
+				return nil, fmt.Errorf("--org/--project are not allowed in pipeline mode (scope is fixed by the pipeline)")
+			}
+			return pipelineResolved, nil
+		}
+	}
+	return auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
 }
 
 // buildCtx constructs a Ctx from a cobra command, resolving auth and global flags.
@@ -265,28 +290,9 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		profileFlag, _ := cmd.Flags().GetString("profile")
 		orgFlag, _ := cmd.Flags().GetString("org")
 		projectFlag, _ := cmd.Flags().GetString("project")
-
-		// An explicit --profile always wins and skips pipeline auth entirely — same
-		// rule as the global auth env vars (see docs/auth.md).
-		var resolved *auth.ResolvedAuth
-		if profileFlag == "" {
-			pipelineResolved, triggered, err := auth.ResolvePipelineAuth(toPipelineAuthConfig(cs.PipelineAuth), exprenv.EvalHeaders)
-			if err != nil {
-				return nil, err
-			}
-			if triggered {
-				if orgFlag != "" || projectFlag != "" {
-					return nil, fmt.Errorf("--org/--project are not allowed in pipeline mode (scope is fixed by the pipeline)")
-				}
-				resolved = pipelineResolved
-			}
-		}
-		if resolved == nil {
-			var err error
-			resolved, err = auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
-			if err != nil {
-				return nil, err
-			}
+		resolved, err := resolveAuthForCommand(cs.PipelineAuth, profileFlag, orgFlag, projectFlag)
+		if err != nil {
+			return nil, err
 		}
 		ctx.Auth = resolved
 	}
@@ -421,7 +427,7 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 	var resolved *auth.ResolvedAuth
 	if !targetCs.NoAuth {
 		var err error
-		resolved, err = auth.ResolveWithOverrides(link.Profile, link.Org, link.Project)
+		resolved, err = resolveAuthForCommand(targetCs.PipelineAuth, link.Profile, link.Org, link.Project)
 		if err != nil {
 			return nil, err
 		}
