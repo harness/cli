@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/config"
 	"github.com/harness/cli/v3/pkg/exprenv"
@@ -341,10 +342,11 @@ func wireProfileCompletion(cmd *cobra.Command) {
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
-		names := make([]string, 0, len(cfg.Profiles))
+		names := make([]string, 0, len(cfg.Profiles)+2)
 		for name := range cfg.Profiles {
 			names = append(names, name)
 		}
+		names = append(names, auth.ProfileSentinelEnv, auth.ProfileSentinelPipeline)
 		return names, cobra.ShellCompDirectiveNoFileComp
 	})
 }
