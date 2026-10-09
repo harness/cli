@@ -286,15 +286,11 @@ func (r *Registry) wireFlagCompletion(cmd *cobra.Command, cs *spec.CommandSpec, 
 		}
 		cmd.RegisterFlagCompletionFunc(f.Name, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			profileFlag, _ := cmd.Flags().GetString("profile")
-			resolved, err := auth.Resolve(profileFlag)
+			orgFlag, _ := cmd.Flags().GetString("org")
+			projectFlag, _ := cmd.Flags().GetString("project")
+			resolved, err := resolveAuthForCommand(cs.PipelineAuth, profileFlag, orgFlag, projectFlag)
 			if err != nil {
 				return nil, cobra.ShellCompDirectiveError
-			}
-			if orgFlag, _ := cmd.Flags().GetString("org"); orgFlag != "" {
-				resolved.OrgID = orgFlag
-			}
-			if projectFlag, _ := cmd.Flags().GetString("project"); projectFlag != "" {
-				resolved.ProjectID = projectFlag
 			}
 			ctx := &cmdctx.Ctx{Auth: resolved, Context: cmd.Context()}
 			completions, err := completionFn(ctx, args, cmd.Flags())
@@ -346,10 +342,11 @@ func wireProfileCompletion(cmd *cobra.Command) {
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
-		names := make([]string, 0, len(cfg.Profiles))
+		names := make([]string, 0, len(cfg.Profiles)+2)
 		for name := range cfg.Profiles {
 			names = append(names, name)
 		}
+		names = append(names, auth.ProfileSentinelEnv, auth.ProfileSentinelPipeline)
 		return names, cobra.ShellCompDirectiveNoFileComp
 	})
 }

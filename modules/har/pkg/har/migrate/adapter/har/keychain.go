@@ -27,12 +27,20 @@ func (g harKeychain) Resolve(r authn.Resource) (authn.Authenticator, error) {
 		return authn.Anonymous, nil
 	}
 
-	if g.username == "" || g.password == "" {
+	if g.password == "" {
 		return authn.Anonymous, nil
 	}
 
 	if strings.EqualFold(serverURL.Hostname(), g.hostname) {
-		return harAuthenticator{g.username, g.password}, nil
+		// A token may be supplied as the password alone (config validation
+		// permits credentials without a username); registries accept it paired
+		// with a placeholder username, so falling back to Anonymous here would
+		// turn a valid config into a 401 on every OCI request.
+		username := g.username
+		if username == "" {
+			username = "x-token"
+		}
+		return harAuthenticator{username, g.password}, nil
 	}
 	return authn.Anonymous, nil
 }

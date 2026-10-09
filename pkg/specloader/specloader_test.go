@@ -293,6 +293,125 @@ nouns:
 	})
 }
 
+// TestMergePipelineAuth covers the module-default/command-level pipeline_auth
+// precedence rule applied in loadSpecData: scalar fields merge field-by-field
+// (command's own value always wins, an unset field falls through to the module
+// default); headers replace wholesale rather than merging per-key; and
+// no_pipeline_auth is an explicit opt-out that suppresses inheritance entirely.
+func TestMergePipelineAuth(t *testing.T) {
+	const nounYAML = `
+nouns:
+  - noun: thing
+    fields:
+      - id: identifier
+        expr: it.id
+`
+	endpointYAML := func(pipelineAuthBlock string) string {
+		return `
+spec_version: 1
+` + nounYAML + `
+pipeline_auth:
+  token_envvar: MODULE_TOKEN
+  apiurl_envvar: MODULE_API_URL
+  headers:
+    Authorization: '"Bearer " + token'
+commands:
+  - command: list thing
+    verb: list
+    noun: thing
+    short: List things
+    handler_type: endpoint
+    endpoint:
+      path: /api/things
+      items_expr: it
+      paging:
+        paging_strategy: flat_list
+` + pipelineAuthBlock
+	}
+
+	t.Run("no command block inherits module default wholesale", func(t *testing.T) {
+		reg := registry.New()
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML("")), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		if cs == nil || cs.PipelineAuth == nil {
+			t.Fatal("expected inherited pipeline_auth, got nil")
+		}
+		if cs.PipelineAuth.TokenEnvVar != "MODULE_TOKEN" || cs.PipelineAuth.APIURLEnvVar != "MODULE_API_URL" {
+			t.Errorf("PipelineAuth = %+v, want token/url from module default", *cs.PipelineAuth)
+		}
+		if cs.PipelineAuth.Headers["Authorization"] != `"Bearer " + token` {
+			t.Errorf("Headers[Authorization] = %q, want inherited expr", cs.PipelineAuth.Headers["Authorization"])
+		}
+	})
+
+	t.Run("partial command block merges scalars field-by-field, command wins", func(t *testing.T) {
+		reg := registry.New()
+		block := `
+    pipeline_auth:
+      registryurl_envvar: CMD_REGISTRY_URL
+`
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		pa := cs.PipelineAuth
+		if pa.TokenEnvVar != "MODULE_TOKEN" || pa.APIURLEnvVar != "MODULE_API_URL" || pa.RegistryURLEnvVar != "CMD_REGISTRY_URL" {
+			t.Errorf("PipelineAuth = %+v, want module token/url plus command's own registry url", *pa)
+		}
+	})
+
+	t.Run("command headers replace the module default wholesale, not merge per-key", func(t *testing.T) {
+		reg := registry.New()
+		block := `
+    pipeline_auth:
+      headers:
+        x-api-key: token
+`
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		if len(cs.PipelineAuth.Headers) != 1 || cs.PipelineAuth.Headers["x-api-key"] != "token" {
+			t.Errorf("Headers = %+v, want only the command's own x-api-key (no merge with module's Authorization)", cs.PipelineAuth.Headers)
+		}
+	})
+
+	t.Run("no_pipeline_auth suppresses inheritance", func(t *testing.T) {
+		reg := registry.New()
+		block := `
+    no_pipeline_auth: true
+`
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		if cs.PipelineAuth != nil {
+			t.Errorf("PipelineAuth = %+v, want nil (disabled)", cs.PipelineAuth)
+		}
+	})
+
+	t.Run("no_pipeline_auth is ignored when command declares its own pipeline_auth", func(t *testing.T) {
+		reg := registry.New()
+		block := `
+    no_pipeline_auth: true
+    pipeline_auth:
+      registryurl_envvar: CMD_REGISTRY_URL
+`
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		if cs.PipelineAuth == nil {
+			t.Fatal("expected the command's own pipeline_auth to survive, got nil")
+		}
+		if cs.PipelineAuth.TokenEnvVar != "MODULE_TOKEN" || cs.PipelineAuth.RegistryURLEnvVar != "CMD_REGISTRY_URL" {
+			t.Errorf("PipelineAuth = %+v, want module token plus command's own registry url", *cs.PipelineAuth)
+		}
+	})
+}
+
 // parseAndLoad mirrors LoadSpec but accepts raw bytes instead of reading from
 // embed.FS, allowing unit tests to exercise the parse-and-register path.
 func parseAndLoad(reg *registry.Registry, name string, data []byte) error {

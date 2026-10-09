@@ -96,15 +96,23 @@ func StatusHandler(ctx *cmdctx.Ctx) error {
 }
 
 func runStatusChecks(profileFlag string) statusResult {
+	selector := auth.EffectiveProfileSelector(profileFlag)
+	if selector == auth.ProfileSentinelPipeline || (selector == "" && hbase.IsPipelineExecution()) {
+		return runPipelineStatusChecks()
+	}
+
 	// Determine the source before resolution so error display is correct.
+	// Mirrors auth.Load's own precedence: selector (--profile/HARNESS_PROFILE)
+	// beats HARNESS_API_KEY, which beats the default profile.
 	var anticipatedSource string
-	if profileFlag != "" {
-		anticipatedSource = "profile:" + profileFlag
-	} else if os.Getenv(hbase.EnvAPIKey) != "" {
+	switch {
+	case selector == auth.ProfileSentinelEnv:
 		anticipatedSource = auth.SourceEnv
-	} else if env := os.Getenv(hbase.EnvProfile); env != "" {
-		anticipatedSource = "profile:" + env
-	} else {
+	case selector != "":
+		anticipatedSource = "profile:" + selector
+	case os.Getenv(hbase.EnvAPIKey) != "":
+		anticipatedSource = auth.SourceEnv
+	default:
 		anticipatedSource = "profile:default"
 	}
 
@@ -328,6 +336,45 @@ func runStatusChecks(profileFlag string) statusResult {
 	return r
 }
 
+// runPipelineStatusChecks reports pipeline mode's scope env vars directly —
+// account/org/project IDs are not secret, but there is no single token or
+// API URL to resolve generically (those are per-command pipeline_auth
+// fields), so API/User checks are skipped rather than attempted.
+func runPipelineStatusChecks() statusResult {
+	r := statusResult{Source: auth.SourcePipeline, Profile: auth.ProfileSentinelPipeline}
+	skip := checkResult{OK: false, Error: "skipped"}
+
+	if !hbase.IsPipelineExecution() {
+		r.Status.Profile = checkResult{OK: false, Error: fmt.Sprintf("%s is not set", hbase.EnvPipelineID)}
+		r.Status.API, r.Status.User, r.Status.Account = skip, skip, skip
+		r.Status.Org, r.Status.Project = &skip, &skip
+		return r
+	}
+	r.Status.Profile = checkResult{OK: true}
+	r.Status.API = skip
+	r.Status.User = skip
+
+	r.AccountID = os.Getenv(hbase.EnvAccountID)
+	r.OrgID = os.Getenv(hbase.EnvOrgID)
+	r.ProjectID = os.Getenv(hbase.EnvProjectID)
+
+	r.Status.Account = envVarSetResult(hbase.EnvAccountID, r.AccountID)
+	org := envVarSetResult(hbase.EnvOrgID, r.OrgID)
+	r.Status.Org = &org
+	proj := envVarSetResult(hbase.EnvProjectID, r.ProjectID)
+	r.Status.Project = &proj
+
+	return r
+}
+
+// envVarSetResult reports whether an env var is set, naming it if not.
+func envVarSetResult(envVar, value string) checkResult {
+	if value == "" {
+		return checkResult{OK: false, Error: fmt.Sprintf("%s is not set", envVar)}
+	}
+	return checkResult{OK: true}
+}
+
 // persistResolvedIdentity writes identity fields discovered during a status/login check
 // back to the profile on disk, if any of them are new or changed. No-op for env-var auth,
 // which has no profile to update.
@@ -447,38 +494,45 @@ func printStatus(r statusResult) {
 	if r.TokenType != "" {
 		profileSuffix = fmt.Sprintf(" (%s)", r.TokenType)
 	}
-	if r.Source == auth.SourceEnv {
+	switch r.Source {
+	case auth.SourceEnv:
 		add("Mode", sv(r.Status.Profile, "env vars"+profileSuffix))
-	} else {
+	case auth.SourcePipeline:
+		add("Mode", sv(r.Status.Profile, "pipeline"))
+	default:
 		add("Profile", sv(r.Status.Profile, r.Profile+profileSuffix))
 	}
-	add("APIUrl", sv(r.Status.API, r.APIUrl))
-	if r.RegistryURL != "" {
-		add("RegistryUrl", fmt.Sprintf("%s %s", console.GreenCheck(), r.RegistryURL))
+	if r.Source != auth.SourcePipeline {
+		add("APIUrl", sv(r.Status.API, r.APIUrl))
+		if r.RegistryURL != "" {
+			add("RegistryUrl", fmt.Sprintf("%s %s", console.GreenCheck(), r.RegistryURL))
+		}
 	}
 
-	userLabel := "User"
-	userVal := ""
-	if r.IsSAT {
-		userLabel = "Token"
-		if r.Status.User.OK {
-			userVal = r.SATIdentity
+	if r.Source != auth.SourcePipeline {
+		userLabel := "User"
+		userVal := ""
+		if r.IsSAT {
+			userLabel = "Token"
+			if r.Status.User.OK {
+				userVal = r.SATIdentity
+			}
+		} else if email, uuid := currentUserFields(r.CurrentUser); email != "" {
+			userVal = fmt.Sprintf("%s (%s)", email, uuid)
+		} else if r.UserEmail != "" {
+			// SSO: no currentUser call — email comes straight from the JWT claims.
+			userVal = r.UserEmail
 		}
-	} else if email, uuid := currentUserFields(r.CurrentUser); email != "" {
-		userVal = fmt.Sprintf("%s (%s)", email, uuid)
-	} else if r.UserEmail != "" {
-		// SSO: no currentUser call — email comes straight from the JWT claims.
-		userVal = r.UserEmail
-	}
-	add(userLabel, sv(r.Status.User, userVal))
-	switch {
-	case r.TokenType == "SSO" && r.RefreshTokenExpiry != 0:
-		add("Expires", formatTokenValidTo(r.RefreshTokenExpiry))
-	case r.TokenType != "SSO" && r.Status.User.OK:
-		add("Expires", formatTokenValidTo(r.TokenValidTo))
+		add(userLabel, sv(r.Status.User, userVal))
+		switch {
+		case r.TokenType == "SSO" && r.RefreshTokenExpiry != 0:
+			add("Expires", formatTokenValidTo(r.RefreshTokenExpiry))
+		case r.TokenType != "SSO" && r.Status.User.OK:
+			add("Expires", formatTokenValidTo(r.TokenValidTo))
+		}
 	}
 	add("Account", sv(r.Status.Account, func() string {
-		if r.Status.Account.OK {
+		if r.Status.Account.OK && r.Status.Account.Name != "" {
 			return fmt.Sprintf("%s (%s)", r.Status.Account.Name, r.AccountID)
 		}
 		return r.AccountID
@@ -489,7 +543,7 @@ func printStatus(r statusResult) {
 			org = &checkResult{OK: false, Error: "skipped"}
 		}
 		add("Org", sv(*org, func() string {
-			if org.OK {
+			if org.OK && org.Name != "" {
 				return fmt.Sprintf("%s (%s)", org.Name, r.OrgID)
 			}
 			return r.OrgID
@@ -501,7 +555,7 @@ func printStatus(r statusResult) {
 			proj = &checkResult{OK: false, Error: "skipped"}
 		}
 		add("Project", sv(*proj, func() string {
-			if proj.OK {
+			if proj.OK && proj.Name != "" {
 				return fmt.Sprintf("%s (%s)", proj.Name, r.ProjectID)
 			}
 			return r.ProjectID

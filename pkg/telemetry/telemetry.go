@@ -64,7 +64,7 @@ type Env struct {
 	IsDev               bool
 	IsTTY               bool // stdout is an interactive terminal
 	IsPipelineExecution bool
-	PipelineID          string // HARNESS_PIPELINEID; empty when IsPipelineExecution is false
+	PipelineID          string // HARNESS_PIPELINE_ID; empty when IsPipelineExecution is false
 
 	// AIAgent is a standardized identifier for the coding agent the CLI is
 	// running under (e.g. "claude-code", "cursor"), or "" if none is detected.

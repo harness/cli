@@ -2091,3 +2091,62 @@ func TestRunListEndpoint(t *testing.T) {
 		}
 	})
 }
+
+func TestCallEndpointFull_RequestHeadersPropagate(t *testing.T) {
+	hdrs := map[string]string{"X-Test-Acct": "auth.account", "X-Test-Empty": `""`}
+	jsonFile := func(t *testing.T) map[string]any {
+		return map[string]any{"file": tempFile(t, `{"name":"n"}`, ".json")}
+	}
+	tests := []struct {
+		name     string
+		ep       *spec.EndpointSpec
+		flags    func(t *testing.T) map[string]any
+		setArgs  map[string]string
+		resps    []string
+		wantReqs []string // methods; every request must carry the headers
+	}{
+		{name: "file_raw_post", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", FileBody: spec.FileBodyOptional}, flags: jsonFile, wantReqs: []string{"POST"}},
+		{name: "file_create_wrap", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", FileBody: spec.FileBodyOptional, CreateBodyWrap: "widget"}, flags: jsonFile, wantReqs: []string{"POST"}},
+		{name: "file_string_wrap_post", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", FileBody: spec.FileBodyOptional, FileBodyWrapAsString: "yaml"}, flags: jsonFile, wantReqs: []string{"POST"}},
+		{name: "file_put_wrap", ep: &spec.EndpointSpec{Path: "/w", Method: "PUT", FileBody: spec.FileBodyOptional, UpdateBodyWrap: "widget"}, flags: jsonFile, wantReqs: []string{"PUT"}},
+		{name: "file_patch_plain", ep: &spec.EndpointSpec{Path: "/w", Method: "PATCH", FileBody: spec.FileBodyOptional}, flags: jsonFile, wantReqs: []string{"PATCH"}},
+		{name: "file_put_string_wrap", ep: &spec.EndpointSpec{Path: "/w", Method: "PUT", FileBody: spec.FileBodyOptional, FileBodyWrapAsString: "yaml"}, flags: jsonFile, wantReqs: []string{"PUT"}},
+		{name: "file_yaml_envelope", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", FileBody: spec.FileBodyOptional, FileBodyYamlEnvelope: "widget"}, flags: jsonFile, wantReqs: []string{"POST"}},
+		{name: "set_fields", ep: &spec.EndpointSpec{Path: "/w", Method: "POST", CreateStrategy: spec.CreateStrategySetFields}, setArgs: map[string]string{"name": "n"}, wantReqs: []string{"POST"}},
+		{name: "get_then_put", ep: &spec.EndpointSpec{Path: "/w", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut, UpdateBodyPick: "it"}, resps: []string{`{"name":"o"}`, `{}`}, wantReqs: []string{"GET", "PUT"}},
+		{name: "get_then_patch", ep: &spec.EndpointSpec{Path: "/w", Method: "PATCH", UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it"}, resps: []string{`{"name":"o"}`, `{}`}, wantReqs: []string{"GET", "PATCH"}},
+		{name: "get_then_put_kv", ep: &spec.EndpointSpec{Path: "/w", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPutKV}, resps: []string{`[]`, `{}`}, wantReqs: []string{"GET", "PUT"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, caps := sequenceServer(t, tc.resps)
+			var flags map[string]any
+			if tc.flags != nil {
+				flags = tc.flags(t)
+			}
+			ctx := testCtx(srv.URL, flags)
+			ctx.Noun = "widget"
+			ctx.SetArgs = tc.setArgs
+			ctx.Resolver = testNounRegistry(t)
+			tc.ep.RequestHeaders = hdrs
+
+			if _, _, err := callEndpointFull(ctx, tc.ep, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(*caps) != len(tc.wantReqs) {
+				t.Fatalf("requests = %d, want %d", len(*caps), len(tc.wantReqs))
+			}
+			for i, got := range *caps {
+				if got.method != tc.wantReqs[i] {
+					t.Fatalf("req[%d] method = %q, want %q", i, got.method, tc.wantReqs[i])
+				}
+				if v := got.header.Get("X-Test-Acct"); v != "acct" {
+					t.Fatalf("req[%d] X-Test-Acct = %q, want acct", i, v)
+				}
+				if _, ok := got.header["X-Test-Empty"]; ok {
+					t.Fatalf("req[%d] sent header for empty expression", i)
+				}
+			}
+		})
+	}
+}

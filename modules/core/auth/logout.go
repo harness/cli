@@ -16,6 +16,9 @@ func LogoutHandler(ctx *cmdctx.Ctx) error {
 	if profileName == "" {
 		profileName = "default"
 	}
+	if auth.IsReservedProfileName(profileName) {
+		return fmt.Errorf("%q is a reserved profile name and cannot be logged out", profileName)
+	}
 
 	cfg, err := config.LoadConfig()
 	if err != nil {

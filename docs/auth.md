@@ -1,24 +1,35 @@
 # Auth & Config
 
-## Two Modes
+## Four Modes
 
-The two modes target different primary use cases:
+The modes target different primary use cases:
 
 - **Profile mode** is for interactive use — a developer on their workstation, managing multiple accounts or environments.
 - **Env var mode** is for scripting and CI/CD — credentials injected by the runner, no config file on disk.
+- **SSO mode** is for interactive use when you sign in to Harness through your browser (SSO) instead of using an API token.
+- **Pipeline mode** is for commands run inside a Harness pipeline step — credentials come from the pipeline runtime, not a profile or `HARNESS_API_KEY`.
 
 ### Resolution Order
 
 Auth is resolved in this order (first match wins):
 
-1. `--profile <name>` flag — explicit profile, env vars ignored entirely
-2. `HARNESS_API_KEY` set — env var mode, no config file read
-3. `HARNESS_PROFILE` env var — use named profile from config file
+1. `--profile <name>` flag — explicit profile or sentinel, env vars ignored entirely
+2. `HARNESS_PROFILE` env var — named profile or sentinel from config file
+3. `HARNESS_API_KEY` set — env var mode, no config file read
 4. `default` profile in config file
 
 If `--profile` is given and the named profile does not exist, it is an error.  
-If `--profile` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes.  
+If `--profile` or `HARNESS_PROFILE` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes.  
 If no auth is resolved by any method, error with: `"not logged in — run 'harness auth login' to get started"`.
+
+### Reserved profile names
+
+`env` and `pipeline` are reserved — they can't be used as a config-file profile name (`auth login`/`logout`/`setscope` reject them), and passing either as `--profile`/`HARNESS_PROFILE` forces that specific auth mode instead of looking up a profile, hard-erroring if the mode isn't actually satisfiable:
+
+- `--profile env` forces env var mode — errors if `HARNESS_API_KEY` is unset.
+- `--profile pipeline` forces pipeline mode (see [Pipeline Mode](#pipeline-mode)) — errors if not actually running inside a pipeline, or if the command doesn't support pipeline auth.
+
+Without either sentinel, pipeline mode is still auto-detected whenever `HARNESS_PIPELINE_ID` is set and no `--profile`/`HARNESS_PROFILE` was given — the sentinel just makes it explicit and turns a silent fallback into a hard error.
 
 ### Scope Overrides
 
@@ -48,6 +59,40 @@ Optional:
 - `HARNESS_ORG` — org context
 - `HARNESS_PROJECT` — project context
 - `HARNESS_REGISTRY_URL` — defaults to `https://pkg.harness.io` (override for self-hosted)
+
+### Pipeline Mode
+
+Active whenever `HARNESS_PIPELINE_ID` is set — i.e. the command is running inside a Harness pipeline step — and no `--profile`/`HARNESS_PROFILE` names a real profile. No config file is read and there is no PAT to validate; credentials come from the pipeline runtime's env vars.
+
+Required:
+
+- `HARNESS_PIPELINE_ID` — presence alone triggers pipeline mode
+- `HARNESS_ACCOUNT_ID`, `HARNESS_ORG_ID`, `HARNESS_PROJECT_ID` — fixed scope for the run; `--org`/`--project` are rejected in this mode since scope can't be overridden
+- `HARNESS_INFRA` — must equal `VM`; other infra types are not supported
+
+Only commands whose spec declares a `pipeline_auth` block participate — for everything else pipeline mode is not applicable and auth falls through to profile/env var resolution as usual. Check `harness auth status` to see pipeline scope at a glance.
+
+### SSO Mode
+
+Sign in through your browser instead of creating a token:
+
+```
+harness auth login --sso
+```
+
+When you run `harness auth login` interactively, "Login with SSO" is also one of the options in the menu; picking it does the same thing as `--sso`.
+
+**How it works:** the CLI opens your browser at `id.harness.io`, where you sign in and, if you belong to several accounts, choose which one to log into. When the browser login completes, you're logged in and the CLI saves a profile. Your Harness account must be enabled for SSO access.
+
+**Limitations:**
+
+- **SaaS only.** Login goes through `id.harness.io`, so SSO does not work with self-managed (SMP) installs. Use a PAT/SAT instead.
+- **Needs a local browser.** The CLI must stay running until the browser login finishes (don't `Ctrl-C` it), and the browser must be on the same machine. SSO login does not work from a remote machine, e.g. over SSH.
+- **Saved profiles only.** There is no env var equivalent. For CI, use `HARNESS_API_KEY`.
+
+**Using SSO with AI agents:** on your own machine, a coding agent (e.g. Claude Code) that finds the CLI not logged in can run `harness auth login --sso` itself. Agents can't drive the interactive menu, so they need the `--sso` flag. A browser window opens for you to sign in, and the agent carries on once you finish. This doesn't work for cloud sessions, VMs, or SSH sessions (see limitations above); use `HARNESS_API_KEY` there.
+
+**Sessions:** tokens are short-lived and refreshed automatically. If your session eventually expires, re-run `harness auth login --sso`. Check your session with `harness auth sso_status`; force a refresh with `harness auth sso_refresh`.
 
 ---
 
@@ -92,12 +137,13 @@ Both files live in `~/.harness/` which is created with `0700` permissions. No "a
 
 ## Token Format
 
-Two token types are supported:
+Three token types are supported:
 
 - **PAT** (Personal Access Token) — `pat.{AccountID}.{tokenID}.{secret}`
 - **SAT** (Service Account Token) — `sat.{AccountID}.{tokenID}.{secret}`
+- **SSO token** — a JWT (JSON Web Token) issued when you log in with `harness auth login --sso`. It is short-lived and refreshed automatically (see [SSO Mode](#sso-mode)).
 
-Both follow the same 4-segment dot-separated format. The account ID is extracted from the token at login and stored explicitly in `config.yaml` — it is not re-parsed at runtime.
+PATs and SATs follow the same 4-segment dot-separated format. The account ID is extracted from the token at login and stored explicitly in `config.yaml` — it is not re-parsed at runtime.
 
 ### SAT tokens and scope
 
@@ -126,6 +172,7 @@ Saves credentials to a profile. Writes to both `~/.harness/config.yaml` and `~/.
 harness auth login
 harness auth login --profile staging
 harness auth login --api-url https://staging.harness.io --api-token pat.xxx.yyy.zzz --overwrite
+harness auth login --sso
 ```
 
 **Flags:**
@@ -140,10 +187,12 @@ harness auth login --api-url https://staging.harness.io --api-token pat.xxx.yyy.
 | `--project` | Default project ID to store in profile |
 | `--overwrite` | Overwrite existing profile without prompting |
 | `--no-validate` | Skip token validation against the API |
+| `--sso` | Log in through the browser instead of a token. Cannot be combined with `--api-url` or `--api-token`. |
+| `--force-save` | With `--sso`, save the profile even if the org/project picker fails |
 
 **Interactive flow** (stdin and stdout are TTYs and `--api-url` or `--api-token` is not provided):
 
-Runs a bubbletea TUI wizard. If the profile already exists and `--overwrite` is not passed, prompts to confirm overwrite before launching the wizard. The wizard handles URL entry, PAT entry, validation, and org/project pickers.
+Runs a bubbletea TUI wizard. If the profile already exists and `--overwrite` is not passed, prompts to confirm overwrite before launching the wizard. The wizard handles URL entry, PAT entry, validation, and org/project pickers. The URL picker also offers "Login with SSO" (same as `--sso`, see [SSO Mode](#sso-mode)).
 
 **Non-interactive flow** (all required values provided via flags, or not a TTY):
 
@@ -183,6 +232,17 @@ Performs these checks in sequence (stops on first failure):
 
 Token is never printed. Supports `--format json` for structured output.
 
+### `harness auth sso_status` / `harness auth sso_refresh`
+
+For SSO profiles only.
+
+```
+harness auth sso_status    # show when your SSO session expires
+harness auth sso_refresh   # refresh your SSO session now
+```
+
+Commands refresh your session automatically, so you rarely need `sso_refresh`.
+
 ### `harness auth profiles`
 
 Lists all profiles in the config file.
@@ -216,7 +276,7 @@ harness auth env --profile staging
 harness auth env --export   # prefix each line with "export "
 ```
 
-Always outputs `HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`. Outputs `HARNESS_ORG`, `HARNESS_PROJECT`, and `HARNESS_REGISTRY_URL` only when they are set in the resolved profile.
+Always outputs `HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`. For SSO profiles, `HARNESS_API_JWT` is printed instead of `HARNESS_API_KEY`. Outputs `HARNESS_ORG`, `HARNESS_PROJECT`, and `HARNESS_REGISTRY_URL` only when they are set in the resolved profile.
 
 ### `harness auth token`
 
@@ -227,4 +287,4 @@ harness auth token
 harness auth token --profile staging
 ```
 
-Does not require org/project to be configured.
+Does not require org/project to be configured. Prints PAT/SAT tokens only, never SSO JWTs (use `auth env` for an SSO token).

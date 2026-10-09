@@ -196,9 +196,13 @@ func executePlan(
 	if err != nil {
 		return fmt.Errorf("triggering execution: %w", err)
 	}
-	execURL := exec.PipelineExecutionURL
-	if execURL != "" && !strings.HasPrefix(execURL, "http") {
-		execURL = "https://" + execURL
+	execURL := iacmExecutionURL(a, orgID, projectID, defaultPipeline, exec.PipelineExecutionID)
+	if execURL == "" {
+		// Fall back to whatever the API returned if we lack the pieces to build our own link.
+		execURL = exec.PipelineExecutionURL
+		if execURL != "" && !strings.HasPrefix(execURL, "http") {
+			execURL = "https://" + execURL
+		}
 	}
 	fmt.Printf("Pipeline execution: %s\n", execURL)
 
@@ -213,6 +217,25 @@ func executePlan(
 
 func apiURL(a *auth.ResolvedAuth, path string) string {
 	return a.APIUrl + path
+}
+
+// iacmExecutionURL builds a module-scoped IaCM execution link directly, since the
+// pipeline_execution_url returned by the remote-executions API points at the unified
+// pipeline view instead of the IaCM module view (PL-75485). Returns "" if any required
+// piece is missing, so callers can fall back to the API-provided URL.
+func iacmExecutionURL(a *auth.ResolvedAuth, org, project, pipelineID, executionID string) string {
+	if a == nil || a.AccountID == "" || pipelineID == "" || executionID == "" {
+		return ""
+	}
+	uiBase := a.UIUrl
+	if uiBase == "" {
+		uiBase = a.APIUrl
+	}
+	if uiBase == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/ng/account/%s/module/iacm/orgs/%s/projects/%s/pipelines/%s/deployments/%s/pipeline",
+		strings.TrimRight(uiBase, "/"), a.AccountID, org, project, pipelineID, executionID)
 }
 
 func doIACM(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, method, path string, body any, out any) error {

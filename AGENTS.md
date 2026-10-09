@@ -98,6 +98,17 @@ pkg/
 modules/har/          # External HAR module (separate go.mod)
 ```
 
+## PR scope: core vs module
+
+- **Module files:** `modules/<module>/**` and `pkg/spec/<module>.spec.yaml`. **Core files:** everything else, including `modules/core/`, `pkg/spec/core.spec.yaml`, `pkg/spec/spec.go`, and `cmd/harness/main-harness.go`. `.github/CODEOWNERS` encodes this split.
+- A PR is either a module PR (module files only) or a core PR. Core PRs get a stricter review and need core CLI team approval.
+- Don't bundle a new core feature with module changes that adopt it — land the core PR first, then adopt it in a module PR.
+- Exception: a core PR may edit module files when required for compatibility (e.g. renaming a spec YAML key across all specs).
+- Adding a new module is a core change (it wires into `main-harness.go`).
+- Module tests cover module-owned logic only; never test that the spec framework honors a declaration (e.g. a `body_params` entry reaches the request).
+
+See [docs/contributing.md](docs/contributing.md) for details.
+
 ## How specs work
 
 Each `*.spec.yaml` declares:
@@ -157,8 +168,9 @@ Available variables: `ctx.id`, `ctx.idParts[N]`, `ctx.parentId`, `auth.account`,
 
 ### id_parts vs requires_parentid
 
-- `id_parts: 2` → user passes `<a>/<b>`; available as `ctx.idParts[0]` and `ctx.idParts[1]`. Works for `get`/`execute`/`delete`.
-- `requires_parentid: true` → user passes the parent as a positional arg; available as `ctx.parentId`. Used for `list`/`create` where the sub-resource doesn't have its own id yet. **`id_parts` is NOT supported by `list`.**
+- `id_parts: 2` → user passes `<a>/<b>`; available as `ctx.idParts[0]` and `ctx.idParts[1]`. Works for `get`/`update`/`execute`/`delete`.
+- `requires_parentid: true` → user passes the parent as a positional arg; available as `ctx.parentId`. Used for `list`/`create` where the sub-resource doesn't have its own id yet.
+- For a `list`/`create` with a composite parent (e.g. `<repo_id>/<pr_number>`), combine them: `requires_parentid: true` + `id_parts: N`; the parent is split into `ctx.parentIdParts[0..N-1]` (see `list pr_reviewer` in `code.spec.yaml`).
 
 ### expr-lang tips
 
@@ -205,6 +217,8 @@ request_headers:
 An empty `body_params` still sends `{}` (required by gRPC-gateway for POST/PATCH/PUT).
 
 ## Adding a new spec file
+
+Adding a module is a core change (step 7 edits `main-harness.go`); see [PR scope](#pr-scope-core-vs-module).
 
 1. Create `pkg/spec/<module>.spec.yaml`.
 2. It is automatically embedded via `//go:embed *.spec.yaml` in `spec.go`.
@@ -275,7 +289,7 @@ Default to zero comments; most functions need none. If one is warranted, keep it
 
 - Use `hbase.Exit()` rather than `os.Exit()` so shutdown cleanup hooks run.
 - **Binary not updated**: `task build` alone isn't enough — must `cp` to `~/.local/bin/harness`.
-- **`list` with `id_parts`**: Not supported. Use `requires_parentid: true` instead.
+- **`list` with composite parent ids**: use `requires_parentid: true` with `id_parts: N` and read `ctx.parentIdParts[N]`, not `ctx.idParts`.
 - **Code API paths**: Use bare repo identifier in path (e.g. `/code/api/v1/repos/{{ctx.parentId}}/branches`). org/project go as query params automatically — do NOT prefix paths with `{{auth.account}}/{{auth.org}}/{{auth.project}}`.
 - **`columns` on `get`**: Ignored. Use `fields_subset` on the endpoint to filter `get` output.
 - **gRPC oneof fields**: Include all variants in `??` chain (entity_type, event_type, metric_type, view_type, relationship_type, config_type).

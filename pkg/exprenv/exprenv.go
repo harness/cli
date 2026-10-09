@@ -186,6 +186,21 @@ func EvalExpr(env map[string]any, s string) string {
 	return s2
 }
 
+// EvalHeaders evaluates pipeline_auth's header expressions in a restricted env
+// containing only `token` — never the shared ctx/auth/flags/it env used by
+// request_headers, so other spec expressions can't read the pipeline token.
+func EvalHeaders(headers map[string]string, token string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	env := map[string]any{"token": token}
+	out := make(map[string]string, len(headers))
+	for k, v := range headers {
+		out[k] = EvalExpr(env, v)
+	}
+	return out
+}
+
 // ResolvePath evaluates all {{expr}} segments in a path template using the given
 // expr environment, replacing each with its string result.
 func ResolvePath(env map[string]any, path string) (string, error) {

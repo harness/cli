@@ -397,6 +397,24 @@ func (p *PagingSpec) IsCountable() bool {
 	return p.Countable || p.PagingStrategy == PagingStrategyFlatList
 }
 
+// PipelineAuthSpec declares the per-command/module credential a Harness
+// pipeline step injects. Triggered solely by hbase.EnvPipelineID presence —
+// scope (account/org/project) comes from fixed Go constants, never from this
+// spec. A command-level block replaces a module-level default wholesale; see
+// CommandSpec.NoPipelineAuth for opting a command out of an inherited default.
+type PipelineAuthSpec struct {
+	// TokenEnvVar names the env var holding the pipeline-injected token.
+	TokenEnvVar string `yaml:"token_envvar"`
+	// APIURLEnvVar names the env var holding the API base URL.
+	APIURLEnvVar string `yaml:"apiurl_envvar,omitempty"`
+	// RegistryURLEnvVar names the env var holding the registry base URL.
+	RegistryURLEnvVar string `yaml:"registryurl_envvar,omitempty"`
+	// Headers maps HTTP header name -> expr-lang expression, evaluated in a
+	// restricted env containing only `token` — never the shared auth./flags./
+	// ctx./it. env used by request_headers.
+	Headers map[string]string `yaml:"headers,omitempty"`
+}
+
 // EndpointSpec describes a single Harness API call.
 //
 // Path is a template with {placeholders}. PathParams maps flag names to placeholder
@@ -596,19 +614,21 @@ type CommandSpec struct {
 	BuiltinFlags     BuiltinFlags        `yaml:"flags_builtin,omitempty"`
 	HasArgs          bool                `yaml:"has_args,omitempty"` // accepts extra positional args beyond [id]; parsed into ctx.Args
 	HandlerType      HandlerType         `yaml:"handler_type"`
-	VerbHandler      string              `yaml:"verb_handler,omitempty"`    // overrides verb for behavioral dispatch (flag binding, ctx.Verb); leave unset to use verb
-	ConfirmMode      string              `yaml:"confirm_mode,omitempty"`    // not allowed on list or get; see ConfirmNone/ConfirmPrompt/ConfirmID
-	WorkflowID       string              `yaml:"workflow_id,omitempty"`     // set when HandlerType == HandlerWorkflow
-	ItemFn           string              `yaml:"item_fn,omitempty"`         // optional: workflow-backed get's item resolver, used for TUI drilldown rendering
-	FollowFn         string              `yaml:"follow_fn,omitempty"`       // optional: called after a successful endpoint command when --follow is set
-	Flags            []Flag              `yaml:"flags,omitempty"`           // custom flags for workflow commands
-	Endpoint         *EndpointSpec       `yaml:"endpoint,omitempty"`        // set when HandlerType == HandlerEndpoint
-	FieldsNoun       string              `yaml:"fields_noun,omitempty"`     // override noun used for field lookup when the command's shape differs from its noun
-	CompletionNoun   string              `yaml:"completion_noun,omitempty"` // override noun used to find the list spec for <id> completion
-	CompletionSeq    []CompletionSeqStep `yaml:"completion_seq,omitempty"`  // slash-delimited multi-part ID completion; overrides completion_noun when set
-	Module           string              `yaml:"-"`                         // set at registration time by ModuleRegistrar; drives workflow/formatter namespacing
-	SpecFile         string              `yaml:"-"`                         // spec filename, set at load time; used in error messages
-	External         bool                `yaml:"-"`                         // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
+	VerbHandler      string              `yaml:"verb_handler,omitempty"`     // overrides verb for behavioral dispatch (flag binding, ctx.Verb); leave unset to use verb
+	ConfirmMode      string              `yaml:"confirm_mode,omitempty"`     // not allowed on list or get; see ConfirmNone/ConfirmPrompt/ConfirmID
+	WorkflowID       string              `yaml:"workflow_id,omitempty"`      // set when HandlerType == HandlerWorkflow
+	ItemFn           string              `yaml:"item_fn,omitempty"`          // optional: workflow-backed get's item resolver, used for TUI drilldown rendering
+	FollowFn         string              `yaml:"follow_fn,omitempty"`        // optional: called after a successful endpoint command when --follow is set
+	Flags            []Flag              `yaml:"flags,omitempty"`            // custom flags for workflow commands
+	Endpoint         *EndpointSpec       `yaml:"endpoint,omitempty"`         // set when HandlerType == HandlerEndpoint
+	PipelineAuth     *PipelineAuthSpec   `yaml:"pipeline_auth,omitempty"`    // module-level default or per-command block; merged at load time, see specloader.mergePipelineAuth
+	NoPipelineAuth   bool                `yaml:"no_pipeline_auth,omitempty"` // opts this command out of an inherited module-level pipeline_auth default
+	FieldsNoun       string              `yaml:"fields_noun,omitempty"`      // override noun used for field lookup when the command's shape differs from its noun
+	CompletionNoun   string              `yaml:"completion_noun,omitempty"`  // override noun used to find the list spec for <id> completion
+	CompletionSeq    []CompletionSeqStep `yaml:"completion_seq,omitempty"`   // slash-delimited multi-part ID completion; overrides completion_noun when set
+	Module           string              `yaml:"-"`                          // set at registration time by ModuleRegistrar; drives workflow/formatter namespacing
+	SpecFile         string              `yaml:"-"`                          // spec filename, set at load time; used in error messages
+	External         bool                `yaml:"-"`                          // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
 }
 
 // FullNoun returns "noun:variant" when NounVariant is set, "noun:noun_to" when NounTo is
