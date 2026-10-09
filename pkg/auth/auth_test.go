@@ -109,7 +109,7 @@ func noopEvalHeaders(headers map[string]string, token string) map[string]string 
 }
 
 func TestResolvePipelineAuth(t *testing.T) {
-	t.Run("HARNESS_PIPELINEID unset never triggers, even with a cfg", func(t *testing.T) {
+	t.Run("HARNESS_PIPELINE_ID unset never triggers, even with a cfg", func(t *testing.T) {
 		clearAuthEnv(t)
 		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
 		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
@@ -127,7 +127,7 @@ func TestResolvePipelineAuth(t *testing.T) {
 		}
 	})
 
-	t.Run("forced with HARNESS_PIPELINEID unset errors instead of silently not triggering", func(t *testing.T) {
+	t.Run("forced with HARNESS_PIPELINE_ID unset errors instead of silently not triggering", func(t *testing.T) {
 		clearAuthEnv(t)
 		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
 		r, triggered, err := ResolvePipelineAuth(cfg, true, noopEvalHeaders)
