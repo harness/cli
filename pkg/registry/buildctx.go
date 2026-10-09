@@ -118,12 +118,22 @@ func toPipelineAuthConfig(s *spec.PipelineAuthSpec) *auth.PipelineAuthConfig {
 
 // resolveAuthForCommand is the one auth-resolution path shared by every real
 // or simulated command invocation (execution, completion, --ui replay,
-// telemetry tagging): an explicit --profile always wins and skips pipeline
-// auth entirely; otherwise pipeline auth is attempted first and, once
-// triggered, --org/--project are rejected since pipeline scope is fixed.
+// telemetry tagging). An explicit selector — --profile or HARNESS_PROFILE,
+// sentinel or named — always wins and skips implicit pipeline auto-detection;
+// the "pipeline" sentinel forces pipeline mode (hard error if not applicable).
+// Otherwise pipeline auth is attempted first and, once triggered,
+// --org/--project are rejected since pipeline scope is fixed.
 func resolveAuthForCommand(pa *spec.PipelineAuthSpec, profileFlag, orgFlag, projectFlag string) (*auth.ResolvedAuth, error) {
-	if profileFlag == "" {
-		pipelineResolved, triggered, err := auth.ResolvePipelineAuth(toPipelineAuthConfig(pa), exprenv.EvalHeaders)
+	selector := auth.EffectiveProfileSelector(profileFlag)
+	if selector == auth.ProfileSentinelPipeline {
+		if orgFlag != "" || projectFlag != "" {
+			return nil, fmt.Errorf("--org/--project are not allowed in pipeline mode (scope is fixed by the pipeline)")
+		}
+		resolved, _, err := auth.ResolvePipelineAuth(toPipelineAuthConfig(pa), true, exprenv.EvalHeaders)
+		return resolved, err
+	}
+	if selector == "" {
+		pipelineResolved, triggered, err := auth.ResolvePipelineAuth(toPipelineAuthConfig(pa), false, exprenv.EvalHeaders)
 		if err != nil {
 			return nil, err
 		}
