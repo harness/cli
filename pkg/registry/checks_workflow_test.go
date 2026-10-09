@@ -469,25 +469,27 @@ func TestValidateEndpointConstraints_FileBodyWrapRequiresFileBody(t *testing.T) 
 	}
 }
 
-func TestValidateEndpointConstraints_AuthOverrideMissingTokenEnvVar(t *testing.T) {
+func TestValidatePipelineAuth_MissingTokenEnvVar(t *testing.T) {
 	cs := &spec.CommandSpec{
 		Command: "get pipeline", Verb: VerbGet, VerbHandler: VerbGet, Noun: "pipeline", Module: "test",
-		HandlerType: spec.HandlerEndpoint,
-		Endpoint:    &spec.EndpointSpec{Method: "GET", ItemExpr: "it", AuthOverride: &spec.AuthOverrideSpec{Header: "Authorization"}},
+		HandlerType:  spec.HandlerEndpoint,
+		Endpoint:     &spec.EndpointSpec{Method: "GET", ItemExpr: "it"},
+		PipelineAuth: &spec.PipelineAuthSpec{APIURLEnvVar: "HARNESS_HAR_API_URL"},
 	}
-	if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "requires token_env_var") {
-		t.Fatalf("expected missing token_env_var error, got: %v", err)
+	if err := validatePipelineAuth(cs); err == nil || !strings.Contains(err.Error(), "requires token_envvar") {
+		t.Fatalf("expected missing token_envvar error, got: %v", err)
 	}
 }
 
-func TestValidateEndpointConstraints_AuthOverrideMissingHeader(t *testing.T) {
+func TestValidatePipelineAuth_MissingURLEnvVar(t *testing.T) {
 	cs := &spec.CommandSpec{
 		Command: "get pipeline", Verb: VerbGet, VerbHandler: VerbGet, Noun: "pipeline", Module: "test",
-		HandlerType: spec.HandlerEndpoint,
-		Endpoint:    &spec.EndpointSpec{Method: "GET", ItemExpr: "it", AuthOverride: &spec.AuthOverrideSpec{TokenEnvVar: "CI_TOKEN"}},
+		HandlerType:  spec.HandlerEndpoint,
+		Endpoint:     &spec.EndpointSpec{Method: "GET", ItemExpr: "it"},
+		PipelineAuth: &spec.PipelineAuthSpec{TokenEnvVar: "HARNESS_HAR_TOKEN"},
 	}
-	if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "requires header") {
-		t.Fatalf("expected missing header error, got: %v", err)
+	if err := validatePipelineAuth(cs); err == nil || !strings.Contains(err.Error(), "requires apiurl_envvar or registryurl_envvar") {
+		t.Fatalf("expected missing url envvar error, got: %v", err)
 	}
 }
 

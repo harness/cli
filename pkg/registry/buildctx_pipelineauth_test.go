@@ -14,34 +14,37 @@ import (
 	"github.com/harness/cli/v3/pkg/spec"
 )
 
-// clearAuthOverrideTestEnv wipes every env var the normal auth-resolution
-// chain reads, and points config loading at an empty temp dir, so each test
-// case is hermetic regardless of the real machine's logged-in profile.
-func clearAuthOverrideTestEnv(t *testing.T) {
+// clearPipelineAuthTestEnv wipes every env var the normal auth-resolution
+// chain and pipeline_auth read, and points config loading at an empty temp
+// dir, so each test case is hermetic regardless of the real machine's logged-in
+// profile or environment.
+func clearPipelineAuthTestEnv(t *testing.T) {
 	t.Helper()
 	for _, v := range []string{
 		hbase.EnvAPIKey, hbase.EnvProfile, hbase.EnvAccount,
 		hbase.EnvOrg, hbase.EnvProject, hbase.EnvAPIURL,
+		hbase.EnvPipelineID, hbase.EnvAccountID, hbase.EnvOrgID, hbase.EnvProjectID, hbase.EnvInfra,
+		"TEST_PIPELINE_TOKEN",
 	} {
 		t.Setenv(v, "")
 	}
 	t.Setenv(hbase.EnvCLIHome, t.TempDir())
 }
 
-func registerAuthOverrideTestList(t *testing.T, r *Registry, noun string, override *spec.AuthOverrideSpec) *spec.CommandSpec {
+func registerPipelineAuthTestList(t *testing.T, r *Registry, noun string, pa *spec.PipelineAuthSpec) *spec.CommandSpec {
 	t.Helper()
 	registerWorkflowNoun(t, r, noun)
-	wfID := "test:authoverride:" + noun
+	wfID := "test:pipelineauth:" + noun
 	r.RegisterWorkflow(wfID, func(*cmdctx.Ctx) error { return nil })
 	cs := &spec.CommandSpec{
-		Command:     "list " + noun,
-		Verb:        VerbList,
-		VerbHandler: VerbList,
-		Noun:        noun,
-		Module:      "test",
-		HandlerType: spec.HandlerWorkflow,
-		WorkflowID:  wfID,
-		Endpoint:    &spec.EndpointSpec{AuthOverride: override},
+		Command:      "list " + noun,
+		Verb:         VerbList,
+		VerbHandler:  VerbList,
+		Noun:         noun,
+		Module:       "test",
+		HandlerType:  spec.HandlerWorkflow,
+		WorkflowID:   wfID,
+		PipelineAuth: pa,
 	}
 	if err := r.Register(cs); err != nil {
 		t.Fatalf("Register list %s: %v", noun, err)
@@ -49,7 +52,7 @@ func registerAuthOverrideTestList(t *testing.T, r *Registry, noun string, overri
 	return cs
 }
 
-func authOverrideTestCmd(t *testing.T, r *Registry, cs *spec.CommandSpec) *cobra.Command {
+func pipelineAuthTestCmd(t *testing.T, r *Registry, cs *spec.CommandSpec) *cobra.Command {
 	t.Helper()
 	cmd := &cobra.Command{Use: cs.Command}
 	r.bindWorkflowCmd(cmd, cs, func(*cmdctx.Ctx) error { return nil })
@@ -60,42 +63,50 @@ func authOverrideTestCmd(t *testing.T, r *Registry, cs *spec.CommandSpec) *cobra
 	return cmd
 }
 
-func TestBuildCtx_AuthOverrideTriggersFromEnv(t *testing.T) {
-	clearAuthOverrideTestEnv(t)
+func setPipelineScopeEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(hbase.EnvPipelineID, "pipe1")
+	t.Setenv(hbase.EnvAccountID, "acct1")
+	t.Setenv(hbase.EnvOrgID, "org1")
+	t.Setenv(hbase.EnvProjectID, "proj1")
+	t.Setenv(hbase.EnvInfra, hbase.InfraVM)
+}
+
+func TestBuildCtx_PipelineAuthTriggersFromPipelineID(t *testing.T) {
+	clearPipelineAuthTestEnv(t)
+	setPipelineScopeEnv(t)
 	t.Setenv("TEST_PIPELINE_TOKEN", "tok123")
-	t.Setenv(hbase.EnvAccount, "acct1")
 
 	r := New()
-	cs := registerAuthOverrideTestList(t, r, "aothing1", &spec.AuthOverrideSpec{
-		TokenEnvVar: "TEST_PIPELINE_TOKEN",
-		Header:      "Authorization",
-		Prefix:      "Bearer ",
+	cs := registerPipelineAuthTestList(t, r, "pathing1", &spec.PipelineAuthSpec{
+		TokenEnvVar:  "TEST_PIPELINE_TOKEN",
+		APIURLEnvVar: "TEST_PIPELINE_API_URL",
+		Headers:      map[string]string{"Authorization": `"Bearer " + token`},
 	})
-	cmd := authOverrideTestCmd(t, r, cs)
+	cmd := pipelineAuthTestCmd(t, r, cs)
 
 	ctx, err := buildCtx(cmd, cs, nil, r)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if ctx.Auth.OverrideHeader != "Authorization" || ctx.Auth.OverrideValue != "Bearer tok123" {
-		t.Errorf("Auth override = (%q, %q), want (%q, %q)", ctx.Auth.OverrideHeader, ctx.Auth.OverrideValue, "Authorization", "Bearer tok123")
+	if ctx.Auth.Headers["Authorization"] != "Bearer tok123" {
+		t.Errorf("Auth.Headers[Authorization] = %q, want %q", ctx.Auth.Headers["Authorization"], "Bearer tok123")
 	}
-	if ctx.Auth.AccountID != "acct1" {
-		t.Errorf("AccountID = %q, want %q", ctx.Auth.AccountID, "acct1")
+	if ctx.Auth.AccountID != "acct1" || ctx.Auth.OrgID != "org1" || ctx.Auth.ProjectID != "proj1" {
+		t.Errorf("scope = %q/%q/%q, want acct1/org1/proj1", ctx.Auth.AccountID, ctx.Auth.OrgID, ctx.Auth.ProjectID)
 	}
 }
 
-func TestBuildCtx_AuthOverrideSkippedWhenProfileFlagSet(t *testing.T) {
-	clearAuthOverrideTestEnv(t)
+func TestBuildCtx_PipelineAuthSkippedWhenProfileFlagSet(t *testing.T) {
+	clearPipelineAuthTestEnv(t)
+	setPipelineScopeEnv(t)
 	t.Setenv("TEST_PIPELINE_TOKEN", "tok123")
-	t.Setenv(hbase.EnvAccount, "acct1")
 
 	r := New()
-	cs := registerAuthOverrideTestList(t, r, "aothing2", &spec.AuthOverrideSpec{
-		TokenEnvVar: "TEST_PIPELINE_TOKEN",
-		Header:      "Authorization",
+	cs := registerPipelineAuthTestList(t, r, "pathing2", &spec.PipelineAuthSpec{
+		TokenEnvVar: "TEST_PIPELINE_TOKEN", APIURLEnvVar: "TEST_PIPELINE_API_URL",
 	})
-	cmd := authOverrideTestCmd(t, r, cs)
+	cmd := pipelineAuthTestCmd(t, r, cs)
 	if err := cmd.Flags().Set("profile", "nonexistent-test-profile"); err != nil {
 		t.Fatalf("Set profile: %v", err)
 	}
@@ -105,20 +116,20 @@ func TestBuildCtx_AuthOverrideSkippedWhenProfileFlagSet(t *testing.T) {
 		t.Fatal("expected an error from the explicit --profile falling through to normal resolution, got nil")
 	}
 	if !strings.Contains(err.Error(), `"nonexistent-test-profile" not found`) {
-		t.Errorf("error = %q, want it to reference the explicit profile (override must be skipped, not fired)", err.Error())
+		t.Errorf("error = %q, want it to reference the explicit profile (pipeline auth must be skipped, not fired)", err.Error())
 	}
 }
 
-func TestBuildCtx_AuthOverrideFallsThroughWhenTokenUnset(t *testing.T) {
-	clearAuthOverrideTestEnv(t)
-	// TEST_PIPELINE_TOKEN deliberately left unset.
+func TestBuildCtx_PipelineAuthFallsThroughWhenPipelineIDUnset(t *testing.T) {
+	clearPipelineAuthTestEnv(t)
+	// HARNESS_PIPELINEID deliberately left unset — not running in a pipeline.
+	t.Setenv("TEST_PIPELINE_TOKEN", "tok123")
 
 	r := New()
-	cs := registerAuthOverrideTestList(t, r, "aothing3", &spec.AuthOverrideSpec{
-		TokenEnvVar: "TEST_PIPELINE_TOKEN",
-		Header:      "Authorization",
+	cs := registerPipelineAuthTestList(t, r, "pathing3", &spec.PipelineAuthSpec{
+		TokenEnvVar: "TEST_PIPELINE_TOKEN", APIURLEnvVar: "TEST_PIPELINE_API_URL",
 	})
-	cmd := authOverrideTestCmd(t, r, cs)
+	cmd := pipelineAuthTestCmd(t, r, cs)
 
 	_, err := buildCtx(cmd, cs, nil, r)
 	if err == nil {
@@ -129,17 +140,30 @@ func TestBuildCtx_AuthOverrideFallsThroughWhenTokenUnset(t *testing.T) {
 	}
 }
 
-func TestBuildCtx_AuthOverrideOrgProjectFlagsApplyOnTop(t *testing.T) {
-	clearAuthOverrideTestEnv(t)
-	t.Setenv("TEST_PIPELINE_TOKEN", "tok123")
-	t.Setenv(hbase.EnvAccount, "acct1")
+func TestBuildCtx_PipelineAuthTriggeredWithoutBlockErrors(t *testing.T) {
+	clearPipelineAuthTestEnv(t)
+	setPipelineScopeEnv(t)
 
 	r := New()
-	cs := registerAuthOverrideTestList(t, r, "aothing4", &spec.AuthOverrideSpec{
-		TokenEnvVar: "TEST_PIPELINE_TOKEN",
-		Header:      "Authorization",
+	cs := registerPipelineAuthTestList(t, r, "pathing4", nil)
+	cmd := pipelineAuthTestCmd(t, r, cs)
+
+	_, err := buildCtx(cmd, cs, nil, r)
+	if err == nil || !strings.Contains(err.Error(), "does not support pipeline auth") {
+		t.Fatalf("error = %v, want \"does not support pipeline auth\"", err)
+	}
+}
+
+func TestBuildCtx_PipelineAuthOrgProjectFlagsError(t *testing.T) {
+	clearPipelineAuthTestEnv(t)
+	setPipelineScopeEnv(t)
+	t.Setenv("TEST_PIPELINE_TOKEN", "tok123")
+
+	r := New()
+	cs := registerPipelineAuthTestList(t, r, "pathing5", &spec.PipelineAuthSpec{
+		TokenEnvVar: "TEST_PIPELINE_TOKEN", APIURLEnvVar: "TEST_PIPELINE_API_URL",
 	})
-	cmd := authOverrideTestCmd(t, r, cs)
+	cmd := pipelineAuthTestCmd(t, r, cs)
 	if err := cmd.Flags().Set("org", "flag-org"); err != nil {
 		t.Fatalf("Set org: %v", err)
 	}
@@ -147,11 +171,8 @@ func TestBuildCtx_AuthOverrideOrgProjectFlagsApplyOnTop(t *testing.T) {
 		t.Fatalf("Set project: %v", err)
 	}
 
-	ctx, err := buildCtx(cmd, cs, nil, r)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ctx.Auth.OrgID != "flag-org" || ctx.Auth.ProjectID != "flag-project" {
-		t.Errorf("OrgID/ProjectID = %q/%q, want %q/%q (flags should apply on top of a triggered override)", ctx.Auth.OrgID, ctx.Auth.ProjectID, "flag-org", "flag-project")
+	_, err := buildCtx(cmd, cs, nil, r)
+	if err == nil || !strings.Contains(err.Error(), "not allowed in pipeline mode") {
+		t.Fatalf("error = %v, want an --org/--project-not-allowed error (pipeline scope is fixed)", err)
 	}
 }

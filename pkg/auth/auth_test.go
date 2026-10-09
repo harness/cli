@@ -5,6 +5,7 @@ package auth
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/hbase"
@@ -84,110 +85,126 @@ func TestNormalizeThenValidateAPIURL(t *testing.T) {
 	}
 }
 
-// clearAuthEnv wipes every env var ResolveCommandOverride might read, so each
+// clearAuthEnv wipes every env var ResolvePipelineAuth might read, so each
 // test case starts from a clean slate regardless of what the real environment
 // (or a previous subtest via t.Setenv) has set.
 func clearAuthEnv(t *testing.T) {
 	for _, v := range []string{
-		"PIPELINE_TOKEN", "CUSTOM_ACCOUNT", "CUSTOM_ORG", "CUSTOM_PROJECT", "CUSTOM_API_URL",
-		hbase.EnvAccount, hbase.EnvOrg, hbase.EnvProject, hbase.EnvAPIURL,
+		"PIPELINE_TOKEN", "PIPELINE_API_URL", "PIPELINE_REGISTRY_URL",
+		hbase.EnvPipelineID, hbase.EnvAccountID, hbase.EnvOrgID, hbase.EnvProjectID, hbase.EnvInfra,
 	} {
 		t.Setenv(v, "")
 	}
 }
 
-func TestResolveCommandOverride(t *testing.T) {
-	t.Run("nil config never triggers", func(t *testing.T) {
+func noopEvalHeaders(headers map[string]string, token string) map[string]string {
+	if headers == nil {
+		return nil
+	}
+	out := make(map[string]string, len(headers))
+	for k := range headers {
+		out[k] = "Bearer " + token
+	}
+	return out
+}
+
+func TestResolvePipelineAuth(t *testing.T) {
+	t.Run("HARNESS_PIPELINEID unset never triggers, even with a cfg", func(t *testing.T) {
 		clearAuthEnv(t)
-		r, triggered, err := ResolveCommandOverride(nil)
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
 		if r != nil || triggered || err != nil {
-			t.Fatalf("ResolveCommandOverride(nil) = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
 		}
 	})
 
-	t.Run("token env var unset does not trigger", func(t *testing.T) {
+	t.Run("triggered with nil cfg errors: command does not support pipeline auth", func(t *testing.T) {
 		clearAuthEnv(t)
-		cfg := &CommandOverrideConfig{TokenEnvVar: "PIPELINE_TOKEN", Header: "Authorization"}
-		r, triggered, err := ResolveCommandOverride(cfg)
-		if r != nil || triggered || err != nil {
-			t.Fatalf("ResolveCommandOverride = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
-		}
-	})
-
-	t.Run("triggered but no account anywhere errors", func(t *testing.T) {
-		clearAuthEnv(t)
-		t.Setenv("PIPELINE_TOKEN", "tok123")
-		cfg := &CommandOverrideConfig{TokenEnvVar: "PIPELINE_TOKEN", Header: "Authorization"}
-		r, triggered, err := ResolveCommandOverride(cfg)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		r, triggered, err := ResolvePipelineAuth(nil, noopEvalHeaders)
 		if r != nil || !triggered || err == nil {
-			t.Fatalf("ResolveCommandOverride = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
+			t.Fatalf("ResolvePipelineAuth(nil) = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
 		}
 	})
 
-	t.Run("full override: custom account/org/project/api_url env vars, prefix applied", func(t *testing.T) {
+	t.Run("missing a scope var errors naming it", func(t *testing.T) {
 		clearAuthEnv(t)
-		t.Setenv("PIPELINE_TOKEN", "tok123")
-		t.Setenv("CUSTOM_ACCOUNT", "acct1")
-		t.Setenv("CUSTOM_ORG", "org1")
-		t.Setenv("CUSTOM_PROJECT", "proj1")
-		t.Setenv("CUSTOM_API_URL", "https://ti.example.com")
-		cfg := &CommandOverrideConfig{
-			TokenEnvVar:   "PIPELINE_TOKEN",
-			Header:        "Authorization",
-			Prefix:        "Bearer ",
-			AccountEnvVar: "CUSTOM_ACCOUNT",
-			OrgEnvVar:     "CUSTOM_ORG",
-			ProjectEnvVar: "CUSTOM_PROJECT",
-			APIURLEnvVar:  "CUSTOM_API_URL",
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		// HARNESS_ORG_ID deliberately left unset.
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		if r != nil || !triggered || err == nil || !strings.Contains(err.Error(), hbase.EnvOrgID) {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want error naming %s", r, triggered, err, hbase.EnvOrgID)
 		}
-		r, triggered, err := ResolveCommandOverride(cfg)
+	})
+
+	t.Run("non-VM infra errors, no fallthrough", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		t.Setenv(hbase.EnvOrgID, "org1")
+		t.Setenv(hbase.EnvProjectID, "proj1")
+		t.Setenv(hbase.EnvInfra, "KUBERNETES")
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		if r != nil || !triggered || err == nil {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
+		}
+	})
+
+	t.Run("VM infra with token unset errors", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		t.Setenv(hbase.EnvOrgID, "org1")
+		t.Setenv(hbase.EnvProjectID, "proj1")
+		t.Setenv(hbase.EnvInfra, hbase.InfraVM)
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		if r != nil || !triggered || err == nil {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
+		}
+	})
+
+	t.Run("happy path: VM infra, scope and token set, headers evaluated", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		t.Setenv(hbase.EnvOrgID, "org1")
+		t.Setenv(hbase.EnvProjectID, "proj1")
+		t.Setenv(hbase.EnvInfra, hbase.InfraVM)
+		t.Setenv("PIPELINE_TOKEN", "tok123")
+		t.Setenv("PIPELINE_API_URL", "https://ti.example.com")
+		cfg := &PipelineAuthConfig{
+			TokenEnvVar:  "PIPELINE_TOKEN",
+			APIURLEnvVar: "PIPELINE_API_URL",
+			Headers:      map[string]string{"Authorization": "ignored by noopEvalHeaders"},
+		}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
 		if err != nil || !triggered || r == nil {
-			t.Fatalf("ResolveCommandOverride = (%v, %v, %v), want a resolved override", r, triggered, err)
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want a resolved pipeline auth", r, triggered, err)
 		}
 		want := &ResolvedAuth{
-			Source:         SourceEnv,
-			AccountID:      "acct1",
-			OrgID:          "org1",
-			ProjectID:      "proj1",
-			APIUrl:         "https://ti.example.com",
-			OverrideHeader: "Authorization",
-			OverrideValue:  "Bearer tok123",
+			Source:    SourcePipeline,
+			AccountID: "acct1",
+			OrgID:     "org1",
+			ProjectID: "proj1",
+			APIUrl:    "https://ti.example.com",
+			Headers:   map[string]string{"Authorization": "Bearer tok123"},
 		}
-		if *r != *want {
+		if r.Source != want.Source || r.AccountID != want.AccountID || r.OrgID != want.OrgID ||
+			r.ProjectID != want.ProjectID || r.APIUrl != want.APIUrl || r.Headers["Authorization"] != want.Headers["Authorization"] {
 			t.Errorf("ResolvedAuth = %+v, want %+v", *r, *want)
-		}
-	})
-
-	t.Run("unset optional env vars fall back to standard HARNESS_* then built-in default URL", func(t *testing.T) {
-		clearAuthEnv(t)
-		t.Setenv("PIPELINE_TOKEN", "tok123")
-		t.Setenv(hbase.EnvAccount, "standard-acct")
-		cfg := &CommandOverrideConfig{TokenEnvVar: "PIPELINE_TOKEN", Header: "x-api-key"}
-		r, triggered, err := ResolveCommandOverride(cfg)
-		if err != nil || !triggered || r == nil {
-			t.Fatalf("ResolveCommandOverride = (%v, %v, %v), want a resolved override", r, triggered, err)
-		}
-		if r.AccountID != "standard-acct" {
-			t.Errorf("AccountID = %q, want fallback to %s", r.AccountID, hbase.EnvAccount)
-		}
-		if r.OrgID != "" || r.ProjectID != "" {
-			t.Errorf("OrgID/ProjectID = %q/%q, want empty (optional, unset)", r.OrgID, r.ProjectID)
-		}
-		if r.APIUrl != hbase.DefaultAPIURL {
-			t.Errorf("APIUrl = %q, want built-in default %q", r.APIUrl, hbase.DefaultAPIURL)
-		}
-		if r.OverrideValue != "tok123" {
-			t.Errorf("OverrideValue = %q, want raw token (no prefix configured)", r.OverrideValue)
 		}
 	})
 }
 
-func TestSetAuthHeader_OverrideTakesPriority(t *testing.T) {
+func TestSetAuthHeader_PipelineHeadersTakePriority(t *testing.T) {
 	r := &ResolvedAuth{
-		AuthType:       AuthTypePAT,
-		PATToken:       "pat.acct.id.secret",
-		OverrideHeader: "x-api-key",
-		OverrideValue:  "CIManager tok123",
+		AuthType: AuthTypePAT,
+		PATToken: "pat.acct.id.secret",
+		Headers:  map[string]string{"x-api-key": "CIManager tok123"},
 	}
 	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
 	if err != nil {
@@ -198,6 +215,6 @@ func TestSetAuthHeader_OverrideTakesPriority(t *testing.T) {
 		t.Errorf("x-api-key header = %q, want %q", got, "CIManager tok123")
 	}
 	if got := req.Header.Get("Authorization"); got != "" {
-		t.Errorf("Authorization header = %q, want empty — override must fully replace, not stack", got)
+		t.Errorf("Authorization header = %q, want empty — pipeline headers must fully replace, not stack", got)
 	}
 }

@@ -293,11 +293,12 @@ nouns:
 	})
 }
 
-// TestMergeAuthOverride covers the module-default/command-level auth_override
-// precedence rule applied in loadSpecData: a command's own fields always win,
-// an unset field falls through to the module default, and auth_override_disabled
-// is an explicit opt-out that suppresses inheritance entirely.
-func TestMergeAuthOverride(t *testing.T) {
+// TestMergePipelineAuth covers the module-default/command-level pipeline_auth
+// precedence rule applied in loadSpecData: scalar fields merge field-by-field
+// (command's own value always wins, an unset field falls through to the module
+// default); headers replace wholesale rather than merging per-key; and
+// no_pipeline_auth is an explicit opt-out that suppresses inheritance entirely.
+func TestMergePipelineAuth(t *testing.T) {
 	const nounYAML = `
 nouns:
   - noun: thing
@@ -305,14 +306,15 @@ nouns:
       - id: identifier
         expr: it.id
 `
-	endpointYAML := func(authOverrideBlock string) string {
+	endpointYAML := func(pipelineAuthBlock string) string {
 		return `
 spec_version: 1
 ` + nounYAML + `
-auth_override:
-  token_env_var: MODULE_TOKEN
-  header: Authorization
-  prefix: "Bearer "
+pipeline_auth:
+  token_envvar: MODULE_TOKEN
+  apiurl_envvar: MODULE_API_URL
+  headers:
+    Authorization: '"Bearer " + token'
 commands:
   - command: list thing
     verb: list
@@ -324,7 +326,7 @@ commands:
       items_expr: it
       paging:
         paging_strategy: flat_list
-` + authOverrideBlock
+` + pipelineAuthBlock
 	}
 
 	t.Run("no command block inherits module default wholesale", func(t *testing.T) {
@@ -333,65 +335,79 @@ commands:
 			t.Fatalf("loadSpecData: %v", err)
 		}
 		cs := reg.GetSpec("list", "thing")
-		if cs == nil || cs.Endpoint.AuthOverride == nil {
-			t.Fatal("expected inherited auth_override, got nil")
+		if cs == nil || cs.PipelineAuth == nil {
+			t.Fatal("expected inherited pipeline_auth, got nil")
 		}
-		got := *cs.Endpoint.AuthOverride
-		want := spec.AuthOverrideSpec{TokenEnvVar: "MODULE_TOKEN", Header: "Authorization", Prefix: "Bearer "}
-		if got != want {
-			t.Errorf("AuthOverride = %+v, want %+v", got, want)
+		if cs.PipelineAuth.TokenEnvVar != "MODULE_TOKEN" || cs.PipelineAuth.APIURLEnvVar != "MODULE_API_URL" {
+			t.Errorf("PipelineAuth = %+v, want token/url from module default", *cs.PipelineAuth)
+		}
+		if cs.PipelineAuth.Headers["Authorization"] != `"Bearer " + token` {
+			t.Errorf("Headers[Authorization] = %q, want inherited expr", cs.PipelineAuth.Headers["Authorization"])
 		}
 	})
 
-	t.Run("partial command block merges field-by-field, command wins", func(t *testing.T) {
+	t.Run("partial command block merges scalars field-by-field, command wins", func(t *testing.T) {
 		reg := registry.New()
 		block := `
-      auth_override:
-        header: x-api-key
+    pipeline_auth:
+      registryurl_envvar: CMD_REGISTRY_URL
 `
 		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
 			t.Fatalf("loadSpecData: %v", err)
 		}
 		cs := reg.GetSpec("list", "thing")
-		got := *cs.Endpoint.AuthOverride
-		want := spec.AuthOverrideSpec{TokenEnvVar: "MODULE_TOKEN", Header: "x-api-key", Prefix: "Bearer "}
-		if got != want {
-			t.Errorf("AuthOverride = %+v, want %+v", got, want)
+		pa := cs.PipelineAuth
+		if pa.TokenEnvVar != "MODULE_TOKEN" || pa.APIURLEnvVar != "MODULE_API_URL" || pa.RegistryURLEnvVar != "CMD_REGISTRY_URL" {
+			t.Errorf("PipelineAuth = %+v, want module token/url plus command's own registry url", *pa)
 		}
 	})
 
-	t.Run("auth_override_disabled suppresses inheritance", func(t *testing.T) {
+	t.Run("command headers replace the module default wholesale, not merge per-key", func(t *testing.T) {
 		reg := registry.New()
 		block := `
-      auth_override_disabled: true
+    pipeline_auth:
+      headers:
+        x-api-key: token
 `
 		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
 			t.Fatalf("loadSpecData: %v", err)
 		}
 		cs := reg.GetSpec("list", "thing")
-		if cs.Endpoint.AuthOverride != nil {
-			t.Errorf("AuthOverride = %+v, want nil (disabled)", cs.Endpoint.AuthOverride)
+		if len(cs.PipelineAuth.Headers) != 1 || cs.PipelineAuth.Headers["x-api-key"] != "token" {
+			t.Errorf("Headers = %+v, want only the command's own x-api-key (no merge with module's Authorization)", cs.PipelineAuth.Headers)
 		}
 	})
 
-	t.Run("disabled is ignored when command declares its own auth_override", func(t *testing.T) {
+	t.Run("no_pipeline_auth suppresses inheritance", func(t *testing.T) {
 		reg := registry.New()
 		block := `
-      auth_override_disabled: true
-      auth_override:
-        header: x-api-key
+    no_pipeline_auth: true
 `
 		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
 			t.Fatalf("loadSpecData: %v", err)
 		}
 		cs := reg.GetSpec("list", "thing")
-		if cs.Endpoint.AuthOverride == nil {
-			t.Fatal("expected the command's own auth_override to survive, got nil")
+		if cs.PipelineAuth != nil {
+			t.Errorf("PipelineAuth = %+v, want nil (disabled)", cs.PipelineAuth)
 		}
-		got := *cs.Endpoint.AuthOverride
-		want := spec.AuthOverrideSpec{TokenEnvVar: "MODULE_TOKEN", Header: "x-api-key", Prefix: "Bearer "}
-		if got != want {
-			t.Errorf("AuthOverride = %+v, want %+v", got, want)
+	})
+
+	t.Run("no_pipeline_auth is ignored when command declares its own pipeline_auth", func(t *testing.T) {
+		reg := registry.New()
+		block := `
+    no_pipeline_auth: true
+    pipeline_auth:
+      registryurl_envvar: CMD_REGISTRY_URL
+`
+		if err := loadSpecData(reg, "thing.spec.yaml", []byte(endpointYAML(block)), true, false); err != nil {
+			t.Fatalf("loadSpecData: %v", err)
+		}
+		cs := reg.GetSpec("list", "thing")
+		if cs.PipelineAuth == nil {
+			t.Fatal("expected the command's own pipeline_auth to survive, got nil")
+		}
+		if cs.PipelineAuth.TokenEnvVar != "MODULE_TOKEN" || cs.PipelineAuth.RegistryURLEnvVar != "CMD_REGISTRY_URL" {
+			t.Errorf("PipelineAuth = %+v, want module token plus command's own registry url", *cs.PipelineAuth)
 		}
 	})
 }

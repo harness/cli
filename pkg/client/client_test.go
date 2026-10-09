@@ -55,10 +55,9 @@ func TestBuildRequest_AccountIdentifier(t *testing.T) {
 	}
 }
 
-func TestBuildRequest_AuthOverrideReplacesNormalAuthHeader(t *testing.T) {
+func TestBuildRequest_PipelineHeadersReplaceNormalAuthHeader(t *testing.T) {
 	c := testClient("https://example.test")
-	c.resolved.OverrideHeader = "x-api-key"
-	c.resolved.OverrideValue = "CIManager tok123"
+	c.resolved.Headers = map[string]string{"x-api-key": "CIManager tok123"}
 
 	req, _, err := c.buildRequest(Request{Method: "GET", Path: "/items"})
 	if err != nil {
@@ -68,7 +67,7 @@ func TestBuildRequest_AuthOverrideReplacesNormalAuthHeader(t *testing.T) {
 		t.Errorf("x-api-key = %q, want %q", got, "CIManager tok123")
 	}
 	if got := req.Header.Get("Authorization"); got != "" {
-		t.Errorf("Authorization = %q, want empty — override must fully replace, not stack", got)
+		t.Errorf("Authorization = %q, want empty — pipeline headers must fully replace, not stack", got)
 	}
 }
 
