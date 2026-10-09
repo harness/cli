@@ -17,6 +17,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/exprenv"
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/spec"
 )
@@ -99,21 +100,15 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 	}, nil
 }
 
-// toOverrideConfig translates a command's merged spec.AuthOverrideSpec into the
-// plain auth.CommandOverrideConfig ResolveCommandOverride expects. pkg/auth must
-// not import pkg/spec, so this conversion lives here, where both are already imported.
-func toOverrideConfig(s *spec.AuthOverrideSpec) *auth.CommandOverrideConfig {
+func toPipelineAuthConfig(s *spec.PipelineAuthSpec) *auth.PipelineAuthConfig {
 	if s == nil {
 		return nil
 	}
-	return &auth.CommandOverrideConfig{
-		TokenEnvVar:   s.TokenEnvVar,
-		Header:        s.Header,
-		Prefix:        s.Prefix,
-		AccountEnvVar: s.AccountEnvVar,
-		OrgEnvVar:     s.OrgEnvVar,
-		ProjectEnvVar: s.ProjectEnvVar,
-		APIURLEnvVar:  s.APIURLEnvVar,
+	return &auth.PipelineAuthConfig{
+		TokenEnvVar:       s.TokenEnvVar,
+		APIURLEnvVar:      s.APIURLEnvVar,
+		RegistryURLEnvVar: s.RegistryURLEnvVar,
+		Headers:           s.Headers,
 	}
 }
 
@@ -271,26 +266,22 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		orgFlag, _ := cmd.Flags().GetString("org")
 		projectFlag, _ := cmd.Flags().GetString("project")
 
-		// An explicit --profile always wins and skips the override entirely — same
+		// An explicit --profile always wins and skips pipeline auth entirely — same
 		// rule as the global auth env vars (see docs/auth.md).
 		var resolved *auth.ResolvedAuth
-		if profileFlag == "" && cs.Endpoint != nil && cs.Endpoint.AuthOverride != nil {
-			overrideResolved, triggered, err := auth.ResolveCommandOverride(toOverrideConfig(cs.Endpoint.AuthOverride))
+		if profileFlag == "" {
+			pipelineResolved, triggered, err := auth.ResolvePipelineAuth(toPipelineAuthConfig(cs.PipelineAuth), exprenv.EvalHeaders)
 			if err != nil {
 				return nil, err
 			}
 			if triggered {
-				resolved = overrideResolved
+				if orgFlag != "" || projectFlag != "" {
+					return nil, fmt.Errorf("--org/--project are not allowed in pipeline mode (scope is fixed by the pipeline)")
+				}
+				resolved = pipelineResolved
 			}
 		}
-		if resolved != nil {
-			if orgFlag != "" {
-				resolved.OrgID = orgFlag
-			}
-			if projectFlag != "" {
-				resolved.ProjectID = projectFlag
-			}
-		} else {
+		if resolved == nil {
 			var err error
 			resolved, err = auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
 			if err != nil {

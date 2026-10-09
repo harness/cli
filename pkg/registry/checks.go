@@ -267,6 +267,9 @@ func validateSpec(cs *spec.CommandSpec, vs VerbSpec) error {
 	if err := validateNounPairConstraints(cs, vs); err != nil {
 		return err
 	}
+	if err := validatePipelineAuth(cs); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -417,13 +420,22 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 	if ep.FileBodyWrapAsString != "" && ep.FileBody == spec.FileBodyNone {
 		return fmt.Errorf("command %q: file_body_wrap_as_string requires file_body to be set", cs.Command)
 	}
-	if ep.AuthOverride != nil {
-		if ep.AuthOverride.TokenEnvVar == "" {
-			return fmt.Errorf("command %q: auth_override requires token_env_var", cs.Command)
-		}
-		if ep.AuthOverride.Header == "" {
-			return fmt.Errorf("command %q: auth_override requires header", cs.Command)
-		}
+	return nil
+}
+
+// validatePipelineAuth checks a declared pipeline_auth block names a token var
+// and at least one URL var — resolution has no fallback defaults, so a block
+// missing both can never produce a usable base URL.
+func validatePipelineAuth(cs *spec.CommandSpec) error {
+	pa := cs.PipelineAuth
+	if pa == nil {
+		return nil
+	}
+	if pa.TokenEnvVar == "" {
+		return fmt.Errorf("command %q: pipeline_auth requires token_envvar", cs.Command)
+	}
+	if pa.APIURLEnvVar == "" && pa.RegistryURLEnvVar == "" {
+		return fmt.Errorf("command %q: pipeline_auth requires apiurl_envvar or registryurl_envvar", cs.Command)
 	}
 	return nil
 }

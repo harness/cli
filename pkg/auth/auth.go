@@ -24,7 +24,10 @@ const (
 	AuthTypeSSO = config.AuthTypeSSO
 )
 
-const SourceEnv = "env"
+const (
+	SourceEnv      = "env"
+	SourcePipeline = "pipeline"
+)
 
 // ResolvedAuth is the result of auth resolution — the active credentials for a command invocation.
 // Credential fields are never printed; callers that display auth context must omit them.
@@ -48,18 +51,19 @@ type ResolvedAuth struct {
 	SSOToken     string // set when AuthType == AuthTypeSSO
 	RefreshToken string // set when AuthType == AuthTypeSSO
 
-	// OverrideHeader/OverrideValue are set when a command's auth_override fired
-	// (see ResolveCommandOverride). Non-empty OverrideHeader takes priority over
+	// Headers are set when pipeline_auth fired (see ResolvePipelineAuth), already
+	// evaluated and ready to send. Non-empty Headers takes priority over
 	// AuthType/PATToken/SSOToken in SetAuthHeader — the two are never combined.
-	OverrideHeader string
-	OverrideValue  string
+	Headers map[string]string
 }
 
-// SetAuthHeader sets the auth header on req: the auth_override header/value when
-// one fired, otherwise the normal Authorization (SSO) or x-api-key (PAT) header.
+// SetAuthHeader sets the auth header(s) on req: pipeline_auth's Headers when
+// present, otherwise the normal Authorization (SSO) or x-api-key (PAT) header.
 func (a *ResolvedAuth) SetAuthHeader(req *http.Request) {
-	if a.OverrideHeader != "" {
-		req.Header.Set(a.OverrideHeader, a.OverrideValue)
+	if len(a.Headers) > 0 {
+		for k, v := range a.Headers {
+			req.Header.Set(k, v)
+		}
 		return
 	}
 	if a.AuthType == AuthTypeSSO {
@@ -192,58 +196,57 @@ func ResolveWithOverrides(profileFlag, orgOverride, projectOverride string) (*Re
 	return r, nil
 }
 
-// CommandOverrideConfig is the fully-merged (module default + command-level)
-// auth_override for one command. See spec.AuthOverrideSpec — this is pkg/spec's
+// PipelineAuthConfig is the fully-merged (module default + command-level)
+// pipeline_auth for one command. See spec.PipelineAuthSpec — this is pkg/spec's
 // shape translated into a plain struct so pkg/auth doesn't import pkg/spec.
-type CommandOverrideConfig struct {
-	TokenEnvVar   string
-	Header        string
-	Prefix        string
-	AccountEnvVar string
-	OrgEnvVar     string
-	ProjectEnvVar string
-	APIURLEnvVar  string
+type PipelineAuthConfig struct {
+	TokenEnvVar       string
+	APIURLEnvVar      string
+	RegistryURLEnvVar string
+	Headers           map[string]string
 }
 
-func coalesceEnvVar(name, fallback string) string {
-	if name == "" {
-		return fallback
-	}
-	return name
-}
-
-// ResolveCommandOverride checks whether cfg's token env var is set. If not, it
-// returns (nil, false, nil) and the caller should fall through to Resolve/
-// ResolveWithOverrides unchanged. If set, it builds a standalone ResolvedAuth
-// entirely from the override's own env vars — never touching the profile or
-// HARNESS_API_KEY path — falling back per-field to the standard HARNESS_ACCOUNT/
-// HARNESS_ORG/HARNESS_PROJECT/HARNESS_API_URL env vars, and erroring if no
-// account can be resolved.
-func ResolveCommandOverride(cfg *CommandOverrideConfig) (*ResolvedAuth, bool, error) {
-	if cfg == nil || os.Getenv(cfg.TokenEnvVar) == "" {
+// ResolvePipelineAuth resolves pipeline mode, triggered solely by
+// hbase.EnvPipelineID (injected by real pipeline infra, never exported
+// manually). Returns (nil, false, nil) when not running in a pipeline. Once
+// triggered it never falls through to profile/env-var auth — every missing
+// piece is a hard error, since pipeline scope and credentials are fixed by
+// the platform, not negotiable per-command.
+//
+// evalHeaders evaluates cfg.Headers's expr-lang expressions against the
+// resolved token; pkg/auth cannot import pkg/exprenv (see pkg/registry/
+// buildctx.go for the import-cycle reason), so the caller supplies it.
+func ResolvePipelineAuth(cfg *PipelineAuthConfig, evalHeaders func(headers map[string]string, token string) map[string]string) (*ResolvedAuth, bool, error) {
+	if os.Getenv(hbase.EnvPipelineID) == "" || cfg == nil {
 		return nil, false, nil
 	}
-	token := os.Getenv(cfg.TokenEnvVar)
-
-	accountEnvVar := coalesceEnvVar(cfg.AccountEnvVar, hbase.EnvAccount)
-	account := os.Getenv(accountEnvVar)
+	account := os.Getenv(hbase.EnvAccountID)
 	if account == "" {
-		return nil, true, fmt.Errorf("no account — set %s", accountEnvVar)
+		return nil, true, fmt.Errorf("%s is required in pipeline mode", hbase.EnvAccountID)
 	}
-
-	apiURL := os.Getenv(coalesceEnvVar(cfg.APIURLEnvVar, hbase.EnvAPIURL))
-	if apiURL == "" {
-		apiURL = hbase.DefaultAPIURL
+	org := os.Getenv(hbase.EnvOrgID)
+	if org == "" {
+		return nil, true, fmt.Errorf("%s is required in pipeline mode", hbase.EnvOrgID)
 	}
-
+	project := os.Getenv(hbase.EnvProjectID)
+	if project == "" {
+		return nil, true, fmt.Errorf("%s is required in pipeline mode", hbase.EnvProjectID)
+	}
+	if infra := os.Getenv(hbase.EnvInfra); infra != hbase.InfraVM {
+		return nil, true, fmt.Errorf("pipeline auth supports %s infra only (%s=%q)", hbase.InfraVM, hbase.EnvInfra, infra)
+	}
+	token := os.Getenv(cfg.TokenEnvVar)
+	if token == "" {
+		return nil, true, fmt.Errorf("%s is required in pipeline mode", cfg.TokenEnvVar)
+	}
 	return &ResolvedAuth{
-		Source:         SourceEnv,
-		AccountID:      account,
-		OrgID:          os.Getenv(coalesceEnvVar(cfg.OrgEnvVar, hbase.EnvOrg)),
-		ProjectID:      os.Getenv(coalesceEnvVar(cfg.ProjectEnvVar, hbase.EnvProject)),
-		APIUrl:         apiURL,
-		OverrideHeader: cfg.Header,
-		OverrideValue:  cfg.Prefix + token,
+		Source:      SourcePipeline,
+		AccountID:   account,
+		OrgID:       org,
+		ProjectID:   project,
+		APIUrl:      os.Getenv(cfg.APIURLEnvVar),
+		RegistryURL: os.Getenv(cfg.RegistryURLEnvVar),
+		Headers:     evalHeaders(cfg.Headers, token),
 	}, true, nil
 }
 

@@ -6,6 +6,7 @@ package specloader
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,7 +43,7 @@ type specFile struct {
 	ModuleDesc   string                 `yaml:"module_desc"`
 	ModuleCore   bool                   `yaml:"module_core"`
 	HelpText     string                 `yaml:"help_text"`
-	AuthOverride *spec.AuthOverrideSpec `yaml:"auth_override,omitempty"`
+	PipelineAuth *spec.PipelineAuthSpec `yaml:"pipeline_auth,omitempty"`
 	Nouns        []spec.NounDef         `yaml:"nouns"`
 	Commands     []*spec.CommandSpec    `yaml:"commands"`
 	// Host-owned provenance, present only in ~/.harness/spec plugin specs.
@@ -333,9 +334,7 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, enabled, fro
 			return fmt.Errorf("spec: %s command[%d] is nil", name, i)
 		}
 		cmd.SpecFile = name
-		if cmd.Endpoint != nil {
-			mergeAuthOverride(cmd.Endpoint, f.AuthOverride)
-		}
+		mergePipelineAuth(cmd, f.PipelineAuth)
 		if err := mod.Register(cmd); err != nil {
 			return fmt.Errorf("spec: %s command[%d]: %w", name, i, err)
 		}
@@ -343,42 +342,36 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, enabled, fro
 	return nil
 }
 
-// mergeAuthOverride resolves ep.AuthOverride against the owning spec file's
-// module-level default. The command's own non-empty fields always win; any
-// field it leaves empty falls through to moduleDefault's. auth_override_disabled
+// mergePipelineAuth resolves cs.PipelineAuth against the owning spec file's
+// module-level default. Scalar fields merge field-by-field (command's own
+// non-empty value always wins, an unset field falls through to the module
+// default); Headers replaces wholesale rather than merging per-key, so a
+// command can clear an inherited header simply by omitting it. NoPipelineAuth
 // is an explicit opt-out and takes priority over inheriting anything.
-func mergeAuthOverride(ep *spec.EndpointSpec, moduleDefault *spec.AuthOverrideSpec) {
-	if ep.AuthOverride == nil {
-		if ep.AuthOverrideDisabled || moduleDefault == nil {
+func mergePipelineAuth(cs *spec.CommandSpec, moduleDefault *spec.PipelineAuthSpec) {
+	if cs.PipelineAuth == nil {
+		if cs.NoPipelineAuth || moduleDefault == nil {
 			return
 		}
 		merged := *moduleDefault
-		ep.AuthOverride = &merged
+		merged.Headers = maps.Clone(moduleDefault.Headers)
+		cs.PipelineAuth = &merged
 		return
 	}
 	if moduleDefault == nil {
 		return
 	}
-	authOverride := ep.AuthOverride
-	if authOverride.TokenEnvVar == "" {
-		authOverride.TokenEnvVar = moduleDefault.TokenEnvVar
+	pa := cs.PipelineAuth
+	if pa.TokenEnvVar == "" {
+		pa.TokenEnvVar = moduleDefault.TokenEnvVar
 	}
-	if authOverride.Header == "" {
-		authOverride.Header = moduleDefault.Header
+	if pa.APIURLEnvVar == "" {
+		pa.APIURLEnvVar = moduleDefault.APIURLEnvVar
 	}
-	if authOverride.Prefix == "" {
-		authOverride.Prefix = moduleDefault.Prefix
+	if pa.RegistryURLEnvVar == "" {
+		pa.RegistryURLEnvVar = moduleDefault.RegistryURLEnvVar
 	}
-	if authOverride.AccountEnvVar == "" {
-		authOverride.AccountEnvVar = moduleDefault.AccountEnvVar
-	}
-	if authOverride.OrgEnvVar == "" {
-		authOverride.OrgEnvVar = moduleDefault.OrgEnvVar
-	}
-	if authOverride.ProjectEnvVar == "" {
-		authOverride.ProjectEnvVar = moduleDefault.ProjectEnvVar
-	}
-	if authOverride.APIURLEnvVar == "" {
-		authOverride.APIURLEnvVar = moduleDefault.APIURLEnvVar
+	if pa.Headers == nil {
+		pa.Headers = maps.Clone(moduleDefault.Headers)
 	}
 }
