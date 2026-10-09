@@ -1245,9 +1245,12 @@ func authTelemetryFields(a *auth.ResolvedAuth) (accountID, userDomain, userID, u
 	userID = a.UserID
 	userType = a.UserType
 	tokenKind = string(a.TokenKind)
-	if a.Source == auth.SourceEnv {
+	switch a.Source {
+	case auth.SourceEnv:
 		authSource = "env"
-	} else {
+	case auth.SourcePipeline:
+		authSource = "pipeline"
+	default:
 		authSource = "profile"
 	}
 	apiURL = a.APIUrl

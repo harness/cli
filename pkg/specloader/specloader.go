@@ -6,6 +6,7 @@ package specloader
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -37,13 +38,14 @@ type specVersionOnly struct {
 }
 
 type specFile struct {
-	SpecVersion int                 `yaml:"spec_version"`
-	ModuleType  string              `yaml:"module_type"`
-	ModuleDesc  string              `yaml:"module_desc"`
-	ModuleCore  bool                `yaml:"module_core"`
-	HelpText    string              `yaml:"help_text"`
-	Nouns       []spec.NounDef      `yaml:"nouns"`
-	Commands    []*spec.CommandSpec `yaml:"commands"`
+	SpecVersion  int                    `yaml:"spec_version"`
+	ModuleType   string                 `yaml:"module_type"`
+	ModuleDesc   string                 `yaml:"module_desc"`
+	ModuleCore   bool                   `yaml:"module_core"`
+	HelpText     string                 `yaml:"help_text"`
+	PipelineAuth *spec.PipelineAuthSpec `yaml:"pipeline_auth,omitempty"`
+	Nouns        []spec.NounDef         `yaml:"nouns"`
+	Commands     []*spec.CommandSpec    `yaml:"commands"`
 	// Host-owned provenance, present only in ~/.harness/spec plugin specs.
 	Version     string `yaml:"version,omitempty"`
 	BinaryPath  string `yaml:"binary_path,omitempty"`
@@ -332,9 +334,44 @@ func loadSpecData(reg *registry.Registry, name string, data []byte, enabled, fro
 			return fmt.Errorf("spec: %s command[%d] is nil", name, i)
 		}
 		cmd.SpecFile = name
+		mergePipelineAuth(cmd, f.PipelineAuth)
 		if err := mod.Register(cmd); err != nil {
 			return fmt.Errorf("spec: %s command[%d]: %w", name, i, err)
 		}
 	}
 	return nil
+}
+
+// mergePipelineAuth resolves cs.PipelineAuth against the owning spec file's
+// module-level default. Scalar fields merge field-by-field (command's own
+// non-empty value always wins, an unset field falls through to the module
+// default); Headers replaces wholesale rather than merging per-key, so a
+// command can clear an inherited header simply by omitting it. NoPipelineAuth
+// is an explicit opt-out and takes priority over inheriting anything.
+func mergePipelineAuth(cs *spec.CommandSpec, moduleDefault *spec.PipelineAuthSpec) {
+	if cs.PipelineAuth == nil {
+		if cs.NoPipelineAuth || moduleDefault == nil {
+			return
+		}
+		merged := *moduleDefault
+		merged.Headers = maps.Clone(moduleDefault.Headers)
+		cs.PipelineAuth = &merged
+		return
+	}
+	if moduleDefault == nil {
+		return
+	}
+	pa := cs.PipelineAuth
+	if pa.TokenEnvVar == "" {
+		pa.TokenEnvVar = moduleDefault.TokenEnvVar
+	}
+	if pa.APIURLEnvVar == "" {
+		pa.APIURLEnvVar = moduleDefault.APIURLEnvVar
+	}
+	if pa.RegistryURLEnvVar == "" {
+		pa.RegistryURLEnvVar = moduleDefault.RegistryURLEnvVar
+	}
+	if pa.Headers == nil {
+		pa.Headers = maps.Clone(moduleDefault.Headers)
+	}
 }

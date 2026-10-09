@@ -3,7 +3,13 @@
 
 package auth
 
-import "testing"
+import (
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/harness/cli/v3/pkg/hbase"
+)
 
 func TestNormalizeAPIURL(t *testing.T) {
 	cases := []struct {
@@ -76,5 +82,139 @@ func TestNormalizeThenValidateAPIURL(t *testing.T) {
 		if err := ValidateAPIURL(normalized); err != nil {
 			t.Errorf("NormalizeAPIURL(%q) = %q, which ValidateAPIURL rejected: %v", in, normalized, err)
 		}
+	}
+}
+
+// clearAuthEnv wipes every env var ResolvePipelineAuth might read, so each
+// test case starts from a clean slate regardless of what the real environment
+// (or a previous subtest via t.Setenv) has set.
+func clearAuthEnv(t *testing.T) {
+	for _, v := range []string{
+		"PIPELINE_TOKEN", "PIPELINE_API_URL", "PIPELINE_REGISTRY_URL",
+		hbase.EnvPipelineID, hbase.EnvAccountID, hbase.EnvOrgID, hbase.EnvProjectID, hbase.EnvInfra,
+	} {
+		t.Setenv(v, "")
+	}
+}
+
+func noopEvalHeaders(headers map[string]string, token string) map[string]string {
+	if headers == nil {
+		return nil
+	}
+	out := make(map[string]string, len(headers))
+	for k := range headers {
+		out[k] = "Bearer " + token
+	}
+	return out
+}
+
+func TestResolvePipelineAuth(t *testing.T) {
+	t.Run("HARNESS_PIPELINEID unset never triggers, even with a cfg", func(t *testing.T) {
+		clearAuthEnv(t)
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		if r != nil || triggered || err != nil {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
+		}
+	})
+
+	t.Run("nil cfg never triggers, even inside a pipeline — command just isn't pipeline-auth-aware", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		r, triggered, err := ResolvePipelineAuth(nil, noopEvalHeaders)
+		if r != nil || triggered || err != nil {
+			t.Fatalf("ResolvePipelineAuth(nil) = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
+		}
+	})
+
+	t.Run("missing a scope var errors naming it", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		// HARNESS_ORG_ID deliberately left unset.
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		if r != nil || !triggered || err == nil || !strings.Contains(err.Error(), hbase.EnvOrgID) {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want error naming %s", r, triggered, err, hbase.EnvOrgID)
+		}
+	})
+
+	t.Run("non-VM infra errors, no fallthrough", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		t.Setenv(hbase.EnvOrgID, "org1")
+		t.Setenv(hbase.EnvProjectID, "proj1")
+		t.Setenv(hbase.EnvInfra, "KUBERNETES")
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		if r != nil || !triggered || err == nil {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
+		}
+	})
+
+	t.Run("VM infra with token unset errors", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		t.Setenv(hbase.EnvOrgID, "org1")
+		t.Setenv(hbase.EnvProjectID, "proj1")
+		t.Setenv(hbase.EnvInfra, hbase.InfraVM)
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		if r != nil || !triggered || err == nil {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
+		}
+	})
+
+	t.Run("happy path: VM infra, scope and token set, headers evaluated", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		t.Setenv(hbase.EnvOrgID, "org1")
+		t.Setenv(hbase.EnvProjectID, "proj1")
+		t.Setenv(hbase.EnvInfra, hbase.InfraVM)
+		t.Setenv("PIPELINE_TOKEN", "tok123")
+		t.Setenv("PIPELINE_API_URL", "https://ti.example.com")
+		cfg := &PipelineAuthConfig{
+			TokenEnvVar:  "PIPELINE_TOKEN",
+			APIURLEnvVar: "PIPELINE_API_URL",
+			Headers:      map[string]string{"Authorization": "ignored by noopEvalHeaders"},
+		}
+		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		if err != nil || !triggered || r == nil {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want a resolved pipeline auth", r, triggered, err)
+		}
+		want := &ResolvedAuth{
+			Source:    SourcePipeline,
+			AccountID: "acct1",
+			OrgID:     "org1",
+			ProjectID: "proj1",
+			APIUrl:    "https://ti.example.com",
+			Headers:   map[string]string{"Authorization": "Bearer tok123"},
+		}
+		if r.Source != want.Source || r.AccountID != want.AccountID || r.OrgID != want.OrgID ||
+			r.ProjectID != want.ProjectID || r.APIUrl != want.APIUrl || r.Headers["Authorization"] != want.Headers["Authorization"] {
+			t.Errorf("ResolvedAuth = %+v, want %+v", *r, *want)
+		}
+	})
+}
+
+func TestSetAuthHeader_PipelineHeadersTakePriority(t *testing.T) {
+	r := &ResolvedAuth{
+		AuthType: AuthTypePAT,
+		PATToken: "pat.acct.id.secret",
+		Headers:  map[string]string{"x-api-key": "CIManager tok123"},
+	}
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	r.SetAuthHeader(req)
+	if got := req.Header.Get("x-api-key"); got != "CIManager tok123" {
+		t.Errorf("x-api-key header = %q, want %q", got, "CIManager tok123")
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization header = %q, want empty — pipeline headers must fully replace, not stack", got)
 	}
 }
