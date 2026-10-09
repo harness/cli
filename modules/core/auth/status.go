@@ -102,14 +102,17 @@ func runStatusChecks(profileFlag string) statusResult {
 	}
 
 	// Determine the source before resolution so error display is correct.
+	// Mirrors auth.Load's own precedence: selector (--profile/HARNESS_PROFILE)
+	// beats HARNESS_API_KEY, which beats the default profile.
 	var anticipatedSource string
-	if profileFlag != "" {
-		anticipatedSource = "profile:" + profileFlag
-	} else if os.Getenv(hbase.EnvAPIKey) != "" {
+	switch {
+	case selector == auth.ProfileSentinelEnv:
 		anticipatedSource = auth.SourceEnv
-	} else if env := os.Getenv(hbase.EnvProfile); env != "" {
-		anticipatedSource = "profile:" + env
-	} else {
+	case selector != "":
+		anticipatedSource = "profile:" + selector
+	case os.Getenv(hbase.EnvAPIKey) != "":
+		anticipatedSource = auth.SourceEnv
+	default:
 		anticipatedSource = "profile:default"
 	}
 
