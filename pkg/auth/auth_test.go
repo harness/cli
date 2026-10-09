@@ -112,7 +112,7 @@ func TestResolvePipelineAuth(t *testing.T) {
 	t.Run("HARNESS_PIPELINEID unset never triggers, even with a cfg", func(t *testing.T) {
 		clearAuthEnv(t)
 		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
-		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
 		if r != nil || triggered || err != nil {
 			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
 		}
@@ -121,9 +121,27 @@ func TestResolvePipelineAuth(t *testing.T) {
 	t.Run("nil cfg never triggers, even inside a pipeline — command just isn't pipeline-auth-aware", func(t *testing.T) {
 		clearAuthEnv(t)
 		t.Setenv(hbase.EnvPipelineID, "pipe1")
-		r, triggered, err := ResolvePipelineAuth(nil, noopEvalHeaders)
+		r, triggered, err := ResolvePipelineAuth(nil, false, noopEvalHeaders)
 		if r != nil || triggered || err != nil {
 			t.Fatalf("ResolvePipelineAuth(nil) = (%v, %v, %v), want (nil, false, nil)", r, triggered, err)
+		}
+	})
+
+	t.Run("forced with HARNESS_PIPELINEID unset errors instead of silently not triggering", func(t *testing.T) {
+		clearAuthEnv(t)
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, true, noopEvalHeaders)
+		if r != nil || !triggered || err == nil || !strings.Contains(err.Error(), hbase.EnvPipelineID) {
+			t.Fatalf("ResolvePipelineAuth(forced) = (%v, %v, %v), want error naming %s", r, triggered, err, hbase.EnvPipelineID)
+		}
+	})
+
+	t.Run("forced with nil cfg errors instead of silently not triggering", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		r, triggered, err := ResolvePipelineAuth(nil, true, noopEvalHeaders)
+		if r != nil || !triggered || err == nil {
+			t.Fatalf("ResolvePipelineAuth(nil, forced) = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
 		}
 	})
 
@@ -133,7 +151,7 @@ func TestResolvePipelineAuth(t *testing.T) {
 		t.Setenv(hbase.EnvAccountID, "acct1")
 		// HARNESS_ORG_ID deliberately left unset.
 		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
-		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
 		if r != nil || !triggered || err == nil || !strings.Contains(err.Error(), hbase.EnvOrgID) {
 			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want error naming %s", r, triggered, err, hbase.EnvOrgID)
 		}
@@ -147,7 +165,7 @@ func TestResolvePipelineAuth(t *testing.T) {
 		t.Setenv(hbase.EnvProjectID, "proj1")
 		t.Setenv(hbase.EnvInfra, "KUBERNETES")
 		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
-		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
 		if r != nil || !triggered || err == nil {
 			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
 		}
@@ -161,7 +179,7 @@ func TestResolvePipelineAuth(t *testing.T) {
 		t.Setenv(hbase.EnvProjectID, "proj1")
 		t.Setenv(hbase.EnvInfra, hbase.InfraVM)
 		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
-		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
 		if r != nil || !triggered || err == nil {
 			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
 		}
@@ -181,7 +199,7 @@ func TestResolvePipelineAuth(t *testing.T) {
 			APIURLEnvVar: "PIPELINE_API_URL",
 			Headers:      map[string]string{"Authorization": "ignored by noopEvalHeaders"},
 		}
-		r, triggered, err := ResolvePipelineAuth(cfg, noopEvalHeaders)
+		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
 		if err != nil || !triggered || r == nil {
 			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want a resolved pipeline auth", r, triggered, err)
 		}
