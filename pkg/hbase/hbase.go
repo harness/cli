@@ -48,6 +48,18 @@ const (
 	// EnvPipelineID is set by the Harness platform when running inside a pipeline.
 	EnvPipelineID = "HARNESS_PIPELINEID"
 
+	// EnvAccountID, EnvOrgID, EnvProjectID are the fixed scope vars a Harness
+	// pipeline step injects. pipeline_auth resolution reads them directly;
+	// they are never spec-declared.
+	EnvAccountID = "HARNESS_ACCOUNT_ID"
+	EnvOrgID     = "HARNESS_ORG_ID"
+	EnvProjectID = "HARNESS_PROJECT_ID"
+
+	// EnvInfra identifies the infra a pipeline step runs on. Only InfraVM has
+	// a token injected directly; pipeline_auth requires it.
+	EnvInfra = "HARNESS_INFRA"
+	InfraVM  = "VM"
+
 	// EnvNoUpdateCheck disables the background update check when set to "1".
 	EnvNoUpdateCheck = "HARNESS_NO_UPDATE_CHECK"
 
