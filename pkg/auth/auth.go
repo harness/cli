@@ -29,6 +29,29 @@ const (
 	SourcePipeline = "pipeline"
 )
 
+// Reserved --profile / HARNESS_PROFILE values that force a specific auth
+// mode instead of naming a config-file profile.
+const (
+	ProfileSentinelEnv      = "env"
+	ProfileSentinelPipeline = "pipeline"
+)
+
+// IsReservedProfileName reports whether name is a reserved sentinel and
+// therefore not usable as a config-file profile name.
+func IsReservedProfileName(name string) bool {
+	return name == ProfileSentinelEnv || name == ProfileSentinelPipeline
+}
+
+// EffectiveProfileSelector returns the profile name/sentinel that should
+// drive resolution: profileFlag if set, else HARNESS_PROFILE. The single
+// source of truth for "an explicit --profile beats HARNESS_PROFILE".
+func EffectiveProfileSelector(profileFlag string) string {
+	if profileFlag != "" {
+		return profileFlag
+	}
+	return os.Getenv(hbase.EnvProfile)
+}
+
 // ResolvedAuth is the result of auth resolution — the active credentials for a command invocation.
 // Credential fields are never printed; callers that display auth context must omit them.
 type ResolvedAuth struct {
@@ -73,51 +96,64 @@ func (a *ResolvedAuth) SetAuthHeader(req *http.Request) {
 	}
 }
 
-// Load populates a ResolvedAuth following the 4-step resolution order from auth.md.
-// It never errors on missing optional fields — callers get whatever could be populated.
-// Use Validate to check that the result is complete enough to make API calls.
+// Load populates a ResolvedAuth following the resolution order from auth.md:
+// --profile, then HARNESS_PROFILE (name or sentinel), then HARNESS_API_KEY,
+// then the default profile. It never errors on missing optional fields —
+// callers get whatever could be populated. Use Validate to check that the
+// result is complete enough to make API calls.
 func Load(profileFlag string) (*ResolvedAuth, error) {
-	// 1. --profile flag wins entirely; all auth env vars are ignored
-	if profileFlag != "" {
-		r, err := resolveProfile(profileFlag)
+	switch selector := EffectiveProfileSelector(profileFlag); selector {
+	case ProfileSentinelPipeline:
+		return nil, fmt.Errorf("profile %q has no context to resolve here — it only applies to commands run inside a pipeline", selector)
+	case ProfileSentinelEnv:
+		return loadEnvMode()
+	case "":
+		if key := os.Getenv(hbase.EnvAPIKey); key != "" {
+			return loadEnvMode()
+		}
+		return resolveProfile("default")
+	default:
+		r, err := resolveProfile(selector)
 		if err != nil {
 			return nil, err
 		}
-		r.ExplicitProfile = profileFlag
+		if profileFlag != "" {
+			r.ExplicitProfile = profileFlag
+		}
 		return r, nil
 	}
-	// 2. HARNESS_API_KEY → env var mode, no config file read
-	if key := os.Getenv(hbase.EnvAPIKey); key != "" {
-		apiURL := os.Getenv(hbase.EnvAPIURL)
-		if apiURL == "" {
-			apiURL = hbase.DefaultAPIURL
-		}
-		registryURL := os.Getenv(hbase.EnvRegistryURL)
-		if registryURL == "" {
-			registryURL = hbase.DefaultRegistryURL
-		}
-		acct := os.Getenv(hbase.EnvAccount)
-		if acct == "" {
-			acct = AccountIDFromToken(key)
-		}
-		return &ResolvedAuth{
-			Source:      SourceEnv,
-			AuthType:    AuthTypePAT,
-			PATToken:    key,
-			AccountID:   acct,
-			OrgID:       os.Getenv(hbase.EnvOrg),
-			ProjectID:   os.Getenv(hbase.EnvProject),
-			APIUrl:      apiURL,
-			RegistryURL: registryURL,
-			TokenKind:   TokenType(key),
-		}, nil
+}
+
+// loadEnvMode resolves credentials from HARNESS_API_KEY and friends, no
+// config file read. Errors if HARNESS_API_KEY is unset.
+func loadEnvMode() (*ResolvedAuth, error) {
+	key := os.Getenv(hbase.EnvAPIKey)
+	if key == "" {
+		return nil, fmt.Errorf("%s is required for env auth mode", hbase.EnvAPIKey)
 	}
-	// 3. HARNESS_PROFILE env var → named profile from config
-	if name := os.Getenv(hbase.EnvProfile); name != "" {
-		return resolveProfile(name)
+	apiURL := os.Getenv(hbase.EnvAPIURL)
+	if apiURL == "" {
+		apiURL = hbase.DefaultAPIURL
 	}
-	// 4. default profile
-	return resolveProfile("default")
+	registryURL := os.Getenv(hbase.EnvRegistryURL)
+	if registryURL == "" {
+		registryURL = hbase.DefaultRegistryURL
+	}
+	acct := os.Getenv(hbase.EnvAccount)
+	if acct == "" {
+		acct = AccountIDFromToken(key)
+	}
+	return &ResolvedAuth{
+		Source:      SourceEnv,
+		AuthType:    AuthTypePAT,
+		PATToken:    key,
+		AccountID:   acct,
+		OrgID:       os.Getenv(hbase.EnvOrg),
+		ProjectID:   os.Getenv(hbase.EnvProject),
+		APIUrl:      apiURL,
+		RegistryURL: registryURL,
+		TokenKind:   TokenType(key),
+	}, nil
 }
 
 // LoginHint returns the appropriate 'harness auth login...' command for an error hint,
@@ -207,15 +243,28 @@ type PipelineAuthConfig struct {
 }
 
 // ResolvePipelineAuth resolves pipeline mode, triggered by hbase.EnvPipelineID.
-// Returns (nil, false, nil) when not in a pipeline, or when cfg is nil (command
-// has no pipeline_auth block, so it falls through to normal auth). With a
-// non-nil cfg, every missing piece is a hard error — no fallthrough.
+// When forced is false (implicit auto-detection), it returns (nil, false, nil)
+// when not in a pipeline, or when cfg is nil (command has no pipeline_auth
+// block, so it falls through to normal auth). When forced is true (the
+// explicit "pipeline" --profile/HARNESS_PROFILE sentinel), those same two
+// cases are hard errors instead — the caller explicitly asked for pipeline
+// mode, so there is no fallthrough. Either way, once applicable, every
+// missing piece is a hard error — no fallthrough.
 //
 // evalHeaders evaluates cfg.Headers's expr-lang expressions against the
 // resolved token; pkg/auth cannot import pkg/exprenv (see pkg/registry/
 // buildctx.go for the import-cycle reason), so the caller supplies it.
-func ResolvePipelineAuth(cfg *PipelineAuthConfig, evalHeaders func(headers map[string]string, token string) map[string]string) (*ResolvedAuth, bool, error) {
-	if os.Getenv(hbase.EnvPipelineID) == "" || cfg == nil {
+func ResolvePipelineAuth(cfg *PipelineAuthConfig, forced bool, evalHeaders func(headers map[string]string, token string) map[string]string) (*ResolvedAuth, bool, error) {
+	if os.Getenv(hbase.EnvPipelineID) == "" {
+		if forced {
+			return nil, true, fmt.Errorf("%s is unset — not running in a pipeline", hbase.EnvPipelineID)
+		}
+		return nil, false, nil
+	}
+	if cfg == nil {
+		if forced {
+			return nil, true, fmt.Errorf("command does not support pipeline auth")
+		}
 		return nil, false, nil
 	}
 	account := os.Getenv(hbase.EnvAccountID)

@@ -122,7 +122,7 @@ func TestBuildCtx_PipelineAuthSkippedWhenProfileFlagSet(t *testing.T) {
 
 func TestBuildCtx_PipelineAuthFallsThroughWhenPipelineIDUnset(t *testing.T) {
 	clearPipelineAuthTestEnv(t)
-	// HARNESS_PIPELINEID deliberately left unset — not running in a pipeline.
+	// HARNESS_PIPELINE_ID deliberately left unset — not running in a pipeline.
 	t.Setenv("TEST_PIPELINE_TOKEN", "tok123")
 
 	r := New()
@@ -141,7 +141,7 @@ func TestBuildCtx_PipelineAuthFallsThroughWhenPipelineIDUnset(t *testing.T) {
 }
 
 // TestBuildCtx_PipelineAuthFallsThroughWhenCommandHasNoBlock covers a command
-// with no pipeline_auth running inside a pipeline (HARNESS_PIPELINEID set):
+// with no pipeline_auth running inside a pipeline (HARNESS_PIPELINE_ID set):
 // it must not error, just fall through to normal profile/env resolution —
 // pipeline-auth-agnostic commands still work inside a pipeline.
 func TestBuildCtx_PipelineAuthFallsThroughWhenCommandHasNoBlock(t *testing.T) {

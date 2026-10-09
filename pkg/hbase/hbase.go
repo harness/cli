@@ -46,7 +46,7 @@ const (
 	EnvDebugCompletion = "HARNESS_DEBUG_COMPLETION"
 
 	// EnvPipelineID is set by the Harness platform when running inside a pipeline.
-	EnvPipelineID = "HARNESS_PIPELINEID"
+	EnvPipelineID = "HARNESS_PIPELINE_ID"
 
 	// EnvAccountID, EnvOrgID, EnvProjectID are the fixed scope vars a Harness
 	// pipeline step injects. pipeline_auth resolution reads them directly;

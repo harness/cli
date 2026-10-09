@@ -1,25 +1,35 @@
 # Auth & Config
 
-## Three Modes
+## Four Modes
 
 The modes target different primary use cases:
 
 - **Profile mode** is for interactive use — a developer on their workstation, managing multiple accounts or environments.
 - **Env var mode** is for scripting and CI/CD — credentials injected by the runner, no config file on disk.
 - **SSO mode** is for interactive use when you sign in to Harness through your browser (SSO) instead of using an API token.
+- **Pipeline mode** is for commands run inside a Harness pipeline step — credentials come from the pipeline runtime, not a profile or `HARNESS_API_KEY`.
 
 ### Resolution Order
 
 Auth is resolved in this order (first match wins):
 
-1. `--profile <name>` flag — explicit profile, env vars ignored entirely
-2. `HARNESS_API_KEY` set — env var mode, no config file read
-3. `HARNESS_PROFILE` env var — use named profile from config file
+1. `--profile <name>` flag — explicit profile or sentinel, env vars ignored entirely
+2. `HARNESS_PROFILE` env var — named profile or sentinel from config file
+3. `HARNESS_API_KEY` set — env var mode, no config file read
 4. `default` profile in config file
 
 If `--profile` is given and the named profile does not exist, it is an error.  
-If `--profile` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes.  
+If `--profile` or `HARNESS_PROFILE` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes.  
 If no auth is resolved by any method, error with: `"not logged in — run 'harness auth login' to get started"`.
+
+### Reserved profile names
+
+`env` and `pipeline` are reserved — they can't be used as a config-file profile name (`auth login`/`logout`/`setscope` reject them), and passing either as `--profile`/`HARNESS_PROFILE` forces that specific auth mode instead of looking up a profile, hard-erroring if the mode isn't actually satisfiable:
+
+- `--profile env` forces env var mode — errors if `HARNESS_API_KEY` is unset.
+- `--profile pipeline` forces pipeline mode (see [Pipeline Mode](#pipeline-mode)) — errors if not actually running inside a pipeline, or if the command doesn't support pipeline auth.
+
+Without either sentinel, pipeline mode is still auto-detected whenever `HARNESS_PIPELINE_ID` is set and no `--profile`/`HARNESS_PROFILE` was given — the sentinel just makes it explicit and turns a silent fallback into a hard error.
 
 ### Scope Overrides
 
@@ -49,6 +59,18 @@ Optional:
 - `HARNESS_ORG` — org context
 - `HARNESS_PROJECT` — project context
 - `HARNESS_REGISTRY_URL` — defaults to `https://pkg.harness.io` (override for self-hosted)
+
+### Pipeline Mode
+
+Active whenever `HARNESS_PIPELINE_ID` is set — i.e. the command is running inside a Harness pipeline step — and no `--profile`/`HARNESS_PROFILE` names a real profile. No config file is read and there is no PAT to validate; credentials come from the pipeline runtime's env vars.
+
+Required:
+
+- `HARNESS_PIPELINE_ID` — presence alone triggers pipeline mode
+- `HARNESS_ACCOUNT_ID`, `HARNESS_ORG_ID`, `HARNESS_PROJECT_ID` — fixed scope for the run; `--org`/`--project` are rejected in this mode since scope can't be overridden
+- `HARNESS_INFRA` — must equal `VM`; other infra types are not supported
+
+Only commands whose spec declares a `pipeline_auth` block participate — for everything else pipeline mode is not applicable and auth falls through to profile/env var resolution as usual. Check `harness auth status` to see pipeline scope at a glance.
 
 ### SSO Mode
 

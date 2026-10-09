@@ -32,6 +32,9 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 	if !profileNameRe.MatchString(profileName) {
 		return fmt.Errorf("invalid profile name %q: must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", profileName)
 	}
+	if auth.IsReservedProfileName(profileName) {
+		return fmt.Errorf("%q is a reserved profile name and cannot be used for login", profileName)
+	}
 
 	apiURL := cmdctx.GetString(ctx.FlagValues, "api-url")
 	token := cmdctx.GetString(ctx.FlagValues, "api-token")
