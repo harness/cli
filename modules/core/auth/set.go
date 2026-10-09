@@ -17,6 +17,9 @@ func SetHandler(ctx *cmdctx.Ctx) error {
 	if profileName == "" {
 		profileName = "default"
 	}
+	if auth.IsReservedProfileName(profileName) {
+		return fmt.Errorf("%q is a reserved profile name and has no scope to set", profileName)
+	}
 	orgID := cmdctx.GetString(ctx.FlagValues, "org")
 	projectID := cmdctx.GetString(ctx.FlagValues, "project")
 
