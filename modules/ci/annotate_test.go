@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 func TestAnnotateNewEntry(t *testing.T) {
@@ -257,5 +260,123 @@ func TestIsAnnotationsEnabled(t *testing.T) {
 	t.Setenv(envEnablePipe, "true")
 	if !isAnnotationsEnabled() {
 		t.Fatal("expected enabled when PIPE_HARNESS_ANNOTATIONS=true")
+	}
+}
+
+func enableAnnotations(t *testing.T) string {
+	t.Helper()
+	t.Setenv(envEnableCI, "true")
+	path := filepath.Join(t.TempDir(), "annotations.json")
+	t.Setenv(envAnnotFile, path)
+	return path
+}
+
+func baseFlags() map[string]any {
+	return map[string]any{
+		"context":      "build-status",
+		"style":        "info",
+		"summary":      "Build completed",
+		"summary-file": "",
+		"mode":         "replace",
+		"priority":     "3",
+	}
+}
+
+func TestExecuteAnnotationHandlerFeatureFlagOff(t *testing.T) {
+	t.Setenv(envEnableCI, "")
+	t.Setenv(envEnablePipe, "")
+	path := filepath.Join(t.TempDir(), "annotations.json")
+	t.Setenv(envAnnotFile, path)
+
+	err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: baseFlags()})
+	if err != nil {
+		t.Fatalf("expected a silent no-op, got error: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no file to be written while the feature flag is off, stat err: %v", statErr)
+	}
+}
+
+func TestExecuteAnnotationHandlerRejectsStrayArgs(t *testing.T) {
+	enableAnnotations(t)
+	err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: baseFlags(), Args: []string{"extra"}})
+	if err == nil || !strings.Contains(err.Error(), "unexpected arguments") {
+		t.Fatalf("got %v, want an unexpected-arguments error", err)
+	}
+}
+
+func TestExecuteAnnotationHandlerValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(map[string]any)
+		wantErr string
+	}{
+		{"bad style", func(f map[string]any) { f["style"] = "critical" }, "--style must be one of"},
+		{"bad mode", func(f map[string]any) { f["mode"] = "merge" }, "--mode must be one of"},
+		{"priority too low", func(f map[string]any) { f["priority"] = "0" }, "--priority must be between"},
+		{"priority too high", func(f map[string]any) { f["priority"] = "11" }, "--priority must be between"},
+		{"empty context", func(f map[string]any) { f["context"] = "   " }, "--context is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enableAnnotations(t)
+			flags := baseFlags()
+			tt.mutate(flags)
+			err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: flags})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("got %v, want an error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestExecuteAnnotationHandlerWritesFile(t *testing.T) {
+	path := enableAnnotations(t)
+	t.Setenv(hbase.EnvAccountID, "acct1")
+	t.Setenv(hbase.EnvOrgID, "org1")
+	t.Setenv(hbase.EnvProjectID, "proj1")
+	t.Setenv(envStepID, "step1")
+
+	if err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: baseFlags()}); err != nil {
+		t.Fatalf("executeAnnotationHandler: %v", err)
+	}
+
+	env, err := loadEnvelope(path)
+	if err != nil {
+		t.Fatalf("loadEnvelope: %v", err)
+	}
+	if env.AccountId != "acct1" || env.OrgId != "org1" || env.ProjectId != "proj1" {
+		t.Fatalf("unexpected root fields: %+v", env)
+	}
+	if len(env.Annotations) != 1 {
+		t.Fatalf("got %d annotations, want 1", len(env.Annotations))
+	}
+	entry := env.Annotations[0]
+	if entry.ContextId != "build-status" || entry.Summary != "Build completed" || entry.StepId != "step1" {
+		t.Fatalf("unexpected entry: %+v", entry)
+	}
+}
+
+func TestExecuteAnnotationHandlerSummaryFileWinsOverSummary(t *testing.T) {
+	path := enableAnnotations(t)
+	summaryPath := filepath.Join(t.TempDir(), "summary.md")
+	if err := os.WriteFile(summaryPath, []byte("from file"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	flags := baseFlags()
+	flags["summary"] = "from inline"
+	flags["summary-file"] = summaryPath
+
+	if err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: flags}); err != nil {
+		t.Fatalf("executeAnnotationHandler: %v", err)
+	}
+
+	env, err := loadEnvelope(path)
+	if err != nil {
+		t.Fatalf("loadEnvelope: %v", err)
+	}
+	if got := env.Annotations[0].Summary; got != "from file" {
+		t.Fatalf("got summary %q, want %q (summary-file should win)", got, "from file")
 	}
 }
