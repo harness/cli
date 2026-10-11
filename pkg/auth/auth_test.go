@@ -157,7 +157,7 @@ func TestResolvePipelineAuth(t *testing.T) {
 		}
 	})
 
-	t.Run("non-VM infra errors, no fallthrough", func(t *testing.T) {
+	t.Run("non-VM infra with token unset errors on the missing token, not the infra", func(t *testing.T) {
 		clearAuthEnv(t)
 		t.Setenv(hbase.EnvPipelineID, "pipe1")
 		t.Setenv(hbase.EnvAccountID, "acct1")
@@ -166,8 +166,23 @@ func TestResolvePipelineAuth(t *testing.T) {
 		t.Setenv(hbase.EnvInfra, "KUBERNETES")
 		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
 		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
-		if r != nil || !triggered || err == nil {
-			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want (nil, true, err)", r, triggered, err)
+		if r != nil || !triggered || err == nil || !strings.Contains(err.Error(), "PIPELINE_TOKEN") {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want error naming PIPELINE_TOKEN", r, triggered, err)
+		}
+	})
+
+	t.Run("non-VM infra with token set succeeds — pipeline auth is infra-agnostic", func(t *testing.T) {
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvPipelineID, "pipe1")
+		t.Setenv(hbase.EnvAccountID, "acct1")
+		t.Setenv(hbase.EnvOrgID, "org1")
+		t.Setenv(hbase.EnvProjectID, "proj1")
+		t.Setenv(hbase.EnvInfra, "KUBERNETES")
+		t.Setenv("PIPELINE_TOKEN", "tok123")
+		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
+		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
+		if err != nil || !triggered || r == nil {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want a resolved pipeline auth on non-VM infra too", r, triggered, err)
 		}
 	})
 

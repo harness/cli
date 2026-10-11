@@ -279,9 +279,6 @@ func ResolvePipelineAuth(cfg *PipelineAuthConfig, forced bool, evalHeaders func(
 	if project == "" {
 		return nil, true, fmt.Errorf("%s is required in pipeline mode", hbase.EnvProjectID)
 	}
-	if infra := os.Getenv(hbase.EnvInfra); infra != hbase.InfraVM {
-		return nil, true, fmt.Errorf("pipeline auth supports %s infra only (%s=%q)", hbase.InfraVM, hbase.EnvInfra, infra)
-	}
 	token := os.Getenv(cfg.TokenEnvVar)
 	if token == "" {
 		return nil, true, fmt.Errorf("%s is required in pipeline mode", cfg.TokenEnvVar)

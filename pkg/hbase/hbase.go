@@ -55,8 +55,7 @@ const (
 	EnvOrgID     = "HARNESS_ORG_ID"
 	EnvProjectID = "HARNESS_PROJECT_ID"
 
-	// EnvInfra identifies the infra a pipeline step runs on. Only InfraVM has
-	// a token injected directly; pipeline_auth requires it.
+	// EnvInfra identifies the infra a pipeline step runs on.
 	EnvInfra = "HARNESS_INFRA"
 	InfraVM  = "VM"
 

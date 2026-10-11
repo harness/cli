@@ -68,7 +68,8 @@ Required:
 
 - `HARNESS_PIPELINE_ID` — presence alone triggers pipeline mode
 - `HARNESS_ACCOUNT_ID`, `HARNESS_ORG_ID`, `HARNESS_PROJECT_ID` — fixed scope for the run; `--org`/`--project` are rejected in this mode since scope can't be overridden
-- `HARNESS_INFRA` — must equal `VM`; other infra types are not supported
+
+Pipeline mode is infra-agnostic: it reads whatever `HARNESS_INFRA` happens to be, but doesn't gate on its value. If the token/URL vars a command's `pipeline_auth` block names aren't actually injected on a given infra, resolution fails with the normal "`<var>` is required in pipeline mode" error rather than an infra-specific one.
 
 Only commands whose spec declares a `pipeline_auth` block participate — for everything else pipeline mode is not applicable and auth falls through to profile/env var resolution as usual. Check `harness auth status` to see pipeline scope at a glance.
 
