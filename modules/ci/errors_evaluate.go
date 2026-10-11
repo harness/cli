@@ -17,7 +17,8 @@ import (
 
 var errorScannerBufPool = sync.Pool{
 	New: func() interface{} {
-		return make([]byte, maxLineSize)
+		buf := make([]byte, maxLineSize)
+		return &buf
 	},
 }
 
@@ -232,11 +233,11 @@ func scanErrorLogFileForConditions(ctx context.Context, filePath string, conditi
 		tailSeeked = true
 	}
 
-	buf := errorScannerBufPool.Get().([]byte)
-	defer errorScannerBufPool.Put(buf)
+	bufPtr := errorScannerBufPool.Get().(*[]byte)
+	defer errorScannerBufPool.Put(bufPtr)
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(buf, maxScannerBufSize)
+	scanner.Buffer(*bufPtr, maxScannerBufSize)
 
 	if tailSeeked {
 		scanner.Scan() // discard partial first line
@@ -520,7 +521,7 @@ func evaluateEmptyErrorContent(operand, value string) (bool, error) {
 	case operandContains:
 		return strings.Contains("", strings.ToLower(value)), nil
 	case operandIs:
-		return "" == value, nil
+		return value == "", nil
 	case operandRegex:
 		re, err := regexp.Compile(value)
 		if err != nil {
@@ -528,7 +529,7 @@ func evaluateEmptyErrorContent(operand, value string) (bool, error) {
 		}
 		return re.MatchString(""), nil
 	case operandIsNot:
-		return "" != value, nil
+		return value != "", nil
 	case operandDoesNotMatch:
 		return !strings.Contains("", strings.ToLower(value)), nil
 	default:
