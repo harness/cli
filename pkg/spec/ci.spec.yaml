@@ -1,13 +1,14 @@
 spec_version: 1
 module_type: builtin
-module_desc: Harness CI — pipeline-step annotations written to a local file for lite-engine to post
+module_desc: Harness CI — pipeline-step annotations and error categorization, local-only, for lite-engine
 help_text: |
   ## Continuous Integration (ci)
 
-  CI-specific local-only commands that run inside a Harness pipeline step and
-  write to a well-known local file that lite-engine later reads and posts back
-  to the pipeline execution. These commands make no Harness API calls and
-  require no authentication.
+  CI-specific local-only commands that run inside a Harness pipeline step:
+  writing annotations to a well-known local file for lite-engine to post back
+  to the pipeline execution, and categorizing a failed step's logs/exit code
+  against a user-authored errors.yaml rule file. These commands make no
+  Harness API calls and require no authentication.
 
   ### Nouns
 
@@ -23,6 +24,17 @@ nouns:
       - id: stepid
         label: Step ID
         expr: it.stepid
+      - id: message
+        expr: it.message
+
+  - noun: error
+    short_desc: "Harness Error Categorization — validate and evaluate custom errors.yaml rule files."
+    noun_aliases: [errors]
+    fields:
+      - id: matched
+        expr: it.matched
+      - id: category
+        expr: it.category
       - id: message
         expr: it.message
 
@@ -68,3 +80,63 @@ commands:
       - name: priority
         description: "Annotation priority, 1-10 (validated in handler, not declaratively)"
         default: "3"
+
+  - command: execute error:validate
+    verb: execute
+    noun: error
+    noun_variant: validate
+    short: "Validate the syntax and structure of an errors.yaml rule file"
+    long: |
+      Validate an errors.yaml file's syntax and structure, and print a
+      human-readable report. Meant to be run manually or in CI before
+      trusting the file in a real pipeline.
+
+        harness execute error:validate --yaml-path=./errors.yaml
+    no_id: true
+    has_args: true
+    no_auth: true
+    handler_type: workflow
+    workflow_id: execute_error_validate
+    flags:
+      - name: yaml-path
+        description: "Path to the errors.yaml file to validate"
+        required: true
+
+  - command: execute error:evaluate
+    verb: execute
+    noun: error
+    noun_variant: evaluate
+    short: "Evaluate errors.yaml rules against a step's logs and exit code"
+    long: |
+      Evaluate errors.yaml rules against a step's stdout/stderr logs and exit
+      code, printing a compact JSON categorization result. Intended for
+      internal use by lite-engine on every failed step; never fails the
+      step just because categorization itself encountered an error.
+
+        harness execute error:evaluate --yaml-path=./errors.yaml \
+          --stdout-path=./step-stdout.log --stderr-path=./step-stderr.log \
+          --exit-code=1 --step-id=step1 --stage-id=stage1 --pipeline-id=pipeline1
+    no_id: true
+    has_args: true
+    no_auth: true
+    handler_type: workflow
+    workflow_id: execute_error_evaluate
+    flags:
+      - name: yaml-path
+        description: "Path to the errors.yaml file"
+        required: true
+      - name: cache-dir
+        description: "Cache directory for parsed rules (default: $HARNESS_ERRORS_CACHE_DIR or /tmp/.harness-errors-cache)"
+      - name: stdout-path
+        description: "Path to the step's stdout log file"
+      - name: stderr-path
+        description: "Path to the step's stderr log file"
+      - name: exit-code
+        description: "Exit code from the step"
+        default: "1"
+      - name: step-id
+        description: "Step identifier"
+      - name: stage-id
+        description: "Stage identifier"
+      - name: pipeline-id
+        description: "Pipeline identifier"
