@@ -1,0 +1,70 @@
+spec_version: 1
+module_type: builtin
+module_desc: Harness CI — pipeline-step annotations written to a local file for lite-engine to post
+help_text: |
+  ## Continuous Integration (ci)
+
+  CI-specific local-only commands that run inside a Harness pipeline step and
+  write to a well-known local file that lite-engine later reads and posts back
+  to the pipeline execution. These commands make no Harness API calls and
+  require no authentication.
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: annotation
+    short_desc: "A pipeline-step annotation written to the local annotations file for lite-engine to post."
+    noun_aliases: [annotations]
+    fields:
+      - id: context
+        expr: it.context
+      - id: stepid
+        label: Step ID
+        expr: it.stepid
+      - id: message
+        expr: it.message
+
+commands:
+  - command: execute annotation
+    verb: execute
+    noun: annotation
+    short: "Write/merge a pipeline-step annotation into the local annotations file"
+    long: |
+      Write or merge a Harness pipeline-step annotation into a local JSON file
+      (default ./annotations.json, or $HARNESS_ANNOTATIONS_FILE) that
+      lite-engine later reads and posts as pipeline-step annotations.
+
+      No-ops silently (does not fail the step) unless CI_ENABLE_HARNESS_ANNOTATIONS=true
+      or PIPE_HARNESS_ANNOTATIONS=true is set in the environment.
+
+      Examples:
+        harness execute annotation --context build-status --style info --summary "Build completed"
+        harness execute annotation --context deployment --style success --summary-file ./deploy-notes.md
+        harness execute annotation --context test-results --style warning --summary "Some tests failed" --priority 5
+        harness execute annotation --context build-status --mode delete
+    no_id: true
+    has_args: true
+    no_auth: true
+    handler_type: workflow
+    workflow_id: execute_annotation
+    flags:
+      - name: context
+        description: "Context ID of the step annotation (max 256 chars, trimmed) - required"
+        required: true
+      - name: style
+        description: "Annotation style: info|success|warning|error (validated in handler, not declaratively)"
+        default: info
+        completion_values: [info, success, warning, error]
+      - name: summary
+        description: "Inline summary content (markdown). Ignored if --summary-file is also given"
+      - name: summary-file
+        description: "Path to a summary file (max 64KB). Takes precedence over --summary when both are given"
+      - name: mode
+        description: "Merge mode: append|replace|delete (validated in handler, not declaratively)"
+        default: replace
+        completion_values: [append, replace, delete]
+      - name: priority
+        description: "Annotation priority, 1-10 (validated in handler, not declaratively)"
+        default: "3"
