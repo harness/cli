@@ -66,3 +66,28 @@ func executeCoverageUploadHandler(ctx *cmdctx.Ctx) error {
 
 	return coverageUpload(ctx, f)
 }
+
+const executeCoverageWaitUntilHandlerID = "execute_coverage_wait_until"
+
+// executeCoverageWaitUntilHandler is the `execute coverage:wait-until`
+// workflow handler. It polls the Harness coverage service until all reports
+// for the execution are processed, then evaluates the result against the
+// given quality-gate thresholds.
+func executeCoverageWaitUntilHandler(ctx *cmdctx.Ctx) error {
+	if len(ctx.Args) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(ctx.Args, " "))
+	}
+
+	f := coverageWaitUntilFlags{
+		accountID:   cmdctx.GetString(ctx.FlagValues, "account"),
+		executionID: cmdctx.GetString(ctx.FlagValues, "execution"),
+		gt:          cmdctx.GetFloat64(ctx.FlagValues, "gt"),
+		gte:         cmdctx.GetFloat64(ctx.FlagValues, "gte"),
+		patchGt:     cmdctx.GetFloat64(ctx.FlagValues, "patch-gt"),
+		patchGte:    cmdctx.GetFloat64(ctx.FlagValues, "patch-gte"),
+		timeout:     cmdctx.GetString(ctx.FlagValues, "wait-timeout"),
+		interval:    cmdctx.GetString(ctx.FlagValues, "interval"),
+	}
+
+	return coverageWaitUntil(ctx, f)
+}

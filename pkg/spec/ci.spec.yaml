@@ -267,3 +267,53 @@ commands:
       - name: exclude
         description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'. Coverage repository settings replace this flag when exclude_text is set, including an empty value that clears exclusions."
         is_multi: true
+
+  - command: execute coverage:wait-until
+    verb: execute
+    noun: coverage
+    noun_variant: wait-until
+    short: "Wait for coverage processing and evaluate quality gate thresholds"
+    long: |
+      Polls the Harness coverage service until all reports for the execution
+      are processed, then evaluates the coverage against the given
+      thresholds. At least one threshold flag must be specified (--gt, --gte,
+      --patch-gt, or --patch-gte). Exits non-zero if any threshold is not met.
+
+      Account and execution are auto-detected from the CI environment when
+      unset. --wait-timeout is this command's own polling timeout, distinct
+      from the global --timeout flag (which hard-kills the whole process).
+
+      Examples:
+        harness execute coverage:wait-until --gt 70
+        harness execute coverage:wait-until --gte 80 --wait-timeout 10m
+        harness execute coverage:wait-until --patch-gt 80
+        harness execute coverage:wait-until --gt 70 --patch-gte 80
+    no_id: true
+    has_args: true
+    pipeline_auth:
+      token_envvar: HARNESS_COV_TOKEN
+      apiurl_envvar: HARNESS_COV_URL
+      headers:
+        X-Api-Key: token
+        x-harness-token: token
+    handler_type: workflow
+    workflow_id: execute_coverage_wait_until
+    flags:
+      - name: account
+        description: "Account identifier (auto-detected from CI when unset)"
+      - name: execution
+        description: "ID which identifies the execution of a pipeline globally (auto-detected from CI when unset; mandatory)"
+      - name: gt
+        description: "Coverage must be > this percentage"
+      - name: gte
+        description: "Coverage must be >= this percentage"
+      - name: patch-gt
+        description: "Patch coverage must be > this percentage"
+      - name: patch-gte
+        description: "Patch coverage must be >= this percentage"
+      - name: wait-timeout
+        description: "Maximum wait time, e.g. 5m, 90s"
+        default: "5m"
+      - name: interval
+        description: "Polling interval, e.g. 10s"
+        default: "10s"
