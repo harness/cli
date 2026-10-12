@@ -31,6 +31,9 @@ type pkgmgrClient interface {
 	// Name returns the human-readable client name (e.g. "npm").
 	Name() string
 
+	// PackageType returns the HAR package type recorded with build info.
+	PackageType() string
+
 	// DetectRegistry finds the HAR registry from the config file written by
 	// `configure registry`. explicitRegistry overrides detection when non-empty.
 	DetectRegistry(explicitRegistry string) (*pkgmgrRegistryInfo, error)

@@ -20,7 +20,8 @@ var mvn403Pattern = regexp.MustCompile(`(?i)(403\s*Forbidden|status\s*code:\s*40
 
 type mavenClient struct{}
 
-func (c *mavenClient) Name() string { return "mvn" }
+func (c *mavenClient) Name() string        { return "mvn" }
+func (c *mavenClient) PackageType() string { return "MAVEN" }
 
 func (c *mavenClient) DetectRegistry(explicitRegistry string) (*pkgmgrRegistryInfo, error) {
 	if saved := loadPkgmgrConfig("maven"); saved != nil {
@@ -96,11 +97,13 @@ func mvnParseDependencyTree(output string) []dependency {
 	depRe := regexp.MustCompile(`[|+\\\- ]+\s*(\S+):(\S+):(\S+):(\S+):(\S+)`)
 	seen := map[string]bool{}
 	var deps []dependency
+	var parentStack []string
 	for _, line := range strings.Split(output, "\n") {
 		if !strings.Contains(line, "[INFO]") {
 			continue
 		}
-		m := depRe.FindStringSubmatch(strings.TrimPrefix(line, "[INFO] "))
+		line = strings.TrimPrefix(line, "[INFO] ")
+		m := depRe.FindStringSubmatch(line)
 		if len(m) < 6 {
 			continue
 		}
@@ -111,9 +114,33 @@ func mvnParseDependencyTree(output string) []dependency {
 			continue
 		}
 		seen[key] = true
-		deps = append(deps, dependency{Name: name, Version: version})
+
+		depth := mvnTreeDepth(line)
+		if depth > 0 && depth-1 < len(parentStack) {
+			parentStack = parentStack[:depth-1]
+		}
+		parent := ""
+		if len(parentStack) > 0 {
+			parent = parentStack[len(parentStack)-1]
+		}
+		deps = append(deps, dependency{Name: name, Version: version, Parent: parent})
+		parentStack = append(parentStack, key)
 	}
 	return deps
+}
+
+// mvnTreeDepth counts Maven tree prefixes. Each level is three characters
+// ("+- ", "\\- ", "|  ", "   ").
+func mvnTreeDepth(line string) int {
+	depth := 0
+	for i := 0; i+2 < len(line); i += 3 {
+		chunk := line[i : i+3]
+		if chunk != "+- " && chunk != "\\- " && chunk != "|  " && chunk != "   " {
+			break
+		}
+		depth++
+	}
+	return depth
 }
 
 func mvnParseSettings(settingsPath, explicitRegistry string) (*pkgmgrRegistryInfo, error) {

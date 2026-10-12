@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -134,10 +135,12 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 	packageName := cmdCtx.IdParts[1]
 	version := cmdCtx.IdParts[2]
 
-	ctx := context.Background()
+	ctx := cmdCtx.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	hc := &http.Client{Timeout: 60 * time.Second}
 
-	// 1. Look up registry UUID.
 	fmt.Printf("Fetching registry details for: %s\n", registryID)
 	registryUUID, err := getRegistryUUID(ctx, hc, a, registryID)
 	if err != nil {
@@ -154,80 +157,36 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		return fmt.Errorf("building firewall client: %w", err)
 	}
 
-	// 2. Initiate bulk scan evaluation.
-	fmt.Printf("Initiating evaluation for %s@%s\n", packageName, version)
-	initResp, err := client.InitiateBulkScanEvaluationWithResponse(ctx, &ar_v3.InitiateBulkScanEvaluationParams{
-		AccountIdentifier: a.AccountID,
-		OrgIdentifier:     optionalStrPtr(a.OrgID),
-		ProjectIdentifier: optionalStrPtr(a.ProjectID),
-	}, ar_v3.InitiateBulkScanEvaluationJSONRequestBody{
-		RegistryId: registryUUIDParsed,
-		Artifacts:  []ar_v3.ArtifactScanInput{{PackageName: packageName, Version: version}},
-	})
+	useAsync := cmdctx.GetBool(cmdCtx.FlagValues, "async")
+	evaluator := newFirewallEvaluator(firewallEvaluatorParams{
+		client:       client,
+		accountID:    a.AccountID,
+		orgID:        a.OrgID,
+		projectID:    a.ProjectID,
+		registryUUID: registryUUIDParsed,
+		skipCache:    true,
+	}, useAsync)
+
+	fmt.Printf("Evaluating %s@%s (mode=%s)\n", packageName, version, evaluator.Mode())
+	result, err := evaluator.Evaluate(ctx, []dependency{{Name: packageName, Version: version}})
 	if err != nil {
-		return fmt.Errorf("initiating evaluation: %w", err)
+		return err
 	}
-	if initResp.JSON202 == nil || initResp.JSON202.Data == nil || initResp.JSON202.Data.EvaluationId == nil {
-		return fmt.Errorf("initiating evaluation: unexpected response (status %s): %s", initResp.HTTPResponse.Status, strings.TrimSpace(string(initResp.Body)))
-	}
-	evaluationID := *initResp.JSON202.Data.EvaluationId
-	fmt.Printf("Evaluation ID: %s\n", evaluationID)
-
-	// 3. Poll for completion.
-	fmt.Println("Waiting for evaluation to complete...")
-	var statusData *ar_v3.BulkScanEvaluationStatusData
-	for i := 0; i < 120; i++ {
-		statusResp, err := client.GetBulkScanEvaluationStatusWithResponse(ctx, evaluationID, &ar_v3.GetBulkScanEvaluationStatusParams{
-			AccountIdentifier: a.AccountID,
-			OrgIdentifier:     optionalStrPtr(a.OrgID),
-			ProjectIdentifier: optionalStrPtr(a.ProjectID),
-		})
-		if err != nil {
-			return fmt.Errorf("polling evaluation status: %w", err)
-		}
-		if statusResp.JSON200 == nil || statusResp.JSON200.Data == nil || statusResp.JSON200.Data.Status == nil {
-			return fmt.Errorf("invalid response from evaluation status API")
-		}
-		switch *statusResp.JSON200.Data.Status {
-		case ar_v3.SUCCESS:
-			statusData = statusResp.JSON200.Data
-			goto done
-		case ar_v3.FAILURE:
-			msg := "evaluation failed"
-			if statusResp.JSON200.Data.Error != nil {
-				msg = *statusResp.JSON200.Data.Error
-			}
-			return fmt.Errorf("%s", msg)
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return fmt.Errorf("timeout waiting for evaluation to complete")
-
-done:
-	if statusData.Scans == nil || len(*statusData.Scans) == 0 {
+	if len(result.results) == 0 {
 		fmt.Println("No scan results returned.")
 		return nil
 	}
 
-	scan := (*statusData.Scans)[0]
-	scanStatus := ""
-	if scan.ScanStatus != nil {
-		scanStatus = string(*scan.ScanStatus)
-	}
-	scanID := ""
-	if scan.ScanId != nil {
-		scanID = scan.ScanId.String()
-	}
+	scan := result.results[0]
 
-	// 4. Print summary.
 	fmt.Println()
 	fmt.Println("Scan Result")
 	fmt.Printf("  Package:           %s\n", packageName)
 	fmt.Printf("  Version:           %s\n", version)
-	fmt.Printf("  Evaluation Status: %s\n", displayVal(scanStatus))
-	fmt.Printf("  Evaluation ID:     %s\n", displayVal(scanID))
+	fmt.Printf("  Evaluation Status: %s\n", displayVal(scan.ScanStatus))
+	fmt.Printf("  Evaluation ID:     %s\n", displayVal(scan.ScanID))
 	fmt.Println()
-	switch scanStatus {
+	switch scan.ScanStatus {
 	case "BLOCKED":
 		fmt.Println("BLOCKED: This artifact version is blocked by the firewall.")
 	case "WARN":
@@ -236,13 +195,23 @@ done:
 		fmt.Println("ALLOWED: This artifact version is allowed by the firewall.")
 	}
 
-	// 5. Fetch and print detailed scan info.
-	if scanID == "" {
+	if cmdctx.GetString(cmdCtx.FlagValues, "format") == "json" {
+		return printExplainJSON(registryID, packageName, version, scan)
+	}
+
+	if !useAsync {
+		if len(result.details) > 0 && result.details[0] != nil {
+			printScanDetails(syncScanDetails(result.details[0]))
+		}
+		return nil
+	}
+
+	if scan.ScanID == "" {
 		return nil
 	}
 	fmt.Println()
 	fmt.Println("Fetching detailed scan information...")
-	detailResp, err := client.GetArtifactScanDetailsWithResponse(ctx, scanID, &ar_v3.GetArtifactScanDetailsParams{
+	detailResp, err := client.GetArtifactScanDetailsWithResponse(ctx, scan.ScanID, &ar_v3.GetArtifactScanDetailsParams{
 		AccountIdentifier: a.AccountID,
 	})
 	if err != nil {
@@ -253,6 +222,47 @@ done:
 		printScanDetails(detailResp.JSON200.Data)
 	}
 	return nil
+}
+
+func printExplainJSON(registryID, packageName, version string, scan auditScanResult) error {
+	b, err := json.MarshalIndent(map[string]string{
+		"registry":   registryID,
+		"package":    packageName,
+		"version":    version,
+		"scanStatus": scan.ScanStatus,
+		"scanId":     scan.ScanID,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+func syncScanDetails(details *ar_v3.ArtifactScanDetailsV3) *ar_v3.ArtifactScanDetails {
+	converted := &ar_v3.ArtifactScanDetails{
+		CreatedAt:               details.CreatedAt,
+		FixVersionDetails:       details.FixVersionDetails,
+		LastEvaluatedAt:         details.LastEvaluatedAt,
+		PackageName:             details.PackageName,
+		PolicySetFailureDetails: details.PolicySetFailureDetails,
+		ScanStatus:              ar_v3.ArtifactScanDetailsScanStatus(details.ScanStatus),
+		Version:                 details.Version,
+		VersionId:               details.VersionId,
+	}
+	if details.Id != nil {
+		converted.Id = *details.Id
+	}
+	if details.PackageType != nil {
+		converted.PackageType = *details.PackageType
+	}
+	if details.RegistryId != nil {
+		converted.RegistryId = details.RegistryId
+	}
+	if details.RegistryName != nil {
+		converted.RegistryName = *details.RegistryName
+	}
+	return converted
 }
 
 // ---- output helpers ----
@@ -357,8 +367,9 @@ func printScanDetails(d *ar_v3.ArtifactScanDetails) {
 const executeRegistryFirewallScanHandlerID = "execute_registry_firewall_scan"
 
 type dependency struct {
-	Name    string
-	Version string
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Parent  string `json:"parent,omitempty"`
 }
 
 type auditScanResult struct {
@@ -368,12 +379,125 @@ type auditScanResult struct {
 	ScanStatus  string `json:"scanStatus"`
 }
 
+type firewallBatchOutcome struct {
+	index   int
+	results []auditScanResult
+	err     error
+}
+
+func evaluateFirewallBatches(
+	ctx context.Context,
+	evaluator firewallEvaluator,
+	deps []dependency,
+	batchSize int,
+) ([]auditScanResult, error) {
+	if batchSize <= 0 {
+		batchSize = 20
+	}
+	if batchSize > firewallMaxBatchSize {
+		batchSize = firewallMaxBatchSize
+	}
+
+	totalBatches := (len(deps) + batchSize - 1) / batchSize
+	workers := 3
+	if evaluator.Mode() == "async" {
+		workers = 1
+	}
+
+	outcomes := make(chan firewallBatchOutcome, totalBatches)
+	semaphore := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < totalBatches; i++ {
+		start := i * batchSize
+		end := start + batchSize
+		if end > len(deps) {
+			end = len(deps)
+		}
+		batch := deps[start:end]
+
+		wg.Add(1)
+		go func(index int, items []dependency) {
+			defer wg.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				outcomes <- firewallBatchOutcome{
+					index:   index,
+					results: unknownAuditResults(items),
+					err:     context.Cause(ctx),
+				}
+				return
+			}
+
+			result, err := evaluator.Evaluate(ctx, items)
+			if err != nil {
+				outcomes <- firewallBatchOutcome{
+					index:   index,
+					results: unknownAuditResults(items),
+					err:     err,
+				}
+				return
+			}
+			outcomes <- firewallBatchOutcome{index: index, results: result.results}
+		}(i, batch)
+	}
+
+	go func() {
+		wg.Wait()
+		close(outcomes)
+	}()
+
+	results := make([]auditScanResult, 0, len(deps))
+	var firstErr error
+	for outcome := range outcomes {
+		if outcome.err != nil && firstErr == nil {
+			firstErr = outcome.err
+		}
+		if outcome.err != nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"Batch %d/%d failed: %v; marked %d result(s) UNKNOWN\n",
+				outcome.index+1,
+				totalBatches,
+				outcome.err,
+				len(outcome.results),
+			)
+		} else {
+			fmt.Fprintf(
+				os.Stderr,
+				"Batch %d/%d complete (%d packages)\n",
+				outcome.index+1,
+				totalBatches,
+				len(outcome.results),
+			)
+		}
+		results = append(results, outcome.results...)
+	}
+	return results, firstErr
+}
+
+func unknownAuditResults(deps []dependency) []auditScanResult {
+	results := make([]auditScanResult, 0, len(deps))
+	for _, dep := range deps {
+		results = append(results, auditScanResult{
+			PackageName: dep.Name,
+			Version:     dep.Version,
+			ScanStatus:  "UNKNOWN",
+		})
+	}
+	return results
+}
+
 func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 	a := applyLevelScope(cmdCtx)
 	registryID := cmdCtx.Id
 	filePath := cmdctx.GetString(cmdCtx.FlagValues, "lockfile")
 
-	ctx := context.Background()
+	ctx := cmdCtx.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	hc := &http.Client{Timeout: 60 * time.Second}
 
 	// 1. Registry UUID.
@@ -400,100 +524,35 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		return fmt.Errorf("parsing lock file: %w", err)
 	}
 	if len(deps) == 0 {
-		fmt.Println("No dependencies found in file.")
-		return nil
+		return fmt.Errorf(
+			"no dependencies parsed from %s; the file may be empty or in an unsupported format",
+			filepath.Base(filePath),
+		)
 	}
 	sort.Slice(deps, func(i, j int) bool { return deps[i].Name < deps[j].Name })
 	fmt.Printf("Found %d dependencies.\n", len(deps))
 
-	// 3. Batch evaluate (50 per batch).
-	const batchSize = 50
-	totalBatches := (len(deps) + batchSize - 1) / batchSize
-	allResults := make([]auditScanResult, 0, len(deps))
+	useAsync := cmdctx.GetBool(cmdCtx.FlagValues, "async")
+	evaluator := newFirewallEvaluator(firewallEvaluatorParams{
+		client:       client,
+		accountID:    a.AccountID,
+		orgID:        a.OrgID,
+		projectID:    a.ProjectID,
+		registryUUID: registryUUIDParsed,
+		skipCache:    true,
+	}, useAsync)
+	batchSize := cmdctx.GetInt(cmdCtx.FlagValues, "batch-size")
+	fmt.Printf("Evaluating dependencies (mode=%s, batch-size=%d).\n", evaluator.Mode(), batchSize)
 
-	for i := 0; i < totalBatches; i++ {
-		start := i * batchSize
-		end := start + batchSize
-		if end > len(deps) {
-			end = len(deps)
-		}
-		batch := deps[start:end]
-
-		fmt.Printf("Processing batch %d/%d (%d packages)...\n", i+1, totalBatches, len(batch))
-		artifacts := make([]ar_v3.ArtifactScanInput, 0, len(batch))
-		for _, d := range batch {
-			artifacts = append(artifacts, ar_v3.ArtifactScanInput{PackageName: d.Name, Version: d.Version})
-		}
-
-		initResp, err := client.InitiateBulkScanEvaluationWithResponse(ctx, &ar_v3.InitiateBulkScanEvaluationParams{
-			AccountIdentifier: a.AccountID,
-			OrgIdentifier:     optionalStrPtr(a.OrgID),
-			ProjectIdentifier: optionalStrPtr(a.ProjectID),
-		}, ar_v3.InitiateBulkScanEvaluationJSONRequestBody{
-			RegistryId: registryUUIDParsed,
-			Artifacts:  artifacts,
-		})
-		if err != nil {
-			return fmt.Errorf("batch %d: initiating evaluation: %w", i+1, err)
-		}
-		if initResp.JSON202 == nil || initResp.JSON202.Data == nil || initResp.JSON202.Data.EvaluationId == nil {
-			return fmt.Errorf("batch %d: missing evaluationId in response", i+1)
-		}
-		evaluationID := *initResp.JSON202.Data.EvaluationId
-
-		// Poll.
-		var statusData *ar_v3.BulkScanEvaluationStatusData
-		for poll := 0; poll < 120; poll++ {
-			statusResp, err := client.GetBulkScanEvaluationStatusWithResponse(ctx, evaluationID, &ar_v3.GetBulkScanEvaluationStatusParams{
-				AccountIdentifier: a.AccountID,
-				OrgIdentifier:     optionalStrPtr(a.OrgID),
-				ProjectIdentifier: optionalStrPtr(a.ProjectID),
-			})
-			if err != nil {
-				return fmt.Errorf("batch %d: polling status: %w", i+1, err)
-			}
-			if statusResp.JSON200 == nil || statusResp.JSON200.Data == nil || statusResp.JSON200.Data.Status == nil {
-				return fmt.Errorf("batch %d: invalid status response", i+1)
-			}
-			switch *statusResp.JSON200.Data.Status {
-			case ar_v3.SUCCESS:
-				statusData = statusResp.JSON200.Data
-				goto batchDone
-			case ar_v3.FAILURE:
-				msg := fmt.Sprintf("batch %d evaluation failed", i+1)
-				if statusResp.JSON200.Data.Error != nil {
-					msg = *statusResp.JSON200.Data.Error
-				}
-				return fmt.Errorf("%s", msg)
-			}
-			time.Sleep(2 * time.Second)
-		}
-		return fmt.Errorf("batch %d: timeout waiting for evaluation", i+1)
-
-	batchDone:
-		if statusData.Scans != nil {
-			for _, s := range *statusData.Scans {
-				r := auditScanResult{}
-				if s.PackageName != nil {
-					r.PackageName = *s.PackageName
-				}
-				if s.Version != nil {
-					r.Version = *s.Version
-				}
-				if s.ScanId != nil {
-					r.ScanID = s.ScanId.String()
-				}
-				if s.ScanStatus != nil {
-					r.ScanStatus = string(*s.ScanStatus)
-				}
-				allResults = append(allResults, r)
-			}
-		}
-	}
-
-	// 4. Display results.
+	allResults, batchErr := evaluateFirewallBatches(ctx, evaluator, deps, batchSize)
 	sort.Slice(allResults, func(i, j int) bool { return allResults[i].PackageName < allResults[j].PackageName })
-	return printAuditResults(cmdCtx, allResults)
+	if err := printAuditResults(cmdCtx, allResults); err != nil {
+		return err
+	}
+	if batchErr != nil {
+		return fmt.Errorf("one or more firewall evaluation batches failed: %w", batchErr)
+	}
+	return nil
 }
 
 func printAuditResults(cmdCtx *cmdctx.Ctx, results []auditScanResult) error {
