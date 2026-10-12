@@ -73,3 +73,73 @@ func coverageLogExcludedFileOnce(seen map[string]struct{}, path string) {
 	}
 	hlog.Debug("excluding file", "path", path)
 }
+
+// coverageParseExcludeText splits coverage_repo_settings exclude_text into
+// patterns, dropping blank lines and "#"-comment lines.
+func coverageParseExcludeText(text string) []string {
+	rawLines := strings.Split(text, "\n")
+	patterns := make([]string, 0, len(rawLines))
+	for _, rawLine := range rawLines {
+		pattern := strings.TrimSpace(rawLine)
+		if pattern == "" || strings.HasPrefix(pattern, "#") {
+			continue
+		}
+		patterns = append(patterns, pattern)
+	}
+	return patterns
+}
+
+// coverageCompileCLIExcludePatterns compiles --exclude / settings patterns.
+// An empty list is a no-op.
+func coverageCompileCLIExcludePatterns(patterns []string) ([]coverageExcludePattern, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	compiled, err := coverageCompileExcludePatterns(patterns)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --exclude: %w", err)
+	}
+	return compiled, nil
+}
+
+// coveragePatternsFromSettings returns compiled repository exclude patterns
+// when configured. nil excludeText means settings were never saved, so
+// cliPatterns still applies. A present value — including "" or comment-only
+// text — replaces cliPatterns: coverage-server clears excludes by storing an
+// empty string. Invalid repository patterns fail the upload rather than
+// silently changing which source files are included.
+func coveragePatternsFromSettings(excludeText *string, cliPatterns []string) ([]coverageExcludePattern, error) {
+	if excludeText == nil {
+		coverageLogUsingCLIExclude(cliPatterns, "coverage repository settings are not configured")
+		return coverageCompileCLIExcludePatterns(cliPatterns)
+	}
+	patterns := coverageParseExcludeText(*excludeText)
+	if len(patterns) == 0 {
+		coverageLogUsingServerExclude(cliPatterns, 0)
+		return nil, nil
+	}
+	compiled, err := coverageCompileExcludePatterns(patterns)
+	if err != nil {
+		return nil, fmt.Errorf("invalid coverage repository exclude settings: %w", err)
+	}
+	coverageLogUsingServerExclude(cliPatterns, len(compiled))
+	return compiled, nil
+}
+
+func coverageLogUsingCLIExclude(cliPatterns []string, reason string) {
+	if len(cliPatterns) == 0 {
+		return
+	}
+	hlog.Info("using --exclude", "reason", reason)
+}
+
+func coverageLogUsingServerExclude(cliPatterns []string, count int) {
+	hlog.Info("using exclude pattern(s) from coverage repository settings", "count", count)
+	if len(cliPatterns) > 0 {
+		if count == 0 {
+			hlog.Warn("ignoring --exclude; coverage repository settings explicitly clear all exclusions")
+			return
+		}
+		hlog.Info("ignoring --exclude; coverage repository settings are configured")
+	}
+}

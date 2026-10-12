@@ -3,7 +3,10 @@
 
 package ci
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCoverageCompileExcludePatterns(t *testing.T) {
 	tests := []struct {
@@ -121,4 +124,84 @@ func TestCoverageLogExcludedFileOnce_DedupesByPath(t *testing.T) {
 
 func TestCoverageLogExcludedFileOnce_NilSeenMapDoesNotPanic(t *testing.T) {
 	coverageLogExcludedFileOnce(nil, "pkg/foo.go")
+}
+
+func coverageStringPointer(value string) *string {
+	return &value
+}
+
+func TestCoverageParseExcludeText(t *testing.T) {
+	text := "  # generated files\n\n vendor/** \nregex:.*_gen\\.go$\n"
+	want := []string{"vendor/**", "regex:.*_gen\\.go$"}
+	got := coverageParseExcludeText(text)
+	if len(got) != len(want) {
+		t.Fatalf("coverageParseExcludeText() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("coverageParseExcludeText() = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestCoveragePatternsFromSettings(t *testing.T) {
+	cli := []string{"cli/**"}
+	serverText := "# generated\nserver/**\nregex:.*_gen\\.go$"
+	got, err := coveragePatternsFromSettings(&serverText, cli)
+	if err != nil {
+		t.Fatalf("configured settings error = %v", err)
+	}
+	if len(got) != 2 ||
+		!coverageMatchesAnyExcludePattern("server/file.go", got) ||
+		!coverageMatchesAnyExcludePattern("src/file_gen.go", got) ||
+		coverageMatchesAnyExcludePattern("cli/file.go", got) {
+		t.Errorf("configured settings did not use only server patterns, got %+v", got)
+	}
+
+	got, err = coveragePatternsFromSettings(nil, cli)
+	if err != nil {
+		t.Fatalf("unset settings error = %v", err)
+	}
+	if len(got) != 1 || !coverageMatchesAnyExcludePattern("cli/file.go", got) {
+		t.Errorf("unset settings did not use CLI patterns, got %+v", got)
+	}
+}
+
+func TestCoveragePatternsFromSettings_RejectsUncompilablePatterns(t *testing.T) {
+	cli := []string{"cli/**"}
+	for _, serverText := range []string{"regex:[unclosed", "[unclosed", "server/**\nregex:[unclosed"} {
+		got, err := coveragePatternsFromSettings(&serverText, cli)
+		if err == nil {
+			t.Fatalf("coveragePatternsFromSettings(%q) error = nil, want invalid settings error", serverText)
+		}
+		if !strings.Contains(err.Error(), "invalid coverage repository exclude settings") {
+			t.Fatalf("coveragePatternsFromSettings(%q) error = %v, want invalid coverage repository exclude settings", serverText, err)
+		}
+		if got != nil {
+			t.Errorf("coveragePatternsFromSettings(%q) = %v, want nil patterns", serverText, got)
+		}
+	}
+}
+
+func TestCoveragePatternsFromSettings_ClearedTextIgnoresCLI(t *testing.T) {
+	cli := []string{"cli/**"}
+	for _, text := range []string{"", "# no exclusions\n\n"} {
+		got, err := coveragePatternsFromSettings(coverageStringPointer(text), cli)
+		if err != nil {
+			t.Fatalf("coveragePatternsFromSettings(%q) error = %v", text, err)
+		}
+		if len(got) != 0 {
+			t.Errorf("coveragePatternsFromSettings(%q) = %v, want no patterns", text, got)
+		}
+	}
+}
+
+func TestCoverageCompileCLIExcludePatterns_Empty(t *testing.T) {
+	got, err := coverageCompileCLIExcludePatterns(nil)
+	if err != nil {
+		t.Fatalf("coverageCompileCLIExcludePatterns(nil) error = %v", err)
+	}
+	if got != nil {
+		t.Errorf("coverageCompileCLIExcludePatterns(nil) = %v, want nil", got)
+	}
 }
