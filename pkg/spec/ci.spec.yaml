@@ -198,3 +198,72 @@ commands:
         description: "Base revision to compare against for patch coverage (commit SHA, branch, or tag)"
       - name: head
         description: "Head revision for patch coverage (optional, defaults to current HEAD)"
+
+  - command: execute coverage:upload
+    verb: execute
+    noun: coverage
+    noun_variant: upload
+    short: "Upload a coverage report to Harness"
+    long: |
+      Parse local coverage report file(s) and upload them to the Harness
+      coverage service: ensures the repository is registered, resolves
+      exclude settings (coverage repository settings override --exclude),
+      encodes each file, and uploads it via a presigned URL.
+
+      Most fields are auto-detected from the CI environment (account, SCM
+      provider/owner/identifier/commit/branch, pipeline, execution, pull
+      request) and can be overridden with the matching flag.
+
+      Examples:
+        harness execute coverage:upload --file coverage.out
+        harness execute coverage:upload --file coverage.out --base origin/main
+        harness execute coverage:upload --file coverage.out --target-scope myAccount/myOrg/myProject
+    no_id: true
+    has_args: true
+    pipeline_auth:
+      token_envvar: HARNESS_COV_TOKEN
+      apiurl_envvar: HARNESS_COV_URL
+      headers:
+        X-Api-Key: token
+        x-harness-token: token
+    handler_type: workflow
+    workflow_id: execute_coverage_upload
+    flags:
+      - name: account
+        description: "Account identifier (auto-detected from CI when unset)"
+      - name: provider
+        description: "SCM provider (auto-detected from CI when unset)"
+      - name: owner
+        description: "SCM owner (auto-detected from CI when unset)"
+      - name: identifier
+        description: "SCM identifier (auto-detected from CI when unset)"
+      - name: commit
+        description: "SCM commit ID (auto-detected from CI when unset)"
+      - name: branch
+        description: "SCM branch (auto-detected from CI when unset)"
+      - name: build
+        description: "The execution number of the pipeline"
+        default: "0"
+      - name: pipeline
+        description: "The ID of the pipeline"
+      - name: execution
+        description: "ID which identifies the execution of a pipeline globally (auto-detected from CI when unset; mandatory)"
+      - name: pr
+        description: "Pull request ID (auto-detected from CI when unset)"
+        default: "0"
+      - name: target-scope
+        description: "Harness account, organization, or project path that overrides pipeline scope. Not supported for Harness Code."
+      - name: tags
+        description: "Tags to apply to the uploaded coverage report (can be specified multiple times)"
+        is_multi: true
+      - name: file
+        description: "Path to coverage report file(s) (can be specified multiple times)"
+        is_multi: true
+      - name: base
+        description: "Base revision to compare against for diff coverage (commit SHA, branch, or tag). If not specified, diff tracking is disabled."
+      - name: patch
+        description: "Use patch coverage (requires --base)"
+        is_bool: true
+      - name: exclude
+        description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'. Coverage repository settings replace this flag when exclude_text is set, including an empty value that clears exclusions."
+        is_multi: true

@@ -11,4 +11,5 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(executeErrorValidateHandlerID, executeErrorValidateHandler)
 	reg.RegisterWorkflow(executeErrorEvaluateHandlerID, executeErrorEvaluateHandler)
 	reg.RegisterWorkflow(executeCoverageAnalyzeHandlerID, executeCoverageAnalyzeHandler)
+	reg.RegisterWorkflow(executeCoverageUploadHandlerID, executeCoverageUploadHandler)
 }
