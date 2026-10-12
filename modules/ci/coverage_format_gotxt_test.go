@@ -29,15 +29,24 @@ example.com/pkg/file.go:7.14,9.2 1 0
 	for r := range seq {
 		records = append(records, r)
 	}
-	if len(records) < 2 {
-		t.Fatalf("got %d records, want at least 2", len(records))
+	want := map[uint32]coverageLineType{
+		3: coverageLineCovered, 4: coverageLineCovered, 5: coverageLineCovered,
+		7: coverageLineUncovered, 8: coverageLineUncovered, 9: coverageLineUncovered,
+	}
+	if len(records) != len(want) {
+		t.Fatalf("got %d records, want %d (each block expanded to every line it spans)", len(records), len(want))
 	}
 	for _, r := range records {
-		if r.FilePath == "" {
-			t.Errorf("record has empty FilePath: %+v", r)
+		if r.FilePath != "example.com/pkg/file.go" {
+			t.Errorf("record has FilePath %q, want example.com/pkg/file.go: %+v", r.FilePath, r)
 		}
-		if r.LineNumber == 0 {
-			t.Errorf("record has zero LineNumber: %+v", r)
+		lt, ok := want[r.LineNumber]
+		if !ok {
+			t.Errorf("unexpected line number in record: %+v", r)
+			continue
+		}
+		if r.LineType != lt {
+			t.Errorf("line %d LineType = %v, want %v", r.LineNumber, r.LineType, lt)
 		}
 	}
 }

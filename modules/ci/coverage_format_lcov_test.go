@@ -4,6 +4,7 @@
 package ci
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -110,6 +111,25 @@ func TestCoverageLcovParser_Parse_MalformedDALine(t *testing.T) {
 	}
 	if p.Err() == nil {
 		t.Fatal("Err() = nil, want error after malformed DA line")
+	}
+}
+
+// errReader fails on the first Read, simulating a mid-file I/O failure.
+type errReader struct{ err error }
+
+func (r errReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestCoverageLcovParser_Parse_ScannerErrorIsSurfaced(t *testing.T) {
+	wantErr := errors.New("boom")
+	p := newCoverageLcovParser()
+	seq, err := p.Parse(errReader{err: wantErr})
+	if err != nil {
+		t.Fatalf("Parse() error = %v, want nil top-level error", err)
+	}
+	for range seq {
+	}
+	if p.Err() == nil || !errors.Is(p.Err(), wantErr) {
+		t.Fatalf("Err() = %v, want it to wrap %v", p.Err(), wantErr)
 	}
 }
 

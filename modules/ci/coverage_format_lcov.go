@@ -56,6 +56,9 @@ func (p *coverageLcovParser) Parse(reader io.Reader) (iter.Seq[coverageLineRecor
 				}
 			}
 		}
+		if err := scanner.Err(); err != nil {
+			p.err = fmt.Errorf("error reading lcov file: %w", err)
+		}
 	}, nil
 }
 
