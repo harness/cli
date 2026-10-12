@@ -1,14 +1,15 @@
 spec_version: 1
 module_type: builtin
-module_desc: Harness CI — pipeline-step annotations and error categorization, local-only, for lite-engine
+module_desc: Harness CI — pipeline-step annotations, error categorization, and coverage reporting
 help_text: |
   ## Continuous Integration (ci)
 
-  CI-specific local-only commands that run inside a Harness pipeline step:
-  writing annotations to a well-known local file for lite-engine to post back
-  to the pipeline execution, and categorizing a failed step's logs/exit code
-  against a user-authored errors.yaml rule file. These commands make no
-  Harness API calls and require no authentication.
+  CI-specific commands that run inside a Harness pipeline step: writing
+  annotations to a well-known local file for lite-engine to post back to the
+  pipeline execution, categorizing a failed step's logs/exit code against a
+  user-authored errors.yaml rule file, and analyzing coverage reports.
+  `execute annotation`, `execute error:validate`, `execute error:evaluate`,
+  and `execute coverage:analyze` are local-only and require no authentication.
 
   ### Nouns
 
@@ -37,6 +38,20 @@ nouns:
         expr: it.category
       - id: message
         expr: it.message
+
+  - noun: coverage
+    short_desc: "Coverage reports — analyze local coverage report files and print a summary."
+    noun_aliases: [coverages]
+    fields:
+      - id: hits
+        expr: it.hits
+      - id: partials
+        expr: it.partials
+      - id: misses
+        expr: it.misses
+      - id: percentage
+        label: Coverage
+        expr: it.overallpercentage
 
 commands:
   - command: execute annotation
@@ -140,3 +155,46 @@ commands:
         description: "Stage identifier"
       - name: pipeline-id
         description: "Pipeline identifier"
+
+  - command: execute coverage:analyze
+    verb: execute
+    noun: coverage
+    noun_variant: analyze
+    short: "Parse and display a coverage report summary"
+    long: |
+      Parse coverage report files and display a summary of coverage statistics:
+      overall coverage percentage, per-file coverage, hit/partial/miss counts,
+      and patch coverage (when --base is provided or auto-detected from CI).
+
+      Supported formats: Go coverage (coverage.out), LCOV (lcov.info), JaCoCo,
+      Clover, Cobertura, Coveralls. Format is auto-detected per file, and
+      formats can be mixed across multiple --file flags. With no --file given,
+      coverage files are auto-discovered in common directories.
+
+      This command is local-only: it does not call the Harness API and
+      requires no authentication.
+
+      Examples:
+        harness execute coverage:analyze --file coverage.out
+        harness execute coverage:analyze --file coverage.out --file lcov.info
+        harness execute coverage:analyze --file coverage.out --base origin/main
+        harness execute coverage:analyze --patch --base origin/main
+    no_id: true
+    has_args: true
+    no_auth: true
+    handler_type: workflow
+    workflow_id: execute_coverage_analyze
+    flags:
+      - name: file
+        description: "Path to coverage report file(s) (can be specified multiple times)"
+        is_multi: true
+      - name: exclude
+        description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'."
+        is_multi: true
+      - name: patch
+        description: "Show patch coverage for changed lines only (requires --base)"
+        is_bool: true
+      - name: base
+        description: "Base revision to compare against for patch coverage (commit SHA, branch, or tag)"
+      - name: head
+        description: "Head revision for patch coverage (optional, defaults to current HEAD)"
