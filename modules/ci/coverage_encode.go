@@ -7,17 +7,15 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/harness/cli/v3/pkg/hlog"
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
+
+	"github.com/harness/cli/v3/pkg/hlog"
 )
 
-// Sent verbatim in the presign request, so these must match the coverage
-// server's types.CoverageFormat values.
-const (
-	coverageFormatParquet       = "parquet"
-	coverageFormatParquetBitmap = "parquet-bitmap"
-)
+// Sent verbatim in the presign request, so this must match the coverage
+// server's types.CoverageFormat value.
+const coverageFormatParquet = "parquet"
 
 // coverageEncodeResult describes what coverageWrite produced for the server
 // (mirrors format.IndexResult).
@@ -30,15 +28,6 @@ type coverageEncodeResult struct {
 // coverageParquetEncode builds the result for the Parquet format.
 func coverageParquetEncode() coverageEncodeResult {
 	return coverageEncodeResult{Format: coverageFormatParquet}
-}
-
-// coverageParquetBitmapEncode builds the result for the ParquetBitmap format.
-func coverageParquetBitmapEncode(skippedKeys []string, diffByFile map[string][]uint32) coverageEncodeResult {
-	return coverageEncodeResult{
-		Format:      coverageFormatParquetBitmap,
-		SkippedKeys: skippedKeys,
-		DiffByFile:  diffByFile,
-	}
 }
 
 // coverageWriteOption is a functional option for configuring coverageWrite.

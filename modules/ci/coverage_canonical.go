@@ -41,13 +41,6 @@ type coverageGoModule struct {
 	name string
 }
 
-// coverageResolveRepositoryPath returns the repository-relative path for a parser path.
-// The raw path is returned unchanged, aside from slash normalization, when the
-// git inventory cannot resolve it and patch mode is off.
-func coverageResolveRepositoryPath(raw string, extra []string, opts coverageRepositoryPathOptions) (string, error) {
-	return newCoverageRepositoryPathResolver(opts).Resolve(raw, extra...)
-}
-
 // stopOnManifestMiss is true only for Go. A pom.xml or package.json above a
 // Cobertura, Clover, LCOV, or Coveralls report must not block a unique match.
 func (c *coverageRepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool) (string, error) {

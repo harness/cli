@@ -266,7 +266,7 @@ func (v coverageVendor) Execution() string {
 
 // PullRequestID returns the numeric pull request ID from CI, or 0 if unknown.
 func (v coverageVendor) PullRequestID() int64 {
-	for _, envVar := range v.coverageVariables.PRID {
+	for _, envVar := range v.PRID {
 		if id := coverageParsePullRequestID(os.Getenv(envVar)); id > 0 {
 			return id
 		}
@@ -338,7 +338,7 @@ func coverageParsePositiveInt(s string) int64 {
 }
 
 func (v coverageVendor) RepoBaseURL() (string, error) {
-	if baseURL := os.Getenv(v.coverageVariables.BaseURL); baseURL != "" {
+	if baseURL := os.Getenv(v.BaseURL); baseURL != "" {
 		return baseURL, nil
 	}
 	repoInfo, err := coverageGetRepoInfo()

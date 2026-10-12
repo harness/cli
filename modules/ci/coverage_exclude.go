@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 
