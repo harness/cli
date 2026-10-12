@@ -20,14 +20,16 @@ const (
 )
 
 // coverageLineRecord is one row of per-line coverage emitted by a coverageParser.
+// It is also the schema of the parquet wire format sent to the coverage service.
 type coverageLineRecord struct {
-	FilePath   string
-	LineNumber uint32
-	LineType   coverageLineType
-	Diff       bool
+	RepoRef    string           `parquet:"repo_ref,dict"`
+	FilePath   string           `parquet:"file_path,dict"`
+	LineNumber uint32           `parquet:"line_number"`
+	LineType   coverageLineType `parquet:"line_type,rle"`
+	Diff       bool             `parquet:"diff"`
 	// PathCandidates are exact repository paths the parser can infer (e.g. a
 	// JaCoCo module plus source root). Not every parser populates this.
-	PathCandidates []string
+	PathCandidates []string `parquet:"-"`
 }
 
 // coverageParser decodes one coverage report dialect into coverageLineRecords.

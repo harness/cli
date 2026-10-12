@@ -45,6 +45,9 @@ var coverageSourceRootLayouts = []string{
 // Maven/Gradle source-root layouts, so callers have candidate repo-relative
 // paths to try even without a module qualifier.
 func coverageSourceRootSuffixes(filePath string) []string {
+	if filePath == "" {
+		return nil
+	}
 	suffixes := make([]string, 0, len(coverageSourceRootLayouts))
 	for _, layout := range coverageSourceRootLayouts {
 		if layout == "" {
