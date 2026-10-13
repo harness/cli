@@ -425,3 +425,47 @@ commands:
         description: 'Artifact version (default: "v"+$HARNESS_BUILD_ID)'
       - name: registry
         description: "Target registry name (default: $CI_NATIVE_HAR_REGISTRY)"
+
+  - command: pull ci_artifact
+    verb: pull
+    noun: ci_artifact
+    short: "Pull a single artifact file from Harness Artifact Registry"
+    long: |
+      Pull a single file from the current pipeline's artifact version in
+      Harness Artifact Registry (HAR) — either from inside a Harness pipeline
+      step (auth and --name/--version/--registry defaults resolved from
+      CI-injected env vars), or using the active profile outside one.
+
+      <path-in-version> is the path relative to the version root — the same
+      value that was supplied as --destination (joined with the filename)
+      during the corresponding push.
+
+      For example, if pushed with:
+        harness push ci_artifact Dockerfile --destination files
+
+      then pull with:
+        harness pull ci_artifact files/Dockerfile
+
+      Examples:
+        harness pull ci_artifact files/Dockerfile
+        harness pull ci_artifact files/Dockerfile --destination ./downloads/
+        harness pull ci_artifact reports/coverage.html --destination /tmp/coverage.html
+    no_id: true
+    has_args: true
+    args_label: "<path-in-version>"
+    handler_type: workflow
+    workflow_id: pull_ci_artifact
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
+    flags:
+      - name: destination
+        description: "Local directory or file path to save the downloaded file (default: current directory)"
+      - name: name
+        description: "Artifact name (default: $HARNESS_PIPELINE_UNIQUE_ID)"
+      - name: version
+        description: 'Artifact version (default: "v"+$HARNESS_BUILD_ID)'
+      - name: registry
+        description: "Source registry name (default: $CI_NATIVE_HAR_REGISTRY)"
