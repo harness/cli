@@ -148,7 +148,7 @@ nouns:
       - id: webhook_url
         expr: it.webhookUrl
       - id: last_execution_status
-        expr: '(it.lastTriggerExecutionDetails != nil && it.lastTriggerExecutionDetails.lastExecutionSuccessful == true) ? "Passed" : "Failed"'
+        expr: 'it.lastTriggerExecutionDetails == nil ? "-" : (it.lastTriggerExecutionDetails.lastExecutionSuccessful == true ? "Passed" : "Failed")'
       - id: last_execution_time
         expr: epochMs(it.lastTriggerExecutionDetails.lastExecutionTime)
       - id: last_execution_id
@@ -891,7 +891,7 @@ commands:
   - command: list trigger
     verb: list
     noun: trigger
-    short: List triggers for a pipeline
+    short: List the triggers of a pipeline (harness list trigger <pipeline>)
     completion_noun: pipeline
     requires_parentid: true
     parentid_label: pipeline
@@ -917,12 +917,12 @@ commands:
         page_size_default: 25
         page_size_max: 100
         total_expr: it.data.totalItems
-      columns: [identifier, name, type, enabled, last_execution_status, tags]
+      columns: [identifier, name, type, enabled, last_execution_status, last_execution_time, tags]
 
   - command: get trigger
     verb: get
     noun: trigger
-    short: Get a trigger by identifier
+    short: Get a trigger (harness get trigger <pipeline>/<trigger>)
     id_parts: 2
     id_label: "<pipeline>/<trigger>"
     completion_seq:
@@ -931,15 +931,16 @@ commands:
         keep_order: true
     handler_type: endpoint
     endpoint:
-      path: /pipeline/api/triggers
-      item_expr: find(it.data.content, .identifier == lastPart(ctx.id))
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
+      item_expr: it.data
+      fields_subset: [identifier, name, type, enabled, pipeline, webhook_url, yaml]
       query_params:
         targetIdentifier: ctx.idParts[0]
 
   - command: create trigger
     verb: create
     noun: trigger
-    short: Create a trigger for a pipeline (-f trigger.yaml)
+    short: "Create a trigger: harness create trigger <pipeline> -f trigger.yaml"
     completion_noun: pipeline
     requires_id: true
     id_label: "<pipeline_id>"
@@ -957,7 +958,7 @@ commands:
   - command: update trigger
     verb: update
     noun: trigger
-    short: Update a trigger's YAML definition (-f trigger.yaml)
+    short: "Update a trigger: harness update trigger <pipeline>/<trigger> -f trigger.yaml"
     id_parts: 2
     id_label: "<pipeline>/<trigger>"
     completion_seq:
@@ -979,7 +980,7 @@ commands:
     verb: delete
     noun: trigger
     confirm_mode: prompt
-    short: Delete a trigger by identifier
+    short: Delete a trigger (harness delete trigger <pipeline>/<trigger>)
     id_parts: 2
     id_label: "<pipeline>/<trigger>"
     completion_seq:
