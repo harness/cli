@@ -452,6 +452,8 @@ commands:
       With planned auto-create, an interactive terminal asks to watch logs; --watch
       starts watching without prompting. Watch stops when log total reaches the
       planned auto-create counts, or after root --timeout / 2m default.
+      --out preserves the import result/summary followed by all watch batches.
+      Watch output with --format json/jsonl is one log object per line, not an array.
     handler_type: workflow
     workflow_id: gitops_agent_import
     flags:
@@ -1072,6 +1074,9 @@ commands:
     verb: list
     noun: gitops_autocreate_log
     short: "List auto-create logs for an import: harness list gitops_autocreate_log <agent> --import-request-id <id> [--level account|org|project] [--offset|--limit|--all|--count] [--watch [--timeout <secs>]]"
+    long: |
+      With --watch, --format json/jsonl emits one log object per line, not an array.
+      --out retains all watch batches; polling status messages stay on stderr.
     requires_parentid: true
     parentid_label: "<agent>"
     completion_noun: gitops_agent

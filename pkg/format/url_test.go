@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 func urlEnv(fn func(any) string) map[string]any {
@@ -25,6 +26,11 @@ func urlEnv(fn func(any) string) map[string]any {
 func outFile(t *testing.T) (string, func() []byte) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "out")
+	t.Cleanup(func() {
+		if err := hbase.Cleanup(); err != nil {
+			t.Error(err)
+		}
+	})
 	return path, func() []byte {
 		b, err := os.ReadFile(path)
 		if err != nil {

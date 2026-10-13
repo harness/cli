@@ -98,11 +98,10 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		// dumping it as raw json, same as the default-format resolution above chose.
 	}
 
-	w, close, err := OpenWriter(flags.OutFile)
+	w, err := OpenWriter(flags.OutFile)
 	if err != nil {
 		return err
 	}
-	defer close()
 
 	if flags.Format == "jsonl" {
 		items, err := evalItemsExpr(itemsEnv, itemsExpr)
@@ -177,11 +176,10 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 // and prints their values tab-separated on one line. Designed for shell $() capture.
 // Unknown field IDs are silently skipped (empty string).
 func FormatFieldsOutput(flags cmdctx.FormatFlags, data any, itemExpr string, fields []spec.FieldDef, fieldIDs []string, exprEnv map[string]any) error {
-	w, closeW, err := OpenWriter(flags.OutFile)
+	w, err := OpenWriter(flags.OutFile)
 	if err != nil {
 		return err
 	}
-	defer closeW()
 
 	payload := data
 	if !flags.Raw && itemExpr != "" {
@@ -236,11 +234,10 @@ func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr
 		return fmt.Errorf("format %q is not supported here; use json or text", flags.Format)
 	}
 
-	w, closeW, err := OpenWriter(flags.OutFile)
+	w, err := OpenWriter(flags.OutFile)
 	if err != nil {
 		return err
 	}
-	defer closeW()
 
 	if flags.Format == "yaml" && !flags.Raw {
 		picked := evalColumnExpr(withIt(exprEnv, data), yamlPickExpr)
@@ -306,17 +303,6 @@ func injectURL(exprEnv map[string]any, item any) any {
 	maps.Copy(out, m)
 	out["url"] = u
 	return out
-}
-
-func OpenWriter(outFile string) (io.Writer, func(), error) {
-	if outFile == "" {
-		return os.Stdout, func() {}, nil
-	}
-	f, err := os.Create(outFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("opening output file: %w", err)
-	}
-	return f, func() { f.Close() }, nil
 }
 
 func writeYAML(w io.Writer, data any) error {
