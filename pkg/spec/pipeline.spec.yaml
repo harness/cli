@@ -894,7 +894,7 @@ commands:
     short: List the triggers of a pipeline (harness list trigger <pipeline>)
     completion_noun: pipeline
     requires_parentid: true
-    parentid_label: pipeline
+    parentid_label: "<pipeline>"
     handler_type: endpoint
     flags:
       - name: search
@@ -943,7 +943,7 @@ commands:
     short: "Create a trigger: harness create trigger <pipeline> -f trigger.yaml"
     completion_noun: pipeline
     requires_id: true
-    id_label: "<pipeline_id>"
+    id_label: "<pipeline>"
     handler_type: endpoint
     endpoint:
       method: POST
