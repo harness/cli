@@ -12,47 +12,30 @@ help_text: |
 
   ### Domain Model
 
-  A **local_annotation** is a note (`info`/`success`/`warning`/`error`, with
-  a priority and markdown summary) that lite-engine posts back to the
-  pipeline execution. `execute local_annotation` merges one into a local
-  JSON file (default `./annotations.json`, or `$HARNESS_ANNOTATIONS_FILE`)
-  that lite-engine reads after the step finishes — the command itself makes
-  no API call. It no-ops silently unless `CI_ENABLE_HARNESS_ANNOTATIONS=true`
-  or `PIPE_HARNESS_ANNOTATIONS=true` is set, so it is always safe to run.
+  A **local_annotation** is a note posted back to the pipeline execution.
+  `execute local_annotation` merges one into a local JSON file for
+  lite-engine to pick up; gated behind `CI_ENABLE_HARNESS_ANNOTATIONS`/
+  `PIPE_HARNESS_ANNOTATIONS`, so it's always safe to run.
 
-  An **error** rule file (errors.yaml) is user-authored and matches a failed
-  step's logs/exit code against known failure signatures. `execute
-  error:validate` checks a rule file's syntax before you trust it in a real
-  pipeline; `execute error:evaluate` is what lite-engine runs internally on
-  every failed step to produce a compact categorization result, and never
-  fails the step just because categorization itself hit an error.
+  An **error** rule file (errors.yaml) matches a failed step's logs/exit
+  code against known failure signatures. `execute error:validate` checks
+  the file's syntax; `execute error:evaluate` is what lite-engine runs on
+  every failed step to produce a categorization result, and never fails the
+  step itself.
 
   A **coverage** report is parsed from local Go/LCOV/JaCoCo/Clover/
-  Cobertura/Coveralls files. `execute coverage:analyze` parses and prints a
-  summary locally, with no API call; `execute coverage:upload` sends the
-  parsed report to the Harness coverage service, and `execute
-  coverage:wait-until` polls that service and evaluates coverage/patch-
-  coverage thresholds as a quality gate. The two latter commands need auth
-  (`HARNESS_COVERAGE_SERVICE_TOKEN`/`HARNESS_COVERAGE_SERVICE_ENDPOINT`
-  inside a pipeline step).
+  Cobertura/Coveralls files. `execute coverage:analyze` prints a local
+  summary; `execute coverage:upload` sends it to the Harness coverage
+  service; `execute coverage:wait-until` polls and gates on a threshold.
 
-  A **ci_artifact** is a generic build artifact (file, directory, or glob of
-  files) pushed to or pulled from Harness Artifact Registry (HAR).
-  `push ci_artifact <source>...` uploads one or more local files/directories
-  to the current pipeline's artifact version, retrying transient failures
-  with backoff and uploading in parallel; `pull ci_artifact
-  <path-in-version>` downloads a single file back out of it. These two
-  commands make real HTTP calls to HAR and require auth: inside a pipeline
-  step this is resolved automatically from CI-injected env vars
-  (`HARNESS_HAR_TOKEN`, `HARNESS_HAR_URL`), and outside one it falls back to
-  the active CLI profile. `--name`/`--version`/`--registry` default to
-  `$HARNESS_PIPELINE_UNIQUE_ID`/`"v"+$HARNESS_BUILD_ID`/
-  `$CI_NATIVE_HAR_REGISTRY` when the pipeline sets them, but can always be
-  passed explicitly (e.g. to push/pull outside a pipeline step). After a
-  successful push, a merged JSON summary of every file pushed in the step is
-  written to `$HARNESS_ARTIFACT_FILE_PATH` when set, so CI Manager sees one
-  unified record even across multiple `push ci_artifact` invocations in the
-  same step.
+  A **ci_artifact** is a generic build artifact pushed to or pulled from
+  Harness Artifact Registry (HAR). `push ci_artifact <source>...` uploads
+  file(s)/directories to the current pipeline's artifact version; `pull
+  ci_artifact <path-in-version>` downloads one back out.
+
+  `coverage:upload`/`wait-until` and `ci_artifact` push/pull need auth,
+  resolved from CI-injected env vars inside a pipeline step or the active
+  CLI profile outside one; everything else needs none.
 
   ### Nouns
 
