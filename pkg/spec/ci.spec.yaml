@@ -8,7 +8,7 @@ help_text: |
   annotations to a well-known local file for lite-engine to post back to the
   pipeline execution, categorizing a failed step's logs/exit code against a
   user-authored errors.yaml rule file, and analyzing coverage reports.
-  `execute annotation`, `execute error:validate`, `execute error:evaluate`,
+  `execute local_annotation`, `execute error:validate`, `execute error:evaluate`,
   and `execute coverage:analyze` are local-only and require no authentication.
 
   ### Nouns
@@ -16,9 +16,9 @@ help_text: |
   {{nouns}}
 
 nouns:
-  - noun: annotation
+  - noun: local_annotation
     short_desc: "A pipeline-step annotation written to the local annotations file for lite-engine to post."
-    noun_aliases: [annotations]
+    noun_aliases: [local_annotations]
     fields:
       - id: context
         expr: it.context
@@ -54,9 +54,9 @@ nouns:
         expr: it.overallpercentage
 
 commands:
-  - command: execute annotation
+  - command: execute local_annotation
     verb: execute
-    noun: annotation
+    noun: local_annotation
     short: "Write/merge a pipeline-step annotation into the local annotations file"
     long: |
       Write or merge a Harness pipeline-step annotation into a local JSON file
@@ -67,10 +67,10 @@ commands:
       or PIPE_HARNESS_ANNOTATIONS=true is set in the environment.
 
       Examples:
-        harness execute annotation --context build-status --style info --summary "Build completed"
-        harness execute annotation --context deployment --style success --summary-file ./deploy-notes.md
-        harness execute annotation --context test-results --style warning --summary "Some tests failed" --priority 5
-        harness execute annotation --context build-status --mode delete
+        harness execute local_annotation --context build-status --style info --summary "Build completed"
+        harness execute local_annotation --context deployment --style success --summary-file ./deploy-notes.md
+        harness execute local_annotation --context test-results --style warning --summary "Some tests failed" --priority 5
+        harness execute local_annotation --context build-status --mode delete
     no_id: true
     has_args: true
     no_auth: true
