@@ -13,4 +13,6 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(executeCoverageAnalyzeHandlerID, executeCoverageAnalyzeHandler)
 	reg.RegisterWorkflow(executeCoverageUploadHandlerID, executeCoverageUploadHandler)
 	reg.RegisterWorkflow(executeCoverageWaitUntilHandlerID, executeCoverageWaitUntilHandler)
+	reg.RegisterWorkflow(pushCiArtifactHandlerID, pushCiArtifactHandler)
+	reg.RegisterWorkflow(pullCiArtifactHandlerID, pullCiArtifactHandler)
 }

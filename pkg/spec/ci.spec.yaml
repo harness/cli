@@ -1,15 +1,43 @@
 spec_version: 1
 module_type: builtin
-module_desc: Harness CI — pipeline-step annotations, error categorization, and coverage reporting
+module_desc: Harness CI — pipeline-step annotations, error categorization, coverage reporting, and artifact push/pull
 help_text: |
   ## Continuous Integration (ci)
 
-  CI-specific commands that run inside a Harness pipeline step: writing
-  annotations to a well-known local file for lite-engine to post back to the
-  pipeline execution, categorizing a failed step's logs/exit code against a
-  user-authored errors.yaml rule file, and analyzing coverage reports.
-  `execute local_annotation`, `execute error:validate`, `execute error:evaluate`,
-  and `execute coverage:analyze` are local-only and require no authentication.
+  CI-specific commands for use inside a Harness pipeline step: writing
+  annotations, categorizing failed-step errors, and analyzing coverage
+  reports are local-only and need no Harness API call, while uploading
+  coverage and pushing/pulling build artifacts talk to a Harness service
+  over HTTP and do need auth.
+
+  ### Domain Model
+
+  A **local_annotation** is a note posted back to the pipeline execution.
+  `execute local_annotation` merges one into a local JSON file for
+  lite-engine to pick up; gated behind `CI_ENABLE_HARNESS_ANNOTATIONS`/
+  `PIPE_HARNESS_ANNOTATIONS`, so it's always safe to run.
+
+  An **error** rule file (errors.yaml) matches a failed step's logs/exit
+  code against known failure signatures. `execute error:validate` checks
+  the file's syntax; `execute error:evaluate` is what lite-engine runs on
+  every failed step to produce a categorization result, and never fails the
+  step itself.
+
+  A **coverage** report is parsed from local Go/LCOV/JaCoCo/Clover/
+  Cobertura/Coveralls files. `execute coverage:analyze` prints a local
+  summary; `execute coverage:upload` sends it to the Harness coverage
+  service; `execute coverage:wait-until` polls and gates on a threshold.
+
+  A **ci_artifact** is a generic build artifact pushed to or pulled from
+  Harness Artifact Registry (HAR). `push ci_artifact <source>...` uploads
+  file(s)/directories to the current pipeline's artifact version; `pull
+  ci_artifact <path-in-version>` downloads one back out. Both require
+  running inside a pipeline step — auth is resolved from CI-injected env
+  vars only, with no profile fallback.
+
+  `coverage:upload`/`wait-until` need auth too, resolved from CI-injected
+  env vars inside a pipeline step or the active CLI profile outside one;
+  everything else needs none.
 
   ### Nouns
 
@@ -52,6 +80,24 @@ nouns:
       - id: percentage
         label: Coverage
         expr: it.overallpercentage
+
+  - noun: ci_artifact
+    short_desc: "A generic build artifact pushed to or pulled from Harness Artifact Registry (HAR) from a CI pipeline step."
+    noun_aliases: [ci_artifacts]
+    fields:
+      - id: artifactName
+        label: Artifact Name
+        expr: it.artifactName
+      - id: version
+        expr: it.version
+      - id: registry
+        expr: it.registry
+      - id: fileCount
+        label: File Count
+        expr: it.fileCount
+      - id: totalBytes
+        label: Total Bytes
+        expr: it.totalBytes
 
 commands:
   - command: execute local_annotation
@@ -317,3 +363,94 @@ commands:
       - name: interval
         description: "Polling interval, e.g. 10s"
         default: "10s"
+
+  - command: push ci_artifact
+    verb: push
+    noun: ci_artifact
+    short: "Push artifacts to Harness Artifact Registry"
+    long: |
+      Push one or more local files or directories to Harness Artifact
+      Registry (HAR) from inside a Harness pipeline step — auth and
+      --name/--version/--registry defaults are resolved from CI-injected env
+      vars. Fails if run outside a pipeline step.
+
+      Each <source> argument may be:
+        - A file path         uploaded directly under the artifact version
+        - A directory         walked recursively; its basename is preserved
+                              in the registry path
+        - A glob pattern      e.g. *.zip or dir/* — matched files are uploaded
+        - Comma-separated     e.g. "./dist/*.zip,./reports/*.xml" (or multiple args)
+
+      All files including hidden ones (names starting with ".") are included.
+
+      After a successful push a JSON summary is written to
+      $HARNESS_ARTIFACT_FILE_PATH (if set) so CI Manager receives a unified
+      record of everything pushed in the step.
+
+      Examples:
+        harness push ci_artifact ./build/app.zip
+        harness push ci_artifact ./cache-dir --destination cache
+        harness push ci_artifact './dist/*.tar.gz,./reports/*.xml'
+    no_id: true
+    has_args: true
+    args_label: "<source>..."
+    handler_type: workflow
+    workflow_id: push_ci_artifact
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
+    flags:
+      - name: destination
+        description: "Destination subdirectory within the artifact version"
+      - name: name
+        description: "Artifact name (default: $HARNESS_PIPELINE_UNIQUE_ID)"
+      - name: version
+        description: 'Artifact version (default: "v"+$HARNESS_BUILD_ID)'
+      - name: registry
+        description: "Target registry name (default: $CI_NATIVE_HAR_REGISTRY)"
+
+  - command: pull ci_artifact
+    verb: pull
+    noun: ci_artifact
+    short: "Pull a single artifact file from Harness Artifact Registry"
+    long: |
+      Pull a single file from the current pipeline's artifact version in
+      Harness Artifact Registry (HAR) from inside a Harness pipeline step —
+      auth and --name/--version/--registry defaults are resolved from
+      CI-injected env vars. Fails if run outside a pipeline step.
+
+      <path-in-version> is the path relative to the version root — the same
+      value that was supplied as --destination (joined with the filename)
+      during the corresponding push.
+
+      For example, if pushed with:
+        harness push ci_artifact Dockerfile --destination files
+
+      then pull with:
+        harness pull ci_artifact files/Dockerfile
+
+      Examples:
+        harness pull ci_artifact files/Dockerfile
+        harness pull ci_artifact files/Dockerfile --destination ./downloads/
+        harness pull ci_artifact reports/coverage.html --destination /tmp/coverage.html
+    no_id: true
+    has_args: true
+    args_label: "<path-in-version>"
+    handler_type: workflow
+    workflow_id: pull_ci_artifact
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
+    flags:
+      - name: destination
+        description: "Local directory or file path to save the downloaded file (default: current directory)"
+      - name: name
+        description: "Artifact name (default: $HARNESS_PIPELINE_UNIQUE_ID)"
+      - name: version
+        description: 'Artifact version (default: "v"+$HARNESS_BUILD_ID)'
+      - name: registry
+        description: "Source registry name (default: $CI_NATIVE_HAR_REGISTRY)"
