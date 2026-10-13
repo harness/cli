@@ -923,8 +923,8 @@ commands:
     verb: get
     noun: trigger
     short: Get a trigger by identifier
-    id_allow_slash: true
-    id_label: "<[pipeline/]id>"
+    id_parts: 2
+    id_label: "<pipeline>/<trigger>"
     completion_seq:
       - completion_noun: pipeline
       - completion_noun: trigger
@@ -958,8 +958,8 @@ commands:
     verb: update
     noun: trigger
     short: Update a trigger's YAML definition (-f trigger.yaml)
-    id_allow_slash: true
-    id_label: "<[pipeline/]id>"
+    id_parts: 2
+    id_label: "<pipeline>/<trigger>"
     completion_seq:
       - completion_noun: pipeline
       - completion_noun: trigger
@@ -980,8 +980,8 @@ commands:
     noun: trigger
     confirm_mode: prompt
     short: Delete a trigger by identifier
-    id_allow_slash: true
-    id_label: "<[pipeline/]id>"
+    id_parts: 2
+    id_label: "<pipeline>/<trigger>"
     completion_seq:
       - completion_noun: pipeline
       - completion_noun: trigger
