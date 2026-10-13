@@ -18,7 +18,7 @@ import (
 )
 
 func testUploadAuth(url string) *auth.ResolvedAuth {
-	return &auth.ResolvedAuth{RegistryURL: url, AccountID: "acc", Headers: map[string]string{"Authorization": "CIManager eyJtoken"}}
+	return &auth.ResolvedAuth{Source: auth.SourcePipeline, RegistryURL: url, AccountID: "acc", Headers: map[string]string{"Authorization": "CIManager eyJtoken"}}
 }
 
 func TestPermanentUploadError(t *testing.T) {

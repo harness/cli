@@ -14,6 +14,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 const pullCiArtifactHandlerID = "pull_ci_artifact"
@@ -59,11 +60,13 @@ func resolveLocalPath(dest, filename string) string {
 // pullCiArtifactHandler is the `pull ci_artifact` workflow handler. It
 // downloads a single file from the current artifact version in Harness
 // Artifact Registry, under ctx.Auth's resolved registry — populated from
-// pipeline_auth inside a pipeline step, or from the active profile outside
-// one.
+// pipeline_auth.
 func pullCiArtifactHandler(ctx *cmdctx.Ctx) error {
+	if ctx.Auth.Source != auth.SourcePipeline {
+		return fmt.Errorf("pull ci_artifact only runs inside a Harness pipeline step (requires %s)", hbase.EnvPipelineID)
+	}
 	if ctx.Auth.RegistryURL == "" {
-		return fmt.Errorf("registry URL is not configured — run 'harness auth login', or set %s in a pipeline step", envHARURL)
+		return fmt.Errorf("%s is required in a pipeline step", envHARURL)
 	}
 	if len(ctx.Args) != 1 {
 		return fmt.Errorf("pull ci_artifact requires exactly one <path-in-version> argument")

@@ -19,6 +19,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 const pushCiArtifactHandlerID = "push_ci_artifact"
@@ -202,11 +203,13 @@ func parallelUpload(ctx context.Context, entries []uploadEntry, a *auth.Resolved
 // pushCiArtifactHandler is the `push ci_artifact` workflow handler. It
 // uploads one or more local files/directories/globs to Harness Artifact
 // Registry under ctx.Auth's resolved registry — populated from pipeline_auth
-// inside a pipeline step, or from the active profile outside one — then
-// writes a merged JSON summary to $HARNESS_ARTIFACT_FILE_PATH when set.
+// — then writes a merged JSON summary to $HARNESS_ARTIFACT_FILE_PATH when set.
 func pushCiArtifactHandler(ctx *cmdctx.Ctx) error {
+	if ctx.Auth.Source != auth.SourcePipeline {
+		return fmt.Errorf("push ci_artifact only runs inside a Harness pipeline step (requires %s)", hbase.EnvPipelineID)
+	}
 	if ctx.Auth.RegistryURL == "" {
-		return fmt.Errorf("registry URL is not configured — run 'harness auth login', or set %s in a pipeline step", envHARURL)
+		return fmt.Errorf("%s is required in a pipeline step", envHARURL)
 	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push ci_artifact requires at least one <source> argument")

@@ -31,11 +31,13 @@ help_text: |
   A **ci_artifact** is a generic build artifact pushed to or pulled from
   Harness Artifact Registry (HAR). `push ci_artifact <source>...` uploads
   file(s)/directories to the current pipeline's artifact version; `pull
-  ci_artifact <path-in-version>` downloads one back out.
+  ci_artifact <path-in-version>` downloads one back out. Both require
+  running inside a pipeline step — auth is resolved from CI-injected env
+  vars only, with no profile fallback.
 
-  `coverage:upload`/`wait-until` and `ci_artifact` push/pull need auth,
-  resolved from CI-injected env vars inside a pipeline step or the active
-  CLI profile outside one; everything else needs none.
+  `coverage:upload`/`wait-until` need auth too, resolved from CI-injected
+  env vars inside a pipeline step or the active CLI profile outside one;
+  everything else needs none.
 
   ### Nouns
 
@@ -368,9 +370,9 @@ commands:
     short: "Push artifacts to Harness Artifact Registry"
     long: |
       Push one or more local files or directories to Harness Artifact
-      Registry (HAR) — either from inside a Harness pipeline step (auth and
-      --name/--version/--registry defaults resolved from CI-injected env
-      vars), or using the active profile outside one.
+      Registry (HAR) from inside a Harness pipeline step — auth and
+      --name/--version/--registry defaults are resolved from CI-injected env
+      vars. Fails if run outside a pipeline step.
 
       Each <source> argument may be:
         - A file path         uploaded directly under the artifact version
@@ -415,9 +417,9 @@ commands:
     short: "Pull a single artifact file from Harness Artifact Registry"
     long: |
       Pull a single file from the current pipeline's artifact version in
-      Harness Artifact Registry (HAR) — either from inside a Harness pipeline
-      step (auth and --name/--version/--registry defaults resolved from
-      CI-injected env vars), or using the active profile outside one.
+      Harness Artifact Registry (HAR) from inside a Harness pipeline step —
+      auth and --name/--version/--registry defaults are resolved from
+      CI-injected env vars. Fails if run outside a pipeline step.
 
       <path-in-version> is the path relative to the version root — the same
       value that was supplied as --destination (joined with the filename)

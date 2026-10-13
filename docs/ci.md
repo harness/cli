@@ -3,7 +3,8 @@
 Commands under `harness ... local_annotation` / `... error` / `... coverage` / `... ci_artifact` are meant to run inside a Harness pipeline step (invoked by lite-engine or a Run step script), though most also work from a developer workstation. They split into two groups:
 
 - **Local annotation, error categorization, and coverage analysis** are local-only — they read/write local files and make no Harness API call, so they need no auth.
-- **Coverage upload/wait-until and `ci_artifact` push/pull** talk to a Harness service over HTTP and do need auth — resolved automatically from pipeline env vars inside a step, or from the active CLI profile outside one.
+- **Coverage upload/wait-until** talk to a Harness service over HTTP and need auth — resolved automatically from pipeline env vars inside a step, or from the active CLI profile outside one.
+- **`ci_artifact` push/pull** also talk to a Harness service over HTTP, but only run inside a pipeline step — there is no profile fallback.
 
 ---
 
@@ -197,10 +198,7 @@ harness execute coverage:wait-until --gt 70 --patch-gte 80
 
 ### Auth
 
-Both commands declare a `pipeline_auth` block, so auth resolves the same way as any other pipeline-aware command (see [auth.md](auth.md)):
-
-- **Inside a pipeline step**: resolved from `HARNESS_HAR_TOKEN` (token) and `HARNESS_HAR_URL` (registry base URL), sent as `Authorization: CIManager <token>`.
-- **Outside a pipeline step**: falls back to the active CLI profile's registry URL and token.
+Both commands require running inside a Harness pipeline step and reject any other auth source. Auth is resolved from `HARNESS_HAR_TOKEN` (token) and `HARNESS_HAR_URL` (registry base URL), sent as `Authorization: CIManager <token>`. Unlike `coverage:upload`/`coverage:wait-until`, there is deliberately **no fallback to the active CLI profile** — running either command outside a pipeline step (no `HARNESS_PIPELINE_ID`) fails fast with an error instead of silently authenticating with the profile's PAT.
 
 ### Artifact identity
 
@@ -212,7 +210,7 @@ Every push/pull targets `{name}/{version}` in a registry:
 | `--version` | `"v" + $HARNESS_BUILD_ID` |
 | `--registry` | `$CI_NATIVE_HAR_REGISTRY` |
 
-The env var defaults only apply inside a pipeline step; pass the flags explicitly to push/pull from a workstation.
+`--name`/`--version`/`--registry` override the env-var defaults within a pipeline step; they don't make the command runnable outside one — see [Auth](#auth) above.
 
 ### `harness push ci_artifact <source>...`
 
