@@ -221,8 +221,8 @@ commands:
     no_id: true
     has_args: true
     pipeline_auth:
-      token_envvar: HARNESS_COV_TOKEN
-      apiurl_envvar: HARNESS_COV_URL
+      token_envvar: HARNESS_COVERAGE_SERVICE_TOKEN
+      apiurl_envvar: HARNESS_COVERAGE_SERVICE_ENDPOINT
       headers:
         X-Api-Key: token
         x-harness-token: token
@@ -291,8 +291,8 @@ commands:
     no_id: true
     has_args: true
     pipeline_auth:
-      token_envvar: HARNESS_COV_TOKEN
-      apiurl_envvar: HARNESS_COV_URL
+      token_envvar: HARNESS_COVERAGE_SERVICE_TOKEN
+      apiurl_envvar: HARNESS_COVERAGE_SERVICE_ENDPOINT
       headers:
         X-Api-Key: token
         x-harness-token: token
