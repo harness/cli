@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-// envArtifactFilePath is the pipeline-injected path `execute artifact:upload`
+// envArtifactFilePath is the pipeline-injected path `push ci_artifact`
 // writes its JSON summary to. Unset means the step doesn't want the summary.
 const envArtifactFilePath = "HARNESS_ARTIFACT_FILE_PATH"
 
@@ -21,7 +21,7 @@ const envArtifactFilePath = "HARNESS_ARTIFACT_FILE_PATH"
 // re-uploads always reflect the newest version.
 //
 // An exclusive advisory lock on a companion .lock file serializes concurrent
-// `execute artifact:upload` processes (e.g. parallel matrix jobs in the same
+// `push ci_artifact` processes (e.g. parallel matrix jobs in the same
 // step) so the read-merge-write cycle is atomic.
 func writeArtifactOutput(output artifactOutput) error {
 	outPath := os.Getenv(envArtifactFilePath)

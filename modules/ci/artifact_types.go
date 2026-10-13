@@ -5,7 +5,7 @@ package ci
 
 // artifactOutput is written (and merged across multiple invocations within
 // the same Run step) to $HARNESS_ARTIFACT_FILE_PATH so CI Manager sees a
-// single unified record of everything `execute artifact:upload` pushed.
+// single unified record of everything `push ci_artifact` pushed.
 type artifactOutput struct {
 	ArtifactName   string       `json:"artifactName"`
 	Version        string       `json:"version"`
