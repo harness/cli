@@ -426,6 +426,113 @@ nouns:
        - id: updated
          expr: it.updated_at
 
+  - noun: eval_suite_run
+    short_desc: A run of an AI Evals suite.
+    noun_aliases: [eval_suite_runs]
+    fields:
+      - id: id
+        label: ID
+        expr: it.suite_run_id
+      - id: suite_id
+        label: Suite
+        expr: it.suite_id
+      - id: status
+        expr: it.status
+      - id: pass_rate
+        expr: it.pass_rate
+      - id: started
+        expr: it.started_at
+      - id: finished
+        expr: it.completed_at
+
+  - noun: eval_suite_evaluation
+    short_desc: An evaluation membership in an AI Evals suite.
+    noun_aliases: [eval_suite_evaluations]
+    fields:
+      - id: evaluation_id
+        label: Evaluation
+        expr: it.evaluation_id
+      - id: is_required
+        label: Required
+        expr: it.is_required
+      - id: position
+        expr: it.position
+
+  - noun: eval_annotation
+    short_desc: Human or automated feedback annotation for an AI Evals trace.
+    noun_aliases: [eval_annotations]
+    fields:
+      - id: id
+        label: ID
+        expr: it.id
+      - id: trace_id
+        label: Trace
+        expr: it.trace_id
+      - id: span_id
+        label: Span
+        expr: it.span_id
+      - id: label
+        expr: it.label
+      - id: score
+        expr: it.score
+      - id: thumbs_up
+        label: Helpful
+        expr: it.thumbs_up
+      - id: annotator_type
+        expr: it.annotator_type
+      - id: created
+        expr: it.created_at
+
+  - noun: eval_prompt
+    short_desc: A versioned project prompt for AI Evals prompt targets.
+    noun_aliases: [eval_prompts]
+    fields:
+      - id: id
+        label: ID
+        expr: it.id
+      - id: identifier
+        expr: it.identifier
+      - id: name
+        expr: it.name
+      - id: description
+        expr: it.description
+      - id: category
+        expr: it.category
+      - id: labels
+        expr: it.labels
+      - id: version
+        expr: it.version
+      - id: created
+        expr: it.created_at
+      - id: updated
+        expr: it.updated_at
+
+  - noun: eval_git_settings
+    short_desc: Project-level AI Evals Git synchronization settings.
+    noun_aliases: [eval_git_setting]
+    fields:
+      - id: enabled
+        expr: it.enabled
+      - id: harness_code_repo
+        expr: it.harness_code_repo
+      - id: connector_ref
+        expr: it.connector_ref
+      - id: default_branch
+        expr: it.default_branch
+      - id: base_path
+        expr: it.base_path
+      - id: pipeline_id
+        expr: it.pipeline_id
+
+  - noun: eval_git_registration
+    short_desc: Registration of AI Evals definitions from a Git source.
+    noun_aliases: [eval_git_registrations]
+    fields:
+      - id: status
+        expr: it.status
+      - id: warnings
+        expr: it.warnings
+
 commands:
   # ── eval_dataset ──────────────────────────────────────────────────────────────
 
@@ -486,6 +593,18 @@ commands:
       create_strategy: set-fields
       create_body_wrap: ""
       text_header: "\nCreated dataset {{it.identifier}}\n"
+
+  - command: update eval_dataset
+    verb: update
+    noun: eval_dataset
+    short: "Update an AI Evals dataset with a JSON body: harness update eval_dataset <dataset-id> -f dataset.json"
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
 
   - command: delete eval_dataset
     verb: delete
@@ -618,6 +737,19 @@ commands:
         Harness-Account: auth.account
       file_body: required
       text_header: "\nDeleted dataset items\n"
+
+  - command: execute eval_dataset:generate
+    verb: execute
+    noun: eval_dataset
+    noun_variant: generate
+    short: "Generate dataset items: harness execute eval_dataset:generate <dataset-id> -f generation.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}/generate
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
  
   # ── evaluation ────────────────────────────────────────────────────────────────
 
@@ -740,6 +872,57 @@ commands:
       create_body_wrap: ""
       text_header: "\nTriggered run for eval {{ctx.id}}\n"
 
+  - command: execute evaluation:clone
+    verb: execute
+    noun: evaluation
+    noun_variant: clone
+    short: "Clone a managed AI Eval: harness execute evaluation:clone <eval-id> -f clone.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/{{ctx.id}}/clone
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute evaluation:item_history
+    verb: execute
+    noun: evaluation
+    noun_variant: item_history
+    short: "Get item score history: harness execute evaluation:item_history <eval-id> -f item-identifiers.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/{{ctx.id}}/items/history
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute evaluation:import_yaml
+    verb: execute
+    noun: evaluation
+    noun_variant: import_yaml
+    no_id: true
+    short: "Import an AI Eval definition: harness execute evaluation:import_yaml -f import.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/import-yaml
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute evaluation:export_yaml
+    verb: execute
+    noun: evaluation
+    noun_variant: export_yaml
+    short: "Export an AI Eval definition: harness execute evaluation:export_yaml <eval-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/evals/{{ctx.id}}/export-yaml
+      request_headers:
+        Harness-Account: auth.account
+
   # ── eval_run ──────────────────────────────────────────────────────────────────
 
   - command: list eval_run
@@ -779,6 +962,35 @@ commands:
         Harness-Account: auth.account
       item_expr: it
 
+  - command: list eval_run:all
+    verb: list
+    noun: eval_run
+    noun_variant: all
+    short: "List AI Evals runs in the project: harness list eval_run:all [--target-id <uuid>]"
+    handler_type: endpoint
+    flags:
+      - name: target-id
+        description: Filter by target UUID
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/runs
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: it.run_id
+      query_params:
+        page: flags.page
+        limit: flags.limit
+        target_id: 'flags["target-id"]'
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 200
+        total_expr: it.total_elements
+      columns: [id, eval_id, status, total_items, success_count, started]
+
   - command: list eval_run:items
     verb: list
     noun: eval_run
@@ -805,6 +1017,51 @@ commands:
         page_size_max: 200
         total_expr: it.total_elements
       columns: [item_id, dataset_item_id, status, duration_ms]
+
+  - command: execute eval_run:compare
+    verb: execute
+    noun: eval_run
+    noun_variant: compare
+    no_id: true
+    short: "Compare AI Evals runs: harness execute eval_run:compare --run-ids <uuid,uuid>"
+    handler_type: endpoint
+    flags:
+      - name: run-ids
+        description: Two to ten comma-separated run UUIDs
+        required: true
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/runs/compare
+      request_headers:
+        Harness-Account: auth.account
+      query_params:
+        run_ids: 'flags["run-ids"]'
+      item_expr: it
+
+  - command: execute eval_run:rescore
+    verb: execute
+    noun: eval_run
+    noun_variant: rescore
+    short: "Rescore an AI Evals run: harness execute eval_run:rescore <run-id> -f rescore.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/runs/{{ctx.id}}/rescore
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute eval_run:recommendations
+    verb: execute
+    noun: eval_run
+    noun_variant: recommendations
+    short: "Generate run recommendations: harness execute eval_run:recommendations <run-id> -f options.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/runs/{{ctx.id}}/recommendations
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
 
   # ── eval_metric ───────────────────────────────────────────────────────────────
 
@@ -885,6 +1142,30 @@ commands:
         Harness-Account: auth.account
       item_expr: it
 
+  - command: execute eval_metric:suggestions
+    verb: execute
+    noun: eval_metric
+    noun_variant: suggestions
+    no_id: true
+    short: "Suggest metrics: harness execute eval_metric:suggestions [--target-type <type>]"
+    handler_type: endpoint
+    flags:
+      - name: target-type
+        description: Target type (prompt, agent, or precomputed)
+      - name: dataset-fields
+        description: Comma-separated dataset fields
+      - name: category
+        description: Evaluation category
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metrics/suggestions
+      request_headers:
+        Harness-Account: auth.account
+      query_params:
+        target_type: 'flags["target-type"]'
+        dataset_fields: 'flags["dataset-fields"]'
+        category: flags.category
+      item_expr: it
+
   # ── eval_metric_set ───────────────────────────────────────────────────────────
 
   - command: list eval_metric_set
@@ -944,6 +1225,18 @@ commands:
       create_strategy: set-fields
       create_body_wrap: ""
       text_header: "\nCreated metric set {{it.id}}\n"
+
+  - command: update eval_metric_set
+    verb: update
+    noun: eval_metric_set
+    short: "Update an AI Evals metric set with a JSON body: harness update eval_metric_set <set-id> -f metric-set.json"
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
 
   - command: delete eval_metric_set
     verb: delete
@@ -1036,6 +1329,19 @@ commands:
         Harness-Account: auth.account
       file_body: required
       text_header: "\nReplaced metric-set entries\n"
+
+  - command: execute eval_metric_set:calibrate
+    verb: execute
+    noun: eval_metric_set
+    noun_variant: calibrate
+    short: "Calibrate metric-set thresholds: harness execute eval_metric_set:calibrate <set-id> -f calibration.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.id}}/calibrate
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
  
   # ── eval_target ───────────────────────────────────────────────────────────────
 
@@ -1086,9 +1392,22 @@ commands:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets
       request_headers:
         Harness-Account: auth.account
+      file_body: optional
       create_strategy: set-fields
       create_body_wrap: ""
       text_header: "\nCreated target {{it.id}}\n"
+
+  - command: update eval_target
+    verb: update
+    noun: eval_target
+    short: "Update an AI Evals target with a JSON body: harness update eval_target <target-id> -f target.json"
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
 
   - command: delete eval_target
     verb: delete
@@ -1116,6 +1435,61 @@ commands:
         Harness-Account: auth.account
       file_body: required
       text_header: "\nUploaded target outputs\n"
+
+  - command: execute eval_target:test
+    verb: execute
+    noun: eval_target
+    noun_variant: test
+    short: "Test an AI Evals target: harness execute eval_target:test <target-id> -f input.json"
+    long: |
+      Send one test input to a target. The JSON body must contain input,
+      either as a string for {{input}} templates or as an object for dotted
+      references such as {{input.text}}. item_identifier is optional.
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}/test
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: list eval_target:outputs
+    verb: list
+    noun: eval_target
+    noun_variant: outputs
+    short: "List uploaded target outputs: harness list eval_target:outputs <target-id>"
+    requires_parentid: true
+    parentid_label: target
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.parentId}}/outputs
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: "-"
+      query_params:
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 200
+        total_expr: it.total_elements
+
+  - command: execute eval_target:overview
+    verb: execute
+    noun: eval_target
+    noun_variant: overview
+    short: "Get an AI Evals target overview: harness execute eval_target:overview <target-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}/overview
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
  
   # ── eval_suite ────────────────────────────────────────────────────────────────
 
@@ -1154,6 +1528,30 @@ commands:
         Harness-Account: auth.account
       item_expr: it
 
+  - command: create eval_suite
+    verb: create
+    noun: eval_suite
+    short: "Create an AI Evals suite with a JSON body: harness create eval_suite -f suite.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: update eval_suite
+    verb: update
+    noun: eval_suite
+    short: "Update an AI Evals suite with a JSON body: harness update eval_suite <suite-id> -f suite.json"
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
   - command: delete eval_suite
     verb: delete
     noun: eval_suite
@@ -1180,6 +1578,126 @@ commands:
         Harness-Account: auth.account
       no_fields: true
       text_header: "\nTriggered run for suite {{ctx.id}}\n"
+
+  - command: list eval_suite_evaluation
+    verb: list
+    noun: eval_suite_evaluation
+    short: "List a suite's evaluations: harness list eval_suite_evaluation <suite-id>"
+    requires_parentid: true
+    parentid_label: suite
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/{{ctx.parentId}}/evaluations
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it
+      get_id_expr: ctx.parentId + "/" + it.evaluation_id
+      paging:
+        paging_strategy: flat_list
+      columns: [evaluation_id, is_required, position]
+
+  - command: create eval_suite_evaluation
+    verb: create
+    noun: eval_suite_evaluation
+    short: "Add an evaluation to a suite: harness create eval_suite_evaluation <suite-id> -f member.json"
+    requires_id: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/{{ctx.id}}/evaluations
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: delete eval_suite_evaluation
+    verb: delete
+    noun: eval_suite_evaluation
+    confirm_mode: prompt
+    short: "Remove a suite evaluation by suite-id/evaluation-id"
+    id_parts: 2
+    id_label: "<suite-id/evaluation-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/{{ctx.idParts[0]}}/evaluations/{{ctx.idParts[1]}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: execute eval_suite:replace_evaluations
+    verb: execute
+    noun: eval_suite
+    noun_variant: replace_evaluations
+    short: "Replace suite members: harness execute eval_suite:replace_evaluations <suite-id> -f members.json"
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/{{ctx.id}}/evaluations
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute eval_suite:import_yaml
+    verb: execute
+    noun: eval_suite
+    noun_variant: import_yaml
+    no_id: true
+    short: "Import an AI Evals suite definition: harness execute eval_suite:import_yaml -f import.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/import-yaml
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute eval_suite:export_yaml
+    verb: execute
+    noun: eval_suite
+    noun_variant: export_yaml
+    short: "Export an AI Evals suite definition: harness execute eval_suite:export_yaml <suite-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/{{ctx.id}}/export-yaml
+      request_headers:
+        Harness-Account: auth.account
+
+  - command: list eval_suite_run
+    verb: list
+    noun: eval_suite_run
+    short: "List runs for an AI Evals suite: harness list eval_suite_run <suite-id>"
+    requires_parentid: true
+    parentid_label: suite
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suites/{{ctx.parentId}}/runs
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: it.suite_run_id
+      query_params:
+        page: flags.page
+        limit: flags.limit
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 200
+        total_expr: it.total_elements
+      columns: [id, suite_id, status, pass_rate, started]
+
+  - command: get eval_suite_run
+    verb: get
+    noun: eval_suite_run
+    short: Get an AI Evals suite run by ID
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/suite-runs/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
  
   # ── observability_eval ───────────────────────────────────────────────────────
  
@@ -1268,3 +1786,403 @@ commands:
       request_headers:
         Harness-Account: auth.account
       item_expr: it
+
+  # ── eval_annotation ──────────────────────────────────────────────────────────
+
+  - command: list eval_annotation
+    verb: list
+    noun: eval_annotation
+    short: "List AI Evals annotations: harness list eval_annotation [--trace-id <id>]"
+    handler_type: endpoint
+    flags:
+      - name: trace-id
+        description: Filter by trace ID
+      - name: label
+        description: Filter by annotation label
+      - name: annotator-type
+        description: Filter by annotator type
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/observe/annotations
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: it.id
+      query_params:
+        page: flags.page
+        limit: flags.limit
+        trace_id: 'flags["trace-id"]'
+        label: flags.label
+        annotator_type: 'flags["annotator-type"]'
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 200
+        total_expr: it.total_elements
+      columns: [id, trace_id, label, score, thumbs_up, annotator_type, created]
+
+  - command: get eval_annotation
+    verb: get
+    noun: eval_annotation
+    short: Get an AI Evals annotation by ID
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/observe/annotations/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: create eval_annotation
+    verb: create
+    noun: eval_annotation
+    short: "Create an AI Evals annotation: harness create eval_annotation -f annotation.json"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/observe/annotations
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: update eval_annotation
+    verb: update
+    noun: eval_annotation
+    short: "Update an AI Evals annotation: harness update eval_annotation <annotation-id> -f annotation.json"
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/observe/annotations/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: delete eval_annotation
+    verb: delete
+    noun: eval_annotation
+    confirm_mode: prompt
+    short: Delete an AI Evals annotation by ID
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/observe/annotations/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: execute observability_eval:evaluate
+    verb: execute
+    noun: observability_eval
+    noun_variant: evaluate
+    short: "Evaluate a production trace: harness execute observability_eval:evaluate <trace-id> -f evaluation.json"
+    id_label: "<trace-id>"
+    long: |
+      Evaluate a trace within the current project. The JSON body must contain
+      metric_set_id or metrics. Use metric_set_id for an existing metric set;
+      use metrics only for inline ad-hoc definitions.
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/traces/{{ctx.id}}/evaluate
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  # ── eval_git_settings / eval_git_registration ───────────────────────────────
+
+  - command: get eval_git_settings
+    verb: get
+    noun: eval_git_settings
+    no_id: true
+    short: Get project AI Evals Git synchronization settings
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/settings/git
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: update eval_git_settings
+    verb: update
+    noun: eval_git_settings
+    no_id: true
+    short: "Update project AI Evals Git synchronization settings: harness update eval_git_settings -f settings.json"
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/settings/git
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute eval_git_registration:register
+    verb: execute
+    noun: eval_git_registration
+    noun_variant: register
+    no_id: true
+    short: "Register AI Evals definitions from Git: harness execute eval_git_registration:register -f registration.json"
+    long: |
+      Register Git-backed AI Evals definitions in the current project. The JSON
+      body requires type (eval, suite, or manifest) and git_source with
+      connector_ref, repo, and file_path.
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/git/register
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  # ── eval_prompt ──────────────────────────────────────────────────────────────
+
+  - command: list eval_prompt
+    verb: list
+    noun: eval_prompt
+    short: "List project prompt registry prompts: harness list eval_prompt [--library custom|harness|all]"
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter by name, identifier, or description
+      - name: labels
+        description: Comma-separated prompt labels
+      - name: category
+        description: Filter by category
+      - name: sort
+        description: Sort by name, created_at, or identifier
+      - name: order
+        description: Sort order (asc or desc)
+      - name: library
+        description: Prompt library (custom, harness, or all)
+        default: custom
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: it.id
+      query_params:
+        page: flags.page
+        limit: flags.limit
+        search: flags.search
+        labels: flags.labels
+        category: flags.category
+        sort: flags.sort
+        order: flags.order
+        library: flags.library
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: limit
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.total_elements
+      columns: [id, identifier, name, category, version, updated]
+
+  - command: get eval_prompt
+    verb: get
+    noun: eval_prompt
+    short: Get a project prompt registry prompt by UUID
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: create eval_prompt
+    verb: create
+    noun: eval_prompt
+    short: "Create a versioned project prompt: harness create eval_prompt -f prompt.json"
+    long: |
+      Create a project Prompt Registry prompt. The JSON body requires name,
+      identifier, and config. identifier is a lowercase slug. config requires
+      system_message and may include user_message_template, variables, and
+      default_params. The variable name input is reserved for {{input}}.
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: update eval_prompt
+    verb: update
+    noun: eval_prompt
+    short: "Update a project prompt by UUID: harness update eval_prompt <prompt-id> -f prompt.json"
+    id_label: "<prompt-id>"
+    long: |
+      Update a project prompt by the UUID returned from list eval_prompt.
+      Supplying config creates a new prompt version; prompt-level name,
+      description, category, and labels do not change prior versions.
+    handler_type: endpoint
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: delete eval_prompt
+    verb: delete
+    noun: eval_prompt
+    confirm_mode: prompt
+    short: Delete a project prompt by UUID
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: execute eval_prompt:get_by_identifier
+    verb: execute
+    noun: eval_prompt
+    noun_variant: get_by_identifier
+    no_id: true
+    short: "Resolve a prompt by identifier: harness execute eval_prompt:get_by_identifier --identifier <slug> [--version <version>]"
+    handler_type: endpoint
+    flags:
+      - name: identifier
+        description: Prompt identifier
+        required: true
+      - name: version
+        description: Version number, vN, or named tag
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/by-identifier/{{flags.identifier}}
+      request_headers:
+        Harness-Account: auth.account
+      query_params:
+        version: flags.version
+      item_expr: it
+
+  - command: list eval_prompt:list_versions
+    verb: list
+    noun: eval_prompt
+    noun_variant: list_versions
+    short: "List prompt versions: harness list eval_prompt:list_versions <prompt-id> [--page-size <n>]"
+    handler_type: endpoint
+    flags:
+      - name: page-size
+        description: Maximum versions to return (1-100)
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/versions
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: "-"
+      query_params:
+        page_size: 'flags["page-size"]'
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: page_size
+        page_size_default: 20
+        page_size_max: 100
+        total_expr: it.total_elements
+      columns: [version, created]
+
+  - command: execute eval_prompt:get_version
+    verb: execute
+    noun: eval_prompt
+    noun_variant: get_version
+    short: "Get a prompt version: harness execute eval_prompt:get_version <prompt-id> --version <version>"
+    handler_type: endpoint
+    flags:
+      - name: version
+        description: Version number, vN, or named tag
+        required: true
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/versions/{{flags.version}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
+  - command: execute eval_prompt:replace_version_labels
+    verb: execute
+    noun: eval_prompt
+    noun_variant: replace_version_labels
+    short: "Replace prompt-version labels: harness execute eval_prompt:replace_version_labels <prompt-id> --version <version> -f labels.json"
+    handler_type: endpoint
+    flags:
+      - name: version
+        description: Version number, vN, or named tag
+        required: true
+    endpoint:
+      method: PATCH
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/versions/{{flags.version}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute eval_prompt:restore_version
+    verb: execute
+    noun: eval_prompt
+    noun_variant: restore_version
+    short: "Restore a prompt version: harness execute eval_prompt:restore_version <prompt-id> --version <version>"
+    handler_type: endpoint
+    flags:
+      - name: version
+        description: Version number, vN, or named tag
+        required: true
+    endpoint:
+      method: POST
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/versions/{{flags.version}}/restore
+      request_headers:
+        Harness-Account: auth.account
+      no_fields: true
+
+  - command: list eval_prompt:list_tags
+    verb: list
+    noun: eval_prompt
+    noun_variant: list_tags
+    short: "List prompt tags: harness list eval_prompt:list_tags <prompt-id>"
+    handler_type: endpoint
+    endpoint:
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/tags
+      request_headers:
+        Harness-Account: auth.account
+      items_expr: it.data
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+
+  - command: execute eval_prompt:set_tag
+    verb: execute
+    noun: eval_prompt
+    noun_variant: set_tag
+    short: "Create or move a prompt tag: harness execute eval_prompt:set_tag <prompt-id> --tag-name <tag> -f tag.json"
+    handler_type: endpoint
+    flags:
+      - name: tag-name
+        description: Named tag to create or move
+        required: true
+    endpoint:
+      method: PUT
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/tags/{{flags.tag-name}}
+      request_headers:
+        Harness-Account: auth.account
+      file_body: required
+
+  - command: execute eval_prompt:delete_tag
+    verb: execute
+    noun: eval_prompt
+    noun_variant: delete_tag
+    confirm_mode: prompt
+    short: "Delete a prompt tag: harness execute eval_prompt:delete_tag <prompt-id> --tag-name <tag>"
+    handler_type: endpoint
+    flags:
+      - name: tag-name
+        description: Named tag to delete
+        required: true
+    endpoint:
+      method: DELETE
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/tags/{{flags.tag-name}}
+      request_headers:
+        Harness-Account: auth.account
+      item_expr: it
+
