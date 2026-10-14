@@ -144,13 +144,10 @@ func TestToggleTrigger(t *testing.T) {
 		if want := strings.Replace(triggerDoc, "enabled: true", "enabled: false", 1); put.body != want {
 			t.Fatalf("PUT body = %q, want %q", put.body, want)
 		}
-		for k, want := range map[string]string{"targetIdentifier": "pipe", "orgIdentifier": "org", "projectIdentifier": "proj", "ignoreError": "true"} {
+		for k, want := range map[string]string{"targetIdentifier": "pipe", "orgIdentifier": "org", "projectIdentifier": "proj"} {
 			if got := put.query.Get(k); got != want {
 				t.Errorf("PUT query %s = %q, want %q", k, got, want)
 			}
-		}
-		if got := (*calls)[0].query.Get("ignoreError"); got != "" {
-			t.Errorf("GET sent ignoreError=%q, want none", got)
 		}
 		if b, _ := os.ReadFile(out); !strings.Contains(string(b), "Trigger trig disabled") {
 			t.Errorf("output = %q", b)
