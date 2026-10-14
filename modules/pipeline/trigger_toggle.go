@@ -5,11 +5,94 @@ package pipeline
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"maps"
+	"net/url"
 	"strconv"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/harness/cli/v3/pkg/client"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/format"
 )
+
+const (
+	updateTriggerEnableHandlerID  = "update_trigger_enable"
+	updateTriggerDisableHandlerID = "update_trigger_disable"
+)
+
+func updateTriggerEnableHandler(ctx *cmdctx.Ctx) error  { return toggleTrigger(ctx, true) }
+func updateTriggerDisableHandler(ctx *cmdctx.Ctx) error { return toggleTrigger(ctx, false) }
+
+// toggleTrigger flips trigger.enabled by fetching the trigger YAML, editing it and
+// PUTting it back: the NG API has no dedicated enable/disable endpoint.
+func toggleTrigger(ctx *cmdctx.Ctx, enabled bool) error {
+	if len(ctx.IdParts) != 2 {
+		return fmt.Errorf("expected <pipeline>/<trigger>, got %q", ctx.Id)
+	}
+	pipelineID, triggerID := ctx.IdParts[0], ctx.IdParts[1]
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+
+	path := "/pipeline/api/triggers/" + url.PathEscape(triggerID)
+	qp := map[string]string{
+		"orgIdentifier":     ctx.Auth.OrgID,
+		"projectIdentifier": ctx.Auth.ProjectID,
+		"targetIdentifier":  pipelineID,
+	}
+	c := client.New(ctx)
+
+	resp, _, err := c.DoRequest(client.Request{Method: "GET", Path: path, QueryParams: qp})
+	if err != nil {
+		return err
+	}
+	doc, ok := triggerYAML(resp)
+	if !ok {
+		return fmt.Errorf("trigger %s/%s: response has no YAML to update", pipelineID, triggerID)
+	}
+	updated, changed, err := setTriggerEnabled(doc, enabled)
+	if err != nil {
+		return fmt.Errorf("trigger %s/%s: %w", pipelineID, triggerID, err)
+	}
+
+	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+	if err != nil {
+		return err
+	}
+	defer closeW()
+
+	if !changed {
+		fmt.Fprintf(w, "Trigger %s is already %s\n", triggerID, state)
+		return nil
+	}
+	_, _, err = c.DoRequest(client.Request{
+		Method:          "PUT",
+		Path:            path,
+		QueryParams:     qp,
+		Body:            updated,
+		BodyContentType: "application/yaml",
+	})
+	if errors.Is(err, client.ErrRequestPreviewed) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "Trigger %s %s\n", triggerID, state)
+	return nil
+}
+
+// triggerYAML extracts data.yaml from a get-trigger response.
+func triggerYAML(resp any) (string, bool) {
+	root, _ := resp.(map[string]any)
+	data, _ := root["data"].(map[string]any)
+	doc, ok := data["yaml"].(string)
+	return doc, ok && doc != ""
+}
 
 // setTriggerEnabled sets trigger.enabled in a trigger YAML document. It edits the
 // parsed node tree so key order and comments survive the round trip. changed is
