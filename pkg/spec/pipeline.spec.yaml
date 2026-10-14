@@ -976,6 +976,44 @@ commands:
       query_params:
         targetIdentifier: ctx.idParts[0]
 
+  - command: update trigger:enable
+    verb: update
+    noun: trigger
+    noun_variant: enable
+    short: "Enable a trigger (harness update trigger:enable <pipeline>/<trigger>)"
+    id_parts: 2
+    id_label: "<pipeline>/<trigger>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
+    handler_type: workflow
+    workflow_id: update_trigger_enable
+    flags:
+      - name: preview-request
+        description: Print the write request without sending it
+        is_bool: true
+        hidden: true
+
+  - command: update trigger:disable
+    verb: update
+    noun: trigger
+    noun_variant: disable
+    short: "Disable a trigger (harness update trigger:disable <pipeline>/<trigger>)"
+    id_parts: 2
+    id_label: "<pipeline>/<trigger>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
+    handler_type: workflow
+    workflow_id: update_trigger_disable
+    flags:
+      - name: preview-request
+        description: Print the write request without sending it
+        is_bool: true
+        hidden: true
+
   - command: delete trigger
     verb: delete
     noun: trigger
