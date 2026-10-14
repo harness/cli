@@ -2063,19 +2063,16 @@ commands:
     verb: list
     noun: eval_prompt
     noun_variant: list_versions
-    short: "List prompt versions: harness list eval_prompt:list_versions <prompt-id> [--page-size <n>]"
+    short: "List prompt versions: harness list eval_prompt:list_versions <prompt-id> [--limit <n>]"
+    requires_parentid: true
+    parentid_label: prompt
     handler_type: endpoint
-    flags:
-      - name: page-size
-        description: Maximum versions to return (1-100)
     endpoint:
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/versions
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.parentId}}/versions
       request_headers:
         Harness-Account: auth.account
       items_expr: it.data
       get_id_expr: "-"
-      query_params:
-        page_size: 'flags["page-size"]'
       paging:
         paging_strategy: page_index
         countable: true
@@ -2141,9 +2138,11 @@ commands:
     noun: eval_prompt
     noun_variant: list_tags
     short: "List prompt tags: harness list eval_prompt:list_tags <prompt-id>"
+    requires_parentid: true
+    parentid_label: prompt
     handler_type: endpoint
     endpoint:
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/tags
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.parentId}}/tags
       request_headers:
         Harness-Account: auth.account
       items_expr: it.data
@@ -2163,7 +2162,7 @@ commands:
         required: true
     endpoint:
       method: PUT
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/tags/{{flags.tag-name}}
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/tags/{{flags["tag-name"]}}
       request_headers:
         Harness-Account: auth.account
       file_body: required
@@ -2181,7 +2180,7 @@ commands:
         required: true
     endpoint:
       method: DELETE
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/tags/{{flags.tag-name}}
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}/tags/{{flags["tag-name"]}}
       request_headers:
         Harness-Account: auth.account
       item_expr: it
