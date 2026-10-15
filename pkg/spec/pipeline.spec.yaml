@@ -479,6 +479,39 @@ commands:
         name_expr: it.name
       columns: [identifier, recent, last_run_by, last_run, last_status]
 
+  - command: list pipeline:test
+    verb: list
+    noun: pipeline
+    noun_variant: test
+    fields_noun: pipeline_summary
+    short: List pipelines via the NG list API (diagnostic)
+    hidden: true
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter pipelines by name
+      - name: module
+        description: Filter by module (CI, CD, CV, CF, CE, STO)
+    endpoint:
+      method: POST
+      path: /pipeline/api/pipelines/list
+      body_params:
+        filterType: '"PipelineSetup"'
+      items_expr: it.data.content
+      get_id_expr: it.identifier
+      query_params:
+        searchTerm: flags.search
+        module: flags.module
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: size
+        page_size_default: 30
+        page_size_max: 100
+        total_expr: it.data.totalElements
+      columns: [identifier, name, store, stages, last_run, last_status]
+
   - command: create pipeline
     verb: create
     noun: pipeline
