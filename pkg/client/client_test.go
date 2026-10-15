@@ -109,6 +109,7 @@ func TestDoRequest_APIErrorDump(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("X-Test", "hdr")
+				w.Header().Add("Set-Cookie", "session=secret")
 				w.WriteHeader(tt.status)
 				w.Write([]byte(tt.body))
 			}))
@@ -142,6 +143,9 @@ func TestDoRequest_APIErrorDump(t *testing.T) {
 			}
 			if got.Request.Method != "GET" || !strings.Contains(got.Request.URL, "/p") {
 				t.Errorf("request = %+v", got.Request)
+			}
+			if strings.Contains(dump, "secret") || got.Response.Headers["Set-Cookie"][0] != "[redacted]" {
+				t.Errorf("Set-Cookie not redacted: %v", got.Response.Headers["Set-Cookie"])
 			}
 			if got.Response.Status != tt.status || got.Response.Headers["X-Test"][0] != "hdr" {
 				t.Errorf("response = %+v", got.Response)

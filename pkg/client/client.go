@@ -98,13 +98,23 @@ func (e *APIError) Dump() string {
 		"request": map[string]any{"method": e.Method, "url": e.URL},
 		"response": map[string]any{
 			"status":  e.Status,
-			"headers": e.Header,
+			"headers": redactHeaders(e.Header),
 			"body":    body,
 		},
 	}); err != nil {
 		return ""
 	}
 	return strings.TrimRight(out.String(), "\n")
+}
+
+func redactHeaders(h http.Header) http.Header {
+	out := h.Clone()
+	for _, k := range []string{"Set-Cookie", "Authorization"} {
+		if out.Get(k) != "" {
+			out.Set(k, "[redacted]")
+		}
+	}
+	return out
 }
 
 // Request describes a single HTTP request to the Harness API.
