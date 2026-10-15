@@ -1025,19 +1025,15 @@ commands:
     verb: execute
     noun: eval_run
     noun_variant: compare
-    no_id: true
-    short: "Compare AI Evals runs: harness execute eval_run:compare --run-ids <uuid,uuid>"
+    id_label: "<run-id[,run-id...]>"
+    short: "Compare AI Evals runs: harness execute eval_run:compare <uuid,uuid>"
     handler_type: endpoint
-    flags:
-      - name: run-ids
-        description: Two to ten comma-separated run UUIDs
-        required: true
     endpoint:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/runs/compare
       request_headers:
         Harness-Account: auth.account
       query_params:
-        run_ids: 'flags["run-ids"]'
+        run_ids: ctx.id
       item_expr: it
 
   - command: execute eval_run:rescore
@@ -1482,11 +1478,12 @@ commands:
         page_size_max: 200
         total_expr: it.total_elements
 
-  - command: execute eval_target:overview
-    verb: execute
+  - command: get eval_target:overview
+    verb: get
     noun: eval_target
     noun_variant: overview
-    short: "Get an AI Evals target overview: harness execute eval_target:overview <target-id>"
+    id_label: "<target-id>"
+    short: "Get an AI Evals target overview: harness get eval_target:overview <target-id>"
     handler_type: endpoint
     endpoint:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}/overview
@@ -2041,21 +2038,18 @@ commands:
         Harness-Account: auth.account
       item_expr: it
 
-  - command: execute eval_prompt:get_by_identifier
-    verb: execute
+  - command: get eval_prompt:by_identifier
+    verb: get
     noun: eval_prompt
-    noun_variant: get_by_identifier
-    no_id: true
-    short: "Resolve a prompt by identifier: harness execute eval_prompt:get_by_identifier --identifier <slug> [--version <version>]"
+    noun_variant: by_identifier
+    id_label: "<identifier>"
+    short: "Get a prompt by identifier: harness get eval_prompt:by_identifier <slug> [--version <version>]"
     handler_type: endpoint
     flags:
-      - name: identifier
-        description: Prompt identifier
-        required: true
       - name: version
         description: Version number, vN, or named tag
     endpoint:
-      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/by-identifier/{{flags.identifier}}
+      path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/by-identifier/{{ctx.id}}
       request_headers:
         Harness-Account: auth.account
       query_params:
