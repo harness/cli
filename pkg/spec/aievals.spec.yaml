@@ -490,6 +490,9 @@ nouns:
       - id: id
         label: ID
         expr: it.id
+      - id: tag_name
+        label: Tag
+        expr: it.tag_name
       - id: identifier
         expr: it.identifier
       - id: name
@@ -2063,24 +2066,23 @@ commands:
     verb: list
     noun: eval_prompt
     noun_variant: list_versions
-    short: "List prompt versions: harness list eval_prompt:list_versions <prompt-id> [--limit <n>]"
+    short: "List prompt versions: harness list eval_prompt:list_versions <prompt-id> [--page-size <n>]"
     requires_parentid: true
     parentid_label: prompt
     handler_type: endpoint
+    flags:
+      - name: page-size
+        description: Maximum versions to return (1-100)
     endpoint:
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.parentId}}/versions
       request_headers:
         Harness-Account: auth.account
       items_expr: it.data
       get_id_expr: "-"
+      query_params:
+        page_size: 'flags["page-size"]'
       paging:
-        paging_strategy: page_index
-        countable: true
-        page_index_param: page
-        page_size_param: page_size
-        page_size_default: 20
-        page_size_max: 100
-        total_expr: it.total_elements
+        paging_strategy: flat_list
       columns: [version, created]
 
   - command: execute eval_prompt:get_version
@@ -2149,6 +2151,7 @@ commands:
       get_id_expr: "-"
       paging:
         paging_strategy: flat_list
+      columns: [tag_name, version]
 
   - command: execute eval_prompt:set_tag
     verb: execute
