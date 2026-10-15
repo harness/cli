@@ -5,9 +5,12 @@ package client
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/auth"
@@ -87,4 +90,70 @@ func TestDoRequest_AccountIdentifierOmittedOnWire(t *testing.T) {
 	if got := gotQuery.Get("accountIdentifier"); got != "" {
 		t.Fatalf("accountIdentifier = %q, want empty", got)
 	}
+}
+
+func TestDoRequest_APIErrorDump(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   int
+		body     string
+		wantBody any
+		wantDump bool
+	}{
+		{"json body embedded as json", 500, `{"message":"boom","code":"X"}`, map[string]any{"message": "boom", "code": "X"}, true},
+		{"html body kept as string", 502, `<html>bad gateway</html>`, `<html>bad gateway</html>`, true},
+		{"empty body", 400, ``, ``, true},
+		{"3xx has no dump", 304, `{"message":"x"}`, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("X-Test", "hdr")
+				w.WriteHeader(tt.status)
+				w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			_, _, err := testClient(srv.URL).Get("/p", nil)
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("want *APIError, got %T: %v", err, err)
+			}
+			if !strings.HasPrefix(err.Error(), "API error ") {
+				t.Errorf("Error() = %q, must keep the %q prefix callers match on", err.Error(), "API error ")
+			}
+			dump := apiErr.Dump()
+			if (dump != "") != tt.wantDump {
+				t.Fatalf("Dump() empty=%v, want dump=%v", dump == "", tt.wantDump)
+			}
+			if !tt.wantDump {
+				return
+			}
+			var got struct {
+				Request  struct{ Method, URL string }
+				Response struct {
+					Status  int
+					Headers map[string][]string
+					Body    any
+				}
+			}
+			if err := json.Unmarshal([]byte(dump), &got); err != nil {
+				t.Fatalf("dump is not valid JSON: %v\n%s", err, dump)
+			}
+			if got.Request.Method != "GET" || !strings.Contains(got.Request.URL, "/p") {
+				t.Errorf("request = %+v", got.Request)
+			}
+			if got.Response.Status != tt.status || got.Response.Headers["X-Test"][0] != "hdr" {
+				t.Errorf("response = %+v", got.Response)
+			}
+			if gb, _ := json.Marshal(got.Response.Body); string(gb) != mustJSON(tt.wantBody) {
+				t.Errorf("body = %s, want %s", gb, mustJSON(tt.wantBody))
+			}
+		})
+	}
+}
+
+func mustJSON(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }

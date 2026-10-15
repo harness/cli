@@ -65,6 +65,48 @@ func APIErrorMessage(status int, body []byte) string {
 	return string(body)
 }
 
+// APIError is a non-2xx response from the Harness API. Error() keeps the short
+// "API error <status>: <message>" form that callers match on; Dump() carries the
+// full request/response for 4xx and 5xx.
+type APIError struct {
+	Status int
+	Msg    string
+	Method string
+	URL    string
+	Header http.Header
+	Body   []byte
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
+}
+
+// Dump returns the request and raw response as indented JSON, or "" for a status below 400.
+func (e *APIError) Dump() string {
+	if e.Status < 400 {
+		return ""
+	}
+	var body any = string(e.Body)
+	if json.Valid(e.Body) {
+		body = json.RawMessage(e.Body)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(map[string]any{
+		"request": map[string]any{"method": e.Method, "url": e.URL},
+		"response": map[string]any{
+			"status":  e.Status,
+			"headers": e.Header,
+			"body":    body,
+		},
+	}); err != nil {
+		return ""
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
 // Request describes a single HTTP request to the Harness API.
 type Request struct {
 	Method      string
@@ -197,7 +239,14 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 		return nil, nil, fmt.Errorf("reading API response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.Header, fmt.Errorf("API error %d: %s", resp.StatusCode, APIErrorMessage(resp.StatusCode, respBody))
+		return nil, resp.Header, &APIError{
+			Status: resp.StatusCode,
+			Msg:    APIErrorMessage(resp.StatusCode, respBody),
+			Method: r.Method,
+			URL:    u.String(),
+			Header: resp.Header,
+			Body:   respBody,
+		}
 	}
 	if len(respBody) == 0 {
 		return nil, resp.Header, nil
