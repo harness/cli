@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -21,6 +22,41 @@ import (
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/hlog"
 )
+
+// DoWithProxyCheck fails on an unparseable proxy env var, which http.ProxyFromEnvironment would silently ignore.
+func DoWithProxyCheck(hc *http.Client, req *http.Request) (*http.Response, error) {
+	if err := checkProxyEnv(req.URL); err != nil {
+		return nil, err
+	}
+	return hc.Do(req)
+}
+
+func checkProxyEnv(u *url.URL) error {
+	host := u.Hostname()
+	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return nil
+	}
+	names := []string{"HTTP_PROXY", "http_proxy"}
+	if u.Scheme == "https" {
+		names = []string{"HTTPS_PROXY", "https_proxy"}
+	}
+	for _, name := range names {
+		value := os.Getenv(name)
+		if value == "" {
+			continue
+		}
+		p, err := url.Parse(value)
+		if err != nil || p.Scheme == "" || p.Host == "" {
+			p, err = url.Parse("http://" + value)
+		}
+		if err != nil {
+			return fmt.Errorf("%s is not a valid proxy URL: it contains invalid characters, such as an unescaped '%%'. Go would silently ignore it and connect directly. URL-encode special characters in the proxy username/password (e.g. '%%' as '%%25', '@' as '%%40') and retry", name)
+		}
+		hlog.Debug("using proxy from environment", "var", name, "host", p.Host)
+		return nil
+	}
+	return nil
+}
 
 func networkError(err error, apiURL string) error {
 	if _, ok := errors.AsType[*net.DNSError](err); ok {
@@ -234,7 +270,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	}
 
 	start := time.Now()
-	resp, err := c.http.Do(req)
+	resp, err := DoWithProxyCheck(c.http, req)
 	elapsed := time.Since(start).Milliseconds()
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
@@ -278,7 +314,7 @@ func (c *Client) DoRaw(r Request) (*http.Response, error) {
 	if err := c.previewRequest(req); err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := DoWithProxyCheck(c.http, req)
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
 		hlog.Info(r.Method+" "+u.Path, "error", nerr)
@@ -299,7 +335,7 @@ func (c *Client) DoStream(r Request, timeout time.Duration) (*http.Response, err
 		return nil, err
 	}
 	hc := &http.Client{Timeout: timeout}
-	resp, err := hc.Do(req)
+	resp, err := DoWithProxyCheck(hc, req)
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
 		hlog.Info(r.Method+" "+u.Path, "error", nerr)

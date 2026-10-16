@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	hclient "github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/config"
 	"github.com/harness/cli/v3/pkg/console"
@@ -304,7 +305,7 @@ func fetchRegistryURL(apiURL, token, accountID string) (string, error) {
 	}
 	req.Header.Set("x-api-key", token)
 
-	resp, err := c.Do(req)
+	resp, err := hclient.DoWithProxyCheck(c, req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
@@ -351,7 +352,7 @@ func validateToken(apiURL, token, accountID string) error {
 	}
 	req.Header.Set("x-api-key", token)
 
-	resp, err := c.Do(req)
+	resp, err := hclient.DoWithProxyCheck(c, req)
 	if err != nil {
 		return fmt.Errorf("cannot reach %s — check your API URL: %w", apiURL, err)
 	}
