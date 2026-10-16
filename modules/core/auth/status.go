@@ -690,8 +690,11 @@ func probeAPIURL(u *url.URL) string {
 		if opErr, ok := errors.AsType[*net.OpError](err); ok && opErr.Op == "proxyconnect" {
 			return fmt.Sprintf("cannot reach proxy — %s (check HTTPS_PROXY/HTTP_PROXY)", opErr.Err)
 		}
-		if strings.Contains(err.Error(), "Proxy Authentication Required") {
-			return "proxy authentication required (407) — check credentials in HTTPS_PROXY/HTTP_PROXY"
+		// For https targets a rejected CONNECT (403, 407, 502, ...) comes back as a plain
+		// error, and the target is resolved by the proxy, not us. So with a proxy in use
+		// any other error is ambiguous: say so rather than blaming the Harness host.
+		if proxyURL, perr := apiProbeProxy(req); perr == nil && proxyURL != nil {
+			return fmt.Sprintf("cannot reach %q via proxy %s — %s (check HTTPS_PROXY/HTTP_PROXY)", u.Hostname(), proxyURL.Host, err)
 		}
 		if _, ok := errors.AsType[*net.DNSError](err); ok {
 			return fmt.Sprintf("cannot resolve host %q — check your API URL", u.Hostname())

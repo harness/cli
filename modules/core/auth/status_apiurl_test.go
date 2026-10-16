@@ -33,6 +33,17 @@ func TestCheckAPIUrl_ProxyFailuresNotBlamedOnHost(t *testing.T) {
 		t.Fatalf("expected proxy 407 message, got %+v", r)
 	}
 
+	// https target: a rejected CONNECT is a plain error, not a response.
+	connectProxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer connectProxy.Close()
+	setProbeProxy(t, connectProxy.URL)
+	r = checkAPIUrl("https://harness.example.com", true)
+	if r.OK || !strings.Contains(r.Error, "via proxy") {
+		t.Fatalf("expected via-proxy message for rejected CONNECT, got %+v", r)
+	}
+
 	// Dead proxy: closed listener.
 	dead := httptest.NewServer(http.NotFoundHandler())
 	deadURL := dead.URL
