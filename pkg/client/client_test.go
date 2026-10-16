@@ -177,6 +177,8 @@ func TestCheckProxyEnv(t *testing.T) {
 		{"unset", nil, "https://api.example", ""},
 		{"lowercase fallback", map[string]string{"https_proxy": "http://u:" + secret + "@proxy.example:8080"}, "https://api.example", "https_proxy"},
 		{"http ignores https var", map[string]string{"HTTPS_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "http://api.example", ""},
+		{"localhost exempt", map[string]string{"HTTPS_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "https://localhost:8080", ""},
+		{"loopback IP exempt", map[string]string{"HTTPS_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "https://127.0.0.1", ""},
 		{"http uses http var", map[string]string{"HTTP_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "http://api.example", "HTTP_PROXY"},
 	}
 	for _, tt := range tests {
@@ -198,7 +200,7 @@ func TestCheckProxyEnv(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("got %v, want error containing %q", err, tt.wantErr)
 			}
-			if strings.Contains(err.Error(), "secret") {
+			if strings.Contains(err.Error(), secret) {
 				t.Fatalf("error leaks password: %v", err)
 			}
 		})

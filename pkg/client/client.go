@@ -32,6 +32,10 @@ func DoWithProxyCheck(hc *http.Client, req *http.Request) (*http.Response, error
 }
 
 func checkProxyEnv(u *url.URL) error {
+	host := u.Hostname()
+	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return nil
+	}
 	names := []string{"HTTP_PROXY", "http_proxy"}
 	if u.Scheme == "https" {
 		names = []string{"HTTPS_PROXY", "https_proxy"}
@@ -46,7 +50,7 @@ func checkProxyEnv(u *url.URL) error {
 			p, err = url.Parse("http://" + value)
 		}
 		if err != nil {
-			return fmt.Errorf("%s is not a valid proxy URL (%s); URL-encode special characters in proxy credentials, e.g. '%%' as '%%25'", name, errors.Unwrap(err))
+			return fmt.Errorf("%s is not a valid proxy URL: it contains invalid characters, such as an unescaped '%%'. Go would silently ignore it and connect directly. URL-encode special characters in the proxy username/password (e.g. '%%' as '%%25', '@' as '%%40') and retry", name)
 		}
 		hlog.Debug("using proxy from environment", "var", name, "host", p.Host)
 		return nil
