@@ -1067,6 +1067,10 @@ commands:
     flags_builtin:
     handler_type: workflow
     workflow_id: execute_artifact_firewall_scan
+    flags:
+      - name: async
+        description: "Use the legacy asynchronous initiate-and-poll API instead of synchronous evaluation"
+        is_bool: true
 
   - command: execute registry:firewall_scan
     verb: execute
@@ -1082,6 +1086,12 @@ commands:
       - name: lockfile
         description: "Path to lock file (package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle, packages.lock.json)"
         required: true
+      - name: async
+        description: "Use the legacy asynchronous initiate-and-poll API instead of synchronous evaluation"
+        is_bool: true
+      - name: batch-size
+        description: "Artifacts evaluated per batch (default: 20, maximum: 50)"
+        default: "20"
 
   - command: execute artifact:npm_install
     verb: execute
@@ -1137,6 +1147,86 @@ commands:
     args_label: "[-- <dotnet-args...>]"
     handler_type: workflow
     workflow_id: execute_artifact_dotnet_restore
+
+  - command: execute artifact:npm
+    verb: execute
+    noun: artifact
+    noun_variant: npm
+    short: Run an npm command, with firewall checks for install and ci
+    long: |
+      Runs npm. `install` and `ci` go through the firewall wrapper. Every other
+      command is passed to the npm binary on PATH.
+
+      Put native flags after `--`. Flags before it are read by harness.
+
+        harness execute artifact:npm install
+        harness execute artifact:npm -- ci --ignore-scripts
+        harness execute artifact:npm -- test --coverage
+    no_id: true
+    has_args: true
+    args_label: "<command> [-- <args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_npm
+
+  - command: execute artifact:pip
+    verb: execute
+    noun: artifact
+    noun_variant: pip
+    short: Run a pip command, with firewall checks for install
+    long: |
+      Runs pip. `install` goes through the firewall wrapper. Every other
+      command is passed to the pip binary on PATH.
+
+      Put native flags after `--`. Flags before it are read by harness.
+
+        harness execute artifact:pip install
+        harness execute artifact:pip -- install -r requirements.txt
+        harness execute artifact:pip -- freeze
+    no_id: true
+    has_args: true
+    args_label: "<command> [-- <args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_pip
+
+  - command: execute artifact:mvn
+    verb: execute
+    noun: artifact
+    noun_variant: mvn
+    short: Run an mvn command, with firewall checks for install
+    long: |
+      Runs mvn. `install` goes through the firewall wrapper. Every other
+      command is passed to the mvn binary on PATH.
+
+      Put native flags after `--`. Flags before it are read by harness.
+
+        harness execute artifact:mvn install
+        harness execute artifact:mvn -- test -DskipITs
+        harness execute artifact:mvn -- package
+    no_id: true
+    has_args: true
+    args_label: "<command> [-- <args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_mvn
+
+  - command: execute artifact:dotnet
+    verb: execute
+    noun: artifact
+    noun_variant: dotnet
+    short: Run a dotnet command, with firewall checks for restore
+    long: |
+      Runs dotnet. `restore` goes through the firewall wrapper. Every other
+      command is passed to the dotnet binary on PATH.
+
+      Put native flags after `--`. Flags before it are read by harness.
+
+        harness execute artifact:dotnet restore
+        harness execute artifact:dotnet -- build --no-restore
+        harness execute artifact:dotnet -- test
+    no_id: true
+    has_args: true
+    args_label: "<command> [-- <args...>]"
+    handler_type: workflow
+    workflow_id: execute_artifact_dotnet
 
   - command: execute registry:migrate
     verb: execute
@@ -1287,7 +1377,7 @@ commands:
     workflow_id: configure_registry_pip
     flags:
       - name: global
-        description: "Write config to the global/user-level pip.conf instead of the local project directory"
+        description: "Write config to the user-level pip.conf (default true); --global=false writes ./pip.conf, which pip reads only via PIP_CONFIG_FILE"
         is_bool: true
 
   - command: configure registry:nuget

@@ -21,7 +21,8 @@ var nuget403Pattern = regexp.MustCompile(`(?i)(403\s*\(Forbidden\)|Response stat
 
 type nugetClient struct{}
 
-func (c *nugetClient) Name() string { return "dotnet" }
+func (c *nugetClient) Name() string        { return "dotnet" }
+func (c *nugetClient) PackageType() string { return "NUGET" }
 
 func (c *nugetClient) DetectRegistry(explicitRegistry string) (*pkgmgrRegistryInfo, error) {
 	if saved := loadPkgmgrConfig("nuget"); saved != nil {

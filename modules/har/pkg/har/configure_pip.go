@@ -15,23 +15,12 @@ import (
 func configurePip(ctx *cmdctx.Ctx) error {
 	a := ctx.Auth
 	registryID := ctx.Id
-	global := cmdctx.GetBool(ctx.FlagValues, "global")
 
 	registryURL := fmt.Sprintf("%s/pkg/%s/%s/pypi/simple/", a.RegistryURL, a.AccountID, registryID)
 
-	var pipConfPath string
-	if global {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("getting home directory: %w", err)
-		}
-		pipConfDir := filepath.Join(home, ".config", "pip")
-		if err := os.MkdirAll(pipConfDir, 0755); err != nil {
-			return fmt.Errorf("creating pip config directory: %w", err)
-		}
-		pipConfPath = filepath.Join(pipConfDir, "pip.conf")
-	} else {
-		pipConfPath = "pip.conf"
+	pipConfPath, err := pipConfigPath(ctx)
+	if err != nil {
+		return err
 	}
 
 	if err := writePipConf(pipConfPath, registryURL, a.PATToken); err != nil {
@@ -47,6 +36,23 @@ func configurePip(ctx *cmdctx.Ctx) error {
 
 	fmt.Printf("Configured pip → %s (%s)\n", registryURL, pipConfPath)
 	return nil
+}
+
+// pip does not read ./pip.conf, so the local file only takes effect when the
+// user points PIP_CONFIG_FILE at it; global is therefore the default.
+func pipConfigPath(ctx *cmdctx.Ctx) (string, error) {
+	if ctx.ProvidedFlags["global"] && !cmdctx.GetBool(ctx.FlagValues, "global") {
+		return "pip.conf", nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("getting home directory: %w", err)
+	}
+	pipConfDir := filepath.Join(home, ".config", "pip")
+	if err := os.MkdirAll(pipConfDir, 0755); err != nil {
+		return "", fmt.Errorf("creating pip config directory: %w", err)
+	}
+	return filepath.Join(pipConfDir, "pip.conf"), nil
 }
 
 func writePipConf(pipConfPath, registryURL, authToken string) error {

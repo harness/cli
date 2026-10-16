@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/harness/cli/modules/har/pkg/har/genapi/ar_v3"
+
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
@@ -23,7 +25,7 @@ import (
 //  1. Detect HAR registry from config files written by `configure registry`
 //  2. Resolve registry UUID via HAR API
 //  3. Run the native command; stream output live
-//  4. On 403: resolve deps → bulk firewall evaluation → display results
+//  4. On 403: resolve deps → bulk firewall evaluation → display results → upload build info
 func pkgmgrExecute(cmdCtx *cmdctx.Ctx, client pkgmgrClient, subcommand string, nativeArgs []string) error {
 	a := cmdCtx.Auth
 	explicitRegistry := cmdCtx.Id
@@ -101,88 +103,157 @@ func pkgmgrExecute(cmdCtx *cmdctx.Ctx, client pkgmgrClient, subcommand string, n
 	}
 
 	fmt.Fprintf(os.Stderr, "Fetching firewall evaluation...\n")
-	if _, evalErr := pkgmgrBulkEvalAndDisplay(ctx, fwClient, &scopedAuth, registryUUIDParsed, artifacts); evalErr != nil {
+	counts, evalErr := pkgmgrBulkEvalAndDisplay(ctx, fwClient, &scopedAuth, registryUUIDParsed, artifacts)
+	if evalErr != nil {
 		fmt.Fprintf(os.Stderr, "Firewall evaluation failed: %v\n", evalErr)
 	}
+	if counts.total() > 0 {
+		uploader, accountID := pkgmgrBuildInfoClient(hc, &scopedAuth, fwClient)
+		pkgmgrUploadBuildInfo(ctx, uploader, accountID, client.PackageType(), registryUUIDParsed, deps)
+	}
 
-	return fmt.Errorf("%s %s failed", client.Name(), subcommand)
+	return pkgmgrFailure(client.Name(), subcommand, counts)
 }
 
-const (
-	pkgmgrMaxRetries     = 3
-	pkgmgrRetryInterval  = 30 * time.Second
+func pkgmgrFailure(clientName, subcommand string, counts scanStatusCounts) error {
+	if counts.Blocked > 0 {
+		return fmt.Errorf("%s %s failed: %d package(s) blocked by firewall", clientName, subcommand, counts.Blocked)
+	}
+	return fmt.Errorf("%s %s failed", clientName, subcommand)
+}
+
+// Variables so tests can exercise retries without sleeping.
+var (
+	pkgmgrMaxRetries    = 3
+	pkgmgrRetryInterval = 30 * time.Second
 )
 
-// pkgmgrBulkEvalAndDisplay batches artifacts into ≤50-item chunks, polls each
-// evaluation to completion, and prints BLOCKED/WARN/ALLOWED results with scan details.
-func pkgmgrBulkEvalAndDisplay(ctx context.Context, client *ar_v3.ClientWithResponses, a *auth.ResolvedAuth, registryUUID uuid.UUID, artifacts []ar_v3.ArtifactScanInput) (int, error) {
-	const batchSize = 50
+const pkgmgrBatchSize = 50
+
+type scanStatusCounts struct {
+	Allowed int
+	Warn    int
+	Blocked int
+	Unknown int
+}
+
+func (c scanStatusCounts) total() int {
+	return c.Allowed + c.Warn + c.Blocked + c.Unknown
+}
+
+// pkgmgrBulkEvalAndDisplay evaluates artifacts in batches, prints each BLOCKED
+// package with its policy details, and ends with a status summary. When a later
+// batch fails, the batches already evaluated are still displayed and counted.
+func pkgmgrBulkEvalAndDisplay(ctx context.Context, client *ar_v3.ClientWithResponses, a *auth.ResolvedAuth, registryUUID uuid.UUID, artifacts []ar_v3.ArtifactScanInput) (scanStatusCounts, error) {
+	scans, err := pkgmgrEvaluateBatches(artifacts, pkgmgrBatchSize, func(batch []ar_v3.ArtifactScanInput, batchNum int) ([]ar_v3.BulkScanResultItem, error) {
+		return pkgmgrRunBatch(ctx, client, a, registryUUID, batch, batchNum)
+	})
+	if err != nil && len(scans) == 0 {
+		return scanStatusCounts{}, err
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v; showing %d package(s) evaluated so far\n", err, len(scans))
+	}
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("FIREWALL EVALUATION: %d package(s) evaluated\n", len(scans))
+	fmt.Println(strings.Repeat("=", 60))
+	for _, s := range scans {
+		if s.ScanStatus == nil || *s.ScanStatus != ar_v3.BulkScanResultItemScanStatusBLOCKED {
+			continue
+		}
+		fmt.Printf("\nBLOCKED  %s@%s\n", derefStr(s.PackageName), derefStr(s.Version))
+		if s.ScanId == nil {
+			continue
+		}
+		detailResp, detailErr := client.GetArtifactScanDetailsWithResponse(ctx, s.ScanId.String(), &ar_v3.GetArtifactScanDetailsParams{
+			AccountIdentifier: a.AccountID,
+		})
+		if detailErr == nil && detailResp.JSON200 != nil && detailResp.JSON200.Data != nil {
+			printScanDetails(detailResp.JSON200.Data)
+		}
+	}
+
+	counts := countScanStatuses(scans)
+	writeFirewallSummary(os.Stdout, counts, len(artifacts), err != nil)
+	return counts, err
+}
+
+// pkgmgrEvaluateBatches stops at the first failing batch and returns the scans
+// gathered from the batches before it alongside the error.
+func pkgmgrEvaluateBatches(
+	artifacts []ar_v3.ArtifactScanInput,
+	batchSize int,
+	run func(batch []ar_v3.ArtifactScanInput, batchNum int) ([]ar_v3.BulkScanResultItem, error),
+) ([]ar_v3.BulkScanResultItem, error) {
 	totalBatches := (len(artifacts) + batchSize - 1) / batchSize
 	var allScans []ar_v3.BulkScanResultItem
-
 	for i := 0; i < totalBatches; i++ {
 		start := i * batchSize
-		end := start + batchSize
-		if end > len(artifacts) {
-			end = len(artifacts)
-		}
+		end := min(start+batchSize, len(artifacts))
 		batch := artifacts[start:end]
-
 		if totalBatches > 1 {
 			fmt.Fprintf(os.Stderr, "Evaluating batch %d/%d (%d packages)...\n", i+1, totalBatches, len(batch))
 		}
-
-		scans, err := pkgmgrRunBatch(ctx, client, a, registryUUID, batch, i+1)
+		scans, err := run(batch, i+1)
 		if err != nil {
-			return 0, err
+			return allScans, err
 		}
 		allScans = append(allScans, scans...)
 	}
+	return allScans, nil
+}
 
-	results := make([]auditScanResult, 0, len(allScans))
-	for _, s := range allScans {
-		r := auditScanResult{}
-		if s.PackageName != nil {
-			r.PackageName = *s.PackageName
-		}
-		if s.Version != nil {
-			r.Version = *s.Version
-		}
-		if s.ScanId != nil {
-			r.ScanID = s.ScanId.String()
-		}
-		if s.ScanStatus != nil {
-			r.ScanStatus = string(*s.ScanStatus)
-		}
-		results = append(results, r)
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
 	}
+	return *s
+}
 
-	fmt.Printf("\nFirewall evaluation: %d package(s) evaluated\n", len(results))
-	for _, r := range results {
-		switch r.ScanStatus {
-		case "BLOCKED":
-			fmt.Printf("  BLOCKED  %s@%s\n", r.PackageName, r.Version)
-		case "WARN":
-			fmt.Printf("  WARN     %s@%s\n", r.PackageName, r.Version)
-		case "ALLOWED":
-			fmt.Printf("  ALLOWED  %s@%s\n", r.PackageName, r.Version)
+func countScanStatuses(scans []ar_v3.BulkScanResultItem) scanStatusCounts {
+	var counts scanStatusCounts
+	for _, s := range scans {
+		if s.ScanStatus == nil {
+			counts.Unknown++
 			continue
+		}
+		switch *s.ScanStatus {
+		case ar_v3.BulkScanResultItemScanStatusBLOCKED:
+			counts.Blocked++
+		case ar_v3.BulkScanResultItemScanStatusWARN:
+			counts.Warn++
+		case ar_v3.BulkScanResultItemScanStatusALLOWED:
+			counts.Allowed++
 		default:
-			fmt.Printf("  %-7s  %s@%s\n", r.ScanStatus, r.PackageName, r.Version)
-			continue
-		}
-		// Fetch and print policy-set violation details for BLOCKED/WARN.
-		if r.ScanID != "" {
-			detailResp, err := client.GetArtifactScanDetailsWithResponse(ctx, r.ScanID, &ar_v3.GetArtifactScanDetailsParams{
-				AccountIdentifier: a.AccountID,
-			})
-			if err == nil && detailResp.JSON200 != nil && detailResp.JSON200.Data != nil {
-				printScanDetails(detailResp.JSON200.Data)
-			}
+			counts.Unknown++
 		}
 	}
+	return counts
+}
 
-	return len(results), nil
+// writeFirewallSummary: resolved is the number of dependencies submitted, which
+// exceeds the evaluated total when a batch failed.
+func writeFirewallSummary(w io.Writer, counts scanStatusCounts, resolved int, partial bool) {
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, strings.Repeat("=", 60))
+	fmt.Fprintln(w, "FIREWALL EVALUATION SUMMARY")
+	if evaluated := counts.total(); resolved > 0 && evaluated != resolved {
+		fmt.Fprintf(w, "  Evaluated: %d of %d resolved dependencies\n", evaluated, resolved)
+	} else {
+		fmt.Fprintf(w, "  Evaluated: %d\n", evaluated)
+	}
+	if partial {
+		fmt.Fprintln(w, "  (incomplete — some batches failed)")
+	}
+	fmt.Fprintf(w, "  Allowed: %d\n", counts.Allowed)
+	fmt.Fprintf(w, "  Warn: %d\n", counts.Warn)
+	fmt.Fprintf(w, "  Blocked: %d\n", counts.Blocked)
+	if counts.Unknown > 0 {
+		fmt.Fprintf(w, "  Unknown: %d\n", counts.Unknown)
+	}
+	fmt.Fprintln(w, strings.Repeat("=", 60))
 }
 
 // pkgmgrRunBatch initiates a single bulk eval batch and polls to completion with retry/backoff.
