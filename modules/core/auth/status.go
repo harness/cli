@@ -669,7 +669,6 @@ func probeAPIURL(u *url.URL) string {
 	default:
 		return fmt.Sprintf("unsupported URL scheme %q — expected http:// or https://", target.Scheme)
 	}
-	target.User, target.RawQuery, target.Fragment = nil, "", ""
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
