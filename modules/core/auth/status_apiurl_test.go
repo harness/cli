@@ -78,3 +78,10 @@ func TestCheckAPIUrl_ProxyFailuresNotBlamedOnHost(t *testing.T) {
 		t.Fatalf("expected proxy unreachable message, got %+v", r)
 	}
 }
+
+func TestCheckAPIUrl_UnsupportedScheme(t *testing.T) {
+	r := checkAPIUrl("ftp://harness.example.com", true)
+	if r.OK || !strings.Contains(r.Error, "unsupported URL scheme") {
+		t.Fatalf("expected unsupported scheme error, got %+v", r)
+	}
+}

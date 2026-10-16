@@ -662,8 +662,12 @@ var apiProbeProxy = http.ProxyFromEnvironment
 // response means the host is reachable; it returns an error message otherwise.
 func probeAPIURL(u *url.URL) string {
 	target := *u
-	if target.Scheme != "http" && target.Scheme != "https" {
-		target.Scheme = "https" // e.g. a scheme-less "//host" URL: still probe, warn on format elsewhere
+	switch target.Scheme {
+	case "":
+		target.Scheme = "https" // scheme-less "//host" URL: still probe; the format warning is raised separately
+	case "http", "https":
+	default:
+		return fmt.Sprintf("unsupported URL scheme %q — expected http:// or https://", target.Scheme)
 	}
 	target.User, target.RawQuery, target.Fragment = nil, "", ""
 
