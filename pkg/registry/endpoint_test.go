@@ -692,6 +692,40 @@ func TestCallEndpointFull_GetThenPutYAMLString(t *testing.T) {
 	}
 }
 
+func TestCallEndpointFull_GetThenPutYAMLString_UnparseableYAMLSendsNoPut(t *testing.T) {
+	reg := New()
+	if err := reg.RegisterNoun(spec.NounDef{
+		Noun:   "widget",
+		Fields: []spec.FieldDef{{ID: "name", Expr: "it.name", MutablePath: "trigger.name"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, getResp := range map[string]string{
+		"invalid": `{"data":{"yaml":"a: ["}}`,
+		"empty":   `{"data":{"yaml":""}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, caps := sequenceServer(t, []string{getResp, `{}`})
+			ctx := testCtx(srv.URL, nil)
+			ctx.Noun = "widget"
+			ctx.Id = "w1"
+			ctx.SetArgs = map[string]string{"name": "new"}
+			ctx.Resolver = reg
+			ep := &spec.EndpointSpec{
+				Path: "/widgets/w1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut,
+				UpdateBodyPick: "yamlParse(it.data.yaml)", ContentType: "application/yaml", FileBody: spec.FileBodyOptional,
+			}
+			if _, _, err := callEndpointFull(ctx, ep, nil); err == nil || !strings.Contains(err.Error(), "did not resolve") {
+				t.Fatalf("expected did-not-resolve error, got: %v", err)
+			}
+			if len(*caps) != 1 {
+				t.Fatalf("expected only the GET, got %d calls", len(*caps))
+			}
+		})
+	}
+}
+
 func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 	getResp := `[{"key":"env","value":"prod"},{"key":"team","value":"ops"}]`
 

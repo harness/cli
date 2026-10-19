@@ -433,9 +433,9 @@ func Env(name string, def ...string) string {
 
 // YamlParse parses a YAML document string into a map. Returns nil when s is empty,
 // invalid, or not a mapping, so callers see an unresolved expression.
-func YamlParse(s string) map[string]any {
+func YamlParse(s string) any {
 	var out map[string]any
-	if err := yaml.Unmarshal([]byte(s), &out); err != nil {
+	if err := yaml.Unmarshal([]byte(s), &out); err != nil || out == nil {
 		return nil
 	}
 	return out
