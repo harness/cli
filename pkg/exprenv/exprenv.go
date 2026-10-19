@@ -63,6 +63,7 @@ func BaseFuncs(ptyEnabled bool) map[string]any {
 		"formatOrder":           exprfuncs.FormatOrder,
 		"env":                   exprfuncs.Env,
 		"yamlParse":             exprfuncs.YamlParse,
+		"b64decode":             exprfuncs.Base64Decode,
 	}
 }
 
@@ -188,13 +189,13 @@ func EvalExpr(env map[string]any, s string) string {
 }
 
 // EvalHeaders evaluates pipeline_auth's header expressions in a restricted env
-// containing only `token` — never the shared ctx/auth/flags/it env used by
+// containing only `token` and `b64decode` — never the shared ctx/auth/flags/it env used by
 // request_headers, so other spec expressions can't read the pipeline token.
 func EvalHeaders(headers map[string]string, token string) map[string]string {
 	if len(headers) == 0 {
 		return nil
 	}
-	env := map[string]any{"token": token}
+	env := map[string]any{"token": token, "b64decode": exprfuncs.Base64Decode}
 	out := make(map[string]string, len(headers))
 	for k, v := range headers {
 		out[k] = EvalExpr(env, v)
