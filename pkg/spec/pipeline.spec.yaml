@@ -135,16 +135,21 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: trigger.name
       - id: type
         expr: it.type
       - id: enabled
         expr: it.enabled
+        mutable_path: trigger.enabled
       - id: description
         expr: it.description
+        mutable_path: trigger.description
       - id: pipeline
         expr: coalesce(it.targetIdentifier, ctx.idParts[0])
       - id: tags
         expr: formatTagDisplay(it.tags)
+        field_type: tags
+        mutable_path: trigger.tags
       - id: webhook_url
         expr: it.webhookUrl
       - id: last_execution_status
@@ -958,7 +963,7 @@ commands:
   - command: update trigger
     verb: update
     noun: trigger
-    short: "Update a trigger: harness update trigger <pipeline>/<trigger> -f trigger.yaml"
+    short: "Update a trigger: harness update trigger <pipeline>/<trigger> --set name=<name> | -f trigger.yaml"
     id_parts: 2
     id_label: "<pipeline>/<trigger>"
     completion_seq:
@@ -966,10 +971,15 @@ commands:
       - completion_noun: trigger
         keep_order: true
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PUT
       path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
-      file_body: required
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.yaml)
+      file_body: optional
       content_type: application/yaml
       no_fields: true
       text_header: "\nUpdated trigger {{lastPart(ctx.id)}}\n"
