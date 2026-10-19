@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"strings"
 
@@ -804,17 +805,49 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, err
 	}
 
+	contentType := resolveContentType(ep, method)
 	var updateBody any = body
+	if contentType == "application/yaml" {
+		out, err := yaml.Marshal(integralFloatsToInts(body))
+		if err != nil {
+			return nil, fmt.Errorf("get-then-%s: encoding YAML body: %w", strings.ToLower(method), err)
+		}
+		updateBody = string(out)
+	}
 	updateQP := evalQueryParams(ctx, ep.QueryParams, true)
 	result, _, err := c.DoRequest(client.Request{
 		Method:          method,
 		Path:            path,
 		QueryParams:     updateQP,
 		Body:            updateBody,
-		BodyContentType: resolveContentType(ep, method),
+		BodyContentType: contentType,
 		Headers:         extraHeaders,
 	})
 	return result, err
+}
+
+// integralFloatsToInts undoes the float64 widening from the JSON round trip so whole
+// numbers are written as "1000000", not "1e+06".
+func integralFloatsToInts(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			out[k] = integralFloatsToInts(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = integralFloatsToInts(e)
+		}
+		return out
+	case float64:
+		if t == math.Trunc(t) && math.Abs(t) < 1<<53 {
+			return int64(t)
+		}
+	}
+	return v
 }
 
 // runGetThenPutKV implements the "get-then-put-kv" update strategy for APIs

@@ -62,6 +62,7 @@ func BaseFuncs(ptyEnabled bool) map[string]any {
 		"substr":                exprfuncs.Substr,
 		"formatOrder":           exprfuncs.FormatOrder,
 		"env":                   exprfuncs.Env,
+		"yamlParse":             exprfuncs.YamlParse,
 	}
 }
 

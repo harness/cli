@@ -15,6 +15,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/format"
+	"go.yaml.in/yaml/v3"
 )
 
 // HarScopeUrl returns the HAR UI URL path segment for the given auth map.
@@ -426,4 +427,14 @@ func Env(name string, def ...string) string {
 		return def[0]
 	}
 	return ""
+}
+
+// YamlParse parses a YAML document string into a map. Returns nil when s is empty,
+// invalid, or not a mapping, so callers see an unresolved expression.
+func YamlParse(s string) map[string]any {
+	var out map[string]any
+	if err := yaml.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
 }
