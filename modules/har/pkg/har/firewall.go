@@ -76,8 +76,21 @@ func applyLevelScope(cmdCtx *cmdctx.Ctx) *auth.ResolvedAuth {
 	return a
 }
 
+type registryDetails struct {
+	UUID        string
+	PackageType string
+}
+
 // getRegistryUUID fetches the registry via the HAR v1 API and returns its UUID.
 func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryID string) (string, error) {
+	details, err := getRegistryDetails(ctx, hc, a, registryID)
+	if err != nil {
+		return "", err
+	}
+	return details.UUID, nil
+}
+
+func getRegistryDetails(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, registryID string) (registryDetails, error) {
 	apiUrl, accountID, orgID, projectID := a.APIUrl, a.AccountID, a.OrgID, a.ProjectID
 	scope := accountID
 	if orgID != "" {
@@ -88,39 +101,40 @@ func getRegistryUUID(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth,
 	}
 	u, err := url.Parse(apiUrl + fmt.Sprintf("/har/api/v1/registry/%s/%s/+", scope, registryID))
 	if err != nil {
-		return "", err
+		return registryDetails{}, err
 	}
 	q := u.Query()
 	q.Set("accountIdentifier", accountID)
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
-		return "", err
+		return registryDetails{}, err
 	}
 	a.SetAuthHeader(req)
 
 	resp, err := hc.Do(req)
 	if err != nil {
-		return "", err
+		return registryDetails{}, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("registry lookup error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return registryDetails{}, fmt.Errorf("registry lookup error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var envelope struct {
 		Data struct {
-			Uuid *string `json:"uuid"`
+			Uuid        *string `json:"uuid"`
+			PackageType string  `json:"packageType"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return "", fmt.Errorf("parsing registry response: %w", err)
+		return registryDetails{}, fmt.Errorf("parsing registry response: %w", err)
 	}
 	if envelope.Data.Uuid == nil || *envelope.Data.Uuid == "" {
-		return "", fmt.Errorf("registry %q: UUID not found in response", registryID)
+		return registryDetails{}, fmt.Errorf("registry %q: UUID not found in response", registryID)
 	}
-	return *envelope.Data.Uuid, nil
+	return registryDetails{UUID: *envelope.Data.Uuid, PackageType: envelope.Data.PackageType}, nil
 }
 
 // ---- handler ----
@@ -129,7 +143,7 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 	a := applyLevelScope(cmdCtx)
 
 	if len(cmdCtx.IdParts) < 3 {
-		return fmt.Errorf("artifact:firewall_scan requires <registry/name/version>, got %q", cmdCtx.Id)
+		return fmt.Errorf("artifact_version:firewall_scan requires <registry/name/version>, got %q", cmdCtx.Id)
 	}
 	registryID := cmdCtx.IdParts[0]
 	packageName := cmdCtx.IdParts[1]
@@ -140,13 +154,15 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		ctx = context.Background()
 	}
 	hc := &http.Client{Timeout: 60 * time.Second}
+	jsonOutput := cmdCtx.FormatFlags.Format == "json"
+	status := firewallStatusWriter(jsonOutput)
 
-	fmt.Printf("Fetching registry details for: %s\n", registryID)
+	fmt.Fprintf(status, "Fetching registry details for: %s\n", registryID)
 	registryUUID, err := getRegistryUUID(ctx, hc, a, registryID)
 	if err != nil {
 		return fmt.Errorf("fetching registry: %w", err)
 	}
-	fmt.Printf("Registry UUID: %s\n", registryUUID)
+	fmt.Fprintf(status, "Registry UUID: %s\n", registryUUID)
 	registryUUIDParsed, err := uuid.Parse(registryUUID)
 	if err != nil {
 		return fmt.Errorf("parsing registry UUID %q: %w", registryUUID, err)
@@ -167,35 +183,35 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		skipCache:    true,
 	}, useAsync)
 
-	fmt.Printf("Evaluating %s@%s (mode=%s)\n", packageName, version, evaluator.Mode())
+	fmt.Fprintf(status, "Evaluating %s@%s (mode=%s)\n", packageName, version, evaluator.Mode())
 	result, err := evaluator.Evaluate(ctx, []dependency{{Name: packageName, Version: version}})
 	if err != nil {
 		return err
 	}
 	if len(result.results) == 0 {
-		fmt.Println("No scan results returned.")
+		fmt.Fprintln(status, "No scan results returned.")
 		return nil
 	}
 
 	scan := result.results[0]
 
-	fmt.Println()
-	fmt.Println("Scan Result")
-	fmt.Printf("  Package:           %s\n", packageName)
-	fmt.Printf("  Version:           %s\n", version)
-	fmt.Printf("  Evaluation Status: %s\n", displayVal(scan.ScanStatus))
-	fmt.Printf("  Evaluation ID:     %s\n", displayVal(scan.ScanID))
-	fmt.Println()
+	fmt.Fprintln(status)
+	fmt.Fprintln(status, "Scan Result")
+	fmt.Fprintf(status, "  Package:           %s\n", packageName)
+	fmt.Fprintf(status, "  Version:           %s\n", version)
+	fmt.Fprintf(status, "  Evaluation Status: %s\n", displayVal(scan.ScanStatus))
+	fmt.Fprintf(status, "  Evaluation ID:     %s\n", displayVal(scan.ScanID))
+	fmt.Fprintln(status)
 	switch scan.ScanStatus {
 	case "BLOCKED":
-		fmt.Println("BLOCKED: This artifact version is blocked by the firewall.")
+		fmt.Fprintln(status, "BLOCKED: This artifact version is blocked by the firewall.")
 	case "WARN":
-		fmt.Println("WARN: This artifact version has firewall warnings.")
+		fmt.Fprintln(status, "WARN: This artifact version has firewall warnings.")
 	case "ALLOWED":
-		fmt.Println("ALLOWED: This artifact version is allowed by the firewall.")
+		fmt.Fprintln(status, "ALLOWED: This artifact version is allowed by the firewall.")
 	}
 
-	if cmdctx.GetString(cmdCtx.FlagValues, "format") == "json" {
+	if jsonOutput {
 		return printExplainJSON(registryID, packageName, version, scan)
 	}
 
@@ -222,6 +238,14 @@ func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		printScanDetails(detailResp.JSON200.Data)
 	}
 	return nil
+}
+
+// firewallStatusWriter keeps stdout parseable when JSON output is requested.
+func firewallStatusWriter(jsonOutput bool) io.Writer {
+	if jsonOutput {
+		return os.Stderr
+	}
+	return os.Stdout
 }
 
 func printExplainJSON(registryID, packageName, version string, scan auditScanResult) error {
@@ -499,17 +523,23 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		ctx = context.Background()
 	}
 	hc := &http.Client{Timeout: 60 * time.Second}
+	jsonOutput := cmdCtx.FormatFlags.Format == "json"
+	status := firewallStatusWriter(jsonOutput)
 
 	// 1. Registry UUID.
-	fmt.Printf("Fetching registry details for: %s\n", registryID)
-	registryUUID, err := getRegistryUUID(ctx, hc, a, registryID)
+	fmt.Fprintf(status, "Fetching registry details for: %s\n", registryID)
+	registry, err := getRegistryDetails(ctx, hc, a, registryID)
 	if err != nil {
 		return fmt.Errorf("fetching registry: %w", err)
 	}
-	fmt.Printf("Registry UUID: %s\n", registryUUID)
+	registryUUID := registry.UUID
+	fmt.Fprintf(status, "Registry UUID: %s (type: %s)\n", registryUUID, registry.PackageType)
 	registryUUIDParsed, err := uuid.Parse(registryUUID)
 	if err != nil {
 		return fmt.Errorf("parsing registry UUID %q: %w", registryUUID, err)
+	}
+	if err := validateFileForPackageType(filepath.Base(filePath), registry.PackageType); err != nil {
+		return err
 	}
 
 	client, err := newFirewallClient(hc, a)
@@ -518,7 +548,7 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 	}
 
 	// 2. Parse lock file.
-	fmt.Printf("Parsing dependency file: %s\n", filepath.Base(filePath))
+	fmt.Fprintf(status, "Parsing dependency file: %s\n", filepath.Base(filePath))
 	deps, err := parseLockFile(filePath)
 	if err != nil {
 		return fmt.Errorf("parsing lock file: %w", err)
@@ -530,7 +560,7 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		)
 	}
 	sort.Slice(deps, func(i, j int) bool { return deps[i].Name < deps[j].Name })
-	fmt.Printf("Found %d dependencies.\n", len(deps))
+	fmt.Fprintf(status, "Found %d dependencies.\n", len(deps))
 
 	useAsync := cmdctx.GetBool(cmdCtx.FlagValues, "async")
 	evaluator := newFirewallEvaluator(firewallEvaluatorParams{
@@ -542,11 +572,11 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 		skipCache:    true,
 	}, useAsync)
 	batchSize := cmdctx.GetInt(cmdCtx.FlagValues, "batch-size")
-	fmt.Printf("Evaluating dependencies (mode=%s, batch-size=%d).\n", evaluator.Mode(), batchSize)
+	fmt.Fprintf(status, "Evaluating dependencies (mode=%s, batch-size=%d).\n", evaluator.Mode(), batchSize)
 
 	allResults, batchErr := evaluateFirewallBatches(ctx, evaluator, deps, batchSize)
 	sort.Slice(allResults, func(i, j int) bool { return allResults[i].PackageName < allResults[j].PackageName })
-	if err := printAuditResults(cmdCtx, allResults); err != nil {
+	if err := printAuditResults(jsonOutput, allResults); err != nil {
 		return err
 	}
 	if batchErr != nil {
@@ -555,7 +585,16 @@ func executeRegistryFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 	return nil
 }
 
-func printAuditResults(cmdCtx *cmdctx.Ctx, results []auditScanResult) error {
+func printAuditResults(jsonOutput bool, results []auditScanResult) error {
+	if jsonOutput {
+		b, err := json.MarshalIndent(results, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+
 	var blocked, warn, allowed, unknown int
 	for _, r := range results {
 		switch r.ScanStatus {
@@ -586,16 +625,6 @@ func printAuditResults(cmdCtx *cmdctx.Ctx, results []auditScanResult) error {
 	}
 	fmt.Println()
 
-	// JSON output when requested.
-	if cmdctx.GetString(cmdCtx.FlagValues, "format") == "json" {
-		b, err := json.MarshalIndent(results, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(b))
-		return nil
-	}
-
 	// Table.
 	tw := table.NewWriter()
 	tw.SetOutputMirror(os.Stdout)
@@ -608,6 +637,27 @@ func printAuditResults(cmdCtx *cmdctx.Ctx, results []auditScanResult) error {
 }
 
 // ---- lock file parsers (ported from old-hc fw_audit.go) ----
+
+var firewallFilesByPackageType = map[string][]string{
+	"NPM":    {"package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"},
+	"PYTHON": {"requirements.txt", "pyproject.toml", "Pipfile.lock", "poetry.lock"},
+	"MAVEN":  {"pom.xml", "build.gradle", "build.gradle.kts"},
+	"NUGET":  {"packages.lock.json"},
+}
+
+func validateFileForPackageType(fileName, packageType string) error {
+	validFiles, ok := firewallFilesByPackageType[packageType]
+	if !ok {
+		return fmt.Errorf("unsupported package type: %s (supported: NPM, PYTHON, MAVEN, NUGET)", packageType)
+	}
+	for _, valid := range validFiles {
+		if strings.HasSuffix(fileName, valid) {
+			return nil
+		}
+	}
+	return fmt.Errorf("file %q is not compatible with package type %s. Valid files for %s: %s",
+		fileName, packageType, packageType, strings.Join(validFiles, ", "))
+}
 
 func parseLockFile(filePath string) ([]dependency, error) {
 	data, err := os.ReadFile(filePath)
@@ -685,6 +735,7 @@ func parsePackageLock(data []byte) ([]dependency, error) {
 		} `json:"dependencies"`
 		Packages map[string]struct {
 			Version string `json:"version"`
+			Link    bool   `json:"link"`
 		} `json:"packages"`
 	}
 	if err := json.Unmarshal(data, &lf); err != nil {
@@ -694,15 +745,22 @@ func parsePackageLock(data []byte) ([]dependency, error) {
 	var deps []dependency
 	if lf.LockfileVersion >= 2 && len(lf.Packages) > 0 {
 		for path, pkg := range lf.Packages {
-			if path == "" {
+			// link entries are local workspace symlinks, not registry packages.
+			if path == "" || pkg.Link {
 				continue
 			}
-			name := strings.TrimPrefix(path, "node_modules/")
+			name, parentPath := npmLockPathParts(path)
 			if name == "" || seen[name] {
 				continue
 			}
 			seen[name] = true
-			deps = append(deps, dependency{Name: name, Version: pkg.Version})
+			dep := dependency{Name: name, Version: pkg.Version}
+			if parent, ok := lf.Packages[parentPath]; ok {
+				if parentName, _ := npmLockPathParts(parentPath); parentName != "" {
+					dep.Parent = parentName + "@" + parent.Version
+				}
+			}
+			deps = append(deps, dep)
 		}
 	} else {
 		for name, dep := range lf.Dependencies {
@@ -714,6 +772,18 @@ func parsePackageLock(data []byte) ([]dependency, error) {
 		}
 	}
 	return deps, nil
+}
+
+// npmLockPathParts splits a lockfile v2+ packages key such as
+// "node_modules/a/node_modules/@s/b" into its package name ("@s/b") and the
+// key of the package it is nested under ("node_modules/a"; "" at top level).
+func npmLockPathParts(path string) (name, parentPath string) {
+	const sep = "node_modules/"
+	idx := strings.LastIndex(path, sep)
+	if idx == -1 {
+		return "", ""
+	}
+	return path[idx+len(sep):], strings.TrimSuffix(path[:idx], "/")
 }
 
 func parsePnpmLock(data []byte) ([]dependency, error) {
