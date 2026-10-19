@@ -4,6 +4,7 @@
 package exprfuncs
 
 import (
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -88,6 +89,23 @@ func TestParseDateMsRejectsUnparseable(t *testing.T) {
 	} {
 		if got := ParseDateMs(in); got != "" {
 			t.Errorf("ParseDateMs(%#v) = %q, want \"\"", in, got)
+		}
+	}
+}
+
+func TestYamlParse(t *testing.T) {
+	got := YamlParse("trigger:\n  name: n\n  tags:\n    env: dev\n  items: [1, 2]\n")
+	want := map[string]any{"trigger": map[string]any{
+		"name":  "n",
+		"tags":  map[string]any{"env": "dev"},
+		"items": []any{1, 2},
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("YamlParse = %#v, want %#v", got, want)
+	}
+	for _, in := range []string{"", "a: [", "- a\n- b"} {
+		if got := YamlParse(in); got != nil {
+			t.Errorf("YamlParse(%q) = %#v, want nil", in, got)
 		}
 	}
 }

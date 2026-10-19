@@ -658,6 +658,40 @@ func TestCallEndpointFull_Priority2_UpdateStrategies(t *testing.T) {
 	}
 }
 
+func TestCallEndpointFull_GetThenPutYAMLString(t *testing.T) {
+	getResp := `{"data":{"yaml":"trigger:\n  name: old\n  identifier: t1\n  pollInterval: 1000000\n  tags:\n    env: dev\n"}}`
+	reg := New()
+	if err := reg.RegisterNoun(spec.NounDef{
+		Noun:   "widget",
+		Fields: []spec.FieldDef{{ID: "name", Expr: "it.name", MutablePath: "trigger.name"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, caps := sequenceServer(t, []string{getResp, `{}`})
+	ctx := testCtx(srv.URL, nil)
+	ctx.Noun = "widget"
+	ctx.Id = "w1"
+	ctx.SetArgs = map[string]string{"name": "new"}
+	ctx.Resolver = reg
+	ep := &spec.EndpointSpec{
+		Path: "/widgets/w1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut,
+		UpdateBodyPick: "yamlParse(it.data.yaml)", ContentType: "application/yaml", FileBody: spec.FileBodyOptional,
+	}
+	if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	put := (*caps)[1]
+	if put.contentType != "application/yaml" {
+		t.Fatalf("PUT Content-Type = %q, want application/yaml", put.contentType)
+	}
+	want := "trigger:\n    identifier: t1\n    name: new\n    pollInterval: 1000000\n    tags:\n        env: dev\n"
+	if string(put.body) != want {
+		t.Fatalf("PUT body = %q, want %q", put.body, want)
+	}
+}
+
 func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 	getResp := `[{"key":"env","value":"prod"},{"key":"team","value":"ops"}]`
 
