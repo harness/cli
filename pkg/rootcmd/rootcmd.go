@@ -5,14 +5,12 @@ package rootcmd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/hbase"
@@ -216,12 +214,6 @@ func SetupAndExecuteRootCmd(root *cobra.Command, reg *registry.Registry) {
 		}
 		if msg := err.Error(); msg != "" {
 			console.PrintError(msg)
-		}
-		var apiErr *client.APIError
-		if errors.As(err, &apiErr) {
-			if dump := apiErr.Dump(); dump != "" {
-				fmt.Fprintln(os.Stderr, dump)
-			}
 		}
 		if cmdctx.IsTimeout(err) {
 			os.Exit(hbase.TimeoutExitCode)

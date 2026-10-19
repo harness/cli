@@ -66,8 +66,8 @@ func APIErrorMessage(status int, body []byte) string {
 }
 
 // APIError is a non-2xx response from the Harness API. Error() keeps the short
-// "API error <status>: <message>" form that callers match on; Dump() carries the
-// full request/response for 4xx and 5xx.
+// "API error <status>: <message>" form that callers match on; the full request and
+// response are logged at debug level.
 type APIError struct {
 	Status int
 	Msg    string
@@ -79,32 +79,6 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
-}
-
-// Dump returns the request and raw response as indented JSON, or "" for a status below 400.
-func (e *APIError) Dump() string {
-	if e.Status < 400 {
-		return ""
-	}
-	var body any = string(e.Body)
-	if json.Valid(e.Body) {
-		body = json.RawMessage(e.Body)
-	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(map[string]any{
-		"request": map[string]any{"method": e.Method, "url": e.URL},
-		"response": map[string]any{
-			"status":  e.Status,
-			"headers": redactHeaders(e.Header),
-			"body":    body,
-		},
-	}); err != nil {
-		return ""
-	}
-	return strings.TrimRight(out.String(), "\n")
 }
 
 func redactHeaders(h http.Header) http.Header {
@@ -249,7 +223,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 		return nil, nil, fmt.Errorf("reading API response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.Header, &APIError{
+		apiErr := &APIError{
 			Status: resp.StatusCode,
 			Msg:    APIErrorMessage(resp.StatusCode, respBody),
 			Method: r.Method,
@@ -257,6 +231,9 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 			Header: resp.Header,
 			Body:   respBody,
 		}
+		hlog.Debug("API error", "status", apiErr.Status, "method", apiErr.Method, "url", apiErr.URL,
+			"headers", redactHeaders(apiErr.Header), "body", string(apiErr.Body))
+		return nil, resp.Header, apiErr
 	}
 	if len(respBody) == 0 {
 		return nil, resp.Header, nil
