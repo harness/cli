@@ -131,6 +131,22 @@ type MinimalPackageJSON struct {
 	NpmVersion           interface{} `json:"_npmVersion"`
 }
 
+// WithPackageName returns pkgJSON with its "name" set to name, leaving every
+// other field untouched. Registries can serve a tarball under a different name
+// than its package.json records (e.g. after a GitHub org rename).
+func WithPackageName(pkgJSON []byte, name string) ([]byte, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(pkgJSON, &fields); err != nil {
+		return nil, fmt.Errorf("failed to parse package.json: %w", err)
+	}
+	encoded, err := json.Marshal(name)
+	if err != nil {
+		return nil, err
+	}
+	fields["name"] = encoded
+	return json.Marshal(fields)
+}
+
 func BuildNpmUploadFromPackageJSON(pkgJSON []byte, readme string, file io.ReadCloser) (*npm.PackageUpload, string, string, error) {
 	var pkg MinimalPackageJSON
 	if err := json.Unmarshal(pkgJSON, &pkg); err != nil {

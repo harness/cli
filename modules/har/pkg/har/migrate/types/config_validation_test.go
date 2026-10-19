@@ -52,6 +52,20 @@ func TestValidateConfig_UnknownArtifactTypeRejected(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_GithubSourceRestrictsArtifactTypes(t *testing.T) {
+	config := baseValidConfig()
+	config.Source.Type = GITHUB
+	config.Mappings[0].ArtifactType = NPM
+	if err := validateConfig(config); err != nil {
+		t.Fatalf("expected GITHUB source with NPM mapping to pass, got: %v", err)
+	}
+
+	config.Mappings[0].ArtifactType = MAVEN
+	if err := validateConfig(config); err == nil {
+		t.Fatal("expected GITHUB source with MAVEN mapping to be rejected, got nil")
+	}
+}
+
 func TestValidateConfig_AllKnownArtifactTypesAccepted(t *testing.T) {
 	for _, at := range KnownArtifactTypes() {
 		config := baseValidConfig()

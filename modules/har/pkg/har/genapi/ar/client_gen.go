@@ -514,6 +514,7 @@ type FileDetail struct {
 	CreatedAt       string   `json:"createdAt"`
 	DownloadCommand string   `json:"downloadCommand"`
 	Name            string   `json:"name"`
+	Path            *string  `json:"path,omitempty"`
 	Size            string   `json:"size"`
 }
 

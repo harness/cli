@@ -343,6 +343,14 @@ func (r *File) Migrate(ctx context.Context) error {
 			logger.Error().Err(err).Msg("Failed to extract package.json from tarball")
 			return fmt.Errorf("failed to extract package.json from tarball: %w", err)
 		}
+		// GitHub serves packages under the owner's current scope, while tarballs
+		// published before an org rename still carry the old name in package.json.
+		if r.config.Source.Type == types.GITHUB && r.pkg.Name != "" {
+			pkgJSONBytes, err = npmutils.WithPackageName(pkgJSONBytes, r.pkg.Name)
+			if err != nil {
+				return fmt.Errorf("failed to set npm package name: %w", err)
+			}
+		}
 
 		tarFileReader, _, err = r.srcAdapter.DownloadFile(r.srcRegistry, tarFileURL)
 		if err != nil {

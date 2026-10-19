@@ -755,10 +755,40 @@ func (c *client) artifactGetFilesForVersion(
 	ctx context.Context,
 	registryRef, pkg, version string,
 ) ([]string, error) {
+	files, err := c.listArtifactFiles(ctx, registryRef, pkg, version)
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		names = append(names, f.Name)
+	}
+	return names, err
+}
+
+// artifactFilePathsForVersion returns each file's HAR path, which is what
+// ExistingIndex expects; it falls back to the name if the server omits the path.
+func (c *client) artifactFilePathsForVersion(
+	ctx context.Context,
+	registryRef, pkg, version string,
+) ([]string, error) {
+	files, err := c.listArtifactFiles(ctx, registryRef, pkg, version)
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		if f.Path != nil && *f.Path != "" {
+			paths = append(paths, *f.Path)
+		} else {
+			paths = append(paths, f.Name)
+		}
+	}
+	return paths, err
+}
+
+func (c *client) listArtifactFiles(
+	ctx context.Context,
+	registryRef, pkg, version string,
+) ([]ar.FileDetail, error) {
 	page := int64(0)
 	size := int64(100)
 
-	var allFileNames []string
+	var allFiles []ar.FileDetail
 	for {
 		response, err := c.apiClient.GetArtifactFilesWithResponse(ctx, registryRef, pkg, version,
 			&ar.GetArtifactFilesParams{
@@ -768,22 +798,20 @@ func (c *client) artifactGetFilesForVersion(
 				SortField: nil,
 			})
 		if err != nil {
-			return allFileNames, fmt.Errorf("failed to get artifact files: %w", err)
+			return allFiles, fmt.Errorf("failed to get artifact files: %w", err)
 		}
 		if response.StatusCode() != http2.StatusOK {
-			return allFileNames, fmt.Errorf("failed to get artifact files: %s", response.Status())
+			return allFiles, fmt.Errorf("failed to get artifact files: %s", response.Status())
 		}
 		data := response.JSON200
 
-		for _, v := range data.Data.Files {
-			allFileNames = append(allFileNames, v.Name)
-		}
+		allFiles = append(allFiles, data.Data.Files...)
 		if len(data.Data.Files) < int(size) || (nil != data.Data.PageCount && nil != data.Data.PageIndex && (*data.Data.PageIndex+1 >= *data.Data.PageCount)) {
 			break
 		}
 		page++
 	}
-	return allFileNames, nil
+	return allFiles, nil
 }
 
 func (c *client) getRegistry(
@@ -1302,13 +1330,13 @@ func (c *client) buildExistingIndex(ctx context.Context, registryRef string, con
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			names, err := c.artifactGetFilesForVersion(ctx, registryRef, pv.pkg, pv.version)
+			paths, err := c.artifactFilePathsForVersion(ctx, registryRef, pv.pkg, pv.version)
 			if err != nil {
 				log.Warn().Err(err).Str("pkg", pv.pkg).Str("version", pv.version).Msg("buildExistingIndex: failed to list files for version, skipping")
 				return
 			}
-			for _, name := range names {
-				idx.AddFile(pv.pkg, pv.version, name)
+			for _, p := range paths {
+				idx.AddFile(pv.pkg, pv.version, p)
 			}
 		}()
 	}

@@ -1155,7 +1155,7 @@ commands:
 
         source:
           endpoint: https://source-registry.example.com
-          type: JFROG                    # Supported: JFROG, NEXUS, HARBOR, HAR
+          type: JFROG                    # Supported: JFROG, NEXUS, HARBOR, GITHUB, HAR
           credentials:
             username: source_user
             password: source_password
@@ -1193,6 +1193,12 @@ commands:
         CONDA, COMPOSER, DART, RAW, SWIFT, DEBIAN, CONAN, PUPPET, HELM_HTTP,
         RUBY, CRAN, TERRAFORM
 
+      GitHub Packages source (type: GITHUB; currently supports artifactType NPM):
+        Set endpoint to https://api.github.com and credentials.password to a classic
+        personal access token with read:packages. Each mapping's sourceRegistry is
+        the GitHub org or user that owns the packages; all of its npm packages
+        (@<owner>/<name>) are migrated unless narrowed by packageFilters.
+
       Package Filtering (packageFilters, opt-in):
         An allow-list: when set, only the named packages (and optionally specific
         versions/files) are migrated; when omitted, everything migrates.
@@ -1206,7 +1212,8 @@ commands:
 
         For synthetic-identity types (MAVEN, NPM, GENERIC, RAW), filter via the
         files field rather than package names, since package/version names are
-        derived from file paths.
+        derived from file paths. Exception: a GITHUB source reports real npm
+        package/version names, so filter by package (e.g. "@<owner>/<name>").
 
       Include/Exclude Patterns (includePatterns / excludePatterns, mutually exclusive):
         Glob patterns (* and ** wildcards) applied at a type-dependent granularity:

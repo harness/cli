@@ -19,6 +19,7 @@ var (
 	MOCK_JFROG RegistryType = "MOCK_JFROG"
 	NEXUS      RegistryType = "NEXUS"
 	HARBOR     RegistryType = "HARBOR"
+	GITHUB     RegistryType = "GITHUB"
 )
 
 type ArtifactType string
@@ -57,6 +58,28 @@ var knownArtifactTypesList = []ArtifactType{
 	DOCKER, HELM, HELM_LEGACY, GENERIC, PYTHON, MAVEN, NPM, NUGET,
 	RPM, GO, CONDA, COMPOSER, DART, RAW, SWIFT, DEBIAN, CONAN, PUPPET, HELM_HTTP, RUBY, CRAN,
 	TERRAFORM,
+}
+
+// sourceArtifactTypes restricts sources that can migrate only some artifact
+// types; sources absent from the map accept every known type.
+var sourceArtifactTypes = map[RegistryType][]ArtifactType{
+	GITHUB: {NPM},
+}
+
+func ValidateSourceArtifactType(source RegistryType, t ArtifactType) error {
+	supported, restricted := sourceArtifactTypes[source]
+	if !restricted {
+		return nil
+	}
+	names := make([]string, len(supported))
+	for i, s := range supported {
+		if s == t {
+			return nil
+		}
+		names[i] = string(s)
+	}
+	return fmt.Errorf("artifactType %s is not yet supported for source type %s (currently supported: %s)",
+		t, source, strings.Join(names, ", "))
 }
 
 // knownArtifactTypes is the lookup set derived from knownArtifactTypesList.
@@ -228,6 +251,9 @@ func validateConfig(config *Config) error {
 		if !IsKnownArtifactType(mapping.ArtifactType) {
 			return fmt.Errorf("mapping %d: unknown artifactType %q — valid values are: %s", i, mapping.ArtifactType, KnownArtifactTypesString())
 		}
+		if err := ValidateSourceArtifactType(config.Source.Type, mapping.ArtifactType); err != nil {
+			return fmt.Errorf("mapping %d: %w", i, err)
+		}
 		if err := ValidatePackageFilters(mapping.PackageFilters, mapping.ArtifactType); err != nil {
 			return fmt.Errorf("mapping %d: %w", i, err)
 		}
@@ -272,7 +298,7 @@ func validateCredentials(registry RegistryConfig, endpointRequired bool) error {
 
 	// Check supported registry types
 	switch registry.Type {
-	case HAR, JFROG, NEXUS, MOCK_JFROG, HARBOR:
+	case HAR, JFROG, NEXUS, MOCK_JFROG, HARBOR, GITHUB:
 		// These are supported
 	default:
 		return fmt.Errorf("unsupported registry type: %s", registry.Type)

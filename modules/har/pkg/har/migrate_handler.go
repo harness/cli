@@ -20,6 +20,7 @@ import (
 const executeRegistryMigrateHandlerID = "execute_registry_migrate"
 
 func executeRegistryMigrateHandler(ctx *cmdctx.Ctx) error {
+	routeMigrationLogsToHlog()
 	a := ctx.Auth
 	filePath := cmdctx.GetString(ctx.FlagValues, "config")
 	concurrencyStr := cmdctx.GetString(ctx.FlagValues, "concurrency")
@@ -75,12 +76,15 @@ func executeRegistryMigrateHandler(ctx *cmdctx.Ctx) error {
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	sigs := make(chan os.Signal, 1)
+	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigs
-		fmt.Println("\nInterrupted. Shutting down gracefully...")
+		fmt.Println("\nInterrupted. Shutting down gracefully... (press Ctrl+C again to force quit)")
 		cancel()
+		<-sigs
+		fmt.Println("Force quitting.")
+		os.Exit(130)
 	}()
 
 	svc, err := migrate.NewMigrationService(bgCtx, cfg)

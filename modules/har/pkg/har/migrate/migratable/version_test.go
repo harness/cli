@@ -131,6 +131,24 @@ func newVersionJobForIndexTest(src *indexFakeSrc, dest *indexFakeDest, node *typ
 	}
 }
 
+func TestNpmTarballBelongsToVersion(t *testing.T) {
+	cases := []struct {
+		pkg, version, file string
+		want               bool
+	}{
+		{"@acme/demo", "1.0.1", "demo-1.0.1.tgz", true},
+		{"@acme/demo", "1.0.1", "demo-1.0.0.tgz", false},
+		{"@acme/demo", "0.1", "demo-1.0.1.tgz", false},
+		{"lodash", "4.17.21", "lodash-4.17.21.tgz", true},
+		{"", "", "anything-1.0.0.tgz", true},
+	}
+	for _, c := range cases {
+		if got := npmTarballBelongsToVersion(c.pkg, c.version, c.file); got != c.want {
+			t.Errorf("npmTarballBelongsToVersion(%q, %q, %q) = %v, want %v", c.pkg, c.version, c.file, got, c.want)
+		}
+	}
+}
+
 // TestVersionMigrateSkipsFileByUriNotBasename is a regression guard: HasFile
 // must be queried with the file's full source-relative Uri, not its basename.
 // Two files sharing a basename but living under different nested JFrog
