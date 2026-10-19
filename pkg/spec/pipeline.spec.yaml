@@ -986,6 +986,56 @@ commands:
       query_params:
         targetIdentifier: ctx.idParts[0]
 
+  - command: update trigger:enable
+    verb: update
+    noun: trigger
+    noun_variant: enable
+    short: "Enable a trigger (harness update trigger:enable <pipeline>/<trigger>)"
+    id_parts: 2
+    id_label: "<pipeline>/<trigger>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.yaml)
+      content_type: application/yaml
+      body_params:
+        trigger.enabled: "true"
+      no_fields: true
+      text_header: "\nEnabled trigger {{lastPart(ctx.id)}}\n"
+      query_params:
+        targetIdentifier: ctx.idParts[0]
+
+  - command: update trigger:disable
+    verb: update
+    noun: trigger
+    noun_variant: disable
+    short: "Disable a trigger (harness update trigger:disable <pipeline>/<trigger>)"
+    id_parts: 2
+    id_label: "<pipeline>/<trigger>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: trigger
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.yaml)
+      content_type: application/yaml
+      body_params:
+        trigger.enabled: "false"
+      no_fields: true
+      text_header: "\nDisabled trigger {{lastPart(ctx.id)}}\n"
+      query_params:
+        targetIdentifier: ctx.idParts[0]
+
   - command: delete trigger
     verb: delete
     noun: trigger

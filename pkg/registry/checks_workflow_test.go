@@ -447,6 +447,17 @@ func TestValidateEndpointConstraints_ContentTypeRequiresFileBody(t *testing.T) {
 	}
 }
 
+func TestValidateEndpointConstraints_ContentTypeAllowedWithUpdateStrategy(t *testing.T) {
+	cs := &spec.CommandSpec{
+		Command: "update trigger", Verb: VerbUpdate, VerbHandler: VerbUpdate, Noun: "trigger", Module: "test",
+		HandlerType: spec.HandlerEndpoint,
+		Endpoint:    &spec.EndpointSpec{Method: "PUT", ContentType: "application/yaml", UpdateStrategy: spec.UpdateStrategyGetThenPut},
+	}
+	if err := validateEndpointConstraints(cs); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateEndpointConstraints_FileBodyContentTypeRequiresFileBody(t *testing.T) {
 	cs := &spec.CommandSpec{
 		Command: "create pipeline", Verb: VerbCreate, VerbHandler: VerbCreate, Noun: "pipeline", Module: "test",
