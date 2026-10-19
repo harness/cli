@@ -14,9 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/format"
-	"go.yaml.in/yaml/v3"
 )
 
 // HarScopeUrl returns the HAR UI URL path segment for the given auth map.
