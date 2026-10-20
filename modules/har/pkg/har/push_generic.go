@@ -93,8 +93,9 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 				ctx, uploader, client, registry, name, version, job, noMultipart,
 			); uploadErr != nil {
 				// After a cancellation every in-flight part fails with the same error; report the
-				// reason once instead.
-				if ctx.Context.Err() != nil {
+				// reason once instead. An upload the registry already accepted keeps its own message,
+				// which says the file will still be published.
+				if ctx.Context.Err() != nil && !errors.Is(uploadErr, errStillFinalizing) {
 					uploadErr = context.Cause(ctx.Context)
 				}
 				errs[i] = fmt.Errorf("failed to upload %s: %w", job.relPath, uploadErr)

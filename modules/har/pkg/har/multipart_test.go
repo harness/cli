@@ -613,8 +613,34 @@ func TestMultipartUploadSurfacesFinalizeFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "sha256 mismatch") {
 		t.Errorf("error = %v, want it to mention the server's reason", err)
 	}
-	if !f.aborted {
-		t.Error("expected a best-effort abort after a failed finalize")
+	if f.aborted {
+		t.Error("aborted a session whose completion was already accepted")
+	}
+}
+
+func TestMultipartUploadInterruptedWhileFinalizing(t *testing.T) {
+	const size = 100
+	f := newFakeRegistry(t)
+	f.partSize = 100
+	f.partCount = 1
+	f.finalStatus = uploadStatusFinalizing
+
+	path := writeTempFile(t, size)
+	cctx := multipartTestCtx(f.srv.URL)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cctx.Context = ctx
+	u := newMultipartUploader(cctx, newHTTPClient(), "reg", 2)
+	time.AfterFunc(300*time.Millisecond, func() { cancel(errors.New("interrupted")) })
+
+	err := u.upload("mypkg", "1.0.0", "big.bin", path, size, testSums(t, path))
+	if !errors.Is(err, errStillFinalizing) {
+		t.Fatalf("error = %v, want errStillFinalizing", err)
+	}
+	if !strings.Contains(err.Error(), "interrupted") || !strings.Contains(err.Error(), "up-1") {
+		t.Errorf("error = %v, want it to name the cause and the upload id", err)
+	}
+	if f.aborted {
+		t.Error("aborted a session the registry is still finalizing")
 	}
 }
 

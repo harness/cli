@@ -102,6 +102,10 @@ const (
 // returned before any file bytes are sent, so the caller can fall back to a single upload for free.
 var errMultipartUnsupported = errors.New("multipart upload is not supported by this registry")
 
+// errStillFinalizing reports that the command stopped waiting (interrupt or --timeout) after the
+// registry accepted the upload. Finalization runs server-side, so the file is still published.
+var errStillFinalizing = errors.New("the registry accepted the upload and will still publish it")
+
 // startUploadRequest is the body of a start-upload call.
 //
 // The server rejects unknown fields, so this struct must carry exactly the documented set.
@@ -221,10 +225,11 @@ func (u *multipartUploader) upload(
 	}
 
 	// Abort the session on any failure so it does not hold the one-in-flight-upload-per-path slot
-	// until it expires, which would make an immediate retry fail with a path conflict.
-	done := false
+	// until it expires, which would make an immediate retry fail with a path conflict. Once
+	// completion is accepted the session is no longer open and an abort would only be rejected.
+	accepted := false
 	defer func() {
-		if !done {
+		if !accepted {
 			u.abortUpload(session.UploadID)
 		}
 	}()
@@ -235,12 +240,8 @@ func (u *multipartUploader) upload(
 	if err := u.completeUpload(localPath, size, session); err != nil {
 		return err
 	}
-	if err := u.pollUntilTerminal(relPath, session.UploadID, finalizeTimeout(size)); err != nil {
-		return err
-	}
-
-	done = true
-	return nil
+	accepted = true
+	return u.pollUntilTerminal(relPath, session.UploadID, finalizeTimeout(size))
 }
 
 // validateSession checks the sizing the server handed back is self-consistent before any bytes are
@@ -672,11 +673,20 @@ func (u *multipartUploader) pollUntilTerminal(relPath, uploadID string, timeout 
 	timeoutErr := fmt.Errorf("upload did not finish finalizing within %s", timeout)
 	interval := pollInitialInterval
 	failing := false
+	// The command's own context ending (Ctrl-C, SIGTERM, --timeout) is told apart from this wait's
+	// deadline: the former only stops watching an upload the registry keeps finalizing.
+	stoppedWaiting := func() error {
+		return fmt.Errorf("stopped waiting for %s to finalize (%v): %w (upload id %s)",
+			relPath, context.Cause(u.ctx.Context), errStillFinalizing, uploadID)
+	}
+
 	for {
 		status, err := u.getUploadStatus(ctx, uploadID)
 		switch {
 		case err == nil:
 			failing = false
+		case u.ctx.Context.Err() != nil:
+			return stoppedWaiting()
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			return timeoutErr
 		case ctx.Err() == nil && transientStatusError(err):
@@ -707,6 +717,9 @@ func (u *multipartUploader) pollUntilTerminal(relPath, uploadID string, timeout 
 		}
 
 		if err := sleepCtx(ctx, interval); err != nil {
+			if u.ctx.Context.Err() != nil {
+				return stoppedWaiting()
+			}
 			if errors.Is(err, context.DeadlineExceeded) {
 				return timeoutErr
 			}
