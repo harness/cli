@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 
+	"github.com/harness/cli/v3/modules/ci"
 	"github.com/harness/cli/v3/modules/code"
 	"github.com/harness/cli/v3/modules/core"
 	"github.com/harness/cli/v3/modules/core/mgmt"
@@ -48,6 +49,7 @@ func main() {
 		console.PrintError(err.Error())
 		hbase.Exit(1)
 	}
+	ci.ModuleInit(reg.Module("ci"))
 	code.ModuleInit(reg.Module("code"))
 	core.ModuleInit(reg.Module("core"))
 	fme.ModuleInit(reg.Module("fme"))

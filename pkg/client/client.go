@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -21,6 +22,41 @@ import (
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/hlog"
 )
+
+// DoWithProxyCheck fails on an unparseable proxy env var, which http.ProxyFromEnvironment would silently ignore.
+func DoWithProxyCheck(hc *http.Client, req *http.Request) (*http.Response, error) {
+	if err := checkProxyEnv(req.URL); err != nil {
+		return nil, err
+	}
+	return hc.Do(req)
+}
+
+func checkProxyEnv(u *url.URL) error {
+	host := u.Hostname()
+	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return nil
+	}
+	names := []string{"HTTP_PROXY", "http_proxy"}
+	if u.Scheme == "https" {
+		names = []string{"HTTPS_PROXY", "https_proxy"}
+	}
+	for _, name := range names {
+		value := os.Getenv(name)
+		if value == "" {
+			continue
+		}
+		p, err := url.Parse(value)
+		if err != nil || p.Scheme == "" || p.Host == "" {
+			p, err = url.Parse("http://" + value)
+		}
+		if err != nil {
+			return fmt.Errorf("%s is not a valid proxy URL: it contains invalid characters, such as an unescaped '%%'. Go would silently ignore it and connect directly. URL-encode special characters in the proxy username/password (e.g. '%%' as '%%25', '@' as '%%40') and retry", name)
+		}
+		hlog.Debug("using proxy from environment", "var", name, "host", p.Host)
+		return nil
+	}
+	return nil
+}
 
 func networkError(err error, apiURL string) error {
 	if _, ok := errors.AsType[*net.DNSError](err); ok {
@@ -63,6 +99,58 @@ func APIErrorMessage(status int, body []byte) string {
 		return string(body[:200]) + "..."
 	}
 	return string(body)
+}
+
+// APIError is a non-2xx response from the Harness API. Error() keeps the short
+// "API error <status>: <message>" form that callers match on; Dump() carries the
+// full request/response for 4xx and 5xx.
+type APIError struct {
+	Status int
+	Msg    string
+	Method string
+	URL    string
+	Header http.Header
+	Body   []byte
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
+}
+
+// Dump returns the request and raw response as indented JSON, or "" for a status below 400.
+func (e *APIError) Dump() string {
+	if e.Status < 400 {
+		return ""
+	}
+	var body any = string(e.Body)
+	if json.Valid(e.Body) {
+		body = json.RawMessage(e.Body)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(map[string]any{
+		"request": map[string]any{"method": e.Method, "url": e.URL},
+		"response": map[string]any{
+			"status":  e.Status,
+			"headers": redactHeaders(e.Header),
+			"body":    body,
+		},
+	}); err != nil {
+		return ""
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+func redactHeaders(h http.Header) http.Header {
+	out := h.Clone()
+	for _, k := range []string{"Set-Cookie", "Authorization"} {
+		if out.Get(k) != "" {
+			out.Set(k, "[redacted]")
+		}
+	}
+	return out
 }
 
 // Request describes a single HTTP request to the Harness API.
@@ -182,7 +270,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	}
 
 	start := time.Now()
-	resp, err := c.http.Do(req)
+	resp, err := DoWithProxyCheck(c.http, req)
 	elapsed := time.Since(start).Milliseconds()
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
@@ -197,7 +285,14 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 		return nil, nil, fmt.Errorf("reading API response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.Header, fmt.Errorf("API error %d: %s", resp.StatusCode, APIErrorMessage(resp.StatusCode, respBody))
+		return nil, resp.Header, &APIError{
+			Status: resp.StatusCode,
+			Msg:    APIErrorMessage(resp.StatusCode, respBody),
+			Method: r.Method,
+			URL:    u.String(),
+			Header: resp.Header,
+			Body:   respBody,
+		}
 	}
 	if len(respBody) == 0 {
 		return nil, resp.Header, nil
@@ -219,7 +314,7 @@ func (c *Client) DoRaw(r Request) (*http.Response, error) {
 	if err := c.previewRequest(req); err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := DoWithProxyCheck(c.http, req)
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
 		hlog.Info(r.Method+" "+u.Path, "error", nerr)
@@ -240,7 +335,7 @@ func (c *Client) DoStream(r Request, timeout time.Duration) (*http.Response, err
 		return nil, err
 	}
 	hc := &http.Client{Timeout: timeout}
-	resp, err := hc.Do(req)
+	resp, err := DoWithProxyCheck(hc, req)
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
 		hlog.Info(r.Method+" "+u.Path, "error", nerr)

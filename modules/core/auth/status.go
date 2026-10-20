@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -642,17 +643,69 @@ func checkAPIUrl(apiURL string, overridden bool) checkResult {
 	if err != nil || u.Hostname() == "" {
 		return checkResult{OK: false, Error: fmt.Sprintf("%q is not a valid URL — expected an https:// URL with a host", apiURL)}
 	}
-	if _, err := net.DialTimeout("tcp", u.Hostname()+":443", 5*time.Second); err != nil {
-		if _, ok := errors.AsType[*net.DNSError](err); ok {
-			return checkResult{OK: false, Error: fmt.Sprintf("cannot resolve host %q — check your API URL", u.Hostname())}
-		}
-		return checkResult{OK: false, Error: fmt.Sprintf("cannot reach %q — %s", u.Hostname(), err)}
+	if msg := probeAPIURL(u); msg != "" {
+		return checkResult{OK: false, Error: msg}
 	}
 
 	if formatErr != nil && !overridden {
 		return checkResult{Warn: true, Error: "malformed API URL"}
 	}
 	return checkResult{OK: true}
+}
+
+// apiProbeProxy is a variable so tests can bypass the process-wide environment cache
+// that http.ProxyFromEnvironment keeps.
+var apiProbeProxy = http.ProxyFromEnvironment
+
+// probeAPIURL sends a HEAD request to the API URL using the default transport
+// (honoring HTTPS_PROXY/HTTP_PROXY/NO_PROXY and the URL's scheme and port). Any HTTP
+// response means the host is reachable; it returns an error message otherwise.
+func probeAPIURL(u *url.URL) string {
+	target := *u
+	switch target.Scheme {
+	case "":
+		target.Scheme = "https" // scheme-less "//host" URL: still probe; the format warning is raised separately
+	case "http", "https":
+	default:
+		return fmt.Sprintf("unsupported URL scheme %q — expected http:// or https://", target.Scheme)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, target.String(), nil)
+	if err != nil {
+		return fmt.Sprintf("cannot reach %q — %s", u.Hostname(), err)
+	}
+	// Don't follow redirects: the first response already proves reachability.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = apiProbeProxy
+	client := &http.Client{
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		// Proxy failures (unreachable proxy, CONNECT rejected, bad proxy auth) must not be
+		// reported as a problem with the Harness host.
+		if opErr, ok := errors.AsType[*net.OpError](err); ok && opErr.Op == "proxyconnect" {
+			return fmt.Sprintf("cannot reach proxy — %s (check HTTPS_PROXY/HTTP_PROXY)", opErr.Err)
+		}
+		// For https targets a rejected CONNECT (403, 407, 502, ...) comes back as a plain
+		// error, and the target is resolved by the proxy, not us. So with a proxy in use
+		// any other error is ambiguous: say so rather than blaming the Harness host.
+		if proxyURL, perr := apiProbeProxy(req); perr == nil && proxyURL != nil {
+			return fmt.Sprintf("cannot reach %q via proxy %s — %s (check HTTPS_PROXY/HTTP_PROXY)", u.Hostname(), proxyURL.Host, err)
+		}
+		if _, ok := errors.AsType[*net.DNSError](err); ok {
+			return fmt.Sprintf("cannot resolve host %q — check your API URL", u.Hostname())
+		}
+		return fmt.Sprintf("cannot reach %q — %s", u.Hostname(), err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusProxyAuthRequired {
+		return "proxy authentication required (407) — check credentials in HTTPS_PROXY/HTTP_PROXY"
+	}
+	return ""
 }
 
 // validateSATToken calls POST /ng/api/token/validate and returns a display identity

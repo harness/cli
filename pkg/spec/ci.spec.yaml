@@ -1,0 +1,456 @@
+spec_version: 1
+module_type: builtin
+module_desc: Harness CI — pipeline-step annotations, error categorization, coverage reporting, and artifact push/pull
+help_text: |
+  ## Continuous Integration (ci)
+
+  CI-specific commands for use inside a Harness pipeline step: writing
+  annotations, categorizing failed-step errors, and analyzing coverage
+  reports are local-only and need no Harness API call, while uploading
+  coverage and pushing/pulling build artifacts talk to a Harness service
+  over HTTP and do need auth.
+
+  ### Domain Model
+
+  A **local_annotation** is a note posted back to the pipeline execution.
+  `execute local_annotation` merges one into a local JSON file for
+  lite-engine to pick up; gated behind `CI_ENABLE_HARNESS_ANNOTATIONS`/
+  `PIPE_HARNESS_ANNOTATIONS`, so it's always safe to run.
+
+  An **error** rule file (errors.yaml) matches a failed step's logs/exit
+  code against known failure signatures. `execute error:validate` checks
+  the file's syntax; `execute error:evaluate` is what lite-engine runs on
+  every failed step to produce a categorization result, and never fails the
+  step itself.
+
+  A **coverage** report is parsed from local Go/LCOV/JaCoCo/Clover/
+  Cobertura/Coveralls files. `execute coverage:analyze` prints a local
+  summary; `execute coverage:upload` sends it to the Harness coverage
+  service; `execute coverage:wait-until` polls and gates on a threshold.
+
+  A **ci_artifact** is a generic build artifact pushed to or pulled from
+  Harness Artifact Registry (HAR). `push ci_artifact <source>...` uploads
+  file(s)/directories to the current pipeline's artifact version; `pull
+  ci_artifact <path-in-version>` downloads one back out. Both require
+  running inside a pipeline step — auth is resolved from CI-injected env
+  vars only, with no profile fallback.
+
+  `coverage:upload`/`wait-until` need auth too, resolved from CI-injected
+  env vars inside a pipeline step or the active CLI profile outside one;
+  everything else needs none.
+
+  ### Nouns
+
+  {{nouns}}
+
+nouns:
+  - noun: local_annotation
+    short_desc: "A pipeline-step annotation written to the local annotations file for lite-engine to post."
+    noun_aliases: [local_annotations]
+    fields:
+      - id: context
+        expr: it.context
+      - id: stepid
+        label: Step ID
+        expr: it.stepid
+      - id: message
+        expr: it.message
+
+  - noun: error
+    short_desc: "Harness Error Categorization — validate and evaluate custom errors.yaml rule files."
+    noun_aliases: [errors]
+    fields:
+      - id: matched
+        expr: it.matched
+      - id: category
+        expr: it.category
+      - id: message
+        expr: it.message
+
+  - noun: coverage
+    short_desc: "Coverage reports — analyze local coverage report files and print a summary."
+    noun_aliases: [coverages]
+    fields:
+      - id: hits
+        expr: it.hits
+      - id: partials
+        expr: it.partials
+      - id: misses
+        expr: it.misses
+      - id: percentage
+        label: Coverage
+        expr: it.overallpercentage
+
+  - noun: ci_artifact
+    short_desc: "A generic build artifact pushed to or pulled from Harness Artifact Registry (HAR) from a CI pipeline step."
+    noun_aliases: [ci_artifacts]
+    fields:
+      - id: artifactName
+        label: Artifact Name
+        expr: it.artifactName
+      - id: version
+        expr: it.version
+      - id: registry
+        expr: it.registry
+      - id: fileCount
+        label: File Count
+        expr: it.fileCount
+      - id: totalBytes
+        label: Total Bytes
+        expr: it.totalBytes
+
+commands:
+  - command: execute local_annotation
+    verb: execute
+    noun: local_annotation
+    short: "Write/merge a pipeline-step annotation into the local annotations file"
+    long: |
+      Write or merge a Harness pipeline-step annotation into a local JSON file
+      (default ./annotations.json, or $HARNESS_ANNOTATIONS_FILE) that
+      lite-engine later reads and posts as pipeline-step annotations.
+
+      No-ops silently (does not fail the step) unless CI_ENABLE_HARNESS_ANNOTATIONS=true
+      or PIPE_HARNESS_ANNOTATIONS=true is set in the environment.
+
+      Examples:
+        harness execute local_annotation --context build-status --style info --summary "Build completed"
+        harness execute local_annotation --context deployment --style success --summary-file ./deploy-notes.md
+        harness execute local_annotation --context test-results --style warning --summary "Some tests failed" --priority 5
+        harness execute local_annotation --context build-status --mode delete
+    no_id: true
+    has_args: true
+    no_auth: true
+    handler_type: workflow
+    workflow_id: execute_annotation
+    flags:
+      - name: context
+        description: "Context ID of the step annotation (max 256 chars, trimmed) - required"
+        required: true
+      - name: style
+        description: "Annotation style: info|success|warning|error (validated in handler, not declaratively)"
+        default: info
+        completion_values: [info, success, warning, error]
+      - name: summary
+        description: "Inline summary content (markdown). Ignored if --summary-file is also given"
+      - name: summary-file
+        description: "Path to a summary file (max 64KB). Takes precedence over --summary when both are given"
+      - name: mode
+        description: "Merge mode: append|replace|delete (validated in handler, not declaratively)"
+        default: replace
+        completion_values: [append, replace, delete]
+      - name: priority
+        description: "Annotation priority, 1-10 (validated in handler, not declaratively)"
+        default: "3"
+
+  - command: execute error:validate
+    verb: execute
+    noun: error
+    noun_variant: validate
+    short: "Validate the syntax and structure of an errors.yaml rule file"
+    long: |
+      Validate an errors.yaml file's syntax and structure, and print a
+      human-readable report. Meant to be run manually or in CI before
+      trusting the file in a real pipeline.
+
+        harness execute error:validate --yaml-path=./errors.yaml
+    no_id: true
+    has_args: true
+    no_auth: true
+    handler_type: workflow
+    workflow_id: execute_error_validate
+    flags:
+      - name: yaml-path
+        description: "Path to the errors.yaml file to validate"
+        required: true
+
+  - command: execute error:evaluate
+    verb: execute
+    noun: error
+    noun_variant: evaluate
+    short: "Evaluate errors.yaml rules against a step's logs and exit code"
+    long: |
+      Evaluate errors.yaml rules against a step's stdout/stderr logs and exit
+      code, printing a compact JSON categorization result. Intended for
+      internal use by lite-engine on every failed step; never fails the
+      step just because categorization itself encountered an error.
+
+        harness execute error:evaluate --yaml-path=./errors.yaml \
+          --stdout-path=./step-stdout.log --stderr-path=./step-stderr.log \
+          --exit-code=1 --step-id=step1 --stage-id=stage1 --pipeline-id=pipeline1
+    no_id: true
+    has_args: true
+    no_auth: true
+    handler_type: workflow
+    workflow_id: execute_error_evaluate
+    flags:
+      - name: yaml-path
+        description: "Path to the errors.yaml file"
+        required: true
+      - name: cache-dir
+        description: "Cache directory for parsed rules (default: $HARNESS_ERRORS_CACHE_DIR or /tmp/.harness-errors-cache)"
+      - name: stdout-path
+        description: "Path to the step's stdout log file"
+      - name: stderr-path
+        description: "Path to the step's stderr log file"
+      - name: exit-code
+        description: "Exit code from the step"
+        default: "1"
+      - name: step-id
+        description: "Step identifier"
+      - name: stage-id
+        description: "Stage identifier"
+      - name: pipeline-id
+        description: "Pipeline identifier"
+
+  - command: execute coverage:analyze
+    verb: execute
+    noun: coverage
+    noun_variant: analyze
+    short: "Parse and display a coverage report summary"
+    long: |
+      Parse coverage report files and display a summary of coverage statistics:
+      overall coverage percentage, per-file coverage, hit/partial/miss counts,
+      and patch coverage (when --base is provided or auto-detected from CI).
+
+      Supported formats: Go coverage (coverage.out), LCOV (lcov.info), JaCoCo,
+      Clover, Cobertura, Coveralls. Format is auto-detected per file, and
+      formats can be mixed across multiple --file flags. With no --file given,
+      coverage files are auto-discovered in common directories.
+
+      This command is local-only: it does not call the Harness API and
+      requires no authentication.
+
+      Examples:
+        harness execute coverage:analyze --file coverage.out
+        harness execute coverage:analyze --file coverage.out --file lcov.info
+        harness execute coverage:analyze --file coverage.out --base origin/main
+        harness execute coverage:analyze --patch --base origin/main
+    no_id: true
+    has_args: true
+    no_auth: true
+    handler_type: workflow
+    workflow_id: execute_coverage_analyze
+    flags:
+      - name: file
+        description: "Path to coverage report file(s) (can be specified multiple times)"
+        is_multi: true
+      - name: exclude
+        description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'."
+        is_multi: true
+      - name: patch
+        description: "Show patch coverage for changed lines only (requires --base)"
+        is_bool: true
+      - name: base
+        description: "Base revision to compare against for patch coverage (commit SHA, branch, or tag)"
+      - name: head
+        description: "Head revision for patch coverage (optional, defaults to current HEAD)"
+
+  - command: execute coverage:upload
+    verb: execute
+    noun: coverage
+    noun_variant: upload
+    short: "Upload a coverage report to Harness"
+    long: |
+      Parse local coverage report file(s) and upload them to the Harness
+      coverage service: ensures the repository is registered, resolves
+      exclude settings (coverage repository settings override --exclude),
+      encodes each file, and uploads it via a presigned URL.
+
+      Most fields are auto-detected from the CI environment (account, SCM
+      provider/owner/identifier/commit/branch, pipeline, execution, pull
+      request) and can be overridden with the matching flag.
+
+      Examples:
+        harness execute coverage:upload --file coverage.out
+        harness execute coverage:upload --file coverage.out --base origin/main
+        harness execute coverage:upload --file coverage.out --target-scope myAccount/myOrg/myProject
+    no_id: true
+    has_args: true
+    pipeline_auth:
+      token_envvar: HARNESS_COVERAGE_SERVICE_TOKEN
+      apiurl_envvar: HARNESS_COVERAGE_SERVICE_ENDPOINT
+      headers:
+        X-Api-Key: token
+        x-harness-token: token
+    handler_type: workflow
+    workflow_id: execute_coverage_upload
+    flags:
+      - name: account
+        description: "Account identifier (auto-detected from CI when unset)"
+      - name: provider
+        description: "SCM provider (auto-detected from CI when unset)"
+      - name: owner
+        description: "SCM owner (auto-detected from CI when unset)"
+      - name: identifier
+        description: "SCM identifier (auto-detected from CI when unset)"
+      - name: commit
+        description: "SCM commit ID (auto-detected from CI when unset)"
+      - name: branch
+        description: "SCM branch (auto-detected from CI when unset)"
+      - name: build
+        description: "The execution number of the pipeline"
+        default: "0"
+      - name: pipeline
+        description: "The ID of the pipeline"
+      - name: execution
+        description: "ID which identifies the execution of a pipeline globally (auto-detected from CI when unset; mandatory)"
+      - name: pr
+        description: "Pull request ID (auto-detected from CI when unset)"
+        default: "0"
+      - name: target-scope
+        description: "Harness account, organization, or project path that overrides pipeline scope. Not supported for Harness Code."
+      - name: tags
+        description: "Tags to apply to the uploaded coverage report (can be specified multiple times)"
+        is_multi: true
+      - name: file
+        description: "Path to coverage report file(s) (can be specified multiple times)"
+        is_multi: true
+      - name: base
+        description: "Base revision to compare against for diff coverage (commit SHA, branch, or tag). If not specified, diff tracking is disabled."
+      - name: patch
+        description: "Use patch coverage (requires --base)"
+        is_bool: true
+      - name: exclude
+        description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'. Coverage repository settings replace this flag when exclude_text is set, including an empty value that clears exclusions."
+        is_multi: true
+
+  - command: execute coverage:wait-until
+    verb: execute
+    noun: coverage
+    noun_variant: wait-until
+    short: "Wait for coverage processing and evaluate quality gate thresholds"
+    long: |
+      Polls the Harness coverage service until all reports for the execution
+      are processed, then evaluates the coverage against the given
+      thresholds. At least one threshold flag must be specified (--gt, --gte,
+      --patch-gt, or --patch-gte). Exits non-zero if any threshold is not met.
+
+      Account and execution are auto-detected from the CI environment when
+      unset. --wait-timeout is this command's own polling timeout, distinct
+      from the global --timeout flag (which hard-kills the whole process).
+
+      Examples:
+        harness execute coverage:wait-until --gt 70
+        harness execute coverage:wait-until --gte 80 --wait-timeout 10m
+        harness execute coverage:wait-until --patch-gt 80
+        harness execute coverage:wait-until --gt 70 --patch-gte 80
+    no_id: true
+    has_args: true
+    pipeline_auth:
+      token_envvar: HARNESS_COVERAGE_SERVICE_TOKEN
+      apiurl_envvar: HARNESS_COVERAGE_SERVICE_ENDPOINT
+      headers:
+        X-Api-Key: token
+        x-harness-token: token
+    handler_type: workflow
+    workflow_id: execute_coverage_wait_until
+    flags:
+      - name: account
+        description: "Account identifier (auto-detected from CI when unset)"
+      - name: execution
+        description: "ID which identifies the execution of a pipeline globally (auto-detected from CI when unset; mandatory)"
+      - name: gt
+        description: "Coverage must be > this percentage"
+      - name: gte
+        description: "Coverage must be >= this percentage"
+      - name: patch-gt
+        description: "Patch coverage must be > this percentage"
+      - name: patch-gte
+        description: "Patch coverage must be >= this percentage"
+      - name: wait-timeout
+        description: "Maximum wait time, e.g. 5m, 90s"
+        default: "5m"
+      - name: interval
+        description: "Polling interval, e.g. 10s"
+        default: "10s"
+
+  - command: push ci_artifact
+    verb: push
+    noun: ci_artifact
+    short: "Push artifacts to Harness Artifact Registry"
+    long: |
+      Push one or more local files or directories to Harness Artifact
+      Registry (HAR) from inside a Harness pipeline step — auth and
+      --name/--version/--registry defaults are resolved from CI-injected env
+      vars. Fails if run outside a pipeline step.
+
+      Each <source> argument may be:
+        - A file path         uploaded directly under the artifact version
+        - A directory         walked recursively; its basename is preserved
+                              in the registry path
+        - A glob pattern      e.g. *.zip or dir/* — matched files are uploaded
+        - Comma-separated     e.g. "./dist/*.zip,./reports/*.xml" (or multiple args)
+
+      All files including hidden ones (names starting with ".") are included.
+
+      After a successful push a JSON summary is written to
+      $HARNESS_ARTIFACT_FILE_PATH (if set) so CI Manager receives a unified
+      record of everything pushed in the step.
+
+      Examples:
+        harness push ci_artifact ./build/app.zip
+        harness push ci_artifact ./cache-dir --destination cache
+        harness push ci_artifact './dist/*.tar.gz,./reports/*.xml'
+    no_id: true
+    has_args: true
+    args_label: "<source>..."
+    handler_type: workflow
+    workflow_id: push_ci_artifact
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
+    flags:
+      - name: destination
+        description: "Destination subdirectory within the artifact version"
+      - name: name
+        description: "Artifact name (default: $HARNESS_PIPELINE_UNIQUE_ID)"
+      - name: version
+        description: 'Artifact version (default: "v"+$HARNESS_BUILD_ID)'
+      - name: registry
+        description: "Target registry name (default: $CI_NATIVE_HAR_REGISTRY)"
+
+  - command: pull ci_artifact
+    verb: pull
+    noun: ci_artifact
+    short: "Pull a single artifact file from Harness Artifact Registry"
+    long: |
+      Pull a single file from the current pipeline's artifact version in
+      Harness Artifact Registry (HAR) from inside a Harness pipeline step —
+      auth and --name/--version/--registry defaults are resolved from
+      CI-injected env vars. Fails if run outside a pipeline step.
+
+      <path-in-version> is the path relative to the version root — the same
+      value that was supplied as --destination (joined with the filename)
+      during the corresponding push.
+
+      For example, if pushed with:
+        harness push ci_artifact Dockerfile --destination files
+
+      then pull with:
+        harness pull ci_artifact files/Dockerfile
+
+      Examples:
+        harness pull ci_artifact files/Dockerfile
+        harness pull ci_artifact files/Dockerfile --destination ./downloads/
+        harness pull ci_artifact reports/coverage.html --destination /tmp/coverage.html
+    no_id: true
+    has_args: true
+    args_label: "<path-in-version>"
+    handler_type: workflow
+    workflow_id: pull_ci_artifact
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
+    flags:
+      - name: destination
+        description: "Local directory or file path to save the downloaded file (default: current directory)"
+      - name: name
+        description: "Artifact name (default: $HARNESS_PIPELINE_UNIQUE_ID)"
+      - name: version
+        description: 'Artifact version (default: "v"+$HARNESS_BUILD_ID)'
+      - name: registry
+        description: "Source registry name (default: $CI_NATIVE_HAR_REGISTRY)"

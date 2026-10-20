@@ -17,6 +17,8 @@ import (
 func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterFetchFn(listExecutionLogsFetchFnID, listExecutionLogsFetchFn)
 	reg.RegisterWorkflow(getPipelineLogHandlerID, getPipelineLogHandler)
+	reg.RegisterWorkflow(updateTriggerEnableHandlerID, updateTriggerEnableHandler)
+	reg.RegisterWorkflow(updateTriggerDisableHandlerID, updateTriggerDisableHandler)
 	reg.RegisterBodyFn(executePipelineBodyFnID, executePipelineBody)
 	reg.RegisterBodyFn(executeInputSetBodyFnID, executeInputSetBody)
 	reg.RegisterBodyFn(executeDynamicBodyFnID, executeDynamicBody)

@@ -91,3 +91,33 @@ func TestParseDateMsRejectsUnparseable(t *testing.T) {
 		}
 	}
 }
+
+func TestBase64Decode(t *testing.T) {
+	const want = "pat.acct.id.s3cr?t>"
+	cases := map[string]string{
+		"std padded":     "cGF0LmFjY3QuaWQuczNjcj90Pg==",
+		"std unpadded":   "cGF0LmFjY3QuaWQuczNjcj90Pg",
+		"trailing nl":    "cGF0LmFjY3QuaWQuczNjcj90Pg==\n",
+		"unencoded pass": want,
+	}
+	for name, in := range cases {
+		if got := Base64Decode(in); got != want {
+			t.Errorf("%s: Base64Decode(%q) = %q, want %q", name, in, got, want)
+		}
+	}
+}
+
+func TestBase64DecodeAlphabets(t *testing.T) {
+	const want = "pat.a.i.>>>???"
+	cases := map[string]string{
+		"std padded":   "cGF0LmEuaS4+Pj4/Pz8=",
+		"std unpadded": "cGF0LmEuaS4+Pj4/Pz8",
+		"url padded":   "cGF0LmEuaS4-Pj4_Pz8=",
+		"url unpadded": "cGF0LmEuaS4-Pj4_Pz8",
+	}
+	for name, in := range cases {
+		if got := Base64Decode(in); got != want {
+			t.Errorf("%s: Base64Decode(%q) = %q, want %q", name, in, got, want)
+		}
+	}
+}

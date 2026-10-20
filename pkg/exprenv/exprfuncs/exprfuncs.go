@@ -6,6 +6,7 @@
 package exprfuncs
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -426,4 +427,18 @@ func Env(name string, def ...string) string {
 		return def[0]
 	}
 	return ""
+}
+
+// Base64Decode decodes s as standard or URL-safe base64, padded or not.
+// Returns s unchanged when it is not valid base64, so unencoded values pass through.
+func Base64Decode(s string) string {
+	trimmed := strings.TrimSpace(s)
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding,
+	} {
+		if b, err := enc.DecodeString(trimmed); err == nil {
+			return string(b)
+		}
+	}
+	return s
 }

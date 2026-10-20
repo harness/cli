@@ -264,6 +264,7 @@ Do not add tests for mechanical pass-through or framework guarantees (e.g. Cobra
 | `platform.spec.yaml` | Platform resources (projects, orgs, etc.) |
 | `pipeline.spec.yaml` | CI/CD pipelines |
 | `core.spec.yaml` | Core resources |
+| `ci.spec.yaml` | execute local_annotation; execute error:validate, error:evaluate; execute coverage:analyze, coverage:upload, coverage:wait-until; push ci_artifact; pull ci_artifact |
 
 ## Security — never put real credentials in code or comments
 

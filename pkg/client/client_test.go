@@ -5,9 +5,12 @@ package client
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/auth"
@@ -86,5 +89,120 @@ func TestDoRequest_AccountIdentifierOmittedOnWire(t *testing.T) {
 	}
 	if got := gotQuery.Get("accountIdentifier"); got != "" {
 		t.Fatalf("accountIdentifier = %q, want empty", got)
+	}
+}
+
+func TestDoRequest_APIErrorDump(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   int
+		body     string
+		wantBody any
+		wantDump bool
+	}{
+		{"json body embedded as json", 500, `{"message":"boom","code":"X"}`, map[string]any{"message": "boom", "code": "X"}, true},
+		{"html body kept as string", 502, `<html>bad gateway</html>`, `<html>bad gateway</html>`, true},
+		{"empty body", 400, ``, ``, true},
+		{"3xx has no dump", 304, `{"message":"x"}`, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("X-Test", "hdr")
+				w.Header().Add("Set-Cookie", "session=secret")
+				w.WriteHeader(tt.status)
+				w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			_, _, err := testClient(srv.URL).Get("/p", nil)
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("want *APIError, got %T: %v", err, err)
+			}
+			if !strings.HasPrefix(err.Error(), "API error ") {
+				t.Errorf("Error() = %q, must keep the %q prefix callers match on", err.Error(), "API error ")
+			}
+			dump := apiErr.Dump()
+			if (dump != "") != tt.wantDump {
+				t.Fatalf("Dump() empty=%v, want dump=%v", dump == "", tt.wantDump)
+			}
+			if !tt.wantDump {
+				return
+			}
+			var got struct {
+				Request  struct{ Method, URL string }
+				Response struct {
+					Status  int
+					Headers map[string][]string
+					Body    any
+				}
+			}
+			if err := json.Unmarshal([]byte(dump), &got); err != nil {
+				t.Fatalf("dump is not valid JSON: %v\n%s", err, dump)
+			}
+			if got.Request.Method != "GET" || !strings.Contains(got.Request.URL, "/p") {
+				t.Errorf("request = %+v", got.Request)
+			}
+			if strings.Contains(dump, "secret") || got.Response.Headers["Set-Cookie"][0] != "[redacted]" {
+				t.Errorf("Set-Cookie not redacted: %v", got.Response.Headers["Set-Cookie"])
+			}
+			if got.Response.Status != tt.status || got.Response.Headers["X-Test"][0] != "hdr" {
+				t.Errorf("response = %+v", got.Response)
+			}
+			if gb, _ := json.Marshal(got.Response.Body); string(gb) != mustJSON(tt.wantBody) {
+				t.Errorf("body = %s, want %s", gb, mustJSON(tt.wantBody))
+			}
+		})
+	}
+}
+
+func mustJSON(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func TestCheckProxyEnv(t *testing.T) {
+	const secret = "p%LKsecret"
+	tests := []struct {
+		name    string
+		env     map[string]string
+		target  string
+		wantErr string
+	}{
+		{"valid URL", map[string]string{"HTTPS_PROXY": "http://u:pw@proxy.example:8080"}, "https://api.example", ""},
+		{"bare host:port", map[string]string{"HTTPS_PROXY": "proxy.example:8080"}, "https://api.example", ""},
+		{"invalid escape", map[string]string{"HTTPS_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "https://api.example", "HTTPS_PROXY"},
+		{"bad port", map[string]string{"HTTPS_PROXY": "http://u:" + secret + "@proxy.example:port"}, "https://api.example", "HTTPS_PROXY"},
+		{"unset", nil, "https://api.example", ""},
+		{"lowercase fallback", map[string]string{"https_proxy": "http://u:" + secret + "@proxy.example:8080"}, "https://api.example", "https_proxy"},
+		{"http ignores https var", map[string]string{"HTTPS_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "http://api.example", ""},
+		{"localhost exempt", map[string]string{"HTTPS_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "https://localhost:8080", ""},
+		{"loopback IP exempt", map[string]string{"HTTPS_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "https://127.0.0.1", ""},
+		{"http uses http var", map[string]string{"HTTP_PROXY": "http://u:" + secret + "@proxy.example:8080"}, "http://api.example", "HTTP_PROXY"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, k := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
+				t.Setenv(k, "")
+			}
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			u, _ := url.Parse(tt.target)
+			err := checkProxyEnv(u)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("got %v, want error containing %q", err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("error leaks password: %v", err)
+			}
+		})
 	}
 }

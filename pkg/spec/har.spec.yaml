@@ -289,13 +289,15 @@ commands:
     short: Push a NuGet package (.nupkg) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-nupkg>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_nuget
+    flags:
+      - name: metadata
+        description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
   - command: push artifact:rpm
     verb: push

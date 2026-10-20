@@ -64,6 +64,17 @@ func parseRegistryAndName(id string) (registry, name string, err error) {
 	return parts[0], parts[1], nil
 }
 
+// parseRegistry returns the registry from ctx.Id for push types whose package
+// name comes from the file itself. A trailing "/<name>" is accepted and ignored
+// so the older "<registry>/<name>" form keeps working.
+func parseRegistry(id string) (string, error) {
+	registry, _, _ := strings.Cut(id, "/")
+	if registry == "" {
+		return "", fmt.Errorf("registry is required, got %q", id)
+	}
+	return registry, nil
+}
+
 // newHTTPClient returns a retry-enabled HTTP client with a 10-minute timeout,
 // suitable for large artifact uploads/downloads that may hit transient network errors.
 func newHTTPClient() *http.Client {
