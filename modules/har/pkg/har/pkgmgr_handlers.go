@@ -37,19 +37,3 @@ func executeArtifactDotnetRestoreHandler(ctx *cmdctx.Ctx) error {
 	_, nativeArgs := pkgmgrParseArgs(ctx.Args)
 	return pkgmgrExecute(ctx, &nugetClient{}, "restore", nativeArgs)
 }
-
-func executeArtifactNpmHandler(ctx *cmdctx.Ctx) error {
-	return pkgmgrDispatch(ctx, &npmClient{}, "npm", "npm", npmFirewallCommands)
-}
-
-func executeArtifactPipHandler(ctx *cmdctx.Ctx) error {
-	return pkgmgrDispatch(ctx, &pipClient{}, "pip", pipBinary(), pipFirewallCommands)
-}
-
-func executeArtifactMvnHandler(ctx *cmdctx.Ctx) error {
-	return pkgmgrDispatch(ctx, &mavenClient{}, "mvn", "mvn", mvnFirewallCommands)
-}
-
-func executeArtifactDotnetHandler(ctx *cmdctx.Ctx) error {
-	return pkgmgrDispatch(ctx, &nugetClient{}, "dotnet", "dotnet", dotnetFirewallCommands)
-}
