@@ -8,8 +8,97 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/harness/cli/v3/pkg/config"
 	"github.com/harness/cli/v3/pkg/hbase"
 )
+
+func TestResolveWithOverridesScope(t *testing.T) {
+	cases := []struct {
+		name                                  string
+		org, project                          string
+		orgOverride, projectOverride          string
+		wantOrg, wantProject, wantErrContains string
+	}{
+		{name: "both supplied by flags", orgOverride: "flag-org", projectOverride: "flag-project", wantOrg: "flag-org", wantProject: "flag-project"},
+		{name: "missing org supplied by flag", project: "base-project", orgOverride: "flag-org", wantOrg: "flag-org", wantProject: "base-project"},
+		{name: "missing project supplied by flag", org: "base-org", projectOverride: "flag-project", wantOrg: "base-org", wantProject: "flag-project"},
+		{name: "flags override existing scope", org: "base-org", project: "base-project", orgOverride: "flag-org", projectOverride: "flag-project", wantOrg: "flag-org", wantProject: "flag-project"},
+		{name: "empty overrides preserve scope", org: "base-org", project: "base-project", wantOrg: "base-org", wantProject: "base-project"},
+		{name: "org still required", projectOverride: "flag-project", wantErrContains: "org"},
+		{name: "project still required", orgOverride: "flag-org", wantErrContains: "project"},
+	}
+	for _, mode := range []string{"implicit env", "env flag", "env selector", "named profile"} {
+		t.Run(mode, func(t *testing.T) {
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Setenv(hbase.EnvCLIHome, t.TempDir())
+					t.Setenv(hbase.EnvProfile, "")
+					t.Setenv(hbase.EnvAPIKey, "pat.test-account.test-token.not-a-secret")
+					t.Setenv(hbase.EnvAccount, "test-account")
+					t.Setenv(hbase.EnvOrg, tc.org)
+					t.Setenv(hbase.EnvProject, tc.project)
+					profileFlag, wantSource := "", SourceEnv
+					switch mode {
+					case "env flag":
+						profileFlag = ProfileSentinelEnv
+					case "env selector":
+						t.Setenv(hbase.EnvProfile, ProfileSentinelEnv)
+					case "named profile":
+						profileFlag, wantSource = "test-profile", "profile:test-profile"
+						cfg := &config.Config{Profiles: map[string]*config.Profile{
+							profileFlag: {AccountID: "test-account", OrgID: tc.org, ProjectID: tc.project},
+						}}
+						if err := config.SaveConfig(cfg); err != nil {
+							t.Fatal(err)
+						}
+						if err := SetCredential(profileFlag, "pat.test-account.test-token.not-a-secret"); err != nil {
+							t.Fatal(err)
+						}
+						// Env scope must not fill gaps in a named profile.
+						t.Setenv(hbase.EnvOrg, "ignored-env-org")
+						t.Setenv(hbase.EnvProject, "ignored-env-project")
+					}
+
+					r, err := ResolveWithOverrides(profileFlag, tc.orgOverride, tc.projectOverride)
+					if tc.wantErrContains != "" {
+						if err == nil || !strings.Contains(err.Error(), tc.wantErrContains) {
+							t.Fatalf("error = %v, want error containing %q", err, tc.wantErrContains)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					if r.Source != wantSource || r.OrgID != tc.wantOrg || r.ProjectID != tc.wantProject {
+						t.Errorf("source/scope = %q %q/%q, want %q %q/%q", r.Source, r.OrgID, r.ProjectID, wantSource, tc.wantOrg, tc.wantProject)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestResolveWithOverridesValidatesCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		name, key, account, wantErrContains string
+	}{
+		{"missing key", "", "test-account", "HARNESS_API_KEY is required"},
+		{"invalid key", "not-a-token", "test-account", "HARNESS_API_KEY is invalid"},
+		{"account mismatch", "pat.test-account.test-token.not-a-secret", "other-account", "does not match account in token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(hbase.EnvCLIHome, t.TempDir())
+			t.Setenv(hbase.EnvAPIKey, tc.key)
+			t.Setenv(hbase.EnvAccount, tc.account)
+			t.Setenv(hbase.EnvOrg, "")
+			t.Setenv(hbase.EnvProject, "")
+			_, err := ResolveWithOverrides(ProfileSentinelEnv, "flag-org", "flag-project")
+			if err == nil || !strings.Contains(err.Error(), tc.wantErrContains) {
+				t.Fatalf("error = %v, want error containing %q", err, tc.wantErrContains)
+			}
+		})
+	}
+}
 
 func TestNormalizeAPIURL(t *testing.T) {
 	cases := []struct {

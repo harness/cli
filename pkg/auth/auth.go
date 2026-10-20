@@ -215,11 +215,10 @@ func Resolve(profileFlag string) (*ResolvedAuth, error) {
 	return r, nil
 }
 
-// ResolveWithOverrides resolves credentials via Resolve, then applies orgOverride/
-// projectOverride on top of whatever the resolved profile/env already set. An empty
-// override leaves the resolved value untouched.
+// ResolveWithOverrides applies scope overrides before validation so flags can
+// supply org/project values missing from the profile or environment.
 func ResolveWithOverrides(profileFlag, orgOverride, projectOverride string) (*ResolvedAuth, error) {
-	r, err := Resolve(profileFlag)
+	r, err := Load(profileFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -228,6 +227,9 @@ func ResolveWithOverrides(profileFlag, orgOverride, projectOverride string) (*Re
 	}
 	if projectOverride != "" {
 		r.ProjectID = projectOverride
+	}
+	if err := Validate(r); err != nil {
+		return nil, err
 	}
 	return r, nil
 }
