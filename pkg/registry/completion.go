@@ -189,12 +189,42 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 			hlog.Debug("completion: seq beyond last step", "stepIdx", stepIdx, "numSteps", len(steps))
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		step := steps[stepIdx]
-		prefix := strings.Join(parts[:stepIdx], "/")
-		if prefix != "" {
-			prefix += "/"
+		queryParentId := strings.Join(parts[:stepIdx], "/")
+		queryStepIdx := stepIdx
+		outputPrefix := queryParentId
+		if outputPrefix != "" {
+			outputPrefix += "/"
 		}
-		hlog.Debug("completion: seq step", "stepIdx", stepIdx, "stepNoun", step.CompletionNoun, "prefix", prefix)
+
+		// A leading id_part can be defaulted from context (id_part_default_fn):
+		// either it's missing entirely (stepIdx==0, nothing typed for it yet) or
+		// the user typed the explicit sentinel "." for it. Either way the query
+		// needs a real value; outputPrefix is left untouched — it always echoes
+		// back exactly what the user already typed.
+		if cs.IdPartDefaultFn != "" {
+			resolveOnce := func() (string, bool) {
+				dctx, err := r.buildCompletionCtx(cmd, cs.Verb, cs.Noun, "")
+				if err != nil {
+					return "", false
+				}
+				resolved, err := r.resolveIdPartDefault(cs, dctx)
+				return resolved, err == nil
+			}
+			switch {
+			case stepIdx == 0 && len(steps) > 1:
+				if resolved, ok := resolveOnce(); ok {
+					queryStepIdx = 1
+					queryParentId = resolved
+				}
+			case len(parts) > 0 && parts[0] == spec.IdPartSentinel:
+				if resolved, ok := resolveOnce(); ok {
+					queryParentId = resolved
+				}
+			}
+		}
+
+		step := steps[queryStepIdx]
+		hlog.Debug("completion: seq step", "stepIdx", queryStepIdx, "stepNoun", step.CompletionNoun, "parentId", queryParentId)
 
 		var completions []string
 		if len(step.StaticValues) > 0 {
@@ -208,7 +238,7 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 			ep := listSpec.Endpoint
 			cspec := ep.Completion
 
-			ctx, err := r.buildCompletionCtx(cmd, VerbList, step.CompletionNoun, strings.Join(parts[:stepIdx], "/"))
+			ctx, err := r.buildCompletionCtx(cmd, VerbList, step.CompletionNoun, queryParentId)
 			if err != nil {
 				hlog.Debug("completion error: seq buildCtx", "stepNoun", step.CompletionNoun, "err", err)
 				return nil, cobra.ShellCompDirectiveError
@@ -228,7 +258,7 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 		}
 		hlog.Debug("completion: seq result", "stepNoun", step.CompletionNoun, "items", len(completions), "completions", len(completions))
 
-		isLastStep := stepIdx == len(steps)-1
+		isLastStep := queryStepIdx == len(steps)-1
 		directive := cobra.ShellCompDirectiveNoFileComp
 		if step.KeepOrder {
 			directive |= cobra.ShellCompDirectiveKeepOrder
@@ -248,7 +278,7 @@ func (r *Registry) wireSeqCompletion(cmd *cobra.Command, cs *spec.CommandSpec) {
 					c += "/"
 				}
 			}
-			completions[i] = prefix + c
+			completions[i] = outputPrefix + c
 		}
 		return completions, directive
 	}
