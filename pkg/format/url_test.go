@@ -40,6 +40,23 @@ func outFile(t *testing.T) (string, func() []byte) {
 	}
 }
 
+func TestFormatArrayOutput_RepeatedOutputFile(t *testing.T) {
+	path, read := outFile(t)
+	if err := os.WriteFile(path, []byte("stale output\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	flags := cmdctx.FormatFlags{Format: "jsonl", OutFile: path}
+	for _, id := range []string{"first", "second"} {
+		data := []any{map[string]any{"id": id}}
+		if err := FormatArrayOutput(flags, false, data, "it", nil, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := string(read()), "{\"id\":\"first\"}\n{\"id\":\"second\"}\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
 func TestInjectURL(t *testing.T) {
 	always := func(it any) string { return "https://example.com/thing" }
 	empty := func(it any) string { return "" }

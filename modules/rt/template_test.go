@@ -5,7 +5,6 @@ package rt
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -15,7 +14,6 @@ func exportedYaml(t *testing.T, id string, routes map[string]any) (string, *[]ca
 	t.Helper()
 	ctx, calls := apiCtx(t, routes)
 	ctx.Id = id
-	ctx.FormatFlags.OutFile = filepath.Join(t.TempDir(), "template.yaml")
 
 	if err := exportTemplateYaml(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -51,7 +49,6 @@ func TestExportTemplateYamlPassesRevisionAndHub(t *testing.T) {
 		api("/load-test-templates/checkout/yaml"): rawResponse("name: checkout\n"),
 	})
 	ctx.Id = "checkout"
-	ctx.FormatFlags.OutFile = filepath.Join(t.TempDir(), "template.yaml")
 	ctx.FlagValues["revision"] = "3"
 	ctx.FlagValues["hub"] = "chaoshub198x"
 

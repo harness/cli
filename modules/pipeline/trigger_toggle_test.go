@@ -17,6 +17,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 const triggerDoc = `# keep me
@@ -105,6 +106,11 @@ func toggleServer(t *testing.T, getStatus int, getBody string) (*httptest.Server
 func toggleCtx(t *testing.T, apiURL string) (*cmdctx.Ctx, string) {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "out.txt")
+	t.Cleanup(func() {
+		if err := hbase.Cleanup(); err != nil {
+			t.Error(err)
+		}
+	})
 	ctx := &cmdctx.Ctx{
 		Context: context.Background(),
 		Auth: &auth.ResolvedAuth{

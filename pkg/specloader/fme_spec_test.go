@@ -20,6 +20,7 @@ import (
 	"github.com/harness/cli/v3/modules/fme"
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/registry"
 )
 
@@ -54,6 +55,12 @@ func fmeCaptureServerWithQuery(t *testing.T, resp string) (*httptest.Server, *st
 
 func fmeTestCtx(t *testing.T, apiURL string) *cmdctx.Ctx {
 	t.Helper()
+	out := filepath.Join(t.TempDir(), "out")
+	t.Cleanup(func() {
+		if err := hbase.Cleanup(); err != nil {
+			t.Error(err)
+		}
+	})
 	return &cmdctx.Ctx{
 		Context: context.Background(),
 		Auth: &auth.ResolvedAuth{
@@ -64,7 +71,7 @@ func fmeTestCtx(t *testing.T, apiURL string) *cmdctx.Ctx {
 			PATToken:  "pat.test",
 			AuthType:  auth.AuthTypePAT,
 		},
-		FormatFlags: cmdctx.FormatFlags{OutFile: filepath.Join(t.TempDir(), "out")},
+		FormatFlags: cmdctx.FormatFlags{OutFile: out},
 	}
 }
 
