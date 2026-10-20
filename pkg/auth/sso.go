@@ -18,6 +18,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/httpclient"
 )
 
 // ErrSSOSessionExpired is the sentinel for an expired SSO refresh token.
@@ -62,7 +63,11 @@ type AuthServerMeta struct {
 // FetchAuthServerMeta retrieves OAuth2 authorization server metadata via discovery.
 func FetchAuthServerMeta(c *http.Client, authServerBaseURL string) (*AuthServerMeta, error) {
 	metaURL := authServerBaseURL + ssoMetadataPath
-	resp, err := c.Get(metaURL)
+	req, err := http.NewRequest(http.MethodGet, metaURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpclient.DoWithProxyCheck(c, req)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +216,12 @@ func RandomState() (string, error) {
 
 func doTokenRequest(tokenEndpoint string, params url.Values) (accessToken, refreshToken string, err error) {
 	c := &http.Client{Timeout: ssoTokenTimeout}
-	resp, err := c.Post(tokenEndpoint, "application/x-www-form-urlencoded", strings.NewReader(params.Encode()))
+	req, err := http.NewRequest(http.MethodPost, tokenEndpoint, strings.NewReader(params.Encode()))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := httpclient.DoWithProxyCheck(c, req)
 	if err != nil {
 		return "", "", err
 	}
