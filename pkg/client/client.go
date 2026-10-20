@@ -20,7 +20,13 @@ import (
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/hlog"
+	"github.com/harness/cli/v3/pkg/httpclient"
 )
+
+// DoWithProxyCheck fails on an unparseable proxy env var, which http.ProxyFromEnvironment would silently ignore.
+func DoWithProxyCheck(hc *http.Client, req *http.Request) (*http.Response, error) {
+	return httpclient.DoWithProxyCheck(hc, req)
+}
 
 func networkError(err error, apiURL string) error {
 	if _, ok := errors.AsType[*net.DNSError](err); ok {
@@ -66,8 +72,8 @@ func APIErrorMessage(status int, body []byte) string {
 }
 
 // APIError is a non-2xx response from the Harness API. Error() keeps the short
-// "API error <status>: <message>" form that callers match on; Dump() carries the
-// full request/response for 4xx and 5xx.
+// "API error <status>: <message>" form that callers match on; the full request and
+// response are logged at debug level.
 type APIError struct {
 	Status int
 	Msg    string
@@ -79,32 +85,6 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("API error %d: %s", e.Status, e.Msg)
-}
-
-// Dump returns the request and raw response as indented JSON, or "" for a status below 400.
-func (e *APIError) Dump() string {
-	if e.Status < 400 {
-		return ""
-	}
-	var body any = string(e.Body)
-	if json.Valid(e.Body) {
-		body = json.RawMessage(e.Body)
-	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(map[string]any{
-		"request": map[string]any{"method": e.Method, "url": e.URL},
-		"response": map[string]any{
-			"status":  e.Status,
-			"headers": redactHeaders(e.Header),
-			"body":    body,
-		},
-	}); err != nil {
-		return ""
-	}
-	return strings.TrimRight(out.String(), "\n")
 }
 
 func redactHeaders(h http.Header) http.Header {
@@ -234,7 +214,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	}
 
 	start := time.Now()
-	resp, err := c.http.Do(req)
+	resp, err := DoWithProxyCheck(c.http, req)
 	elapsed := time.Since(start).Milliseconds()
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
@@ -249,7 +229,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 		return nil, nil, fmt.Errorf("reading API response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.Header, &APIError{
+		apiErr := &APIError{
 			Status: resp.StatusCode,
 			Msg:    APIErrorMessage(resp.StatusCode, respBody),
 			Method: r.Method,
@@ -257,6 +237,9 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 			Header: resp.Header,
 			Body:   respBody,
 		}
+		hlog.Debug("API error", "status", apiErr.Status, "method", apiErr.Method, "url", apiErr.URL,
+			"headers", redactHeaders(apiErr.Header), "body", string(apiErr.Body))
+		return nil, resp.Header, apiErr
 	}
 	if len(respBody) == 0 {
 		return nil, resp.Header, nil
@@ -278,7 +261,7 @@ func (c *Client) DoRaw(r Request) (*http.Response, error) {
 	if err := c.previewRequest(req); err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := DoWithProxyCheck(c.http, req)
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
 		hlog.Info(r.Method+" "+u.Path, "error", nerr)
@@ -299,7 +282,7 @@ func (c *Client) DoStream(r Request, timeout time.Duration) (*http.Response, err
 		return nil, err
 	}
 	hc := &http.Client{Timeout: timeout}
-	resp, err := hc.Do(req)
+	resp, err := DoWithProxyCheck(hc, req)
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
 		hlog.Info(r.Method+" "+u.Path, "error", nerr)

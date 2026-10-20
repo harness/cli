@@ -92,68 +92,23 @@ func TestDoRequest_AccountIdentifierOmittedOnWire(t *testing.T) {
 	}
 }
 
-func TestDoRequest_APIErrorDump(t *testing.T) {
-	tests := []struct {
-		name     string
-		status   int
-		body     string
-		wantBody any
-		wantDump bool
-	}{
-		{"json body embedded as json", 500, `{"message":"boom","code":"X"}`, map[string]any{"message": "boom", "code": "X"}, true},
-		{"html body kept as string", 502, `<html>bad gateway</html>`, `<html>bad gateway</html>`, true},
-		{"empty body", 400, ``, ``, true},
-		{"3xx has no dump", 304, `{"message":"x"}`, nil, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("X-Test", "hdr")
-				w.Header().Add("Set-Cookie", "session=secret")
-				w.WriteHeader(tt.status)
-				w.Write([]byte(tt.body))
-			}))
-			defer srv.Close()
+func TestDoRequest_APIErrorFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte(`{"message":"boom"}`))
+	}))
+	defer srv.Close()
 
-			_, _, err := testClient(srv.URL).Get("/p", nil)
-			var apiErr *APIError
-			if !errors.As(err, &apiErr) {
-				t.Fatalf("want *APIError, got %T: %v", err, err)
-			}
-			if !strings.HasPrefix(err.Error(), "API error ") {
-				t.Errorf("Error() = %q, must keep the %q prefix callers match on", err.Error(), "API error ")
-			}
-			dump := apiErr.Dump()
-			if (dump != "") != tt.wantDump {
-				t.Fatalf("Dump() empty=%v, want dump=%v", dump == "", tt.wantDump)
-			}
-			if !tt.wantDump {
-				return
-			}
-			var got struct {
-				Request  struct{ Method, URL string }
-				Response struct {
-					Status  int
-					Headers map[string][]string
-					Body    any
-				}
-			}
-			if err := json.Unmarshal([]byte(dump), &got); err != nil {
-				t.Fatalf("dump is not valid JSON: %v\n%s", err, dump)
-			}
-			if got.Request.Method != "GET" || !strings.Contains(got.Request.URL, "/p") {
-				t.Errorf("request = %+v", got.Request)
-			}
-			if strings.Contains(dump, "secret") || got.Response.Headers["Set-Cookie"][0] != "[redacted]" {
-				t.Errorf("Set-Cookie not redacted: %v", got.Response.Headers["Set-Cookie"])
-			}
-			if got.Response.Status != tt.status || got.Response.Headers["X-Test"][0] != "hdr" {
-				t.Errorf("response = %+v", got.Response)
-			}
-			if gb, _ := json.Marshal(got.Response.Body); string(gb) != mustJSON(tt.wantBody) {
-				t.Errorf("body = %s, want %s", gb, mustJSON(tt.wantBody))
-			}
-		})
+	_, _, err := testClient(srv.URL).Get("/p", nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("want *APIError, got %T: %v", err, err)
+	}
+	if err.Error() != "API error 500: boom" {
+		t.Errorf("Error() = %q, callers match on the %q prefix", err.Error(), "API error ")
+	}
+	if apiErr.Method != "GET" || !strings.Contains(apiErr.URL, "/p") || string(apiErr.Body) != `{"message":"boom"}` {
+		t.Errorf("apiErr = %+v", apiErr)
 	}
 }
 

@@ -19,7 +19,8 @@ var npm403Pattern = regexp.MustCompile(`(?i)(403\s*forbidden|E403|\bstatus\s+403
 
 type npmClient struct{}
 
-func (c *npmClient) Name() string { return "npm" }
+func (c *npmClient) Name() string        { return "npm" }
+func (c *npmClient) PackageType() string { return "NPM" }
 
 func (c *npmClient) DetectRegistry(explicitRegistry string) (*pkgmgrRegistryInfo, error) {
 	if saved := loadPkgmgrConfig("npm"); saved != nil {
@@ -129,4 +130,3 @@ func npmParseNpmrc(path, explicitRegistry string) (*pkgmgrRegistryInfo, error) {
 	}
 	return &pkgmgrRegistryInfo{RegistryURL: registryURL, RegistryIdentifier: regID}, nil
 }
-

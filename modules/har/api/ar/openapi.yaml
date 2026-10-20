@@ -1335,6 +1335,8 @@ components:
           type: string
         name:
           type: string
+        path:
+          type: string
         size:
           type: string
       required:

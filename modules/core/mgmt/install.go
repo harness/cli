@@ -206,7 +206,7 @@ func InstallCLIHandler(ctx *cmdctx.Ctx) error {
 	if check {
 		if _, err := archiveAssetURL(rel, installBundleName, version, platform); err != nil {
 			fmt.Printf("Version %s not found\n", version)
-			os.Exit(1)
+			hbase.Exit(1)
 		}
 		current := hbase.Version
 		cmp, ok := cmpVersion(version, current)

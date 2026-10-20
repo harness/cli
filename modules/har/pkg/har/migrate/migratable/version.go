@@ -188,6 +188,11 @@ func (r *Version) Migrate(ctx context.Context) error {
 				logger.Debug().Msgf("Skipping non-tgz file %s for NPM migration", file.Name)
 				continue
 			}
+			if r.artifactType == types.NPM && r.config.Source.Type == types.GITHUB &&
+				!npmTarballBelongsToVersion(r.pkg.Name, r.version.Name, file.Name) {
+				logger.Debug().Msgf("Skipping file %s: not the tarball of version %s", file.Name, r.version.Name)
+				continue
+			}
 			// For NUGET, skip files that don't match current package and version
 			if r.artifactType == types.NUGET {
 				//pkgName, version, ok := parseNugetFilePathFromName(file.Name)
@@ -383,4 +388,15 @@ func (r *Version) getAllExistingFilesForThisVersion(ctx context.Context) ([]stri
 
 	r.logger.Info().Msgf("Retrieved %d existing files from destination API for version %s", len(allFileNames), r.version.Name)
 	return allFileNames, nil
+}
+
+// npmTarballBelongsToVersion reports whether fileName is the <name>-<version>.tgz
+// tarball of pkgName@version. Sources that return placeholder (empty) package or
+// version names group every tarball under one version node, so all files match.
+func npmTarballBelongsToVersion(pkgName, version, fileName string) bool {
+	if pkgName == "" || version == "" {
+		return true
+	}
+	shortName := pkgName[strings.LastIndex(pkgName, "/")+1:]
+	return fileName == shortName+"-"+version+".tgz"
 }

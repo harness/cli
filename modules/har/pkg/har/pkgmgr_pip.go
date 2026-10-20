@@ -20,7 +20,8 @@ var pip403Pattern = regexp.MustCompile(`(?i)(403\s*Forbidden|HTTP\s+error\s+403|
 
 type pipClient struct{}
 
-func (c *pipClient) Name() string { return "pip" }
+func (c *pipClient) Name() string        { return "pip" }
+func (c *pipClient) PackageType() string { return "PYTHON" }
 
 func (c *pipClient) DetectRegistry(explicitRegistry string) (*pkgmgrRegistryInfo, error) {
 	if saved := loadPkgmgrConfig("pip"); saved != nil {

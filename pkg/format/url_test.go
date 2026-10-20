@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 func urlEnv(fn func(any) string) map[string]any {
@@ -25,12 +26,34 @@ func urlEnv(fn func(any) string) map[string]any {
 func outFile(t *testing.T) (string, func() []byte) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "out")
+	t.Cleanup(func() {
+		if err := hbase.Cleanup(); err != nil {
+			t.Error(err)
+		}
+	})
 	return path, func() []byte {
 		b, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("reading captured output: %v", err)
 		}
 		return b
+	}
+}
+
+func TestFormatArrayOutput_RepeatedOutputFile(t *testing.T) {
+	path, read := outFile(t)
+	if err := os.WriteFile(path, []byte("stale output\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	flags := cmdctx.FormatFlags{Format: "jsonl", OutFile: path}
+	for _, id := range []string{"first", "second"} {
+		data := []any{map[string]any{"id": id}}
+		if err := FormatArrayOutput(flags, false, data, "it", nil, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := string(read()), "{\"id\":\"first\"}\n{\"id\":\"second\"}\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
 	}
 }
 

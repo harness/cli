@@ -81,11 +81,10 @@ func GetPRWorkflow(ctx *cmdctx.Ctx) error {
 // section (best-effort — a failure here still only omits it), then the description
 // text block, then a collapsed comments summary (best-effort), then the footer.
 func renderPR(ctx *cmdctx.Ctx, baseSpec *spec.CommandSpec, pr any, insightSpec *spec.CommandSpec, insightData any, activityData any) error {
-	w, closeW, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+	w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
 	if err != nil {
 		return err
 	}
-	defer closeW()
 
 	exprEnv := exprenv.Make(ctx)
 	interpolate := func(tmpl string, item any) string {

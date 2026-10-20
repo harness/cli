@@ -12,6 +12,7 @@ import (
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/exprenv"
 	"github.com/harness/cli/v3/pkg/format"
+	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/registry"
 	"github.com/harness/cli/v3/pkg/spec"
 )
@@ -86,6 +87,11 @@ func TestUsageReportRendersThroughTheListPipeline(t *testing.T) {
 	for _, formatName := range []string{"csv", "table", "tsv"} {
 		t.Run(formatName, func(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "report")
+			t.Cleanup(func() {
+				if err := hbase.Cleanup(); err != nil {
+					t.Error(err)
+				}
+			})
 			err := format.FormatArrayOutput(
 				cmdctx.FormatFlags{Format: formatName, OutFile: out},
 				false, items, "it",

@@ -1067,6 +1067,10 @@ commands:
     flags_builtin:
     handler_type: workflow
     workflow_id: execute_artifact_firewall_scan
+    flags:
+      - name: async
+        description: "Use the legacy asynchronous initiate-and-poll API instead of synchronous evaluation"
+        is_bool: true
 
   - command: execute registry:firewall_scan
     verb: execute
@@ -1082,6 +1086,12 @@ commands:
       - name: lockfile
         description: "Path to lock file (package-lock.json, pnpm-lock.yaml, yarn.lock, requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock, pom.xml, build.gradle, packages.lock.json)"
         required: true
+      - name: async
+        description: "Use the legacy asynchronous initiate-and-poll API instead of synchronous evaluation"
+        is_bool: true
+      - name: batch-size
+        description: "Artifacts evaluated per batch (default: 20, maximum: 50)"
+        default: "20"
 
   - command: execute artifact:npm_install
     verb: execute
@@ -1157,7 +1167,7 @@ commands:
 
         source:
           endpoint: https://source-registry.example.com
-          type: JFROG                    # Supported: JFROG, NEXUS, HARBOR, HAR
+          type: JFROG                    # Supported: JFROG, NEXUS, HARBOR, GITHUB, HAR
           credentials:
             username: source_user
             password: source_password
@@ -1195,6 +1205,12 @@ commands:
         CONDA, COMPOSER, DART, RAW, SWIFT, DEBIAN, CONAN, PUPPET, HELM_HTTP,
         RUBY, CRAN, TERRAFORM
 
+      GitHub Packages source (type: GITHUB; currently supports artifactType NPM):
+        Set endpoint to https://api.github.com and credentials.password to a classic
+        personal access token with read:packages. Each mapping's sourceRegistry is
+        the GitHub org or user that owns the packages; all of its npm packages
+        (@<owner>/<name>) are migrated unless narrowed by packageFilters.
+
       Package Filtering (packageFilters, opt-in):
         An allow-list: when set, only the named packages (and optionally specific
         versions/files) are migrated; when omitted, everything migrates.
@@ -1208,7 +1224,8 @@ commands:
 
         For synthetic-identity types (MAVEN, NPM, GENERIC, RAW), filter via the
         files field rather than package names, since package/version names are
-        derived from file paths.
+        derived from file paths. Exception: a GITHUB source reports real npm
+        package/version names, so filter by package (e.g. "@<owner>/<name>").
 
       Include/Exclude Patterns (includePatterns / excludePatterns, mutually exclusive):
         Glob patterns (* and ** wildcards) applied at a type-dependent granularity:
@@ -1287,7 +1304,7 @@ commands:
     workflow_id: configure_registry_pip
     flags:
       - name: global
-        description: "Write config to the global/user-level pip.conf instead of the local project directory"
+        description: "Write config to the user-level pip.conf (default true); --global=false writes ./pip.conf, which pip reads only via PIP_CONFIG_FILE"
         is_bool: true
 
   - command: configure registry:nuget

@@ -15,6 +15,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/registry"
 )
 
@@ -79,6 +80,11 @@ func apiCtx(t *testing.T, routes map[string]any) (*cmdctx.Ctx, *[]call) {
 	}
 	// Render to a file so endpoint tests do not print over the test output.
 	ctx.FormatFlags.OutFile = filepath.Join(t.TempDir(), "out")
+	t.Cleanup(func() {
+		if err := hbase.Cleanup(); err != nil {
+			t.Error(err)
+		}
+	})
 	return ctx, calls
 }
 

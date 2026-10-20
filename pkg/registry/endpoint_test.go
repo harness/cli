@@ -21,6 +21,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/spec"
 )
 
@@ -1824,7 +1825,13 @@ func readOut(t *testing.T, path string) string {
 
 func outFile(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(t.TempDir(), "out")
+	path := filepath.Join(t.TempDir(), "out")
+	t.Cleanup(func() {
+		if err := hbase.Cleanup(); err != nil {
+			t.Error(err)
+		}
+	})
+	return path
 }
 
 func TestRunEndpoint(t *testing.T) {

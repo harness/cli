@@ -1,6 +1,7 @@
 package har
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/harness/cli/modules/har/pkg/har/genapi/ar"
 	"github.com/harness/cli/modules/har/pkg/har/genapi/ar_pkg"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 )
@@ -21,6 +23,38 @@ func newTestClient(t *testing.T, serverURL string) *client {
 		t.Fatalf("new pkg client: %v", err)
 	}
 	return &client{pkgClient: pc, url: serverURL, accountID: "acct1"}
+}
+
+// The index must hold HAR file paths, not names: HasFile maps a stored path
+// back to the source form, so a name-only entry never matches on re-runs.
+func TestBuildExistingIndexStoresFilePaths(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch p := r.URL.Path; {
+		case strings.HasSuffix(p, "/artifacts"):
+			_, _ = io.WriteString(w, `{"status":"SUCCESS","data":{"artifacts":[{"name":"@acme/demo"}]}}`)
+		case strings.HasSuffix(p, "/versions"):
+			_, _ = io.WriteString(w, `{"status":"SUCCESS","data":{"artifactVersions":[{"name":"1.0.1","fileCount":1}]}}`)
+		case strings.HasSuffix(p, "/files"):
+			_, _ = io.WriteString(w, `{"status":"SUCCESS","data":{"files":[`+
+				`{"name":"@acme/demo-1.0.1.tgz","path":"/@acme/demo/1.0.1/@acme/demo-1.0.1.tgz"}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	api, err := ar.NewClientWithResponses(srv.URL)
+	if err != nil {
+		t.Fatalf("new api client: %v", err)
+	}
+	idx, err := (&client{apiClient: api}).buildExistingIndex(context.Background(), "acct/npmtest", 1)
+	if err != nil {
+		t.Fatalf("buildExistingIndex: %v", err)
+	}
+	if !idx.HasFile("@acme/demo", "1.0.1", "/@acme/demo/-/@acme/demo-1.0.1.tgz", types.NPM) {
+		t.Error("expected the migrated npm tarball to be found in the index")
+	}
 }
 
 // TestUploadTerraformFile covers module (.tar.gz) and provider (.zip) upload paths

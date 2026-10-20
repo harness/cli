@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 // Exec runs binPath as a child process (Windows has no execve equivalent).
@@ -19,7 +21,7 @@ func Exec(binPath string, args []string) error {
 	child.Stderr = os.Stderr
 	if err := child.Run(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
-			os.Exit(exit.ExitCode())
+			hbase.Exit(exit.ExitCode())
 		}
 		return fmt.Errorf("plugin %q: %w", binPath, err)
 	}
