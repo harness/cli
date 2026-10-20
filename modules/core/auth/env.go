@@ -14,9 +14,11 @@ import (
 
 func EnvHandler(ctx *cmdctx.Ctx) error {
 	profileFlag := cmdctx.GetString(ctx.FlagValues, "profile")
+	orgFlag := cmdctx.GetString(ctx.FlagValues, "org")
+	projectFlag := cmdctx.GetString(ctx.FlagValues, "project")
 	export := cmdctx.GetBool(ctx.FlagValues, "export")
 
-	resolved, err := auth.Load(profileFlag)
+	resolved, err := auth.LoadWithOverrides(profileFlag, orgFlag, projectFlag)
 	if err != nil {
 		return err
 	}

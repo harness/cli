@@ -100,6 +100,43 @@ func TestResolveWithOverridesValidatesCredentials(t *testing.T) {
 	}
 }
 
+func TestLoadWithOverrides(t *testing.T) {
+	setup := func(t *testing.T, org, project string) {
+		t.Helper()
+		t.Setenv(hbase.EnvCLIHome, t.TempDir())
+		t.Setenv(hbase.EnvAPIKey, "pat.test-account.test-token.not-a-secret")
+		t.Setenv(hbase.EnvAccount, "test-account")
+		t.Setenv(hbase.EnvOrg, org)
+		t.Setenv(hbase.EnvProject, project)
+	}
+	t.Run("flags override env scope", func(t *testing.T) {
+		setup(t, "env-org", "env-project")
+		r, err := LoadWithOverrides(ProfileSentinelEnv, "flag-org", "flag-project")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.OrgID != "flag-org" || r.ProjectID != "flag-project" {
+			t.Errorf("scope = %q/%q, want flag-org/flag-project", r.OrgID, r.ProjectID)
+		}
+	})
+	t.Run("empty overrides preserve scope", func(t *testing.T) {
+		setup(t, "env-org", "env-project")
+		r, err := LoadWithOverrides(ProfileSentinelEnv, "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.OrgID != "env-org" || r.ProjectID != "env-project" {
+			t.Errorf("scope = %q/%q, want env-org/env-project", r.OrgID, r.ProjectID)
+		}
+	})
+	t.Run("does not validate", func(t *testing.T) {
+		setup(t, "", "")
+		if _, err := LoadWithOverrides(ProfileSentinelEnv, "", ""); err != nil {
+			t.Fatalf("LoadWithOverrides must not require scope: %v", err)
+		}
+	})
+}
+
 func TestNormalizeAPIURL(t *testing.T) {
 	cases := []struct {
 		in   string

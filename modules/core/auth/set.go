@@ -100,6 +100,6 @@ func setFlags(profileName, orgID, projectID string) error {
 	}
 
 	fmt.Printf("Profile %q updated.\n\n", profileName)
-	printStatus(runStatusChecks(profileName))
+	printStatus(runStatusChecks(profileName, "", ""))
 	return nil
 }

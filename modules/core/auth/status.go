@@ -76,7 +76,9 @@ func StatusHandler(ctx *cmdctx.Ctx) error {
 	jsonMode := ctx.FormatFlags.Format == "json"
 	tokenStatus := cmdctx.GetBool(ctx.FlagValues, "token-status")
 
-	r := runStatusChecks(profileFlag)
+	orgFlag := cmdctx.GetString(ctx.FlagValues, "org")
+	projectFlag := cmdctx.GetString(ctx.FlagValues, "project")
+	r := runStatusChecks(profileFlag, orgFlag, projectFlag)
 
 	// A profile that doesn't exist in config at all has nothing to report —
 	// skip the status table and return the clean error directly.
@@ -96,7 +98,7 @@ func StatusHandler(ctx *cmdctx.Ctx) error {
 	return checkErrors(r)
 }
 
-func runStatusChecks(profileFlag string) statusResult {
+func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 	selector := auth.EffectiveProfileSelector(profileFlag)
 	if selector == auth.ProfileSentinelPipeline || (selector == "" && hbase.IsPipelineExecution()) {
 		return runPipelineStatusChecks()
@@ -120,7 +122,7 @@ func runStatusChecks(profileFlag string) statusResult {
 	skip := checkResult{OK: false, Error: "skipped"}
 	r := statusResult{Source: anticipatedSource, Profile: profileName(anticipatedSource)}
 
-	resolved, loadErr := auth.Load(profileFlag)
+	resolved, loadErr := auth.LoadWithOverrides(profileFlag, orgFlag, projectFlag)
 	if loadErr != nil {
 		r.Status.Profile = checkResult{OK: false, Error: loadErr.Error()}
 		populateKnownProfileFields(&r, profileName(anticipatedSource))

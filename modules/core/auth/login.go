@@ -216,7 +216,7 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Printf("Logged in. Profile %q written.\n\n", profileName)
-	printStatus(runStatusChecks(profileName))
+	printStatus(runStatusChecks(profileName, "", ""))
 	return nil
 }
 

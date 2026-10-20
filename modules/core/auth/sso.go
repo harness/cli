@@ -147,7 +147,7 @@ func runSSOLogin(ctx *cmdctx.Ctx, cfg *config.Config, profileName string) error 
 	}
 
 	fmt.Printf("Logged in via SSO. Profile %q written.\n\n", profileName)
-	printStatus(runStatusChecks(profileName))
+	printStatus(runStatusChecks(profileName, "", ""))
 	return nil
 }
 
