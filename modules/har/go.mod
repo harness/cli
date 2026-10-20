@@ -14,7 +14,7 @@ require (
 	github.com/pterm/pterm v0.12.84
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.1
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.61.0
