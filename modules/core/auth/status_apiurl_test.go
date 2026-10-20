@@ -9,6 +9,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/harness/cli/v3/pkg/config"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 // setProbeProxy overrides the proxy used by checkAPIUrl (http.ProxyFromEnvironment
@@ -52,5 +55,28 @@ func TestCheckAPIUrl_ProxyFailuresNotBlamedOnHost(t *testing.T) {
 	r = checkAPIUrl("http://harness.example.com", true)
 	if r.OK || !strings.Contains(r.Error, "cannot reach proxy") {
 		t.Fatalf("expected proxy unreachable message, got %+v", r)
+	}
+}
+
+func TestPopulateKnownProfileFieldsScopeOverrides(t *testing.T) {
+	t.Setenv(hbase.EnvCLIHome, t.TempDir())
+	cfg := &config.Config{Profiles: map[string]*config.Profile{
+		"p": {AccountID: "acct", OrgID: "saved-org", ProjectID: "saved-project"},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, org, project, wantOrg, wantProject string }{
+		{"no overrides keep saved scope", "", "", "saved-org", "saved-project"},
+		{"overrides replace saved scope", "flag-org", "flag-project", "flag-org", "flag-project"},
+		{"project only", "", "flag-project", "saved-org", "flag-project"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var r statusResult
+			populateKnownProfileFields(&r, "p", tc.org, tc.project)
+			if r.OrgID != tc.wantOrg || r.ProjectID != tc.wantProject {
+				t.Errorf("scope = %q/%q, want %q/%q", r.OrgID, r.ProjectID, tc.wantOrg, tc.wantProject)
+			}
+		})
 	}
 }

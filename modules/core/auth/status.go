@@ -125,7 +125,7 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 	resolved, loadErr := auth.LoadWithOverrides(profileFlag, orgFlag, projectFlag)
 	if loadErr != nil {
 		r.Status.Profile = checkResult{OK: false, Error: loadErr.Error()}
-		populateKnownProfileFields(&r, profileName(anticipatedSource))
+		populateKnownProfileFields(&r, profileName(anticipatedSource), orgFlag, projectFlag)
 
 		// APIUrl needs no credential, so check it independently even though
 		// auth failed — it's real signal, not something we're skipping.
@@ -419,8 +419,9 @@ func persistResolvedIdentity(resolved *auth.ResolvedAuth, identity tokenIdentity
 // populateKnownProfileFields fills in whatever profile fields we already know from
 // config even though auth.Load failed — the profile's own APIUrl/AccountID/OrgID/
 // ProjectID don't require a valid token to read, so a bad/missing credential
-// shouldn't blank them out on the status display.
-func populateKnownProfileFields(r *statusResult, pName string) {
+// shouldn't blank them out on the status display. A non-empty orgOverride or
+// projectOverride (from --org/--project) replaces the saved value.
+func populateKnownProfileFields(r *statusResult, pName, orgOverride, projectOverride string) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return
@@ -436,6 +437,12 @@ func populateKnownProfileFields(r *statusResult, pName string) {
 	r.AccountID = p.AccountID
 	r.OrgID = p.OrgID
 	r.ProjectID = p.ProjectID
+	if orgOverride != "" {
+		r.OrgID = orgOverride
+	}
+	if projectOverride != "" {
+		r.ProjectID = projectOverride
+	}
 	if p.AuthType == auth.AuthTypeSSO {
 		r.TokenType = "SSO"
 	} else {
