@@ -188,7 +188,8 @@ func (r *Version) Migrate(ctx context.Context) error {
 				logger.Debug().Msgf("Skipping non-tgz file %s for NPM migration", file.Name)
 				continue
 			}
-			if r.artifactType == types.NPM && !npmTarballBelongsToVersion(r.pkg.Name, r.version.Name, file.Name) {
+			if r.artifactType == types.NPM && r.config.Source.Type == types.GITHUB &&
+				!npmTarballBelongsToVersion(r.pkg.Name, r.version.Name, file.Name) {
 				logger.Debug().Msgf("Skipping file %s: not the tarball of version %s", file.Name, r.version.Name)
 				continue
 			}
