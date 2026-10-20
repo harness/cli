@@ -971,6 +971,7 @@ commands:
     endpoint:
       path: /pipeline/api/triggers/{{lastPart(ctx.id)}}
       item_expr: it.data
+      yaml_pick_expr: yamlParse(it.data.yaml)
       fields_subset: [identifier, name, type, enabled, pipeline, webhook_url, yaml]
       query_params:
         targetIdentifier: ctx.idParts[0]
