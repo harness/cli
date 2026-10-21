@@ -222,3 +222,18 @@ func TestWithIt(t *testing.T) {
 		t.Error("WithIt mutated the original env")
 	}
 }
+
+// Spec exprs must use expr-lang's builtin call form with a "#" predicate.
+// Method-call syntax (it.tags.map(t, t.name).join(", ")) does not evaluate and
+// silently renders as blank in text output, so it is easy to ship by accident.
+func TestEvalExpr_MapJoin(t *testing.T) {
+	env := map[string]any{"it": map[string]any{
+		"tags": []any{map[string]any{"name": "a"}, map[string]any{"name": "b"}},
+	}}
+	if got := EvalExpr(env, `join(map(it.tags, {#.name}), ", ")`); got != "a, b" {
+		t.Errorf("builtin form = %q, want %q", got, "a, b")
+	}
+	if got := EvalExpr(env, `it.tags.map(t, t.name).join(", ")`); got != "" {
+		t.Errorf("method-call form = %q, want blank (unsupported syntax)", got)
+	}
+}
