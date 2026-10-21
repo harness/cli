@@ -18,7 +18,9 @@ func TestMutateOwners(t *testing.T) {
 		map[string]any{"id": "platform", "type": "GROUP", "name": "platform"},
 	}
 	add := func(key string) cmdctx.FieldMutation { return cmdctx.FieldMutation{Kind: cmdctx.MutationAdd, Key: key} }
-	del := func(key string) cmdctx.FieldMutation { return cmdctx.FieldMutation{Kind: cmdctx.MutationDelete, Key: key} }
+	del := func(key string) cmdctx.FieldMutation {
+		return cmdctx.FieldMutation{Kind: cmdctx.MutationDelete, Key: key}
+	}
 
 	tests := []struct {
 		name    string
