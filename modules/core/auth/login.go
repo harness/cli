@@ -294,36 +294,10 @@ func profileAPIURLs(cfg *config.Config) []string {
 	return urls
 }
 
-// fetchRegistryURL calls GET /gateway/har/api/v3/system/info to get the package registry base URL.
-// Returns empty string (not an error) when the field is absent — the caller falls back gracefully.
 func fetchRegistryURL(apiURL, token, accountID string) (string, error) {
-	c := &http.Client{Timeout: 10 * time.Second}
-	url := fmt.Sprintf("%s/gateway/har/api/v3/system/info?account_identifier=%s", apiURL, accountID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("building request: %w", err)
-	}
-	req.Header.Set("x-api-key", token)
-
-	resp, err := hclient.DoWithProxyCheck(c, req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("status %d", resp.StatusCode)
-	}
-	var parsed struct {
-		Data struct {
-			RegistryURL string `json:"registryUrl"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", fmt.Errorf("decoding response: %w", err)
-	}
-	return parsed.Data.RegistryURL, nil
+	return auth.FetchRegistryURL(apiURL, accountID, func(req *http.Request) {
+		req.Header.Set("x-api-key", token)
+	})
 }
 
 // validateToken verifies the token against the API. PATs are checked by reading the account

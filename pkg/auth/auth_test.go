@@ -84,7 +84,6 @@ func TestResolveWithOverridesValidatesCredentials(t *testing.T) {
 	}{
 		{"missing key", "", "test-account", "HARNESS_API_KEY is required"},
 		{"invalid key", "not-a-token", "test-account", "HARNESS_API_KEY is invalid"},
-		{"account mismatch", "pat.test-account.test-token.not-a-secret", "other-account", "does not match account in token"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(hbase.EnvCLIHome, t.TempDir())
@@ -133,6 +132,17 @@ func TestLoadWithOverrides(t *testing.T) {
 		setup(t, "", "")
 		if _, err := LoadWithOverrides(ProfileSentinelEnv, "", ""); err != nil {
 			t.Fatalf("LoadWithOverrides must not require scope: %v", err)
+		}
+	})
+	t.Run("account comes from the token", func(t *testing.T) {
+		setup(t, "env-org", "env-project")
+		t.Setenv(hbase.EnvAccount, "other-account")
+		r, err := LoadWithOverrides(ProfileSentinelEnv, "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.AccountID != "test-account" {
+			t.Errorf("AccountID = %q, want the account segment of the token", r.AccountID)
 		}
 	})
 }

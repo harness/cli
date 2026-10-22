@@ -1020,6 +1020,7 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 			cmd.Flags().MarkHidden(f.Name) //nolint:errcheck
 		}
 	}
+	addHARCredentialFlags(cmd, cs.Module)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		ctx, err := buildCtx(cmd, cs, args, r)
 		if err != nil {
@@ -1131,6 +1132,17 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 			cmd.Flags().MarkHidden(f.Name)
 		}
 	}
+	addHARCredentialFlags(cmd, cs.Module)
+}
+
+// addHARCredentialFlags adds --api-url and --token to Artifact Registry commands.
+// They override the API URL and credential for that command only.
+func addHARCredentialFlags(cmd *cobra.Command, module string) {
+	if module != "har" {
+		return
+	}
+	cmd.Flags().String("api-url", "", "Harness API base URL (overrides profile or environment; the package registry URL is derived from it)")
+	cmd.Flags().String("token", "", "API token (overrides profile or environment; account is taken from the token)")
 }
 
 // bindEndpointCmd wires flags and RunE for an endpoint-backed command.
@@ -1365,6 +1377,11 @@ func buildFlagValues(flags *pflag.FlagSet, cs *spec.CommandSpec) map[string]any 
 	if flags.Lookup("file") != nil {
 		v, _ := flags.GetString("file")
 		fv["file"] = v
+	}
+	for _, name := range []string{"api-url", "token"} {
+		if fl := flags.Lookup(name); fl != nil && fl.Changed {
+			fv[name] = fl.Value.String()
+		}
 	}
 	if cs.NoAuth {
 		for _, name := range []string{"profile", "org", "project"} {

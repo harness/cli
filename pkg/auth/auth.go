@@ -96,6 +96,9 @@ func (a *ResolvedAuth) SetAuthHeader(req *http.Request) {
 	}
 }
 
+// ErrNotLoggedIn is returned when no profile exists and env auth is not active.
+var ErrNotLoggedIn = errors.New("not logged in — run 'harness auth login' to get started")
+
 // Load populates a ResolvedAuth following the resolution order from auth.md:
 // --profile, then HARNESS_PROFILE (name or sentinel), then HARNESS_API_KEY,
 // then the default profile. It never errors on missing optional fields —
@@ -135,25 +138,17 @@ func loadEnvMode() (*ResolvedAuth, error) {
 	if apiURL == "" {
 		apiURL = hbase.DefaultAPIURL
 	}
-	registryURL := os.Getenv(hbase.EnvRegistryURL)
-	if registryURL == "" {
-		registryURL = hbase.DefaultRegistryURL
+	r := &ResolvedAuth{
+		Source:    SourceEnv,
+		AuthType:  AuthTypePAT,
+		PATToken:  key,
+		AccountID: AccountIDFromToken(key),
+		OrgID:     os.Getenv(hbase.EnvOrg),
+		ProjectID: os.Getenv(hbase.EnvProject),
+		APIUrl:    apiURL,
+		TokenKind: TokenType(key),
 	}
-	acct := os.Getenv(hbase.EnvAccount)
-	if acct == "" {
-		acct = AccountIDFromToken(key)
-	}
-	return &ResolvedAuth{
-		Source:      SourceEnv,
-		AuthType:    AuthTypePAT,
-		PATToken:    key,
-		AccountID:   acct,
-		OrgID:       os.Getenv(hbase.EnvOrg),
-		ProjectID:   os.Getenv(hbase.EnvProject),
-		APIUrl:      apiURL,
-		RegistryURL: registryURL,
-		TokenKind:   TokenType(key),
-	}, nil
+	return r, nil
 }
 
 // LoginHint returns the appropriate 'harness auth login...' command for an error hint,
@@ -181,11 +176,14 @@ func Validate(r *ResolvedAuth) error {
 			}
 			return fmt.Errorf("stored token is invalid — run '%s' to re-authenticate: %w", r.LoginHint("login"), err)
 		}
-		if tokenAcct := AccountIDFromToken(r.PATToken); tokenAcct != "" && r.AccountID != tokenAcct {
+		if acct := AccountIDFromToken(r.PATToken); acct != "" {
+			r.AccountID = acct
+		}
+		if r.AccountID == "" {
 			if r.Source == SourceEnv {
-				return fmt.Errorf("%s %q does not match account in token %q", hbase.EnvAccount, r.AccountID, tokenAcct)
+				return fmt.Errorf("could not determine account from %s", hbase.EnvAPIKey)
 			}
-			return fmt.Errorf("stored account %q does not match token — run '%s' to re-authenticate", r.AccountID, r.LoginHint("login"))
+			return fmt.Errorf("could not determine account from token — run '%s' to re-authenticate", r.LoginHint("login"))
 		}
 	}
 	if r.OrgID == "" {
@@ -315,7 +313,7 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	p, ok := cfg.Profiles[name]
 	if !ok {
 		if name == "default" {
-			return nil, errors.New("not logged in — run 'harness auth login' to get started")
+			return nil, ErrNotLoggedIn
 		}
 		return nil, fmt.Errorf("profile %q not found", name)
 	}
@@ -343,23 +341,18 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	if apiURL == "" {
 		apiURL = hbase.DefaultAPIURL
 	}
-	registryURL := p.RegistryURL
-	if registryURL == "" {
-		registryURL = hbase.DefaultRegistryURL
-	}
 	r := &ResolvedAuth{
-		Source:      "profile:" + name,
-		AuthType:    authType,
-		APIUrl:      apiURL,
-		UIUrl:       p.UIUrl,
-		AccountID:   p.AccountID,
-		OrgID:       p.OrgID,
-		ProjectID:   p.ProjectID,
-		RegistryURL: registryURL,
-		Email:       p.Email,
-		UserType:    p.UserType,
-		UserID:      p.UserID,
-		TokenKind:   TokenType(activeToken),
+		Source:    "profile:" + name,
+		AuthType:  authType,
+		APIUrl:    apiURL,
+		UIUrl:     p.UIUrl,
+		AccountID: accountFromToken(activeToken, p.AccountID),
+		OrgID:     p.OrgID,
+		ProjectID: p.ProjectID,
+		Email:     p.Email,
+		UserType:  p.UserType,
+		UserID:    p.UserID,
+		TokenKind: TokenType(activeToken),
 	}
 	if authType == AuthTypeSSO {
 		r.SSOToken = activeToken
@@ -450,6 +443,15 @@ func ValidatePATFormat(token string) error {
 		}
 	}
 	return nil
+}
+
+// accountFromToken returns the account segment of a PAT/SAT. Tokens without one,
+// such as an SSO JWT, keep fallback.
+func accountFromToken(token, fallback string) string {
+	if acct := AccountIDFromToken(token); acct != "" {
+		return acct
+	}
+	return fallback
 }
 
 // AccountIDFromToken extracts the account ID from a valid PAT/SAT of the form pat.{AccountID}.x.y

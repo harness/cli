@@ -5,6 +5,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -62,14 +63,13 @@ func parseScopePrefix(raw string, isList bool) (stripped string, level string) {
 // It resolves auth from the command's --profile/--org/--project flags.
 // parentId is optional — pass "" when not applicable.
 func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId string) (*cmdctx.Ctx, error) {
-	profileFlag, _ := cmd.Flags().GetString("profile")
-	orgFlag, _ := cmd.Flags().GetString("org")
-	projectFlag, _ := cmd.Flags().GetString("project")
 	var pa *spec.PipelineAuthSpec
+	module := ""
 	if cs := r.GetSpec(verb, noun); cs != nil {
 		pa = cs.PipelineAuth
+		module = cs.Module
 	}
-	resolved, err := resolveAuthForCommand(pa, profileFlag, orgFlag, projectFlag)
+	resolved, err := resolveCommandAuth(cmd, pa, module)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +145,53 @@ func resolveAuthForCommand(pa *spec.PipelineAuthSpec, profileFlag, orgFlag, proj
 		}
 	}
 	return auth.ResolveWithOverrides(profileFlag, orgFlag, projectFlag)
+}
+
+// resolveCommandAuth resolves saved auth, then applies --api-url and --token.
+// --token is a complete credential: when nothing is logged in, the flag is
+// used instead of returning ErrNotLoggedIn.
+func resolveCommandAuth(cmd *cobra.Command, pa *spec.PipelineAuthSpec, module string) (*auth.ResolvedAuth, error) {
+	profileFlag, _ := cmd.Flags().GetString("profile")
+	orgFlag, _ := cmd.Flags().GetString("org")
+	projectFlag, _ := cmd.Flags().GetString("project")
+	creds := credentialFlagsFrom(cmd)
+	resolved, err := resolveAuthForCommand(pa, profileFlag, orgFlag, projectFlag)
+	if err != nil {
+		if !creds.TokenSet || !errors.Is(err, auth.ErrNotLoggedIn) {
+			return nil, err
+		}
+		resolved = &auth.ResolvedAuth{
+			Source:    auth.SourceEnv,
+			APIUrl:    hbase.DefaultAPIURL,
+			OrgID:     orgFlag,
+			ProjectID: projectFlag,
+		}
+	}
+	creds.ResolveRegistryURL = module == "har"
+	if err := auth.ApplyCredentialFlags(resolved, creds); err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
+func credentialFlagsFrom(cmd *cobra.Command) auth.CredentialFlags {
+	if cmd == nil {
+		return auth.CredentialFlags{}
+	}
+	return auth.CredentialFlags{
+		APIURL:    changedStringFlag(cmd, "api-url"),
+		Token:     changedStringFlag(cmd, "token"),
+		APIURLSet: cmd.Flags().Changed("api-url"),
+		TokenSet:  cmd.Flags().Changed("token"),
+	}
+}
+
+func changedStringFlag(cmd *cobra.Command, name string) string {
+	if cmd.Flags().Lookup(name) == nil || !cmd.Flags().Changed(name) {
+		return ""
+	}
+	v, _ := cmd.Flags().GetString(name)
+	return v
 }
 
 // buildCtx constructs a Ctx from a cobra command, resolving auth and global flags.
@@ -297,10 +344,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		return nil, err
 	}
 	if !cs.NoAuth {
-		profileFlag, _ := cmd.Flags().GetString("profile")
-		orgFlag, _ := cmd.Flags().GetString("org")
-		projectFlag, _ := cmd.Flags().GetString("project")
-		resolved, err := resolveAuthForCommand(cs.PipelineAuth, profileFlag, orgFlag, projectFlag)
+		resolved, err := resolveCommandAuth(cmd, cs.PipelineAuth, cs.Module)
 		if err != nil {
 			return nil, err
 		}
@@ -440,6 +484,11 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 		resolved, err = resolveAuthForCommand(targetCs.PipelineAuth, link.Profile, link.Org, link.Project)
 		if err != nil {
 			return nil, err
+		}
+		if targetCs.Module == "har" {
+			if err := auth.ApplyCredentialFlags(resolved, auth.CredentialFlags{ResolveRegistryURL: true}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	fv := link.FlagValues
