@@ -82,6 +82,8 @@ func TestValidateSegmentKeys(t *testing.T) {
 		{"ok", cmdctx.EndpointRequest{Body: map[string]any{"keys": []any{"a"}}}, ""},
 		{"empty", cmdctx.EndpointRequest{Body: map[string]any{"keys": []any{}}}, "no keys given"},
 		{"empty with replace", cmdctx.EndpointRequest{QueryParams: map[string]string{"replace": "true"}, Body: map[string]any{"keys": []any{}}}, ""},
+		{"remove with replace", cmdctx.EndpointRequest{Path: "/segment-definitions/s/keys/remove", QueryParams: map[string]string{"replace": "true"}, Body: map[string]any{"keys": []any{"a"}}}, "cannot be combined"},
+		{"add with replace", cmdctx.EndpointRequest{Path: "/segment-definitions/s/keys", QueryParams: map[string]string{"replace": "true"}, Body: map[string]any{"keys": []any{"a"}}}, ""},
 		{"too many", cmdctx.EndpointRequest{Body: map[string]any{"keys": many}}, "exceeds the limit"},
 	}
 	for _, tt := range tests {
