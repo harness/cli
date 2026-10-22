@@ -304,6 +304,7 @@ func fetchRegistryURL(apiURL, token, accountID string) (string, error) {
 		return "", fmt.Errorf("building request: %w", err)
 	}
 	req.Header.Set("x-api-key", token)
+	auth.SetAccountHeader(req, accountID)
 
 	resp, err := hclient.DoWithProxyCheck(c, req)
 	if err != nil {
@@ -351,6 +352,7 @@ func validateToken(apiURL, token, accountID string) error {
 		return fmt.Errorf("building validation request: %w", err)
 	}
 	req.Header.Set("x-api-key", token)
+	auth.SetAccountHeader(req, accountID)
 
 	resp, err := hclient.DoWithProxyCheck(c, req)
 	if err != nil {

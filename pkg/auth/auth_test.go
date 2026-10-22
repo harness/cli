@@ -377,3 +377,31 @@ func TestSetAuthHeader_PipelineHeadersTakePriority(t *testing.T) {
 		t.Errorf("Authorization header = %q, want empty — pipeline headers must fully replace, not stack", got)
 	}
 }
+
+func TestSetAuthHeader_HarnessAccount(t *testing.T) {
+	tests := []struct {
+		name string
+		auth ResolvedAuth
+		pre  string
+		want string
+	}{
+		{"PAT sets account", ResolvedAuth{AuthType: AuthTypePAT, PATToken: "pat", AccountID: "acct"}, "", "acct"},
+		{"SSO sets account", ResolvedAuth{AuthType: AuthTypeSSO, SSOToken: "tok", AccountID: "acct"}, "", "acct"},
+		{"pipeline headers still get account", ResolvedAuth{Headers: map[string]string{"x-api-key": "k"}, AccountID: "acct"}, "", "acct"},
+		{"pipeline header wins", ResolvedAuth{Headers: map[string]string{"Harness-Account": "other"}, AccountID: "acct"}, "", "other"},
+		{"existing header kept", ResolvedAuth{AuthType: AuthTypePAT, PATToken: "pat", AccountID: "acct"}, "preset", "preset"},
+		{"empty account omitted", ResolvedAuth{AuthType: AuthTypePAT, PATToken: "pat"}, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", "https://example.com", nil)
+			if tt.pre != "" {
+				req.Header.Set("Harness-Account", tt.pre)
+			}
+			tt.auth.SetAuthHeader(req)
+			if got := req.Header.Get("Harness-Account"); got != tt.want {
+				t.Errorf("Harness-Account = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/harness/cli/modules/har/pkg/har/genapi/ar_pkg"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
+	"github.com/harness/cli/v3/pkg/auth"
 
 	"github.com/google/uuid"
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
@@ -25,13 +26,15 @@ import (
 )
 
 type xAPIKeyTransport struct {
-	base  http2.RoundTripper
-	token string
+	base      http2.RoundTripper
+	token     string
+	accountID string
 }
 
 func (t *xAPIKeyTransport) RoundTrip(req *http2.Request) (*http2.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("x-api-key", t.token)
+	auth.SetAccountHeader(req, t.accountID)
 	req.Header.Set("User-Agent", util.UserAgentString())
 	return t.base.RoundTrip(req)
 }
@@ -57,6 +60,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	withXApiKey := func(c *ar.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
+			auth.SetAccountHeader(req, reg.AccountID)
 			req.Header.Set("User-Agent", util.UserAgentString())
 			return nil
 		})
@@ -65,6 +69,7 @@ func newClient(reg *types.RegistryConfig) *client {
 	withXApiKeyPkg := func(c *ar_pkg.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http2.Request) error {
 			req.Header.Set("x-api-key", token)
+			auth.SetAccountHeader(req, reg.AccountID)
 			req.Header.Set("User-Agent", util.UserAgentString())
 			return nil
 		})
@@ -80,8 +85,9 @@ func newClient(reg *types.RegistryConfig) *client {
 	return &client{
 		client: &http2.Client{
 			Transport: &xAPIKeyTransport{
-				base:  &http2.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
-				token: token,
+				base:      &http2.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+				token:     token,
+				accountID: reg.AccountID,
 			},
 		},
 		pkgClient: pkgClient,
