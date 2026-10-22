@@ -94,7 +94,9 @@ func logCorrelationIDs(method, path string, h http.Header, body []byte) {
 // correlationId from a JSON body, either of which may be empty.
 func extractCorrelationIDs(h http.Header, body []byte) (traceID, correlationID string) {
 	traceID = h.Get("X-Harness-Trace-Id")
-	if len(body) > 0 {
+	// Cheap pre-check: valid JSON containing the field must contain this key
+	// verbatim, so skip the parse otherwise. Invalid JSON fails fast in Unmarshal.
+	if bytes.Contains(body, []byte(`"correlationId"`)) {
 		var parsed struct {
 			CorrelationID string `json:"correlationId"`
 		}
@@ -262,11 +264,7 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading API response: %w", err)
 	}
-	if failed := resp.StatusCode < 200 || resp.StatusCode >= 300; failed {
-		logCorrelationIDs(r.Method, u.Path, resp.Header, respBody)
-	} else {
-		logCorrelationIDs(r.Method, u.Path, resp.Header, nil) // skip parsing large success bodies
-	}
+	logCorrelationIDs(r.Method, u.Path, resp.Header, respBody)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		apiErr := &APIError{
 			Status: resp.StatusCode,
