@@ -71,6 +71,34 @@ func APIErrorMessage(status int, body []byte) string {
 	return string(body)
 }
 
+// logCorrelationIDs debug-logs server-side IDs (the X-Harness-Trace-Id header and
+// the correlationId field of a JSON error body) so a CLI run can be matched to
+// server logs. Best effort: it never returns an error and never reads or consumes
+// a response body. Pass body only when it is already in memory (nil for streams).
+func logCorrelationIDs(method, path string, h http.Header, body []byte) {
+	traceID := h.Get("X-Harness-Trace-Id")
+	var correlationID string
+	if len(body) > 0 {
+		var parsed struct {
+			CorrelationID string `json:"correlationId"`
+		}
+		if json.Unmarshal(body, &parsed) == nil {
+			correlationID = parsed.CorrelationID
+		}
+	}
+	if traceID == "" && correlationID == "" {
+		return
+	}
+	args := []any{}
+	if traceID != "" {
+		args = append(args, "trace_id", traceID)
+	}
+	if correlationID != "" {
+		args = append(args, "correlation_id", correlationID)
+	}
+	hlog.Debug("server correlation ids "+method+" "+path, args...)
+}
+
 // APIError is a non-2xx response from the Harness API. Error() keeps the short
 // "API error <status>: <message>" form that callers match on; the full request and
 // response are logged at debug level.
@@ -228,6 +256,11 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading API response: %w", err)
 	}
+	if failed := resp.StatusCode < 200 || resp.StatusCode >= 300; failed {
+		logCorrelationIDs(r.Method, u.Path, resp.Header, respBody)
+	} else {
+		logCorrelationIDs(r.Method, u.Path, resp.Header, nil) // skip parsing large success bodies
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		apiErr := &APIError{
 			Status: resp.StatusCode,
@@ -268,6 +301,7 @@ func (c *Client) DoRaw(r Request) (*http.Response, error) {
 		return nil, fmt.Errorf("API request failed: %w", nerr)
 	}
 	hlog.Info(r.Method+" "+u.Path, "status", resp.StatusCode, "url", u.String(), "jwt", c.resolved.AuthType == auth.AuthTypeSSO)
+	logCorrelationIDs(r.Method, u.Path, resp.Header, nil)
 	return resp, nil
 }
 
@@ -289,6 +323,7 @@ func (c *Client) DoStream(r Request, timeout time.Duration) (*http.Response, err
 		return nil, fmt.Errorf("API request failed: %w", nerr)
 	}
 	hlog.Info(r.Method+" "+u.Path, "status", resp.StatusCode, "url", u.String(), "jwt", c.resolved.AuthType == auth.AuthTypeSSO)
+	logCorrelationIDs(r.Method, u.Path, resp.Header, nil)
 	return resp, nil
 }
 

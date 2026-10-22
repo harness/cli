@@ -116,3 +116,27 @@ func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func TestLogCorrelationIDsNeverPanics(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Harness-Trace-Id", "abc123")
+	cases := []struct {
+		name string
+		h    http.Header
+		body []byte
+	}{
+		{"nil header and body", nil, nil},
+		{"header only", h, nil},
+		{"body with correlationId", nil, []byte(`{"correlationId":"c-1"}`)},
+		{"both", h, []byte(`{"correlationId":"c-1"}`)},
+		{"non-JSON body", h, []byte("<html>oops</html>")},
+		{"JSON array body", h, []byte(`[1,2,3]`)},
+		{"wrong type correlationId", h, []byte(`{"correlationId":42}`)},
+		{"empty JSON", nil, []byte(`{}`)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logCorrelationIDs("GET", "/v1/x", tc.h, tc.body)
+		})
+	}
+}
