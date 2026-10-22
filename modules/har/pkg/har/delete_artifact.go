@@ -17,9 +17,14 @@ import (
 	"github.com/pterm/pterm"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/console"
 )
 
 const bulkDeleteArtifactHandlerID = "bulk_delete_artifact"
+
+// stdinIsTerminal gates delete confirmation prompts: piped input must never
+// authorize a delete.
+var stdinIsTerminal = console.IsTTY
 
 // Gap 7 fix: Force and DryRun are *bool with omitempty to match generated legacy client struct.
 type bulkDeleteRequest struct {
@@ -56,6 +61,12 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 	dryRun := cmdctx.GetString(ctx.FlagValues, "dry-run") != "false"
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	yes := cmdctx.GetBool(ctx.FlagValues, "yes")
+	jsonOut := ctx.FormatFlags.Format == "json"
+
+	if yes && dryRun {
+		return fmt.Errorf("--yes confirms a real delete and cannot be combined with the default dry run; " +
+			"pass --dry-run=false to delete, or drop --yes to preview")
+	}
 
 	// Gap 2 fix: determine impactType from input flag, not from response.
 	impactType := "Packages"
@@ -75,60 +86,125 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 		}
 	}
 
-	// Gap 4 fix: force prompt includes warning + tip lines before the confirmation.
-	if force {
-		if err := confirmForceDelete(); err != nil {
-			return err
-		}
-	}
-
 	a := ctx.Auth
 	apiURL := buildBulkDeleteURL(a.APIUrl, a.AccountID, a.OrgID, a.ProjectID)
 
 	// Always preview first so the impact is known before anything destructive
 	// happens, regardless of the caller's --dry-run value.
-	body, err := callBulkDelete(apiURL, ctx, newBulkDeleteRequest(pattern, version, registry, true, force))
+	preview := newBulkDeleteRequest(pattern, version, registry, true, force)
+	parsed, err := callBulkDelete(apiURL, ctx, preview)
 	if err != nil {
 		return fmt.Errorf("bulk delete failed: %w", err)
 	}
 
-	var parsed bulkDeleteResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return fmt.Errorf("failed to parse bulk delete response: %w", err)
+	if !jsonOut {
+		printDryRunSummary(parsed, impactType)
 	}
-
-	printDryRunSummary(parsed, impactType)
 
 	// Gap 6 fix: if nothing to delete, exit early without second prompt.
-	if len(parsed.SuccessPackages) == 0 {
-		pterm.Info.Println("No package/Version found to be deleted matching given pattern")
+	if len(parsed.SuccessPackages) == 0 || dryRun {
+		if jsonOut {
+			return printBulkDeleteJSON(newBulkDeleteResult(parsed, false, nil))
+		}
+		if len(parsed.SuccessPackages) == 0 {
+			pterm.Info.Println("No package/Version found to be deleted matching given pattern")
+		} else if force {
+			pterm.Warning.Println("Force (hard) delete is enabled; a real run (--dry-run=false) is irreversible")
+		}
 		return nil
 	}
 
-	// --dry-run (the default) stops here: preview only, nothing deleted, no prompt.
-	if dryRun {
-		return nil
-	}
-
-	// --dry-run=false: confirm (unless --yes was passed), then execute for real.
 	if !yes {
-		prompt := fmt.Sprintf("Above %s will be soft deleted. Do you want to proceed? (y/N): ", impactType)
-		if err := confirmPrompt(prompt); err != nil {
+		if !stdinIsTerminal() {
+			return fmt.Errorf("confirmation required: stdin is not a terminal; " +
+				"re-run with --yes to delete, or drop --dry-run=false to preview")
+		}
+		if force {
+			err = confirmForceDelete()
+		} else {
+			err = confirmPrompt(fmt.Sprintf("Above %s will be soft deleted. Do you want to proceed? (y/N): ", impactType))
+		}
+		if err != nil {
 			return err
 		}
 	}
 
-	body, err = callBulkDelete(apiURL, ctx, newBulkDeleteRequest(pattern, version, registry, false, force))
+	final, err := callBulkDelete(apiURL, ctx, newBulkDeleteRequest(pattern, version, registry, false, force))
 	if err != nil {
 		return fmt.Errorf("bulk delete execution failed: %w", err)
 	}
-
-	var final bulkDeleteResponse
-	if err := json.Unmarshal(body, &final); err != nil {
-		return fmt.Errorf("failed to parse actual bulk delete response: %w", err)
+	if !jsonOut {
+		printRealRunSummary(final, impactType)
 	}
-	printRealRunSummary(final, impactType)
 
+	var remaining []string
+	var verifyErr error
+	if final.Failed == 0 {
+		var after bulkDeleteResponse
+		if after, verifyErr = callBulkDelete(apiURL, ctx, preview); verifyErr == nil {
+			remaining = after.SuccessPackages
+		}
+	}
+	if jsonOut {
+		if err := printBulkDeleteJSON(newBulkDeleteResult(final, true, remaining)); err != nil {
+			return err
+		}
+	}
+
+	switch {
+	case final.Failed > 0:
+		return fmt.Errorf("bulk delete failed for %d of %d %s", final.Failed, final.Total, strings.ToLower(impactType))
+	case verifyErr != nil:
+		return fmt.Errorf("bulk delete reported success but removal could not be confirmed: %w", verifyErr)
+	case len(remaining) > 0:
+		return fmt.Errorf("bulk delete reported success but %d %s still match: %s",
+			len(remaining), strings.ToLower(impactType), strings.Join(remaining, ", "))
+	}
+	return nil
+}
+
+// bulkDeleteResult is the --format json output. Mutated is false for every
+// preview, so automation can assert a dry run changed nothing.
+type bulkDeleteResult struct {
+	Mutated        bool     `json:"mutated"`
+	Force          bool     `json:"force"`
+	Registry       string   `json:"registry"`
+	Pattern        string   `json:"pattern"`
+	VersionPattern string   `json:"versionPattern"`
+	Total          int      `json:"total"`
+	Success        int      `json:"success"`
+	Failed         int      `json:"failed"`
+	Packages       []string `json:"packages"`
+	FailedPackages []string `json:"failedPackages,omitempty"`
+	StillPresent   []string `json:"stillPresent,omitempty"`
+}
+
+func newBulkDeleteResult(r bulkDeleteResponse, mutated bool, stillPresent []string) bulkDeleteResult {
+	packages := r.SuccessPackages
+	if packages == nil {
+		packages = []string{}
+	}
+	return bulkDeleteResult{
+		Mutated:        mutated,
+		Force:          r.Force,
+		Registry:       r.Registry,
+		Pattern:        r.Pattern,
+		VersionPattern: r.VersionPattern,
+		Total:          r.Total,
+		Success:        r.Success,
+		Failed:         r.Failed,
+		Packages:       packages,
+		FailedPackages: r.FailedPackages,
+		StillPresent:   stillPresent,
+	}
+}
+
+func printBulkDeleteJSON(r bulkDeleteResult) error {
+	out, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal bulk delete result: %w", err)
+	}
+	fmt.Println(string(out))
 	return nil
 }
 
@@ -143,18 +219,30 @@ func newBulkDeleteRequest(packages, versions, registry string, dryRun, force boo
 	}
 }
 
-func callBulkDelete(apiURL string, ctx *cmdctx.Ctx, reqBody bulkDeleteRequest) ([]byte, error) {
+func callBulkDelete(apiURL string, ctx *cmdctx.Ctx, reqBody bulkDeleteRequest) (bulkDeleteResponse, error) {
+	var parsed bulkDeleteResponse
 	data, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return parsed, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := newJSONPostRequest(apiURL, data)
 	if err != nil {
-		return nil, err
+		return parsed, err
 	}
 	setAuthHeader(req, ctx.Auth)
-	return doRequest(newHTTPClient(), req)
+	_, body, err := doJSONRequest(newHTTPClient(), req)
+	if apiErrorStatus(err) == http.StatusMethodNotAllowed {
+		return parsed, fmt.Errorf("the server does not support bulk delete for this request (HTTP 405); " +
+			"this artifact type may not be deletable through this endpoint, and nothing was deleted")
+	}
+	if err != nil {
+		return parsed, err
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return parsed, fmt.Errorf("failed to parse bulk delete response: %w", err)
+	}
+	return parsed, nil
 }
 
 func buildBulkDeleteURL(apiURL, accountID, orgID, projectID string) string {
@@ -237,7 +325,7 @@ func confirmPrompt(prompt string) error {
 	}
 	answer := strings.TrimSpace(scanner.Text())
 	if answer != "y" && answer != "Y" {
-		return fmt.Errorf("bulk delete cancelled by user")
+		return fmt.Errorf("delete cancelled by user")
 	}
 	return nil
 }

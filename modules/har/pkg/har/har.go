@@ -40,5 +40,7 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(executeArtifactMvnInstallHandlerID, executeArtifactMvnInstallHandler)
 	reg.RegisterWorkflow(executeArtifactDotnetRestoreHandlerID, executeArtifactDotnetRestoreHandler)
 	reg.RegisterWorkflow(bulkDeleteArtifactHandlerID, bulkDeleteArtifactHandler)
+	reg.RegisterWorkflow(deleteArtifactHandlerID, deleteArtifactHandler)
+	reg.RegisterWorkflow(deleteArtifactVersionHandlerID, deleteArtifactVersionHandler)
 	reg.RegisterWorkflow(executeArtifactDownloadHandlerID, executeArtifactDownloadHandler)
 }
