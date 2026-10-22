@@ -76,16 +76,7 @@ func APIErrorMessage(status int, body []byte) string {
 // server logs. Best effort: it never returns an error and never reads or consumes
 // a response body. Pass body only when it is already in memory (nil for streams).
 func logCorrelationIDs(method, path string, h http.Header, body []byte) {
-	traceID := h.Get("X-Harness-Trace-Id")
-	var correlationID string
-	if len(body) > 0 {
-		var parsed struct {
-			CorrelationID string `json:"correlationId"`
-		}
-		if json.Unmarshal(body, &parsed) == nil {
-			correlationID = parsed.CorrelationID
-		}
-	}
+	traceID, correlationID := extractCorrelationIDs(h, body)
 	if traceID == "" && correlationID == "" {
 		return
 	}
@@ -97,6 +88,21 @@ func logCorrelationIDs(method, path string, h http.Header, body []byte) {
 		args = append(args, "correlation_id", correlationID)
 	}
 	hlog.Debug("server correlation ids "+method+" "+path, args...)
+}
+
+// extractCorrelationIDs returns the trace ID from the response header and the
+// correlationId from a JSON body, either of which may be empty.
+func extractCorrelationIDs(h http.Header, body []byte) (traceID, correlationID string) {
+	traceID = h.Get("X-Harness-Trace-Id")
+	if len(body) > 0 {
+		var parsed struct {
+			CorrelationID string `json:"correlationId"`
+		}
+		if json.Unmarshal(body, &parsed) == nil {
+			correlationID = parsed.CorrelationID
+		}
+	}
+	return traceID, correlationID
 }
 
 // APIError is a non-2xx response from the Harness API. Error() keeps the short
