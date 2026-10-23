@@ -285,10 +285,7 @@ func (r *Registry) wireFlagCompletion(cmd *cobra.Command, cs *spec.CommandSpec, 
 			return
 		}
 		cmd.RegisterFlagCompletionFunc(f.Name, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			profileFlag, _ := cmd.Flags().GetString("profile")
-			orgFlag, _ := cmd.Flags().GetString("org")
-			projectFlag, _ := cmd.Flags().GetString("project")
-			resolved, err := resolveAuthForCommand(cs.PipelineAuth, profileFlag, orgFlag, projectFlag)
+			resolved, err := resolveCommandAuth(cmd, cs.PipelineAuth, cs.Module)
 			if err != nil {
 				return nil, cobra.ShellCompDirectiveError
 			}

@@ -33,7 +33,9 @@ Without either sentinel, pipeline mode is still auto-detected whenever `HARNESS_
 
 ### Scope Overrides
 
-`--org` and `--project` are global flags available on every command. They override the org/project from the active profile or env vars for that invocation only. Account and token are always fixed by the profile or env vars — they cannot be overridden per-command.
+`--org` and `--project` are global flags available on every command. They override the org and project from the active profile or env vars for that invocation only.
+
+`--api-url` and `--token` are flags on Artifact Registry commands. `--api-url` sets the API URL for that command. `--token` sets the credential, including when nothing is logged in, and the account comes from that token. The package registry URL comes from the API URL. There is no account flag and no registry URL flag.
 
 ```
 harness pipeline list --org myorg --project myproject
@@ -50,15 +52,15 @@ When `HARNESS_API_KEY` is set (and `--profile` is not), env var mode is active. 
 
 Required:
 
-- `HARNESS_API_KEY` — PAT token
-- `HARNESS_ACCOUNT` — Harness account identifier (inferred from token if not set)
+- `HARNESS_API_KEY` — PAT token. The account comes from this token.
 
 Optional:
 
 - `HARNESS_API_URL` — defaults to `https://app.harness.io` (override for self-hosted)
 - `HARNESS_ORG` — org context
 - `HARNESS_PROJECT` — project context
-- `HARNESS_REGISTRY_URL` — defaults to `https://pkg.harness.io` (override for self-hosted)
+- `HARNESS_ACCOUNT` — ignored. The account comes from `HARNESS_API_KEY`
+- `HARNESS_REGISTRY_URL` — ignored. The package registry URL is fetched from `HARNESS_API_URL`
 
 ### Pipeline Mode
 
@@ -120,7 +122,7 @@ profiles:
     registry_url: https://pkg.harness.io
 ```
 
-`org_id`, `project_id`, and `registry_url` are omitted from the file when not set (`omitempty`).
+`org_id`, `project_id`, and `registry_url` are omitted from the file when not set (`omitempty`). For a token profile, `account_id` is not used; the account comes from the stored token. An SSO profile keeps `account_id`, because that token does not carry an account. `registry_url` is not used to reach the package host; that URL is fetched from the profile's `api_url`.
 
 **`~/.harness/credentials`** (permissions `0600`) — tokens only, in a minimal TOML-like format:
 
