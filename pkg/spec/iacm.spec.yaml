@@ -14,6 +14,9 @@ help_text: |
   backend, variables, and state. Workspaces run operations (plan, apply, destroy)
   which produce execution logs and state snapshots.
 
+  `execute workspace` runs a remote plan. For awscdk workspaces, `synth
+  workspace` and `diff workspace` run the remote CDK synth and diff.
+
   ### Nouns
 
   {{nouns}}
@@ -211,25 +214,26 @@ commands:
     long: |
       Execute a remote Terraform plan on an IaCM workspace.
 
-      The workspace ID is optional. If omitted, the command reads it from
-      .harness/workspace.yaml in the current directory:
+      Pass the workspace with --workspace. If that flag is omitted, the command
+      reads .harness/workspace.yaml in the current directory:
 
         org_id:       <your-org>        # optional; overrides --org flag
         project_id:   <your-project>    # optional; overrides --project flag
-        workspace_id: <your-workspace>  # required if no ID is passed as an argument
+        workspace_id: <your-workspace>  # required if --workspace is omitted
 
       Examples:
-        harness execute workspace my-workspace              # explicit workspace ID
+        harness execute workspace --workspace my-workspace
         harness execute workspace                           # reads .harness/workspace.yaml
-        harness execute workspace --target aws_instance.web # limit plan to one resource
-        harness execute workspace --force                   # skip confirmation prompt
-    id_label: "<workspace-id>"
+        harness execute workspace --workspace my-workspace --target aws_instance.web
+        harness execute workspace --workspace my-workspace --force
     no_id: true
-    allows_id: true
-    completion_noun: workspace
+    id_resolve_fn: resolve_state_scope
     handler_type: workflow
     workflow_id: execute_workspace
     flags:
+      - name: workspace
+        description: Workspace identifier. Read from .harness/workspace.yaml when omitted.
+        completion_noun: workspace
       - name: target
         description: "Resource target (can be specified multiple times)"
         is_multi: true
@@ -238,6 +242,90 @@ commands:
         is_multi: true
       - name: force
         description: "Skip confirmation prompt"
+        is_bool: true
+      - name: follow
+        description: Stream the pipeline logs live; exits when the execution reaches a terminal state
+        is_bool: true
+      - name: ui
+        description: Open the interactive log viewer for the run (requires a TTY)
+        is_bool: true
+
+  - command: synth workspace
+    verb: synth
+    noun: workspace
+    short: Run a remote CDK synth on an awscdk workspace
+    long: |
+      Synthesize the CDK app remotely (cdk synth) on an awscdk IaCM workspace.
+
+      Uploads the local source to the workspace and runs the workspace's default
+      "synth" pipeline against it. node_modules and cdk.out are not uploaded.
+
+      Pass the workspace with --workspace. If that flag is omitted, the command
+      reads .harness/workspace.yaml in the current directory:
+
+        org_id:       <your-org>        # optional; overrides --org flag
+        project_id:   <your-project>    # optional; overrides --project flag
+        workspace_id: <your-workspace>  # required if --workspace is omitted
+
+      Examples:
+        harness synth workspace --workspace my-cdk-workspace
+        harness synth workspace                      # reads .harness/workspace.yaml
+        harness synth workspace --workspace my-cdk-workspace --follow
+    no_id: true
+    id_resolve_fn: resolve_state_scope
+    handler_type: workflow
+    workflow_id: execute_workspace_synth
+    flags:
+      - name: workspace
+        description: Workspace identifier. Read from .harness/workspace.yaml when omitted.
+        completion_noun: workspace
+      - name: force
+        description: "Skip confirmation prompt"
+        is_bool: true
+      - name: follow
+        description: Stream the pipeline logs live; exits when the execution reaches a terminal state
+        is_bool: true
+      - name: ui
+        description: Open the interactive log viewer for the run (requires a TTY)
+        is_bool: true
+
+  - command: diff workspace
+    verb: diff
+    noun: workspace
+    short: Run a remote CDK diff on an awscdk workspace
+    long: |
+      Show the CDK diff remotely (cdk diff) on an awscdk IaCM workspace.
+
+      Uploads the local source to the workspace and runs the workspace's default
+      "diff" pipeline against it. node_modules and cdk.out are not uploaded.
+
+      Pass the workspace with --workspace. If that flag is omitted, the command
+      reads .harness/workspace.yaml in the current directory:
+
+        org_id:       <your-org>        # optional; overrides --org flag
+        project_id:   <your-project>    # optional; overrides --project flag
+        workspace_id: <your-workspace>  # required if --workspace is omitted
+
+      Examples:
+        harness diff workspace --workspace my-cdk-workspace
+        harness diff workspace                      # reads .harness/workspace.yaml
+        harness diff workspace --workspace my-cdk-workspace --follow
+    no_id: true
+    id_resolve_fn: resolve_state_scope
+    handler_type: workflow
+    workflow_id: execute_workspace_diff
+    flags:
+      - name: workspace
+        description: Workspace identifier. Read from .harness/workspace.yaml when omitted.
+        completion_noun: workspace
+      - name: force
+        description: "Skip confirmation prompt"
+        is_bool: true
+      - name: follow
+        description: Stream the pipeline logs live; exits when the execution reaches a terminal state
+        is_bool: true
+      - name: ui
+        description: Open the interactive log viewer for the run (requires a TTY)
         is_bool: true
 
   # ── host (Ansible) ────────────────────────────────────────────────────────────

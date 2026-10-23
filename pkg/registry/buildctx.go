@@ -376,6 +376,15 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 			return nil, fmt.Errorf("flag --%s is required", f.Name)
 		}
 	}
+	if cs.IdResolveFn != "" && !listFields && !listColumns {
+		fn, ok := r.idResolveFns[cs.IdResolveFn]
+		if !ok {
+			return nil, fmt.Errorf("id_resolve_fn %q not registered", cs.IdResolveFn)
+		}
+		if err := fn(ctx); err != nil {
+			return nil, err
+		}
+	}
 	return ctx, nil
 }
 
