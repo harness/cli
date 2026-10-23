@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
 	"github.com/harness/cli/v3/pkg/hbase"
 )
 
@@ -502,5 +503,40 @@ func TestFetchRegistryURL_unreachableServer(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "request failed") {
 		t.Fatalf("error = %q, want %q", err, "request failed")
+	}
+}
+
+func TestSimilarProfiles(t *testing.T) {
+	cfg := &config.Config{Profiles: map[string]*config.Profile{
+		"my-prod":  {},
+		"my_prod":  {},
+		"My_Prod":  {},
+		"sso-prod": {AuthType: config.AuthTypeSSO},
+		"staging":  {},
+	}}
+	got := similarProfiles(cfg, "MY-PROD")
+	if want := "My_Prod,my-prod,my_prod"; strings.Join(got, ",") != want {
+		t.Errorf("got %v, want %s", got, want)
+	}
+	// Excludes itself, and SSO profiles never collide.
+	if got := similarProfiles(cfg, "my-prod"); strings.Join(got, ",") != "My_Prod,my_prod" {
+		t.Errorf("got %v", got)
+	}
+	if got := similarProfiles(cfg, "SSO_PROD"); len(got) != 0 {
+		t.Errorf("SSO profile should not count, got %v", got)
+	}
+	if got := similarProfiles(cfg, "dev"); len(got) != 0 {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestConfirmSimilarProfiles_NonTTYWarnsButProceeds(t *testing.T) {
+	cfg := &config.Config{Profiles: map[string]*config.Profile{"my-prod": {}}}
+	if err := confirmSimilarProfiles(cfg, "my_prod"); err != nil {
+		t.Errorf("non-interactive run must not fail, got %v", err)
+	}
+	// Existing profile: no check at all.
+	if err := confirmSimilarProfiles(cfg, "my-prod"); err != nil {
+		t.Errorf("got %v", err)
 	}
 }

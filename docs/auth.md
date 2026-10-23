@@ -46,7 +46,7 @@ Credentials are stored across two files in `~/.harness/`. Primary use case is in
 
 #### Supplying a profile's token from the environment
 
-For PAT/SAT profiles, `HARNESS_PROFILE_<NAME>_API_KEY` overrides the token in the credentials file. `<NAME>` is the profile name uppercased with every non-alphanumeric character replaced by `_` (`my-prod` → `HARNESS_PROFILE_MY_PROD_API_KEY`). Everything else (URL, account, org, project) still comes from the config file. This lets users on a shared machine bring their own key, and lets CI ship a config without writing credentials to disk. Pair it with `harness auth logout --credentials-only`. SSO profiles do not use this variable. `auth status` shows a `TokenSource` row when it is in effect.
+For PAT/SAT profiles, `HARNESS_PROFILE_<NAME>_API_KEY` overrides the token in the credentials file. `<NAME>` is the profile name uppercased with every non-alphanumeric character replaced by `_` (`my-prod` → `HARNESS_PROFILE_MY_PROD_API_KEY`). Everything else (URL, account, org, project) still comes from the config file. This lets users on a shared machine bring their own key, and lets CI ship a config without writing credentials to disk. Pair it with `harness auth logout --credentials-only`. Names that differ only by case or `-` vs `_` map to the same variable, so `auth login` warns (and asks to confirm on a terminal) when a new profile name would share its variable with an existing PAT/SAT profile. SSO profiles do not use this variable. `auth status` shows a `TokenSource` row when it is in effect.
 
 ### Env Var Mode
 
