@@ -212,6 +212,7 @@ commands:
         description: "Artifact version (default: 1.0.0)"
       - name: include-hidden
         description: "Include hidden files and directories (names starting with '.') when walking directory inputs"
+        is_bool: true
       - name: max-concurrent-uploads
         description: "Maximum number of files uploaded concurrently (default: 4, use 1 for sequential)"
       - name: max-concurrent-parts
