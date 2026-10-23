@@ -19,7 +19,7 @@ Auth is resolved in this order (first match wins):
 4. `default` profile in config file
 
 If `--profile` is given and the named profile does not exist, it is an error.  
-If `--profile` or `HARNESS_PROFILE` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes.  
+If `--profile` or `HARNESS_PROFILE` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes. The one exception is `HARNESS_PROFILE_<NAME>_API_KEY`, which supplies the token for that named profile (see [Profile Mode](#profile-mode)).  
 If no auth is resolved by any method, error with: `"not logged in — run 'harness auth login' to get started"`.
 
 ### Reserved profile names
@@ -43,6 +43,10 @@ harness pipeline list --profile staging --project other-project
 ### Profile Mode
 
 Credentials are stored across two files in `~/.harness/`. Primary use case is interactive local development.
+
+#### Supplying a profile's token from the environment
+
+For PAT/SAT profiles, `HARNESS_PROFILE_<NAME>_API_KEY` overrides the token in the credentials file. `<NAME>` is the profile name uppercased with every non-alphanumeric character replaced by `_` (`my-prod` → `HARNESS_PROFILE_MY_PROD_API_KEY`). Everything else (URL, account, org, project) still comes from the config file. This lets users on a shared machine bring their own key, and lets CI ship a config without writing credentials to disk. Pair it with `harness auth logout --credentials-only`. SSO profiles do not use this variable. `auth status` shows a `TokenSource` row when it is in effect.
 
 ### Env Var Mode
 
@@ -208,9 +212,10 @@ Removes a profile from both config files.
 ```
 harness auth logout
 harness auth logout --profile staging
+harness auth logout --profile staging --credentials-only
 ```
 
-Defaults to the `"default"` profile.
+Defaults to the `"default"` profile. With `--credentials-only`, only the stored credentials are removed and the profile stays in the config file, so a token can be supplied via `HARNESS_PROFILE_<NAME>_API_KEY` instead (see [Profile Mode](#profile-mode)).
 
 ### `harness auth status`
 
