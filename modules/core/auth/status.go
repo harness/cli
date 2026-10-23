@@ -45,7 +45,8 @@ type statusChecks struct {
 type statusResult struct {
 	Source             string       `json:"Source"`
 	Profile            string       `json:"Profile"`
-	ProfileMissing     bool         `json:"-"` // profile has no entry in config at all; StatusHandler returns early on this
+	TokenEnvVar        string       `json:"TokenEnvVar,omitempty"` // env var the profile's token came from; empty when read from the credentials file
+	ProfileMissing     bool         `json:"-"`                     // profile has no entry in config at all; StatusHandler returns early on this
 	APIUrl             string       `json:"APIUrl"`
 	RegistryURL        string       `json:"RegistryURL,omitempty"`
 	AccountID          string       `json:"AccountID"`
@@ -154,6 +155,7 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 		return r
 	}
 	r.Source = resolved.Source
+	r.TokenEnvVar = resolved.TokenEnvVar
 	r.Profile = profileName(resolved.Source)
 	r.APIUrl = resolved.APIUrl
 	r.RegistryURL = resolved.RegistryURL
@@ -511,6 +513,9 @@ func printStatus(r statusResult) {
 		add("Mode", sv(r.Status.Profile, "pipeline"))
 	default:
 		add("Profile", sv(r.Status.Profile, r.Profile+profileSuffix))
+		if r.TokenEnvVar != "" {
+			add("TokenSource", fmt.Sprintf("%s $%s", console.GreenCheck(), r.TokenEnvVar))
+		}
 	}
 	if r.Source != auth.SourcePipeline {
 		add("APIUrl", sv(r.Status.API, r.APIUrl))
