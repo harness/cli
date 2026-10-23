@@ -84,10 +84,15 @@ func pushPythonArtifact(ctx *cmdctx.Ctx) error {
 	}
 	wg.Wait()
 
+	failed := 0
 	for _, e := range errs {
 		if e != nil {
-			return e
+			fmt.Fprintln(os.Stderr, e)
+			failed++
 		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("failed to upload %d files", failed)
 	}
 	return nil
 }
