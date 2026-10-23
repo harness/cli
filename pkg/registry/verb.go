@@ -13,6 +13,13 @@ const (
 	VerbExecute = "execute"
 )
 
+// TODO(onboarding-schema): provisional names until the CLI owner approves them.
+const (
+	VerbSetup  = "setup"
+	VerbRun    = "run"
+	VerbUpload = "upload"
+)
+
 // Leaf verbs — standalone commands with no noun and no subcommands.
 // Only one registration per leaf verb is allowed.
 const (
@@ -74,6 +81,7 @@ type VerbSpec struct {
 var VerbOrder = []string{
 	VerbList, VerbGet, VerbCreate, VerbUpdate, VerbDelete, VerbExecute,
 	VerbInstall, VerbPush, VerbPull, VerbConfigure, VerbMigrate,
+	VerbSetup, VerbRun, VerbUpload,
 }
 
 // verbRegistry is the authoritative table of every allowed verb.
@@ -95,6 +103,11 @@ var verbRegistry = map[string]VerbSpec{
 	VerbUpdate:  {Kind: VerbKindCore, Gerund: "updating", ShortDesc: "Update a Harness resource", RequiresId: true},
 	VerbDelete:  {Kind: VerbKindCore, Gerund: "deleting", ShortDesc: "Delete a Harness resource", RequiresId: true},
 	VerbExecute: {Kind: VerbKindCore, Gerund: "executing", ShortDesc: "Execute a Harness resource", RequiresId: true},
+
+	// TODO(onboarding-schema): provisional until the CLI owner approves the names.
+	VerbSetup:  {Kind: VerbKindCore, Gerund: "setting up", ShortDesc: "Set up a local onboarding workflow"},
+	VerbRun:    {Kind: VerbKindCore, Gerund: "running", ShortDesc: "Run a local onboarding workflow"},
+	VerbUpload: {Kind: VerbKindCore, Gerund: "uploading", ShortDesc: "Upload a local onboarding archive"},
 
 	// Leaf verbs
 	VerbVersion: {Kind: VerbKindLeaf, SkipSetup: true},

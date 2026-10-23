@@ -1,0 +1,13 @@
+// Copyright © 2026 Harness Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package aievals
+
+import "github.com/harness/cli/v3/pkg/registry"
+
+// ModuleInit registers the provisional onboarding workflows.
+func ModuleInit(reg registry.ModuleRegistrar) {
+	reg.RegisterWorkflow(setupWorkflowID, setupWorkflow)
+	reg.RegisterWorkflow(runWorkflowID, runWorkflow)
+	reg.RegisterWorkflow(uploadWorkflowID, uploadWorkflow)
+}

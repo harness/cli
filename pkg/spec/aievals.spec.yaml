@@ -42,6 +42,14 @@ help_text: |
     harness execute evaluation:run <eval_id>
     harness list eval_run <eval_id>
 
+  ### Onboarding
+
+  TODO(onboarding-schema): `setup`, `run`, and `upload` on `eval_onboarding`
+  are provisional. Enable this hidden module with `harness install module aievals`.
+  `setup eval_onboarding` writes the onboarding skill and stages `.harness/evals`.
+  `run eval_onboarding` invokes `ai-evals onboard-run`.
+  `upload eval_onboarding` imports a deterministic archive.
+
   ### Nouns
 
   {{nouns}}
@@ -538,6 +546,18 @@ nouns:
         expr: it.status
       - id: warnings
         expr: it.warnings
+
+  # TODO(onboarding-schema): provisional noun until the CLI owner approves it.
+  - noun: eval_onboarding
+    short_desc: Provisional local onboarding for an AI Evals agent tree.
+    noun_aliases: [eval_onboardings]
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: environment
+        expr: it.environment
+      - id: ui_path
+        expr: it.ui_path
 
 commands:
   # ── eval_dataset ──────────────────────────────────────────────────────────────
@@ -2211,4 +2231,74 @@ commands:
       request_headers:
         Harness-Account: auth.account
       item_expr: it
+
+  # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
+  - command: setup eval_onboarding
+    verb: setup
+    noun: eval_onboarding
+    no_id: true
+    no_auth: true
+    short: "Write the onboarding skill and stage .harness/evals: harness setup eval_onboarding"
+    long: |
+      TODO(onboarding-schema): provisional command.
+      Writes the versioned onboarding skill to an explicit or detected coding-agent
+      directory, or to stdout when neither is available. Scans the repository,
+      stages a candidate .harness/evals tree, and asks one batched question when
+      inference is not confident.
+    handler_type: workflow
+    workflow_id: setup
+    flags:
+      - name: repo
+        description: Repository root to scan (default current directory)
+      - name: root
+        description: Path to the .harness/evals directory
+        default: .harness/evals
+      - name: skill-dir
+        description: Explicit file or directory for the onboarding skill
+      - name: yes
+        is_bool: true
+        description: Accept the batched medium-confidence confirmations
+
+  # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
+  - command: run eval_onboarding
+    verb: run
+    noun: eval_onboarding
+    no_id: true
+    short: "Run a staged agent through ai-evals onboard-run: harness run eval_onboarding --agent <identifier>"
+    long: |
+      TODO(onboarding-schema): provisional command.
+      Verifies the pinned ai-evals-runner, then invokes
+      `ai-evals onboard-run --root <root> --agent <identifier> --environment local`.
+      local is the default. A PAT or SAT is passed to the runner. An SSO session
+      is not.
+    handler_type: workflow
+    workflow_id: run
+    flags:
+      - name: root
+        description: Path to the .harness/evals directory
+        default: .harness/evals
+      - name: agent
+        description: Stable agent identifier from agents/*/agent.yaml
+        required: true
+      - name: environment
+        description: local (default) or the name of a live environment
+        default: local
+
+  # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
+  - command: upload eval_onboarding
+    verb: upload
+    noun: eval_onboarding
+    no_id: true
+    short: "Validate and upload .harness/evals: harness upload eval_onboarding"
+    long: |
+      TODO(onboarding-schema): provisional command.
+      Validates the tree with the pinned runner, builds a deterministic zip, and
+      POSTs it to the import-archive endpoint using the active profile scope.
+      Prints the server-returned Agent and Eval paths.
+    handler_type: workflow
+    workflow_id: upload
+    flags:
+      - name: root
+        description: Path to the .harness/evals directory
+        default: .harness/evals
 
