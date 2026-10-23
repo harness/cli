@@ -228,11 +228,10 @@ commands:
     short: Push a Maven artifact (.jar/.war) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-jar-or-war>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_maven
     flags:
@@ -321,11 +320,10 @@ commands:
     short: Push a Cargo crate (.crate) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-crate>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_cargo
     flags:
@@ -339,11 +337,10 @@ commands:
     short: Push a Go module to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-zip>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_go
     flags:
@@ -366,11 +363,10 @@ commands:
     short: Push a Conda package to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-conda-pkg>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_conda
 
@@ -381,11 +377,10 @@ commands:
     short: Push a Dart package to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-dart-pkg>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_dart
     flags:
@@ -399,11 +394,10 @@ commands:
     short: Push a Composer package (.zip) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-zip>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_composer
 
@@ -414,11 +408,10 @@ commands:
     short: Push a Ruby gem (.gem) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-gem>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_ruby
     flags:
@@ -432,11 +425,10 @@ commands:
     short: Push a Swift package to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-pkg>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_swift
     flags:
