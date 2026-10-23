@@ -23,6 +23,9 @@ import (
 //
 // The upload endpoint is PUT {registryURL}/pkg/{accountID}/{registry}/rpm/
 func pushRpmArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push rpm requires a local file path: push artifact <registry> <local-file>")
 	}

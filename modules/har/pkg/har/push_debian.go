@@ -25,6 +25,9 @@ import (
 //   - .dsc  → PUT /pkg/{account}/{registry}/debian/dsc + optional source files
 //     via PUT /pkg/{account}/{registry}/debian/src
 func pushDebianArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push debian artifact requires a file path: push artifact <registry> <file>")
 	}

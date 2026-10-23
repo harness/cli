@@ -39,6 +39,9 @@ type condaIndexJSON struct {
 //	X-File-Name: <filename>
 //	X-Subdir:    <subdir from index.json>
 func pushCondaArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push conda requires a local file path: push artifact <registry/name> <local-file>")
 	}

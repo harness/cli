@@ -145,6 +145,9 @@ type npmUploadPayload struct {
 //  3. Build the npm upload JSON payload with a base64-encoded tarball attachment.
 //  4. POST to {registryURL}/pkg/{accountID}/{registry}/npm/{name}.
 func pushNpmArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push npm artifact requires a local file path: push artifact <registry/name> <local-file>")
 	}
