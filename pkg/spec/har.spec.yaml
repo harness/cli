@@ -213,7 +213,8 @@ commands:
       - name: include-hidden
         description: "Include hidden files and directories (names starting with '.') when walking directory inputs"
       - name: max-concurrent-uploads
-        description: "Maximum number of files uploaded concurrently (default: 4, use 1 for sequential)"
+        default: "5"
+        description: "Maximum number of files uploaded concurrently (default: 5, use 1 for sequential)"
       - name: max-concurrent-parts
         description: "Maximum number of multipart parts uploaded concurrently across all files (default: 8)"
       - name: no-multipart
@@ -240,7 +241,8 @@ commands:
         description: "Path to POM file (required)"
         required: true
       - name: max-concurrent-uploads
-        description: "Maximum number of concurrent file uploads (default: 4, use 1 for sequential)"
+        default: "5"
+        description: "Maximum number of concurrent file uploads (default: 5, use 1 for sequential)"
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
@@ -278,7 +280,8 @@ commands:
     workflow_id: push_artifact_python
     flags:
       - name: max-concurrent-uploads
-        description: "Maximum number of concurrent file uploads (default: 4, use 1 for sequential)"
+        default: "5"
+        description: "Maximum number of concurrent file uploads (default: 5, use 1 for sequential)"
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
