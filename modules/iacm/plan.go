@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,6 +31,17 @@ import (
 )
 
 const executeWorkspaceHandlerID = "execute_workspace"
+const executeWorkspaceSynthHandlerID = "execute_workspace_synth"
+const executeWorkspaceDiffHandlerID = "execute_workspace_diff"
+
+// Remote execution operations. plan is the Terraform/OpenTofu default;
+// synth and diff run the awscdk workspace's default pipeline of that name.
+const (
+	operationPlan  = "plan"
+	operationSynth = "synth"
+	operationDiff  = "diff"
+)
+const resolveStateScopeID = "resolve_state_scope"
 
 // workspaceConfig mirrors the .harness/workspace.yaml file.
 type workspaceConfig struct {
@@ -39,12 +51,15 @@ type workspaceConfig struct {
 }
 
 type workspace struct {
-	Account          string                              `json:"account"`
-	Org              string                              `json:"org"`
-	Project          string                              `json:"project"`
-	Identifier       string                              `json:"identifier"`
-	RepositoryPath   string                              `json:"repository_path,omitempty"`
-	DefaultPipelines map[string]*defaultPipelineOverride `json:"default_pipelines"`
+	Account        string `json:"account"`
+	Org            string `json:"org"`
+	Project        string `json:"project"`
+	Identifier     string `json:"identifier"`
+	RepositoryPath string `json:"repository_path,omitempty"`
+	// TerraformStateJSON is the id of the stored state file; empty until the
+	// workspace has been applied.
+	TerraformStateJSON string                              `json:"terraform_state_json,omitempty"`
+	DefaultPipelines   map[string]*defaultPipelineOverride `json:"default_pipelines"`
 }
 
 type defaultPipelineOverride struct {
@@ -67,28 +82,30 @@ func (e *iacmAPIError) Error() string { return e.Message }
 // ---- handler ----
 
 func executeWorkspaceHandler(ctx *cmdctx.Ctx) error {
+	return runWorkspaceExecution(ctx, operationPlan)
+}
+
+func executeWorkspaceSynthHandler(ctx *cmdctx.Ctx) error {
+	return runWorkspaceExecution(ctx, operationSynth)
+}
+
+func executeWorkspaceDiffHandler(ctx *cmdctx.Ctx) error {
+	return runWorkspaceExecution(ctx, operationDiff)
+}
+
+func runWorkspaceExecution(ctx *cmdctx.Ctx, operation string) error {
 	a := ctx.Auth
 
-	workspaceID := ctx.Id
+	workspaceID := cmdctx.GetString(ctx.FlagValues, "workspace")
 	orgID := a.OrgID
 	projectID := a.ProjectID
-
 	if workspaceID == "" {
-		cfg, err := loadWorkspaceConfig()
-		if err != nil {
-			return err
-		}
-		workspaceID = cfg.Workspace
-		if cfg.Org != "" {
-			orgID = cfg.Org
-		}
-		if cfg.Project != "" {
-			projectID = cfg.Project
-		}
-		fmt.Printf("Using workspace from .harness/workspace.yaml: %s\n", workspaceID)
+		return errors.New("workspace is required: pass --workspace <id> or set workspace_id in .harness/workspace.yaml")
 	}
-	if workspaceID == "" {
-		return errors.New("workspace-id is required (pass as argument or set in .harness/workspace.yaml)")
+
+	// Fail before the source is zipped and uploaded.
+	if err := requireTTYForUI(ctx); err != nil {
+		return err
 	}
 
 	targets := cmdctx.GetStringSlice(ctx.FlagValues, "target")
@@ -106,7 +123,36 @@ func executeWorkspaceHandler(ctx *cmdctx.Ctx) error {
 	}()
 
 	hc := &http.Client{Timeout: 60 * time.Second}
-	return executePlan(bgCtx, ctx, hc, a, orgID, projectID, workspaceID, targets, replacements, force)
+	return executePlan(bgCtx, ctx, hc, a, orgID, projectID, workspaceID, operation, targets, replacements, force)
+}
+
+// resolveStateScope fills --workspace from .harness/workspace.yaml when the
+// flag was omitted, and applies that file's org and project to the request.
+func resolveStateScope(ctx *cmdctx.Ctx) error {
+	if cmdctx.GetString(ctx.FlagValues, "workspace") != "" {
+		return nil
+	}
+	cfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.Workspace == "" {
+		return errors.New("workspace is required: pass --workspace <id> or set workspace_id in .harness/workspace.yaml")
+	}
+	if ctx.FlagValues == nil {
+		ctx.FlagValues = map[string]any{}
+	}
+	ctx.FlagValues["workspace"] = cfg.Workspace
+	if ctx.Auth != nil {
+		if cfg.Org != "" {
+			ctx.Auth.OrgID = cfg.Org
+		}
+		if cfg.Project != "" {
+			ctx.Auth.ProjectID = cfg.Project
+		}
+	}
+	fmt.Printf("Using workspace from .harness/workspace.yaml: %s\n", cfg.Workspace)
+	return nil
 }
 
 func loadWorkspaceConfig() (*workspaceConfig, error) {
@@ -117,7 +163,7 @@ func loadWorkspaceConfig() (*workspaceConfig, error) {
 	data, err := os.ReadFile(filepath.Join(wd, ".harness", "workspace.yaml"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, errors.New("workspace not found: pass a <workspace-id> argument or add .harness/workspace.yaml")
+			return nil, errors.New("workspace not found: pass --workspace <id> or add .harness/workspace.yaml")
 		}
 		return nil, fmt.Errorf("reading workspace config: %w", err)
 	}
@@ -133,7 +179,7 @@ func executePlan(
 	cmdCtx *cmdctx.Ctx,
 	hc *http.Client,
 	a *auth.ResolvedAuth,
-	orgID, projectID, workspaceID string,
+	orgID, projectID, workspaceID, operation string,
 	targets, replacements []string,
 	force bool,
 ) error {
@@ -144,7 +190,7 @@ func executePlan(
 	}
 	fmt.Printf("Workspace found: %s\n", ws.Identifier)
 
-	defaultPipeline, err := getDefaultPipeline(ws.DefaultPipelines)
+	defaultPipeline, err := getDefaultPipeline(ws.DefaultPipelines, operation)
 	if err != nil {
 		return err
 	}
@@ -165,7 +211,7 @@ func executePlan(
 	}
 
 	fmt.Println("Zipping source code...")
-	zipData, err := zipSourceCode(repoRoot)
+	zipData, err := zipSourceCode(repoRoot, operation)
 	if err != nil {
 		return fmt.Errorf("zipping source code: %w", err)
 	}
@@ -192,7 +238,7 @@ func executePlan(
 	}
 
 	fmt.Println("Triggering pipeline execution...")
-	exec, err = triggerRemoteExecution(bgCtx, hc, a, orgID, projectID, workspaceID, exec.ID)
+	exec, err = triggerRemoteExecution(bgCtx, hc, a, orgID, projectID, workspaceID, exec.ID, operation)
 	if err != nil {
 		return fmt.Errorf("triggering execution: %w", err)
 	}
@@ -205,6 +251,15 @@ func executePlan(
 		}
 	}
 	fmt.Printf("Pipeline execution: %s\n", execURL)
+
+	if cmdctx.GetBool(cmdCtx.FlagValues, "ui") {
+		return openLogViewer(cmdCtx, defaultPipeline, exec.PipelineExecutionID)
+	}
+	if !cmdctx.GetBool(cmdCtx.FlagValues, "follow") {
+		fmt.Printf("%s started. Watch the logs with: harness get execution_log %s/%s --follow\n",
+			operation, defaultPipeline, exec.PipelineExecutionID)
+		return nil
+	}
 
 	fmt.Println("\n=== Pipeline Execution Logs ===")
 	return logstream.FollowMulti(cmdCtx, exec.PipelineExecutionID, "", "", logstream.MultiStyleMarkers, map[string]bool{
@@ -329,8 +384,13 @@ func uploadRemoteExecution(ctx context.Context, hc *http.Client, a *auth.Resolve
 	return &exec, nil
 }
 
-func triggerRemoteExecution(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, org, project, workspaceID, execID string) (*remoteExecution, error) {
+func triggerRemoteExecution(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, org, project, workspaceID, execID, operation string) (*remoteExecution, error) {
 	path := fmt.Sprintf("/gateway/iacm/api/orgs/%s/projects/%s/workspaces/%s/remote-executions/%s/execute", org, project, workspaceID, execID)
+	// plan is the server default for Terraform/OpenTofu; only send the
+	// parameter for CDK operations so older servers keep working.
+	if operation != operationPlan {
+		path += "?operation=" + url.QueryEscape(operation)
+	}
 	var exec remoteExecution
 	if err := doIACM(ctx, hc, a, "POST", path, nil, &exec); err != nil {
 		return nil, err
@@ -340,10 +400,11 @@ func triggerRemoteExecution(ctx context.Context, hc *http.Client, a *auth.Resolv
 
 // ---- workspace helpers ----
 
-func getDefaultPipeline(pipelines map[string]*defaultPipelineOverride) (string, error) {
-	dp, ok := pipelines["plan"]
-	if !ok {
-		return "", errors.New("workspace has no default pipeline configured for 'plan'")
+func getDefaultPipeline(pipelines map[string]*defaultPipelineOverride, operation string) (string, error) {
+	noPipeline := fmt.Errorf("workspace has no default pipeline configured for '%s'", operation)
+	dp, ok := pipelines[operation]
+	if !ok || dp == nil {
+		return "", noPipeline
 	}
 	if dp.WorkspacePipeline != nil {
 		return *dp.WorkspacePipeline, nil
@@ -351,7 +412,7 @@ func getDefaultPipeline(pipelines map[string]*defaultPipelineOverride) (string, 
 	if dp.ProjectPipeline != nil {
 		return *dp.ProjectPipeline, nil
 	}
-	return "", errors.New("workspace has no default pipeline configured for 'plan'")
+	return "", noPipeline
 }
 
 func resolveRepoRoot(wd string, ws *workspace) (string, string, error) {
@@ -375,7 +436,11 @@ func resolveRepoRoot(wd string, ws *workspace) (string, string, error) {
 	return wd, fmt.Sprintf("Folder path: %s\nUploading: %s", repoPath, wd), nil
 }
 
-func zipSourceCode(root string) ([]byte, error) {
+// cdkSkippedDirs are dependency and build output folders that the remote
+// pipeline regenerates, so synth and diff uploads leave them out.
+var cdkSkippedDirs = map[string]bool{"node_modules": true, "cdk.out": true}
+
+func zipSourceCode(root, operation string) ([]byte, error) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -389,6 +454,9 @@ func zipSourceCode(root string) ([]byte, error) {
 			return err
 		}
 		if fi.IsDir() && fi.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if fi.IsDir() && operation != operationPlan && cdkSkippedDirs[fi.Name()] {
 			return filepath.SkipDir
 		}
 		if fi.IsDir() {
@@ -421,4 +489,26 @@ func zipSourceCode(root string) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// requireTTYForUI rejects --ui when there is no terminal to draw it in.
+func requireTTYForUI(ctx *cmdctx.Ctx) error {
+	if cmdctx.GetBool(ctx.FlagValues, "ui") && !console.IsBothTTY() {
+		return errors.New("--ui requires an interactive terminal (both stdin and stdout must be a TTY)")
+	}
+	return nil
+}
+
+// pipelineLogHandlerID is the pipeline module's "get execution_log" workflow.
+const pipelineLogHandlerID = "pipeline:get_pipeline_log"
+
+// openLogViewer opens the interactive log viewer that
+// "harness get execution_log <pipeline>/<execution-id> --ui" shows.
+func openLogViewer(ctx *cmdctx.Ctx, pipelineID, executionID string) error {
+	ctx.Id = pipelineID + "/" + executionID
+	ctx.FlagValues = map[string]any{"ui": true}
+	if err := ctx.Resolver.RunUIHandler(ctx, pipelineLogHandlerID); err != nil {
+		return fmt.Errorf("opening the log viewer: %w (watch the run with: harness get execution_log %s --ui)", err, ctx.Id)
+	}
+	return nil
 }

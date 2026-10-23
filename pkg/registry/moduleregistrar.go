@@ -29,6 +29,7 @@ type ModuleRegistrar interface {
 	RegisterTextFormatter(shortID string, fn cmdctx.TextFormatterFn)
 	RegisterBodyFn(shortID string, fn cmdctx.CreateBodyFn)
 	RegisterQueryParamsFn(shortID string, fn cmdctx.QueryParamsFn)
+	RegisterIdResolveFn(shortID string, fn cmdctx.IdResolveFn)
 	RegisterFollowFn(shortID string, fn cmdctx.FollowFn)
 	RegisterFetchFn(shortID string, fn cmdctx.FetchFn)
 	RegisterListTransformFn(shortID string, fn cmdctx.ListTransformFn)
@@ -81,6 +82,9 @@ func (m *moduleRegistrar) Register(cs *spec.CommandSpec) error {
 	}
 	if cs.ItemFn != "" {
 		cs.ItemFn = m.qualify(cs.ItemFn, cmd+" item_fn", true)
+	}
+	if cs.IdResolveFn != "" {
+		cs.IdResolveFn = m.qualify(cs.IdResolveFn, cmd+" id_resolve_fn", true)
 	}
 	if cs.Endpoint != nil && cs.Endpoint.TextFormatter != "" {
 		cs.Endpoint.TextFormatter = m.qualify(cs.Endpoint.TextFormatter, cmd+" text_formatter", true)
@@ -140,6 +144,12 @@ func (m *moduleRegistrar) RegisterTextFormatter(shortID string, fn cmdctx.TextFo
 func (m *moduleRegistrar) RegisterBodyFn(shortID string, fn cmdctx.CreateBodyFn) {
 	if q := m.qualify(shortID, fmt.Sprintf("body_fn %q", shortID), false); q != "" {
 		m.reg.RegisterBodyFn(q, fn)
+	}
+}
+
+func (m *moduleRegistrar) RegisterIdResolveFn(shortID string, fn cmdctx.IdResolveFn) {
+	if q := m.qualify(shortID, fmt.Sprintf("id_resolve_fn %q", shortID), false); q != "" {
+		m.reg.RegisterIdResolveFn(q, fn)
 	}
 }
 

@@ -601,6 +601,7 @@ func (s *moduleInitSpy) RegisterWorkflow(id string, _ registry.WorkflowFn) {
 func (s *moduleInitSpy) RegisterTextFormatter(string, cmdctx.TextFormatterFn)           {}
 func (s *moduleInitSpy) RegisterBodyFn(string, cmdctx.CreateBodyFn)                     {}
 func (s *moduleInitSpy) RegisterQueryParamsFn(string, cmdctx.QueryParamsFn)             {}
+func (s *moduleInitSpy) RegisterIdResolveFn(string, cmdctx.IdResolveFn)                 {}
 func (s *moduleInitSpy) RegisterFollowFn(string, cmdctx.FollowFn)                       {}
 func (s *moduleInitSpy) RegisterFetchFn(string, cmdctx.FetchFn)                         {}
 func (s *moduleInitSpy) RegisterListTransformFn(string, cmdctx.ListTransformFn)         {}

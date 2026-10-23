@@ -53,6 +53,10 @@ type CreateBodyFn func(ctx *Ctx) (any, error)
 // own query params internally.
 type QueryParamsFn func(ctx *Ctx) (map[string]string, error)
 
+// IdResolveFn fills a missing positional id or parent id before an endpoint
+// path is rendered. It may also adjust ctx.Auth org and project.
+type IdResolveFn func(ctx *Ctx) error
+
 // FollowFn is called after a successful endpoint command when --follow is set.
 // result is the raw API response (same value RunEndpoint returns).
 type FollowFn func(ctx *Ctx, result any) error
