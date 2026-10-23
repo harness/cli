@@ -295,10 +295,10 @@ func profileAPIURLs(cfg *config.Config) []string {
 }
 
 func fetchRegistryURL(apiURL, token, accountID string) (string, error) {
-  return auth.FetchRegistryURL(apiURL, accountID, func(req *http.Request) {
-    req.Header.Set("x-api-key", token)
-    auth.SetAccountHeader(req, accountID)
-  })
+	return auth.FetchRegistryURL(apiURL, accountID, func(req *http.Request) {
+		req.Header.Set("x-api-key", token)
+		auth.SetAccountHeader(req, accountID)
+	})
 }
 
 // validateToken verifies the token against the API. PATs are checked by reading the account
