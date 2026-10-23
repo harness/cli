@@ -213,7 +213,6 @@ commands:
       - name: include-hidden
         description: "Include hidden files and directories (names starting with '.') when walking directory inputs"
       - name: max-concurrent-uploads
-        is_int: true
         default: "5"
         description: "Maximum number of files uploaded concurrently (default: 5, use 1 for sequential)"
       - name: max-concurrent-parts
@@ -242,7 +241,6 @@ commands:
         description: "Path to POM file (required)"
         required: true
       - name: max-concurrent-uploads
-        is_int: true
         default: "5"
         description: "Maximum number of concurrent file uploads (default: 5, use 1 for sequential)"
       - name: metadata
@@ -282,7 +280,6 @@ commands:
     workflow_id: push_artifact_python
     flags:
       - name: max-concurrent-uploads
-        is_int: true
         default: "5"
         description: "Maximum number of concurrent file uploads (default: 5, use 1 for sequential)"
       - name: metadata

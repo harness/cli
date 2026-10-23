@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,13 +25,21 @@ import (
 
 const defaultMaxConcurrentUploads = 5
 
-// maxConcurrentUploadsFlag returns --max-concurrent-uploads, falling back to the default for values <= 0.
-func maxConcurrentUploadsFlag(ctx *cmdctx.Ctx) int {
-	n := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-uploads")
-	if n <= 0 {
-		return defaultMaxConcurrentUploads
+// maxConcurrentUploadsFlag parses --max-concurrent-uploads, falling back to the default
+// when it is unset or <= 0 and returning an error when it is not an integer.
+func maxConcurrentUploadsFlag(ctx *cmdctx.Ctx) (int, error) {
+	raw := strings.TrimSpace(cmdctx.GetString(ctx.FlagValues, "max-concurrent-uploads"))
+	if raw == "" {
+		return defaultMaxConcurrentUploads, nil
 	}
-	return n
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("--max-concurrent-uploads must be an integer, got %q", raw)
+	}
+	if n <= 0 {
+		return defaultMaxConcurrentUploads, nil
+	}
+	return n, nil
 }
 
 // pomXML is a minimal representation of a Maven POM file used for coordinate extraction.
@@ -139,7 +148,10 @@ func pushMavenArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("SNAPSHOT version upload is not supported")
 	}
 
-	maxConcurrent := maxConcurrentUploadsFlag(ctx)
+	maxConcurrent, err := maxConcurrentUploadsFlag(ctx)
+	if err != nil {
+		return err
+	}
 
 	groupPath := strings.ReplaceAll(coords.GroupID, ".", "/")
 

@@ -62,7 +62,10 @@ func pushPythonArtifact(ctx *cmdctx.Ctx) error {
 		files = []string{localPath}
 	}
 
-	maxConcurrent := maxConcurrentUploadsFlag(ctx)
+	maxConcurrent, err := maxConcurrentUploadsFlag(ctx)
+	if err != nil {
+		return err
+	}
 
 	sem := make(chan struct{}, maxConcurrent)
 	var wg sync.WaitGroup

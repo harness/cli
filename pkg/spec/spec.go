@@ -163,7 +163,6 @@ type Flag struct {
 	Description      string   `yaml:"description,omitempty"`
 	Required         bool     `yaml:"required,omitempty"`          // if true, command errors if flag is not provided
 	IsBool           bool     `yaml:"is_bool,omitempty"`           // if true, declares a bool flag instead of a string flag
-	IsInt            bool     `yaml:"is_int,omitempty"`            // if true, declares an int flag (non-numeric input is rejected); default is parsed from Default
 	IsArray          bool     `yaml:"is_array,omitempty"`          // if true, value is parsed as []string: comma-separated or JSON array syntax
 	IsMulti          bool     `yaml:"is_multi,omitempty"`          // if true, registers as StringArray (repeatable: --flag v1 --flag v2)
 	Hidden           bool     `yaml:"hidden,omitempty"`            // if true, flag is registered but not shown in --help output
