@@ -15,13 +15,13 @@ import (
 
 // pushComposerArtifact uploads a Composer package (.zip) to the registry.
 //
-// ctx.Id      = "<registry>/<name>" (only registry portion is used for the URL)
+// ctx.Id      = "<registry>" (a legacy "<registry>/<name>" is accepted; name is ignored)
 // ctx.Args[0] = local .zip file path
 //
 // Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/composer/upload
 func pushComposerArtifact(ctx *cmdctx.Ctx) error {
 	if len(ctx.Args) == 0 {
-		return fmt.Errorf("push composer artifact requires a local file path: push artifact <registry/name> <local-file>")
+		return fmt.Errorf("push composer artifact requires a local file path: push artifact <registry> <local-file>")
 	}
 	localFile := ctx.Args[0]
 
@@ -29,7 +29,7 @@ func pushComposerArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("composer package must be a .zip file, got %q", filepath.Base(localFile))
 	}
 
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err
 	}
@@ -72,6 +72,6 @@ func pushComposerArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Successfully pushed %s to %s\n", filepath.Base(localFile), ctx.Id)
+	fmt.Fprintf(os.Stderr, "Successfully pushed %s to %s\n", filepath.Base(localFile), registry)
 	return nil
 }

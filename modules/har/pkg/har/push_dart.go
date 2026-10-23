@@ -19,13 +19,13 @@ import (
 
 // pushDartArtifact uploads a Dart .tar.gz package to Harness Artifact Registry.
 //
-// ctx.Id      = "<registry>/<name>" (name is unused; name/version come from pubspec.yaml)
+// ctx.Id      = "<registry>" (a legacy "<registry>/<name>" is accepted; name is ignored)
 // ctx.Args[0] = local .tar.gz or .tgz file path
 //
 // Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/pub/api/packages/versions/new/upload/{uploadId}
 func pushDartArtifact(ctx *cmdctx.Ctx) error {
 	if len(ctx.Args) == 0 {
-		return fmt.Errorf("push dart artifact requires a local file path: push artifact <registry/name> <local-file>")
+		return fmt.Errorf("push dart artifact requires a local file path: push artifact <registry> <local-file>")
 	}
 	localFile := ctx.Args[0]
 
@@ -58,8 +58,8 @@ func pushDartArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("pubspec.yaml must contain non-empty 'name' and 'version'")
 	}
 
-	// Parse registry from ctx.Id (ignore the name portion — name comes from pubspec)
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	// Parse registry from ctx.Id
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err
 	}

@@ -19,7 +19,7 @@ import (
 // pushCargoArtifact uploads a .crate file to the Harness Artifact Registry using
 // the Cargo sparse registry upload protocol.
 //
-// ctx.Id      = "<registry>/<ignored-name>" — only the registry part is used
+// ctx.Id      = "<registry>" (a legacy "<registry>/<name>" is accepted; name is ignored)
 // ctx.Args[0] = local .crate file path
 //
 // The upload endpoint is:
@@ -74,7 +74,7 @@ func pushCargoArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	// The registry part of the id is all we need; the crate name/version come from the file.
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return fmt.Errorf("push cargo: %w", err)
 	}
