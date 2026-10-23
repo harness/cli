@@ -20,6 +20,9 @@ import (
 //
 // Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/composer/upload
 func pushComposerArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push composer artifact requires a local file path: push artifact <registry/name> <local-file>")
 	}

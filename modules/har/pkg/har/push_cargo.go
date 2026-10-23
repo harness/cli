@@ -33,6 +33,9 @@ import (
 //	[4 bytes LE uint32: .crate file length]
 //	[N bytes: .crate file bytes]
 func pushCargoArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push cargo: local file path required as positional argument")
 	}
