@@ -35,6 +35,9 @@ type puppetMetadata struct {
 // Upload endpoint: PUT {registryURL}/pkg/{accountID}/{registry}/puppet/upload
 // Body: multipart/form-data with a single field named "file".
 func pushPuppetArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push puppet requires a local file path: push artifact <registry> <local-file.tar.gz>")
 	}

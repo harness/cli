@@ -29,6 +29,9 @@ type rubyUploadResponse struct {
 //
 // Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/ruby/api/v1/gems
 func pushRubyArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push ruby: local file path required as positional argument")
 	}
