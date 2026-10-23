@@ -22,7 +22,16 @@ import (
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
-const defaultMaxConcurrentUploads = 4
+const defaultMaxConcurrentUploads = 5
+
+// maxConcurrentUploadsFlag returns the validated --max-concurrent-uploads value.
+func maxConcurrentUploadsFlag(ctx *cmdctx.Ctx) (int, error) {
+	n := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-uploads")
+	if n < 1 {
+		return 0, fmt.Errorf("--max-concurrent-uploads must be at least 1, got %d", n)
+	}
+	return n, nil
+}
 
 // pomXML is a minimal representation of a Maven POM file used for coordinate extraction.
 type pomXML struct {
@@ -130,9 +139,9 @@ func pushMavenArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("SNAPSHOT version upload is not supported")
 	}
 
-	maxConcurrent := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-uploads")
-	if maxConcurrent <= 0 {
-		maxConcurrent = defaultMaxConcurrentUploads
+	maxConcurrent, err := maxConcurrentUploadsFlag(ctx)
+	if err != nil {
+		return err
 	}
 
 	groupPath := strings.ReplaceAll(coords.GroupID, ".", "/")

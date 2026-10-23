@@ -62,9 +62,9 @@ func pushPythonArtifact(ctx *cmdctx.Ctx) error {
 		files = []string{localPath}
 	}
 
-	maxConcurrent := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-uploads")
-	if maxConcurrent <= 0 {
-		maxConcurrent = defaultMaxConcurrentUploads
+	maxConcurrent, err := maxConcurrentUploadsFlag(ctx)
+	if err != nil {
+		return err
 	}
 
 	sem := make(chan struct{}, maxConcurrent)
