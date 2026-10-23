@@ -45,10 +45,7 @@ func pushGenericArtifact(ctx *cmdctx.Ctx) error {
 
 	includeHidden := cmdctx.GetBool(ctx.FlagValues, "include-hidden")
 
-	maxConcurrentFiles := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-uploads")
-	if maxConcurrentFiles <= 0 {
-		maxConcurrentFiles = defaultMaxConcurrentUploads
-	}
+	maxConcurrentFiles := maxConcurrentUploadsFlag(ctx)
 	maxConcurrentParts := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-parts")
 	if maxConcurrentParts <= 0 {
 		maxConcurrentParts = defaultMaxConcurrentParts

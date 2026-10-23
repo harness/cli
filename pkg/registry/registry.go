@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1007,6 +1008,13 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 			} else {
 				cmd.Flags().Bool(f.Name, false, f.Description)
 			}
+		} else if f.IsInt {
+			def, _ := strconv.Atoi(f.Default)
+			if f.Short != "" {
+				cmd.Flags().IntP(f.Name, f.Short, def, f.Description)
+			} else {
+				cmd.Flags().Int(f.Name, def, f.Description)
+			}
 		} else if f.IsMulti {
 			cmd.Flags().StringArray(f.Name, nil, f.Description)
 		} else {
@@ -1117,6 +1125,13 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 				cmd.Flags().BoolP(f.Name, f.Short, false, f.Description)
 			} else {
 				cmd.Flags().Bool(f.Name, false, f.Description)
+			}
+		} else if f.IsInt {
+			def, _ := strconv.Atoi(f.Default)
+			if f.Short != "" {
+				cmd.Flags().IntP(f.Name, f.Short, def, f.Description)
+			} else {
+				cmd.Flags().Int(f.Name, def, f.Description)
 			}
 		} else if f.IsMulti {
 			cmd.Flags().StringArray(f.Name, nil, f.Description)
@@ -1334,6 +1349,9 @@ func buildFlagValues(flags *pflag.FlagSet, cs *spec.CommandSpec) map[string]any 
 		switch {
 		case f.IsBool:
 			v, _ := flags.GetBool(f.Name)
+			fv[f.Name] = v
+		case f.IsInt:
+			v, _ := flags.GetInt(f.Name)
 			fv[f.Name] = v
 		case f.IsMulti:
 			v, _ := flags.GetStringArray(f.Name)
