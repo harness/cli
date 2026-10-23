@@ -422,6 +422,7 @@ func newDownloadHTTPClient() *http.Client {
 			if !strings.EqualFold(req.URL.Host, orig.Host) ||
 				!strings.EqualFold(req.URL.Scheme, orig.Scheme) {
 				req.Header.Del("x-api-key")
+				req.Header.Del(auth.HeaderHarnessAccount)
 				req.Header.Del("Authorization")
 			}
 		}

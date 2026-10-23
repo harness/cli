@@ -116,3 +116,32 @@ func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func TestExtractCorrelationIDs(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Harness-Trace-Id", "abc123")
+	cases := []struct {
+		name        string
+		h           http.Header
+		body        []byte
+		trace, corr string
+	}{
+		{"nil header and body", nil, nil, "", ""},
+		{"header only", h, nil, "abc123", ""},
+		{"body with correlationId", nil, []byte(`{"correlationId":"c-1"}`), "", "c-1"},
+		{"both", h, []byte(`{"correlationId":"c-1"}`), "abc123", "c-1"},
+		{"non-JSON body", h, []byte("<html>oops</html>"), "abc123", ""},
+		{"JSON array body", h, []byte(`[1,2,3]`), "abc123", ""},
+		{"wrong type correlationId", h, []byte(`{"correlationId":42}`), "abc123", ""},
+		{"empty JSON", nil, []byte(`{}`), "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			trace, corr := extractCorrelationIDs(tc.h, tc.body)
+			if trace != tc.trace || corr != tc.corr {
+				t.Fatalf("got (%q, %q), want (%q, %q)", trace, corr, tc.trace, tc.corr)
+			}
+			logCorrelationIDs("GET", "/v1/x", tc.h, tc.body) // must not panic
+		})
+	}
+}

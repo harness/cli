@@ -295,9 +295,10 @@ func profileAPIURLs(cfg *config.Config) []string {
 }
 
 func fetchRegistryURL(apiURL, token, accountID string) (string, error) {
-	return auth.FetchRegistryURL(apiURL, accountID, func(req *http.Request) {
-		req.Header.Set("x-api-key", token)
-	})
+  return auth.FetchRegistryURL(apiURL, accountID, func(req *http.Request) {
+    req.Header.Set("x-api-key", token)
+    auth.SetAccountHeader(req, accountID)
+  })
 }
 
 // validateToken verifies the token against the API. PATs are checked by reading the account
@@ -325,6 +326,7 @@ func validateToken(apiURL, token, accountID string) error {
 		return fmt.Errorf("building validation request: %w", err)
 	}
 	req.Header.Set("x-api-key", token)
+	auth.SetAccountHeader(req, accountID)
 
 	resp, err := hclient.DoWithProxyCheck(c, req)
 	if err != nil {

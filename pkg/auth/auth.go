@@ -80,19 +80,35 @@ type ResolvedAuth struct {
 	Headers map[string]string
 }
 
+// HeaderHarnessAccount carries the account ID. Harness's v1 APIs read the
+// account only from this header. identity-gateway normally injects it, but
+// cells that route straight to ingress-nginx skip identity-gateway, so the
+// CLI sends it itself.
+const HeaderHarnessAccount = "Harness-Account"
+
 // SetAuthHeader sets the auth header(s) on req: pipeline_auth's Headers when
 // present, otherwise the normal Authorization (SSO) or x-api-key (PAT) header.
+// It also sets Harness-Account from AccountID unless the request already
+// carries one (e.g. from pipeline_auth Headers) or AccountID is empty.
 func (a *ResolvedAuth) SetAuthHeader(req *http.Request) {
-	if len(a.Headers) > 0 {
+	switch {
+	case len(a.Headers) > 0:
 		for k, v := range a.Headers {
 			req.Header.Set(k, v)
 		}
-		return
-	}
-	if a.AuthType == AuthTypeSSO {
+	case a.AuthType == AuthTypeSSO:
 		req.Header.Set("Authorization", "Bearer "+a.SSOToken)
-	} else {
+	default:
 		req.Header.Set("x-api-key", a.PATToken)
+	}
+	SetAccountHeader(req, a.AccountID)
+}
+
+// SetAccountHeader sets Harness-Account to accountID unless it is empty or
+// the request already has one.
+func SetAccountHeader(req *http.Request, accountID string) {
+	if accountID != "" && req.Header.Get(HeaderHarnessAccount) == "" {
+		req.Header.Set(HeaderHarnessAccount, accountID)
 	}
 }
 
