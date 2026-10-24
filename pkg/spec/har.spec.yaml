@@ -572,43 +572,63 @@ commands:
   - command: delete artifact
     verb: delete
     noun: artifact
-    confirm_mode: prompt
     short: Delete an artifact and all its versions
     id_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
-    flags_builtin:
-    handler_type: endpoint
-    endpoint:
-      method: DELETE
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+
-      item_expr: it
+    handler_type: workflow
+    workflow_id: delete_artifact
+    flags:
+      - name: force
+        description: "Skip confirmation prompt"
+        is_bool: true
+      - name: artifact-type
+        description: "Artifact sub-type (e.g. module, provider); looked up from the registry when omitted"
+      - name: preview-request
+        description: "Print the write request without sending it"
+        is_bool: true
+        hidden: true
 
   - command: delete artifact_version
     verb: delete
     noun: artifact_version
-    confirm_mode: prompt
     short: Delete a specific artifact version
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
       - completion_noun: artifact_version
-    flags_builtin:
-    handler_type: endpoint
-    endpoint:
-      method: DELETE
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+/version/{{ctx.idParts[2]}}
-      item_expr: it
+    handler_type: workflow
+    workflow_id: delete_artifact_version
+    flags:
+      - name: force
+        description: "Skip confirmation prompt"
+        is_bool: true
+      - name: artifact-type
+        description: "Artifact sub-type (e.g. module, provider); looked up from the registry when omitted"
+      - name: preview-request
+        description: "Print the write request without sending it"
+        is_bool: true
+        hidden: true
 
   - command: delete artifact:bulk
     verb: delete
     noun: artifact
     noun_variant: bulk
     short: Bulk delete artifacts by pattern with optional dry-run
+    long: |
+      Bulk delete artifacts by pattern with optional dry-run.
+
+      Usage: harness delete artifact:bulk <pattern> --registry <registry> [--version <pattern>]
+
+      The default is a preview. Pass --dry-run=false to delete; the command then
+      checks that nothing still matches and exits non-zero if anything failed.
+    no_id: true
     has_args: true
     args_label: "<pattern>"
     completion_seq:
