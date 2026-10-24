@@ -586,7 +586,11 @@ commands:
         description: "Skip confirmation prompt"
         is_bool: true
       - name: artifact-type
-        description: "Artifact sub-type (module, provider, model, dataset); looked up from the registry when omitted"
+        description: "Artifact sub-type (e.g. module, provider); looked up from the registry when omitted"
+      - name: preview-request
+        description: "Print the write request without sending it"
+        is_bool: true
+        hidden: true
 
   - command: delete artifact_version
     verb: delete
@@ -606,7 +610,11 @@ commands:
         description: "Skip confirmation prompt"
         is_bool: true
       - name: artifact-type
-        description: "Artifact sub-type (module, provider, model, dataset); looked up from the registry when omitted"
+        description: "Artifact sub-type (e.g. module, provider); looked up from the registry when omitted"
+      - name: preview-request
+        description: "Print the write request without sending it"
+        is_bool: true
+        hidden: true
 
   - command: delete artifact:bulk
     verb: delete

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
@@ -169,6 +170,64 @@ func TestRunArtifactDelete_ArtifactTypeResolution(t *testing.T) {
 				t.Fatalf("error = %v, DELETE artifact_type = %q; want %q", err, deletedType, tc.wantDeleteAs)
 			}
 		})
+	}
+}
+
+func TestLookupArtifactType_PagesUntilExactMatch(t *testing.T) {
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		pages = append(pages, page)
+		rows := make([]string, 0, 100)
+		if page == "0" {
+			for i := 0; i < 100; i++ {
+				rows = append(rows, `{"name":"ns/mod/aws-x","registryIdentifier":"reg","artifactType":"module"}`)
+			}
+		} else {
+			rows = append(rows, `{"name":"ns/mod/aws","registryIdentifier":"reg","artifactType":"provider"}`)
+		}
+		_, _ = w.Write([]byte(`{"data":{"pageCount":2,"artifacts":[` + strings.Join(rows, ",") + `]}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx := &cmdctx.Ctx{
+		Context: context.Background(),
+		Auth:    &auth.ResolvedAuth{AuthType: auth.AuthTypePAT, APIUrl: srv.URL, AccountID: "acct", PATToken: "test-token"},
+	}
+	got, err := lookupArtifactType(client.New(ctx), "acct", artifactTarget{Registry: "reg", Name: "ns/mod/aws"}, nil)
+	if err != nil || got != "provider" {
+		t.Fatalf("lookupArtifactType = %q, %v; want provider from the second page", got, err)
+	}
+	if strings.Join(pages, ",") != "0,1" {
+		t.Fatalf("pages requested = %v, want 0,1", pages)
+	}
+}
+
+func TestRunArtifactDelete_PreviewRequestSendsNothing(t *testing.T) {
+	withStdinTerminal(t, false)
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		_, _ = w.Write([]byte(`{"data":{"artifacts":[{"name":"ns/mod/aws","registryIdentifier":"reg","artifactType":"module"}]}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	var preview strings.Builder
+	ctx := &cmdctx.Ctx{
+		Context:        context.Background(),
+		Id:             "reg/ns/mod/aws",
+		FlagValues:     map[string]any{},
+		RequestPreview: &preview,
+		Auth:           &auth.ResolvedAuth{AuthType: auth.AuthTypePAT, APIUrl: srv.URL, AccountID: "acct", PATToken: "test-token"},
+	}
+	if err := runArtifactDelete(ctx, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Join(methods, ",") != "GET" {
+		t.Fatalf("requests sent = %v, want only the type lookup GET", methods)
+	}
+	if !strings.HasPrefix(preview.String(), "DELETE ") || !strings.Contains(preview.String(), "artifact_type=module") {
+		t.Fatalf("preview = %q, want the DELETE with artifact_type=module", preview.String())
 	}
 }
 

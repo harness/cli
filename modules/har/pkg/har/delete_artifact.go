@@ -67,6 +67,10 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("--yes confirms a real delete and cannot be combined with the default dry run; " +
 			"pass --dry-run=false to delete, or drop --yes to preview")
 	}
+	if jsonOut && !dryRun && !yes {
+		return fmt.Errorf("--format json does not show the preview, so it cannot prompt; " +
+			"pass --yes to delete, or drop --dry-run=false to preview")
+	}
 
 	// Gap 2 fix: determine impactType from input flag, not from response.
 	impactType := "Packages"
@@ -142,7 +146,7 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 	if final.Failed == 0 {
 		var after bulkDeleteResponse
 		if after, verifyErr = callBulkDelete(apiURL, ctx, preview); verifyErr == nil {
-			remaining = after.SuccessPackages
+			remaining = stillPresent(final.SuccessPackages, after.SuccessPackages)
 		}
 	}
 	if jsonOut {
@@ -161,6 +165,22 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 			len(remaining), strings.ToLower(impactType), strings.Join(remaining, ", "))
 	}
 	return nil
+}
+
+// stillPresent returns the deleted names that the pattern still matches, ignoring
+// matches that were pushed after the delete.
+func stillPresent(deleted, matching []string) []string {
+	matched := make(map[string]bool, len(matching))
+	for _, name := range matching {
+		matched[name] = true
+	}
+	var remaining []string
+	for _, name := range deleted {
+		if matched[name] {
+			remaining = append(remaining, name)
+		}
+	}
+	return remaining
 }
 
 // bulkDeleteResult is the --format json output. Mutated is false for every

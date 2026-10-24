@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/format"
 )
 
 const (
@@ -70,7 +72,8 @@ func runArtifactDelete(ctx *cmdctx.Ctx, withVersion bool) error {
 	if err != nil {
 		return err
 	}
-	if !cmdctx.GetBool(ctx.FlagValues, "force") {
+	previewOnly := ctx.RequestPreview != nil
+	if !previewOnly && !cmdctx.GetBool(ctx.FlagValues, "force") {
 		if !stdinIsTerminal() {
 			return fmt.Errorf("confirmation required: stdin is not a terminal; re-run with --force to skip this prompt")
 		}
@@ -91,39 +94,51 @@ func runArtifactDelete(ctx *cmdctx.Ctx, withVersion bool) error {
 		}
 	}
 	qp["artifact_type"] = artifactType
-	if _, _, err := c.Delete(path, qp); err != nil {
+	result, _, err := c.Delete(path, qp)
+	if errors.Is(err, client.ErrRequestPreviewed) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
 	if err := verifyArtifactGone(c, path, qp, ctx.Id); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Deleted %s\n", ctx.Id)
-	return nil
+	return format.FormatSingleOutput(ctx.FormatFlags, ctx.IsPty, result, "", "", nil, nil, nil)
 }
 
 // lookupArtifactType finds the sub-type (e.g. Terraform "module" or "provider")
 // of the named artifact. The v1 delete and summary endpoints only match typed
 // artifacts when artifact_type is sent, and match untyped ones only when it isn't.
 func lookupArtifactType(c *client.Client, scope string, t artifactTarget, qp map[string]string) (string, error) {
-	listQP := map[string]string{"reg_identifier": t.Registry, "search_term": t.Name, "size": "100"}
+	const pageSize = 100
+	listQP := map[string]string{"reg_identifier": t.Registry, "search_term": t.Name, "size": strconv.Itoa(pageSize)}
 	for k, v := range qp {
 		listQP[k] = v
 	}
-	res, _, err := c.Get("/har/api/v1/spaces/"+scope+"/+/artifacts", listQP)
-	if err != nil {
-		return "", fmt.Errorf("looking up artifact %s/%s: %w", t.Registry, t.Name, err)
-	}
 	found := map[string]bool{}
-	body, _ := res.(map[string]any)
-	data, _ := body["data"].(map[string]any)
-	rows, _ := data["artifacts"].([]any)
-	for _, r := range rows {
-		row, _ := r.(map[string]any)
-		if row["name"] != t.Name || row["registryIdentifier"] != t.Registry {
-			continue
+	for page := 0; ; page++ {
+		listQP["page"] = strconv.Itoa(page)
+		res, _, err := c.Get("/har/api/v1/spaces/"+scope+"/+/artifacts", listQP)
+		if err != nil {
+			return "", fmt.Errorf("looking up artifact %s/%s: %w", t.Registry, t.Name, err)
 		}
-		at, _ := row["artifactType"].(string)
-		found[at] = true
+		body, _ := res.(map[string]any)
+		data, _ := body["data"].(map[string]any)
+		rows, _ := data["artifacts"].([]any)
+		for _, r := range rows {
+			row, _ := r.(map[string]any)
+			if row["name"] != t.Name || row["registryIdentifier"] != t.Registry {
+				continue
+			}
+			at, _ := row["artifactType"].(string)
+			found[at] = true
+		}
+		pageCount, _ := data["pageCount"].(float64)
+		if len(rows) < pageSize || float64(page+1) >= pageCount {
+			break
+		}
 	}
 	if len(found) > 1 {
 		return "", fmt.Errorf("%s/%s matches more than one artifact type; pass --artifact-type", t.Registry, t.Name)

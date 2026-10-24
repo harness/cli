@@ -128,21 +128,25 @@ func TestBulkDeleteArtifactHandler_ConfirmationGates(t *testing.T) {
 	cases := []struct {
 		name      string
 		flags     map[string]any
+		format    string
 		terminal  bool
 		wantErr   string
 		wantCalls int
 	}{
-		{"--yes with the default dry run is rejected", map[string]any{"yes": true}, true, "cannot be combined", 0},
-		{"piped stdin cannot confirm a real delete", map[string]any{"dry-run": "false"}, false, "--yes", 1},
-		{"dry run with --force never prompts", map[string]any{"force": true}, false, "", 1},
+		{"--yes with the default dry run is rejected", map[string]any{"yes": true}, "", true, "cannot be combined", 0},
+		{"piped stdin cannot confirm a real delete", map[string]any{"dry-run": "false"}, "", false, "--yes", 1},
+		{"dry run with --force never prompts", map[string]any{"force": true}, "", false, "", 1},
+		{"json real delete without --yes is refused before any call", map[string]any{"dry-run": "false"}, "json", true, "--yes", 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, calls := newBulkDeleteServer(t, []string{"nginx-test"})
 			withStdinTerminal(t, tc.terminal)
 			tc.flags["registry"] = "mikereg"
+			ctx := bulkDeleteTestCtx(tc.flags, srv.URL)
+			ctx.FormatFlags.Format = tc.format
 
-			err := bulkDeleteArtifactHandler(bulkDeleteTestCtx(tc.flags, srv.URL))
+			err := bulkDeleteArtifactHandler(ctx)
 			if tc.wantErr == "" && err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -309,6 +313,13 @@ func TestBulkDeleteArtifactHandler_RealRunFailures(t *testing.T) {
 				t.Fatalf("expected %d API calls, got %d", tc.wantCalls, len(*calls))
 			}
 		})
+	}
+}
+
+func TestStillPresent(t *testing.T) {
+	got := stillPresent([]string{"express", "express-util"}, []string{"express-util", "express-new"})
+	if strings.Join(got, ",") != "express-util" {
+		t.Fatalf("stillPresent = %v, want only the deleted name that still matches", got)
 	}
 }
 
