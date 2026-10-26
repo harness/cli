@@ -14,9 +14,12 @@ import (
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 
-// Sent verbatim in the presign request, so this must match the coverage
-// server's types.CoverageFormat value.
-const formatParquet = "parquet"
+// Sent verbatim in the presign request, so these must match the coverage
+// server's types.CoverageFormat values.
+const (
+	formatParquet       = "parquet"
+	formatParquetBitmap = "parquet-bitmap"
+)
 
 // EncodeResult describes what Write produced for the server
 // (mirrors format.IndexResult).
@@ -29,6 +32,15 @@ type EncodeResult struct {
 // parquetEncode builds the result for the Parquet format.
 func parquetEncode() EncodeResult {
 	return EncodeResult{Format: formatParquet}
+}
+
+// parquetBitmapEncode builds the result for the parquet-bitmap format.
+func parquetBitmapEncode(skippedKeys []string, diffByFile map[string][]uint32) EncodeResult {
+	return EncodeResult{
+		Format:      formatParquetBitmap,
+		SkippedKeys: skippedKeys,
+		DiffByFile:  diffByFile,
+	}
 }
 
 // WriteOption is a functional option for configuring Write.
@@ -113,9 +125,8 @@ func WithPathResolver(resolver *env.Tree) WriteOption {
 // returned EncodeResult tells the caller what it produced and what
 // metadata the coverage server needs with it.
 //
-// Per-test (TI runner) coverage, which bypasses the line parsers for a
-// bitmap-shaped schema, is not yet ported; every format here goes through
-// the conventional line-coverage parquet encoding.
+// Per-test (TI runner) coverage bypasses the line parsers for a
+// bitmap-shaped schema; every other format is line-coverage parquet.
 func Write(
 	repoRef string,
 	format string,
@@ -129,6 +140,10 @@ func Write(
 	options := &writeOptions{}
 	for _, opt := range opts {
 		opt(options)
+	}
+
+	if format == FormatTIRunner {
+		return writeParquetBitmap(repoRef, r, w, options)
 	}
 
 	return writeParquet(repoRef, format, r, w, options)
