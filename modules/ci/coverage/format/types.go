@@ -58,8 +58,8 @@ const (
 	FormatCobertura = "cobertura"
 	FormatCoveralls = "coveralls"
 
-	// FormatTIRunner identifies TI Runner per-test coverage reports. It is a
-	// file-discovery label only; NewParser does not yet support it.
+	// FormatTIRunner identifies TI Runner per-test coverage reports. Write
+	// encodes them as parquet-bitmap; NewParser has no line parser for it.
 	FormatTIRunner = "ti-runner"
 )
 

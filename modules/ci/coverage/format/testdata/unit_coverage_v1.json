@@ -1,0 +1,67 @@
+{
+  "comment": "Golden parquet-bitmap fixture shared with harness-code. See testdata/README.md before regenerating.",
+  "columns": [
+    "repo_ref",
+    "unit_key",
+    "file_path",
+    "hit_lines",
+    "partial_lines",
+    "executable_lines"
+  ],
+  "records": [
+    {
+      "repo_ref": "harness/example",
+      "unit_key": "unit-a",
+      "file_path": "src/alpha.go",
+      "hit": [
+        1,
+        2,
+        3
+      ],
+      "partial": [
+        7
+      ],
+      "executable": [
+        1,
+        2,
+        3,
+        7,
+        9
+      ]
+    },
+    {
+      "repo_ref": "harness/example",
+      "unit_key": "unit-b",
+      "file_path": "src/beta.go",
+      "hit": [
+        70000,
+        70001
+      ],
+      "partial": null,
+      "executable": [
+        70000,
+        70001,
+        70002
+      ]
+    },
+    {
+      "repo_ref": "harness/example",
+      "unit_key": "",
+      "file_path": "src/alpha.go",
+      "hit": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "partial": null,
+      "executable": [
+        1,
+        2,
+        3,
+        4,
+        9
+      ]
+    }
+  ]
+}
