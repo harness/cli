@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package upload
 
 import (
 	"bytes"
@@ -28,8 +28,8 @@ import (
 
 var errCoverageExecutionIDMandatory = errors.New("execution ID is mandatory")
 
-// coverageUploadFlags holds the raw --flag values for `execute coverage:upload`.
-type coverageUploadFlags struct {
+// uploadFlags holds the raw --flag values for `execute coverage:upload`.
+type uploadFlags struct {
 	accountID       string
 	provider        string
 	owner           string
@@ -48,9 +48,9 @@ type coverageUploadFlags struct {
 	excludePatterns []string
 }
 
-// coverageUploadParams is the fully resolved set of parameters that drive
-// report upload, after CI-vendor defaulting (coverageResolveUploadParams).
-type coverageUploadParams struct {
+// uploadParams is the fully resolved set of parameters that drive
+// report upload, after CI-vendor defaulting (resolveUploadParams).
+type uploadParams struct {
 	accountID     string
 	provider      string
 	baseURL       string
@@ -70,11 +70,11 @@ type coverageUploadParams struct {
 	patch         bool
 }
 
-// coverageResolveUploadParams fills in any unset flag with CI-vendor-detected
+// resolveUploadParams fills in any unset flag with CI-vendor-detected
 // values, mirroring HCli's upload checkFlags. A failed vendor lookup is not
 // fatal: the zero-value env.Vendor still resolves owner/identifier/commit
 // from the local git remote and HEAD.
-func coverageResolveUploadParams(f coverageUploadFlags) (*coverageUploadParams, error) {
+func resolveUploadParams(f uploadFlags) (*uploadParams, error) {
 	vendor, err := env.Info()
 	if err != nil {
 		hlog.Debug("no CI vendor detected, will use git remote for SCM detection", "err", err)
@@ -119,7 +119,7 @@ func coverageResolveUploadParams(f coverageUploadFlags) (*coverageUploadParams, 
 			return nil, fmt.Errorf("failed to get SCM identifier: %w", err)
 		}
 		if strings.EqualFold(provider, env.HarnessProvider) {
-			identifier, owner = coverageParseIdentifierOwner(accountID, owner, identifier)
+			identifier, owner = parseIdentifierOwner(accountID, owner, identifier)
 		}
 	}
 
@@ -197,7 +197,7 @@ func coverageResolveUploadParams(f coverageUploadFlags) (*coverageUploadParams, 
 		return nil, fmt.Errorf("--patch requires --base to be specified")
 	}
 
-	return &coverageUploadParams{
+	return &uploadParams{
 		accountID:     accountID,
 		provider:      provider,
 		baseURL:       baseURL,
@@ -218,13 +218,13 @@ func coverageResolveUploadParams(f coverageUploadFlags) (*coverageUploadParams, 
 	}, nil
 }
 
-// coverageParseIdentifierOwner reparses owner/identifier for the Harness
+// parseIdentifierOwner reparses owner/identifier for the Harness
 // provider: Identifier() returns a Harness Code path such as
 // "<account>/<org>/<project>/<repo>", not a bare repo identifier. If
 // identifier contains owner, the owner (and everything before it) is
 // stripped. Otherwise the last path segment becomes the identifier and the
 // rest is joined under account as the owner.
-func coverageParseIdentifierOwner(account, owner, identifier string) (string, string) {
+func parseIdentifierOwner(account, owner, identifier string) (string, string) {
 	if owner != "" && strings.Contains(identifier, owner) {
 		idx := strings.Index(identifier, owner)
 		identifier = identifier[idx+len(owner):]
@@ -238,20 +238,20 @@ func coverageParseIdentifierOwner(account, owner, identifier string) (string, st
 	return identifier, owner
 }
 
-// coverageUploadTargetScope is the space path report upload and ensure-repo
+// uploadTargetScope is the space path report upload and ensure-repo
 // share. Harness Code ignores target_scope on the server and uses the owner
 // path, which covclient.ResolveScope already applied; leave it empty so the two
 // paths stay aligned.
-func coverageUploadTargetScope(params *coverageUploadParams) string {
+func uploadTargetScope(params *uploadParams) string {
 	if strings.EqualFold(params.provider, env.HarnessProvider) {
 		return ""
 	}
 	return params.resolvedScope.SpacePath()
 }
 
-// coverageSignURLRequest is the presign request body. Field shapes are sent
+// signURLRequest is the presign request body. Field shapes are sent
 // verbatim to the coverage server and must match its SignURLRequest.
-type coverageSignURLRequest struct {
+type signURLRequest struct {
 	TargetScope   string              `json:"target_scope,omitempty"`
 	BaseURL       string              `json:"base_url"`
 	Provider      string              `json:"provider"`
@@ -273,26 +273,26 @@ type coverageSignURLRequest struct {
 	DiffByFile    map[string][]uint32 `json:"diff_by_file,omitempty"`
 }
 
-type coverageSignURLResponse struct {
+type signURLResponse struct {
 	ExternalID string `json:"external_id"`
 	CreatedAt  int64  `json:"created_at"`
 	Location   string `json:"location"`
 	URL        string `json:"url"`
 }
 
-func coverageUploadPath(accountID string) string {
+func uploadPath(accountID string) string {
 	return fmt.Sprintf(covclient.APIPrefix+"/accounts/%s/reports/upload", accountID)
 }
 
-func coverageCompletePath(accountID, externalID string) string {
+func completePath(accountID, externalID string) string {
 	return fmt.Sprintf(covclient.APIPrefix+"/accounts/%s/reports/%s/complete", accountID, externalID)
 }
 
-// coverageLoadUploadExcludePatterns resolves the effective exclude patterns
+// loadUploadExcludePatterns resolves the effective exclude patterns
 // for report upload: coverage repository settings (even an empty value)
 // replace cliPatterns entirely; see format.PatternsFromSettings.
-func coverageLoadUploadExcludePatterns(
-	ctx *cmdctx.Ctx, params *coverageUploadParams, cliPatterns []string,
+func loadUploadExcludePatterns(
+	ctx *cmdctx.Ctx, params *uploadParams, cliPatterns []string,
 ) ([]format.ExcludePattern, error) {
 	repoID, err := covclient.EnsureRepo(ctx, params.resolvedScope, params.provider, params.owner, params.identifier)
 	if err != nil {
@@ -305,11 +305,11 @@ func coverageLoadUploadExcludePatterns(
 	return format.PatternsFromSettings(excludeText, cliPatterns)
 }
 
-// coverageUpload is the `execute coverage:upload` orchestration: resolve
+// upload is the `execute coverage:upload` orchestration: resolve
 // parameters, discover coverage files, load server-side excludes once, then
 // parse/encode/upload every file concurrently.
-func coverageUpload(ctx *cmdctx.Ctx, f coverageUploadFlags) error {
-	params, err := coverageResolveUploadParams(f)
+func upload(ctx *cmdctx.Ctx, f uploadFlags) error {
+	params, err := resolveUploadParams(f)
 	if err != nil {
 		return err
 	}
@@ -319,7 +319,7 @@ func coverageUpload(ctx *cmdctx.Ctx, f coverageUploadFlags) error {
 		return fmt.Errorf("failed to lookup coverage file: %w", err)
 	}
 
-	excludePatterns, err := coverageLoadUploadExcludePatterns(ctx, params, f.excludePatterns)
+	excludePatterns, err := loadUploadExcludePatterns(ctx, params, f.excludePatterns)
 	if err != nil {
 		return err
 	}
@@ -328,10 +328,10 @@ func coverageUpload(ctx *cmdctx.Ctx, f coverageUploadFlags) error {
 	repoRef := path.Join(params.owner, params.identifier)
 
 	var errGroup errgroup.Group
-	for _, coverageFile := range lookupFiles {
+	for _, file := range lookupFiles {
 		errGroup.Go(func() error {
-			if err := coverageProcessUploadFile(ctx, params, repoRef, coverageFile, excludePatterns, pathResolver); err != nil {
-				return fmt.Errorf("failed to upload coverage file %s: %w", coverageFile.Path, err)
+			if err := processUploadFile(ctx, params, repoRef, file, excludePatterns, pathResolver); err != nil {
+				return fmt.Errorf("failed to upload coverage file %s: %w", file.Path, err)
 			}
 			return nil
 		})
@@ -339,39 +339,39 @@ func coverageUpload(ctx *cmdctx.Ctx, f coverageUploadFlags) error {
 	return errGroup.Wait()
 }
 
-func coverageProcessUploadFile(
+func processUploadFile(
 	ctx *cmdctx.Ctx,
-	params *coverageUploadParams,
+	params *uploadParams,
 	repoRef string,
-	coverageFile covfile.File,
+	file covfile.File,
 	excludePatterns []format.ExcludePattern,
 	pathResolver *env.Tree,
 ) error {
-	hlog.Info("processing coverage file", "path", coverageFile.Path)
-	defer hlog.Info("finished processing coverage file", "path", coverageFile.Path)
+	hlog.Info("processing coverage file", "path", file.Path)
+	defer hlog.Info("finished processing coverage file", "path", file.Path)
 
 	baseRef := ""
 	if params.base != "" {
 		baseRef = env.EnsureRefFetched(params.base)
 	}
 
-	reportData, enc, err := coverageBuildReport(repoRef, coverageFile, baseRef, excludePatterns, pathResolver, params)
+	reportData, enc, err := buildReport(repoRef, file, baseRef, excludePatterns, pathResolver, params)
 	if err != nil {
 		return err
 	}
 
-	return coverageUploadCoverageReport(ctx, params, baseRef, reportData, enc)
+	return uploadCoverageReport(ctx, params, baseRef, reportData, enc)
 }
 
-func coverageBuildReport(
+func buildReport(
 	repoRef string,
-	coverageFile covfile.File,
+	file covfile.File,
 	baseRef string,
 	excludePatterns []format.ExcludePattern,
 	pathResolver *env.Tree,
-	params *coverageUploadParams,
+	params *uploadParams,
 ) ([]byte, format.EncodeResult, error) {
-	f, err := os.Open(coverageFile.Path)
+	f, err := os.Open(file.Path)
 	if err != nil {
 		return nil, format.EncodeResult{}, fmt.Errorf("failed to open coverage file: %w", err)
 	}
@@ -387,7 +387,7 @@ func coverageBuildReport(
 		writeOpts = append(writeOpts, format.WithDiff(baseRef, params.commitID))
 	}
 
-	writeOpts = append(writeOpts, format.WithHintDirs(filepath.Dir(coverageFile.Path)))
+	writeOpts = append(writeOpts, format.WithHintDirs(filepath.Dir(file.Path)))
 	writeOpts = append(writeOpts, format.WithPathResolver(pathResolver))
 
 	if params.patch {
@@ -397,7 +397,7 @@ func coverageBuildReport(
 		writeOpts = append(writeOpts, format.WithExcludePatterns(excludePatterns))
 	}
 
-	enc, err := format.Write(repoRef, coverageFile.Format, f, buf, writeOpts...)
+	enc, err := format.Write(repoRef, file.Format, f, buf, writeOpts...)
 	if err != nil {
 		return nil, format.EncodeResult{}, fmt.Errorf("failed to parse coverage file: %w", err)
 	}
@@ -405,33 +405,33 @@ func coverageBuildReport(
 	return buf.Bytes(), enc, nil
 }
 
-// coverageUploadCoverageReport presigns a storage location for the encoded
+// uploadCoverageReport presigns a storage location for the encoded
 // report, PUTs the bytes there, then marks the report complete. The storage
 // PUT carries no Harness auth header: the presigned URL embeds its own.
-func coverageUploadCoverageReport(
-	ctx *cmdctx.Ctx, params *coverageUploadParams, baseRef string, reportData []byte, enc format.EncodeResult,
+func uploadCoverageReport(
+	ctx *cmdctx.Ctx, params *uploadParams, baseRef string, reportData []byte, enc format.EncodeResult,
 ) error {
-	urlResp, err := coverageGetPresignedURL(ctx, params, baseRef, enc)
+	urlResp, err := getPresignedURL(ctx, params, baseRef, enc)
 	if err != nil {
 		return fmt.Errorf("presign failed: %w", err)
 	}
 
 	hlog.Info("uploading coverage report")
-	if err := coveragePutReportBytes(ctx.Context, urlResp.Location, reportData); err != nil {
+	if err := putReportBytes(ctx.Context, urlResp.Location, reportData); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
 	hlog.Info("marking coverage report as complete")
-	if err := coverageCompleteReport(ctx, urlResp.ExternalID); err != nil {
+	if err := completeReport(ctx, urlResp.ExternalID); err != nil {
 		return fmt.Errorf("complete failed: %w", err)
 	}
 
 	return nil
 }
 
-func coverageGetPresignedURL(
-	ctx *cmdctx.Ctx, params *coverageUploadParams, baseRef string, enc format.EncodeResult,
-) (coverageSignURLResponse, error) {
+func getPresignedURL(
+	ctx *cmdctx.Ctx, params *uploadParams, baseRef string, enc format.EncodeResult,
+) (signURLResponse, error) {
 	var mergeBaseSHA string
 	var err error
 	switch {
@@ -440,12 +440,12 @@ func coverageGetPresignedURL(
 	case baseRef != "" && params.branch != "" && params.base != params.branch:
 		mergeBaseSHA, err = env.GetMergeBase(baseRef, params.branch)
 		if err != nil {
-			return coverageSignURLResponse{}, fmt.Errorf("failed to get merge base [%s, %s]: %w", baseRef, params.branch, err)
+			return signURLResponse{}, fmt.Errorf("failed to get merge base [%s, %s]: %w", baseRef, params.branch, err)
 		}
 	}
 
-	req := coverageSignURLRequest{
-		TargetScope:   coverageUploadTargetScope(params),
+	req := signURLRequest{
+		TargetScope:   uploadTargetScope(params),
 		Provider:      params.provider,
 		BaseURL:       params.baseURL,
 		Owner:         params.owner,
@@ -469,7 +469,7 @@ func coverageGetPresignedURL(
 	accountID := ctx.Auth.AccountID
 	raw, _, err := client.New(ctx).DoRequest(client.Request{
 		Method: "POST",
-		Path:   coverageUploadPath(accountID),
+		Path:   uploadPath(accountID),
 		QueryParams: map[string]string{
 			"routingId": accountID,
 			"accountId": accountID,
@@ -478,20 +478,20 @@ func coverageGetPresignedURL(
 		NoAccountID: true,
 	})
 	if err != nil {
-		return coverageSignURLResponse{}, err
+		return signURLResponse{}, err
 	}
-	var resp coverageSignURLResponse
+	var resp signURLResponse
 	if err := covclient.DecodeInto(raw, &resp); err != nil {
-		return coverageSignURLResponse{}, err
+		return signURLResponse{}, err
 	}
 	return resp, nil
 }
 
-// coveragePutReportBytes uploads the encoded report directly to the
+// putReportBytes uploads the encoded report directly to the
 // presigned storage location. This is deliberately a bare HTTP call, not
 // client.Client: the presigned URL is not a Harness host and must carry no
 // Harness auth header — authorization is already embedded in the URL.
-func coveragePutReportBytes(ctx context.Context, location string, data []byte) error {
+func putReportBytes(ctx context.Context, location string, data []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, location, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("building storage upload request: %w", err)
@@ -509,11 +509,11 @@ func coveragePutReportBytes(ctx context.Context, location string, data []byte) e
 	return nil
 }
 
-func coverageCompleteReport(ctx *cmdctx.Ctx, externalID string) error {
+func completeReport(ctx *cmdctx.Ctx, externalID string) error {
 	accountID := ctx.Auth.AccountID
 	_, _, err := client.New(ctx).DoRequest(client.Request{
 		Method: "PUT",
-		Path:   coverageCompletePath(accountID, externalID),
+		Path:   completePath(accountID, externalID),
 		QueryParams: map[string]string{
 			"routingId": accountID,
 			"accountId": accountID,

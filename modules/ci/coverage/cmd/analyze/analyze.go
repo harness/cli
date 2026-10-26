@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package analyze
 
 import (
 	"fmt"
@@ -19,8 +19,8 @@ import (
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 
-// coverageFileStats is one source file's accumulated line counts.
-type coverageFileStats struct {
+// fileStats is one source file's accumulated line counts.
+type fileStats struct {
 	FilePath   string
 	Hits       int
 	Partials   int
@@ -33,13 +33,13 @@ type coverageFileStats struct {
 	PatchPercentage float64
 }
 
-// coverageStats is the merged result of analyzing one or more coverage files.
-type coverageStats struct {
+// analysisStats is the merged result of analyzing one or more coverage files.
+type analysisStats struct {
 	Hits              int
 	Partials          int
 	Misses            int
 	OverallPercentage float64
-	Files             []coverageFileStats
+	Files             []fileStats
 	ProcessedFiles    []covfile.File
 	// Patch coverage statistics (only populated when --patch is used)
 	PatchHits       int
@@ -49,7 +49,7 @@ type coverageStats struct {
 	HasPatchData    bool
 }
 
-func coverageCalcPercentage(hits, partials, misses int) float64 {
+func calcPercentage(hits, partials, misses int) float64 {
 	total := hits + partials + misses
 	if total == 0 {
 		return 0
@@ -57,10 +57,10 @@ func coverageCalcPercentage(hits, partials, misses int) float64 {
 	return float64(hits) / float64(total) * 100
 }
 
-// coverageAnalyze parses files (or auto-discovers coverage reports when files
+// analyze parses files (or auto-discovers coverage reports when files
 // is empty), optionally restricts to changed lines between base and head, and
 // returns the merged per-file and overall statistics.
-func coverageAnalyze(files, excludePatterns []string, patch bool, base, head string) (*coverageStats, error) {
+func analyze(files, excludePatterns []string, patch bool, base, head string) (*analysisStats, error) {
 	hlog.Debug("running analyze for files", "files", files)
 
 	compiledExcludes, err := format.CompileCLIExcludePatterns(excludePatterns)
@@ -113,27 +113,27 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 
 	gitTrie := env.NewLazyTreeFromGit()
 
-	mergedStats := &coverageStats{
-		Files:          make([]coverageFileStats, 0),
+	mergedStats := &analysisStats{
+		Files:          make([]fileStats, 0),
 		ProcessedFiles: make([]covfile.File, 0, len(lookupFiles)),
 		HasPatchData:   diffLines != nil,
 	}
 
 	accumulator := newCoverageAnalysisAccumulator()
 
-	for _, coverageFileInfo := range lookupFiles {
-		hlog.Debug("processing coverage file", "path", coverageFileInfo.Path, "format", coverageFileInfo.Format)
+	for _, fileInfo := range lookupFiles {
+		hlog.Debug("processing coverage file", "path", fileInfo.Path, "format", fileInfo.Format)
 
-		f, openErr := os.Open(coverageFileInfo.Path)
+		f, openErr := os.Open(fileInfo.Path)
 		if openErr != nil {
-			hlog.Warn("failed to open coverage file", "path", coverageFileInfo.Path, "err", openErr)
+			hlog.Warn("failed to open coverage file", "path", fileInfo.Path, "err", openErr)
 			continue
 		}
 
-		parseErr := coverageParseCoverageFileInto(
-			coverageFileInfo.Format,
+		parseErr := parseCoverageFileInto(
+			fileInfo.Format,
 			f,
-			filepath.Dir(coverageFileInfo.Path),
+			filepath.Dir(fileInfo.Path),
 			gitTrie,
 			diffLines,
 			patch,
@@ -142,15 +142,15 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 		)
 		_ = f.Close()
 		if parseErr != nil {
-			return nil, fmt.Errorf("failed to parse coverage file %s: %w", coverageFileInfo.Path, parseErr)
+			return nil, fmt.Errorf("failed to parse coverage file %s: %w", fileInfo.Path, parseErr)
 		}
 
-		mergedStats.ProcessedFiles = append(mergedStats.ProcessedFiles, coverageFileInfo)
+		mergedStats.ProcessedFiles = append(mergedStats.ProcessedFiles, fileInfo)
 	}
 
 	for _, fileStat := range accumulator.files {
-		fileStat.Percentage = coverageCalcPercentage(fileStat.Hits, fileStat.Partials, fileStat.Misses)
-		fileStat.PatchPercentage = coverageCalcPercentage(fileStat.PatchHits, fileStat.PatchPartials, fileStat.PatchMisses)
+		fileStat.Percentage = calcPercentage(fileStat.Hits, fileStat.Partials, fileStat.Misses)
+		fileStat.PatchPercentage = calcPercentage(fileStat.PatchHits, fileStat.PatchPartials, fileStat.PatchMisses)
 		mergedStats.Files = append(mergedStats.Files, *fileStat)
 		mergedStats.Hits += fileStat.Hits
 		mergedStats.Partials += fileStat.Partials
@@ -160,8 +160,8 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 		mergedStats.PatchMisses += fileStat.PatchMisses
 	}
 
-	mergedStats.OverallPercentage = coverageCalcPercentage(mergedStats.Hits, mergedStats.Partials, mergedStats.Misses)
-	mergedStats.PatchPercentage = coverageCalcPercentage(mergedStats.PatchHits, mergedStats.PatchPartials, mergedStats.PatchMisses)
+	mergedStats.OverallPercentage = calcPercentage(mergedStats.Hits, mergedStats.Partials, mergedStats.Misses)
+	mergedStats.PatchPercentage = calcPercentage(mergedStats.PatchHits, mergedStats.PatchPartials, mergedStats.PatchMisses)
 
 	sort.Slice(mergedStats.Files, func(i, j int) bool {
 		return mergedStats.Files[i].Percentage < mergedStats.Files[j].Percentage
@@ -170,35 +170,35 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 	return mergedStats, nil
 }
 
-// coverageSeenLine is the merged state of every coverage observation seen so
+// seenLine is the merged state of every coverage observation seen so
 // far for one file+line, used to adjust Hits/Partials/Misses deltas as later
 // reports merge in rather than double-counting.
-type coverageSeenLine struct {
+type seenLine struct {
 	lineType format.LineType
 	inPatch  bool
 }
 
-// coverageAnalysisAccumulator merges per-line coverage observations from
+// analysisAccumulator merges per-line coverage observations from
 // potentially multiple report files into shared per-file statistics.
-type coverageAnalysisAccumulator struct {
-	files    map[string]*coverageFileStats
-	lines    map[string]coverageSeenLine
+type analysisAccumulator struct {
+	files    map[string]*fileStats
+	lines    map[string]seenLine
 	excluded map[string]struct{}
 }
 
-func newCoverageAnalysisAccumulator() *coverageAnalysisAccumulator {
-	return &coverageAnalysisAccumulator{
-		files:    make(map[string]*coverageFileStats),
-		lines:    make(map[string]coverageSeenLine),
+func newCoverageAnalysisAccumulator() *analysisAccumulator {
+	return &analysisAccumulator{
+		files:    make(map[string]*fileStats),
+		lines:    make(map[string]seenLine),
 		excluded: make(map[string]struct{}),
 	}
 }
 
-// coverageParseCoverageFileInto parses one coverage report into accumulator,
+// parseCoverageFileInto parses one coverage report into accumulator,
 // merging per-line observations across potentially multiple report files for
 // the same file+line (e.g. a covered line in one report and uncovered in
 // another collapses to partial).
-func coverageParseCoverageFileInto(
+func parseCoverageFileInto(
 	formatType string,
 	reader io.Reader,
 	hintDir string,
@@ -206,7 +206,7 @@ func coverageParseCoverageFileInto(
 	diffLines map[string]map[uint32]bool,
 	patch bool,
 	excludes []format.ExcludePattern,
-	accumulator *coverageAnalysisAccumulator,
+	accumulator *analysisAccumulator,
 ) error {
 	parser, err := format.NewParser(formatType)
 	if err != nil {
@@ -244,7 +244,7 @@ func coverageParseCoverageFileInto(
 		filePath := choice.Path
 
 		if accumulator.files[filePath] == nil {
-			accumulator.files[filePath] = &coverageFileStats{FilePath: filePath}
+			accumulator.files[filePath] = &fileStats{FilePath: filePath}
 		}
 		stats := accumulator.files[filePath]
 
@@ -257,14 +257,14 @@ func coverageParseCoverageFileInto(
 		key := filePath + "\x00" + strconv.FormatUint(uint64(line.LineNumber), 10)
 		if prev, ok := accumulator.lines[key]; ok {
 			merged := format.MergeLineType(prev.lineType, line.LineType)
-			coverageAdjustLineCounts(stats, prev.lineType, -1, prev.inPatch)
+			adjustLineCounts(stats, prev.lineType, -1, prev.inPatch)
 			nowPatch := prev.inPatch || inPatch
-			coverageAdjustLineCounts(stats, merged, 1, nowPatch)
-			accumulator.lines[key] = coverageSeenLine{lineType: merged, inPatch: nowPatch}
+			adjustLineCounts(stats, merged, 1, nowPatch)
+			accumulator.lines[key] = seenLine{lineType: merged, inPatch: nowPatch}
 			continue
 		}
-		coverageAdjustLineCounts(stats, line.LineType, 1, inPatch)
-		accumulator.lines[key] = coverageSeenLine{lineType: line.LineType, inPatch: inPatch}
+		adjustLineCounts(stats, line.LineType, 1, inPatch)
+		accumulator.lines[key] = seenLine{lineType: line.LineType, inPatch: inPatch}
 	}
 
 	if err := parser.Err(); err != nil {
@@ -273,7 +273,7 @@ func coverageParseCoverageFileInto(
 	return format.JoinPathErrors(pathErrs)
 }
 
-func coverageAdjustLineCounts(stats *coverageFileStats, lineType format.LineType, delta int, inPatch bool) {
+func adjustLineCounts(stats *fileStats, lineType format.LineType, delta int, inPatch bool) {
 	switch lineType {
 	case format.LineCovered:
 		stats.Hits += delta
@@ -293,8 +293,8 @@ func coverageAdjustLineCounts(stats *coverageFileStats, lineType format.LineType
 	}
 }
 
-// coverageDisplayStats prints a colored terminal summary of stats.
-func coverageDisplayStats(stats *coverageStats) {
+// displayStats prints a colored terminal summary of stats.
+func displayStats(stats *analysisStats) {
 	fmt.Println()
 	fmt.Println(console.WithBoldColor(console.ColorCyan, "Coverage Report Summary"))
 	fmt.Println(strings.Repeat("=", 80))
@@ -319,7 +319,7 @@ func coverageDisplayStats(stats *coverageStats) {
 	fmt.Printf("  Hits:      %s\n", console.WithColor(console.ColorGreen, strconv.Itoa(stats.Hits)))
 	fmt.Printf("  Partials:  %s\n", console.WithColor(console.ColorYellow, strconv.Itoa(stats.Partials)))
 	fmt.Printf("  Misses:    %s\n", console.WithColor(console.ColorRed, strconv.Itoa(stats.Misses)))
-	fmt.Printf("  Coverage:  %s\n", console.WithColor(coverageGetPercentageColor(stats.OverallPercentage), fmt.Sprintf("%.2f%%", stats.OverallPercentage)))
+	fmt.Printf("  Coverage:  %s\n", console.WithColor(getPercentageColor(stats.OverallPercentage), fmt.Sprintf("%.2f%%", stats.OverallPercentage)))
 	fmt.Println()
 
 	if stats.HasPatchData {
@@ -331,33 +331,33 @@ func coverageDisplayStats(stats *coverageStats) {
 		if patchTotal == 0 {
 			fmt.Printf("  Coverage:  %s\n", console.WithColor(console.ColorYellow, "N/A (no new lines in diff)"))
 		} else {
-			fmt.Printf("  Coverage:  %s\n", console.WithColor(coverageGetPercentageColor(stats.PatchPercentage), fmt.Sprintf("%.2f%%", stats.PatchPercentage)))
+			fmt.Printf("  Coverage:  %s\n", console.WithColor(getPercentageColor(stats.PatchPercentage), fmt.Sprintf("%.2f%%", stats.PatchPercentage)))
 		}
 		fmt.Println()
 	}
 
 	if len(stats.Files) > 0 {
 		if stats.HasPatchData {
-			coverageDisplayPatchFileTable(stats.Files)
+			displayPatchFileTable(stats.Files)
 		} else {
-			coverageDisplayFileTable(stats.Files)
+			displayFileTable(stats.Files)
 		}
 	}
 
 	fmt.Println()
 }
 
-func coverageDisplayFileTable(files []coverageFileStats) {
+func displayFileTable(files []fileStats) {
 	fmt.Println(console.WithBold("Coverage by File:"))
 
 	const tableWidth = 90
 	fmt.Println(strings.Repeat("-", tableWidth))
 	fmt.Printf("%s %s %s %s %s\n",
-		coveragePadRight(console.WithBold("File"), 45),
-		coveragePadRight(console.WithBold("Hits"), 8),
-		coveragePadRight(console.WithBold("Partials"), 10),
-		coveragePadRight(console.WithBold("Misses"), 8),
-		coveragePadRight(console.WithBold("Coverage"), 10),
+		padRight(console.WithBold("File"), 45),
+		padRight(console.WithBold("Hits"), 8),
+		padRight(console.WithBold("Partials"), 10),
+		padRight(console.WithBold("Misses"), 8),
+		padRight(console.WithBold("Coverage"), 10),
 	)
 	fmt.Println(strings.Repeat("-", tableWidth))
 
@@ -367,18 +367,18 @@ func coverageDisplayFileTable(files []coverageFileStats) {
 			displayPath = "..." + displayPath[len(displayPath)-40:]
 		}
 		fmt.Printf("%s %s %s %s %s\n",
-			coveragePadRight(displayPath, 45),
-			coveragePadRight(console.WithColor(console.ColorGreen, strconv.Itoa(fileStat.Hits)), 8),
-			coveragePadRight(console.WithColor(console.ColorYellow, strconv.Itoa(fileStat.Partials)), 10),
-			coveragePadRight(console.WithColor(console.ColorRed, strconv.Itoa(fileStat.Misses)), 8),
-			coveragePadRight(console.WithColor(coverageGetPercentageColor(fileStat.Percentage), fmt.Sprintf("%.2f%%", fileStat.Percentage)), 10),
+			padRight(displayPath, 45),
+			padRight(console.WithColor(console.ColorGreen, strconv.Itoa(fileStat.Hits)), 8),
+			padRight(console.WithColor(console.ColorYellow, strconv.Itoa(fileStat.Partials)), 10),
+			padRight(console.WithColor(console.ColorRed, strconv.Itoa(fileStat.Misses)), 8),
+			padRight(console.WithColor(getPercentageColor(fileStat.Percentage), fmt.Sprintf("%.2f%%", fileStat.Percentage)), 10),
 		)
 	}
 	fmt.Println(strings.Repeat("-", tableWidth))
 }
 
-func coverageDisplayPatchFileTable(files []coverageFileStats) {
-	filteredFiles := make([]coverageFileStats, 0, len(files))
+func displayPatchFileTable(files []fileStats) {
+	filteredFiles := make([]fileStats, 0, len(files))
 	for _, f := range files {
 		if f.PatchHits+f.PatchPartials+f.PatchMisses > 0 {
 			filteredFiles = append(filteredFiles, f)
@@ -395,15 +395,15 @@ func coverageDisplayPatchFileTable(files []coverageFileStats) {
 	const tableWidth = 110
 	fmt.Println(strings.Repeat("-", tableWidth))
 	fmt.Printf("%s %s %s %s %s %s %s %s %s\n",
-		coveragePadRight(console.WithBold("File"), 35),
-		coveragePadRight(console.WithBold("Hits"), 7),
-		coveragePadRight(console.WithBold("Partials"), 10),
-		coveragePadRight(console.WithBold("Misses"), 8),
-		coveragePadRight(console.WithBold("Cov%"), 8),
-		coveragePadRight(console.WithBold("PHits"), 7),
-		coveragePadRight(console.WithBold("PPartials"), 11),
-		coveragePadRight(console.WithBold("PMisses"), 9),
-		coveragePadRight(console.WithBold("PCov%"), 8),
+		padRight(console.WithBold("File"), 35),
+		padRight(console.WithBold("Hits"), 7),
+		padRight(console.WithBold("Partials"), 10),
+		padRight(console.WithBold("Misses"), 8),
+		padRight(console.WithBold("Cov%"), 8),
+		padRight(console.WithBold("PHits"), 7),
+		padRight(console.WithBold("PPartials"), 11),
+		padRight(console.WithBold("PMisses"), 9),
+		padRight(console.WithBold("PCov%"), 8),
 	)
 	fmt.Println(strings.Repeat("-", tableWidth))
 
@@ -415,25 +415,25 @@ func coverageDisplayPatchFileTable(files []coverageFileStats) {
 		patchTotal := fileStat.PatchHits + fileStat.PatchPartials + fileStat.PatchMisses
 		pCovStr := console.WithColor(console.ColorBrightBlack, "-")
 		if patchTotal > 0 {
-			pCovStr = console.WithColor(coverageGetPercentageColor(fileStat.PatchPercentage), fmt.Sprintf("%.0f%%", fileStat.PatchPercentage))
+			pCovStr = console.WithColor(getPercentageColor(fileStat.PatchPercentage), fmt.Sprintf("%.0f%%", fileStat.PatchPercentage))
 		}
 		fmt.Printf("%s %s %s %s %s %s %s %s %s\n",
-			coveragePadRight(displayPath, 35),
-			coveragePadRight(console.WithColor(console.ColorGreen, strconv.Itoa(fileStat.Hits)), 7),
-			coveragePadRight(console.WithColor(console.ColorYellow, strconv.Itoa(fileStat.Partials)), 10),
-			coveragePadRight(console.WithColor(console.ColorRed, strconv.Itoa(fileStat.Misses)), 8),
-			coveragePadRight(console.WithColor(coverageGetPercentageColor(fileStat.Percentage), fmt.Sprintf("%.0f%%", fileStat.Percentage)), 8),
-			coveragePadRight(console.WithColor(console.ColorGreen, strconv.Itoa(fileStat.PatchHits)), 7),
-			coveragePadRight(console.WithColor(console.ColorYellow, strconv.Itoa(fileStat.PatchPartials)), 11),
-			coveragePadRight(console.WithColor(console.ColorRed, strconv.Itoa(fileStat.PatchMisses)), 9),
-			coveragePadRight(pCovStr, 8),
+			padRight(displayPath, 35),
+			padRight(console.WithColor(console.ColorGreen, strconv.Itoa(fileStat.Hits)), 7),
+			padRight(console.WithColor(console.ColorYellow, strconv.Itoa(fileStat.Partials)), 10),
+			padRight(console.WithColor(console.ColorRed, strconv.Itoa(fileStat.Misses)), 8),
+			padRight(console.WithColor(getPercentageColor(fileStat.Percentage), fmt.Sprintf("%.0f%%", fileStat.Percentage)), 8),
+			padRight(console.WithColor(console.ColorGreen, strconv.Itoa(fileStat.PatchHits)), 7),
+			padRight(console.WithColor(console.ColorYellow, strconv.Itoa(fileStat.PatchPartials)), 11),
+			padRight(console.WithColor(console.ColorRed, strconv.Itoa(fileStat.PatchMisses)), 9),
+			padRight(pCovStr, 8),
 		)
 	}
 	fmt.Println(strings.Repeat("-", tableWidth))
 }
 
-// coverageGetPercentageColor buckets a coverage percentage into a display color: >=80 green, >=50 yellow, else red.
-func coverageGetPercentageColor(percentage float64) console.Color {
+// getPercentageColor buckets a coverage percentage into a display color: >=80 green, >=50 yellow, else red.
+func getPercentageColor(percentage float64) console.Color {
 	switch {
 	case percentage >= 80:
 		return console.ColorGreen
@@ -444,8 +444,8 @@ func coverageGetPercentageColor(percentage float64) console.Color {
 	}
 }
 
-// coveragePadRight pads s to width, accounting for ANSI color codes so colored strings still align.
-func coveragePadRight(s string, width int) string {
+// padRight pads s to width, accounting for ANSI color codes so colored strings still align.
+func padRight(s string, width int) string {
 	visualWidth := len(console.StripANSI(s))
 	if visualWidth >= width {
 		return s

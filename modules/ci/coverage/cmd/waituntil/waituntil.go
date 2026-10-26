@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package waituntil
 
 import (
 	"context"
@@ -20,12 +20,12 @@ import (
 )
 
 const (
-	coverageDefaultWaitTimeout  = 5 * time.Minute
-	coverageDefaultWaitInterval = 10 * time.Second
+	defaultWaitTimeout  = 5 * time.Minute
+	defaultWaitInterval = 10 * time.Second
 )
 
-// coverageWaitUntilFlags holds the raw --flag values for `execute coverage:wait-until`.
-type coverageWaitUntilFlags struct {
+// waitUntilFlags holds the raw --flag values for `execute coverage:wait-until`.
+type waitUntilFlags struct {
 	accountID   string
 	executionID string
 	gt          float64
@@ -36,62 +36,62 @@ type coverageWaitUntilFlags struct {
 	interval    string
 }
 
-type coveragePatchSummary struct {
+type patchSummary struct {
 	Lines    int64   `json:"lines"`
 	Hits     int64   `json:"hits"`
 	Coverage float64 `json:"coverage"`
 }
 
-type coverageSummary struct {
-	Lines       int64                 `json:"lines"`
-	Hits        int64                 `json:"hits"`
-	Coverage    float64               `json:"coverage"`
-	ReportCount int                   `json:"report_count"`
-	Patch       *coveragePatchSummary `json:"patch"`
+type reportSummary struct {
+	Lines       int64         `json:"lines"`
+	Hits        int64         `json:"hits"`
+	Coverage    float64       `json:"coverage"`
+	ReportCount int           `json:"report_count"`
+	Patch       *patchSummary `json:"patch"`
 }
 
-type coverageStatusResponse struct {
-	State   string           `json:"state"`
-	Summary *coverageSummary `json:"summary"`
+type statusResponse struct {
+	State   string         `json:"state"`
+	Summary *reportSummary `json:"summary"`
 }
 
-type coverageTreeResponse struct {
-	Summary *coverageSummary `json:"summary"`
+type treeResponse struct {
+	Summary *reportSummary `json:"summary"`
 }
 
-// coverageHTTPError carries the status code of a non-2xx coverage-service
+// hTTPError carries the status code of a non-2xx coverage-service
 // response, so the polling loop can tell a 404 (fall back to the tree
 // endpoint) from any other 4xx (fail fast, do not keep polling).
-type coverageHTTPError struct {
+type hTTPError struct {
 	StatusCode int
 	Body       string
 }
 
-func (e *coverageHTTPError) Error() string {
+func (e *hTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Body)
 }
 
-func (e *coverageHTTPError) IsNotFound() bool {
+func (e *hTTPError) IsNotFound() bool {
 	return e.StatusCode == http.StatusNotFound
 }
 
-func (e *coverageHTTPError) IsClientError() bool {
+func (e *hTTPError) IsClientError() bool {
 	return e.StatusCode >= 400 && e.StatusCode < 500
 }
 
-func coverageStatusPath(accountID, executionID string) string {
+func statusPath(accountID, executionID string) string {
 	return fmt.Sprintf(covclient.APIPrefix+"/accounts/%s/executions/%s/status", accountID, executionID)
 }
 
-func coverageTreePath(accountID, executionID string) string {
+func treePath(accountID, executionID string) string {
 	return fmt.Sprintf(covclient.APIPrefix+"/accounts/%s/executions/%s/tree/", accountID, executionID)
 }
 
-// coverageWaitUntil polls the coverage service until all reports for the
+// waitUntil polls the coverage service until all reports for the
 // execution are processed, then evaluates the result against the given
 // thresholds. The legacy TI-service dual-write fallback is deliberately not
 // ported (see plan Decision 5): only the primary coverage-service path runs.
-func coverageWaitUntil(ctx *cmdctx.Ctx, f coverageWaitUntilFlags) error {
+func waitUntil(ctx *cmdctx.Ctx, f waitUntilFlags) error {
 	if f.gt == 0 && f.gte == 0 && f.patchGt == 0 && f.patchGte == 0 {
 		return fmt.Errorf("at least one threshold flag must be specified (--gt, --gte, --patch-gt, --patch-gte)")
 	}
@@ -117,11 +117,11 @@ func coverageWaitUntil(ctx *cmdctx.Ctx, f coverageWaitUntilFlags) error {
 		}
 	}
 
-	timeout, err := coverageParseWaitDuration(f.timeout, coverageDefaultWaitTimeout, "--wait-timeout")
+	timeout, err := parseWaitDuration(f.timeout, defaultWaitTimeout, "--wait-timeout")
 	if err != nil {
 		return err
 	}
-	interval, err := coverageParseWaitDuration(f.interval, coverageDefaultWaitInterval, "--interval")
+	interval, err := parseWaitDuration(f.interval, defaultWaitInterval, "--interval")
 	if err != nil {
 		return err
 	}
@@ -136,18 +136,18 @@ func coverageWaitUntil(ctx *cmdctx.Ctx, f coverageWaitUntilFlags) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	var lastSummary *coverageSummary
+	var lastSummary *reportSummary
 	for {
 		select {
 		case <-timeoutContext.Done():
 			if lastSummary == nil {
 				return fmt.Errorf("timeout: no coverage data received within %s", timeout)
 			}
-			return coverageEvaluateThresholds(f, lastSummary)
+			return evaluateThresholds(f, lastSummary)
 		case <-ticker.C:
-			summary, complete, err := coverageGetSummary(&waitCtx, f, accountID, executionID)
+			summary, complete, err := getSummary(&waitCtx, f, accountID, executionID)
 			if err != nil {
-				var httpErr *coverageHTTPError
+				var httpErr *hTTPError
 				if errors.As(err, &httpErr) && httpErr.IsClientError() {
 					return err
 				}
@@ -167,13 +167,13 @@ func coverageWaitUntil(ctx *cmdctx.Ctx, f coverageWaitUntilFlags) error {
 				if lastSummary == nil {
 					return fmt.Errorf("state is complete but no coverage data available")
 				}
-				return coverageEvaluateThresholds(f, lastSummary)
+				return evaluateThresholds(f, lastSummary)
 			}
 		}
 	}
 }
 
-func coverageParseWaitDuration(raw string, def time.Duration, flagName string) (time.Duration, error) {
+func parseWaitDuration(raw string, def time.Duration, flagName string) (time.Duration, error) {
 	if raw == "" {
 		return def, nil
 	}
@@ -187,15 +187,15 @@ func coverageParseWaitDuration(raw string, def time.Duration, flagName string) (
 	return d, nil
 }
 
-// coverageGetSummary fetches the latest coverage summary and whether
+// getSummary fetches the latest coverage summary and whether
 // processing is complete. The status endpoint is tried first; a 404 falls
 // back to the tree endpoint (older executions / before status existed), and
 // so does a status response with no patch data when a patch threshold is in
 // use (the tree endpoint computes patch coverage, status does not always).
-func coverageGetSummary(
-	ctx *cmdctx.Ctx, f coverageWaitUntilFlags, accountID, executionID string,
-) (*coverageSummary, bool, error) {
-	statusResp, err := coverageFetchStatus(ctx, accountID, executionID)
+func getSummary(
+	ctx *cmdctx.Ctx, f waitUntilFlags, accountID, executionID string,
+) (*reportSummary, bool, error) {
+	statusResp, err := fetchStatus(ctx, accountID, executionID)
 	if err == nil {
 		if statusResp == nil {
 			return nil, false, nil
@@ -205,7 +205,7 @@ func coverageGetSummary(
 		patchRequired := f.patchGt > 0 || f.patchGte > 0
 		if patchRequired && summary != nil && summary.Patch == nil {
 			hlog.Debug("status endpoint returned no patch data, falling back to tree endpoint")
-			treeSummary, treeErr := coverageFetchTree(ctx, accountID, executionID)
+			treeSummary, treeErr := fetchTree(ctx, accountID, executionID)
 			if treeErr != nil {
 				return nil, complete, fmt.Errorf("tree endpoint failed: %w", treeErr)
 			}
@@ -214,10 +214,10 @@ func coverageGetSummary(
 		return summary, complete, nil
 	}
 
-	var httpErr *coverageHTTPError
+	var httpErr *hTTPError
 	if errors.As(err, &httpErr) && httpErr.IsNotFound() {
 		hlog.Debug("status endpoint not available, falling back to tree endpoint")
-		summary, treeErr := coverageFetchTree(ctx, accountID, executionID)
+		summary, treeErr := fetchTree(ctx, accountID, executionID)
 		if treeErr != nil {
 			return nil, false, fmt.Errorf("tree endpoint failed: %w", treeErr)
 		}
@@ -226,34 +226,34 @@ func coverageGetSummary(
 	return nil, false, fmt.Errorf("status endpoint failed: %w", err)
 }
 
-func coverageFetchStatus(ctx *cmdctx.Ctx, accountID, executionID string) (*coverageStatusResponse, error) {
-	body, err := coverageDoWaitRequest(ctx, accountID, coverageStatusPath(accountID, executionID))
+func fetchStatus(ctx *cmdctx.Ctx, accountID, executionID string) (*statusResponse, error) {
+	body, err := doWaitRequest(ctx, accountID, statusPath(accountID, executionID))
 	if err != nil {
 		return nil, err
 	}
-	var status coverageStatusResponse
+	var status statusResponse
 	if err := json.Unmarshal(body, &status); err != nil {
 		return nil, fmt.Errorf("decoding coverage status response: %w", err)
 	}
 	return &status, nil
 }
 
-func coverageFetchTree(ctx *cmdctx.Ctx, accountID, executionID string) (*coverageSummary, error) {
-	body, err := coverageDoWaitRequest(ctx, accountID, coverageTreePath(accountID, executionID))
+func fetchTree(ctx *cmdctx.Ctx, accountID, executionID string) (*reportSummary, error) {
+	body, err := doWaitRequest(ctx, accountID, treePath(accountID, executionID))
 	if err != nil {
 		return nil, err
 	}
-	var tree coverageTreeResponse
+	var tree treeResponse
 	if err := json.Unmarshal(body, &tree); err != nil {
 		return nil, fmt.Errorf("decoding coverage tree response: %w", err)
 	}
 	return tree.Summary, nil
 }
 
-// coverageDoWaitRequest is shared by the status and tree GETs: both need the
+// doWaitRequest is shared by the status and tree GETs: both need the
 // raw status code (via DoRaw) to distinguish a 404 from other errors, which
 // client.Client's DoRequest does not expose.
-func coverageDoWaitRequest(ctx *cmdctx.Ctx, accountID, path string) ([]byte, error) {
+func doWaitRequest(ctx *cmdctx.Ctx, accountID, path string) ([]byte, error) {
 	resp, err := client.New(ctx).DoRaw(client.Request{
 		Method: "GET",
 		Path:   path,
@@ -273,12 +273,12 @@ func coverageDoWaitRequest(ctx *cmdctx.Ctx, accountID, path string) ([]byte, err
 		return nil, fmt.Errorf("reading coverage response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &coverageHTTPError{StatusCode: resp.StatusCode, Body: string(body)}
+		return nil, &hTTPError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 	return body, nil
 }
 
-func coverageEvaluateThresholds(f coverageWaitUntilFlags, summary *coverageSummary) error {
+func evaluateThresholds(f waitUntilFlags, summary *reportSummary) error {
 	if summary == nil {
 		return fmt.Errorf("no coverage data available")
 	}

@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package upload
 
 import (
 	"context"
@@ -22,12 +22,12 @@ import (
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
-// coverageWithGitRemote chdirs into a disposable temp git repository whose
+// withGitRemote chdirs into a disposable temp git repository whose
 // origin remote is a safe placeholder, restoring the original working
 // directory on cleanup. This keeps vendor.RepoBaseURL()'s git-remote
 // fallback (which always runs `git remote get-url origin` in cwd, with no
 // CLI override) from ever consulting this checkout's real origin remote.
-func coverageWithGitRemote(t *testing.T, originURL string) {
+func withGitRemote(t *testing.T, originURL string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -53,9 +53,9 @@ func coverageWithGitRemote(t *testing.T, originURL string) {
 	}
 }
 
-// coverageSetDefaultBranch points refs/remotes/origin/HEAD at branch, the
+// setDefaultBranch points refs/remotes/origin/HEAD at branch, the
 // same ref vendor.DefaultBranch() reads via `git symbolic-ref`.
-func coverageSetDefaultBranch(t *testing.T, branch string) {
+func setDefaultBranch(t *testing.T, branch string) {
 	t.Helper()
 	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+branch)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -63,8 +63,8 @@ func coverageSetDefaultBranch(t *testing.T, branch string) {
 	}
 }
 
-func coverageBaseUploadFlags() coverageUploadFlags {
-	return coverageUploadFlags{
+func baseUploadFlags() uploadFlags {
+	return uploadFlags{
 		accountID:   "acct",
 		provider:    "github",
 		owner:       "owner",
@@ -151,9 +151,9 @@ func TestCoverageParseIdentifierOwner(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotIdentifier, gotOwner := coverageParseIdentifierOwner(tt.account, tt.owner, tt.identifier)
+			gotIdentifier, gotOwner := parseIdentifierOwner(tt.account, tt.owner, tt.identifier)
 			if gotIdentifier != tt.wantIdentifier || gotOwner != tt.wantOwner {
-				t.Errorf("coverageParseIdentifierOwner(%q,%q,%q) = (%q,%q), want (%q,%q)",
+				t.Errorf("parseIdentifierOwner(%q,%q,%q) = (%q,%q), want (%q,%q)",
 					tt.account, tt.owner, tt.identifier, gotIdentifier, gotOwner, tt.wantIdentifier, tt.wantOwner)
 			}
 		})
@@ -163,30 +163,30 @@ func TestCoverageParseIdentifierOwner(t *testing.T) {
 func TestCoverageUploadTargetScope(t *testing.T) {
 	t.Parallel()
 
-	harness := &coverageUploadParams{
+	harness := &uploadParams{
 		provider:      "Harness",
 		resolvedScope: covclient.Scope{AccountID: "a", OrgID: "o", ProjectID: "p"},
 	}
-	if got := coverageUploadTargetScope(harness); got != "" {
+	if got := uploadTargetScope(harness); got != "" {
 		t.Errorf("Harness target scope = %q, want empty", got)
 	}
 
-	other := &coverageUploadParams{
+	other := &uploadParams{
 		provider:      "github",
 		resolvedScope: covclient.Scope{AccountID: "a", OrgID: "o", ProjectID: "p"},
 	}
-	if got := coverageUploadTargetScope(other); got != "a/o/p" {
+	if got := uploadTargetScope(other); got != "a/o/p" {
 		t.Errorf("non-Harness target scope = %q, want a/o/p", got)
 	}
 }
 
 func TestCoverageResolveUploadParams(t *testing.T) {
 	t.Run("resolves scope from the pipeline path and leaves base/commit-before empty", func(t *testing.T) {
-		coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
+		withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 
-		params, err := coverageResolveUploadParams(coverageBaseUploadFlags())
+		params, err := resolveUploadParams(baseUploadFlags())
 		if err != nil {
-			t.Fatalf("coverageResolveUploadParams() error = %v", err)
+			t.Fatalf("resolveUploadParams() error = %v", err)
 		}
 		wantScope := covclient.Scope{AccountID: "acct", OrgID: "org", ProjectID: "proj"}
 		if params.resolvedScope != wantScope {
@@ -204,43 +204,43 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 	})
 
 	t.Run("errors when execution id is missing and not auto-detectable", func(t *testing.T) {
-		coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
+		withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 
-		f := coverageBaseUploadFlags()
+		f := baseUploadFlags()
 		f.executionID = ""
-		if _, err := coverageResolveUploadParams(f); err != errCoverageExecutionIDMandatory {
-			t.Fatalf("coverageResolveUploadParams() error = %v, want errCoverageExecutionIDMandatory", err)
+		if _, err := resolveUploadParams(f); err != errCoverageExecutionIDMandatory {
+			t.Fatalf("resolveUploadParams() error = %v, want errCoverageExecutionIDMandatory", err)
 		}
 	})
 
 	t.Run("errors when patch is requested without a base", func(t *testing.T) {
-		coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
+		withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 
-		f := coverageBaseUploadFlags()
+		f := baseUploadFlags()
 		f.patch = true
-		_, err := coverageResolveUploadParams(f)
+		_, err := resolveUploadParams(f)
 		if err == nil || !strings.Contains(err.Error(), "--patch requires --base") {
-			t.Fatalf("coverageResolveUploadParams() error = %v, want it to mention --patch requires --base", err)
+			t.Fatalf("resolveUploadParams() error = %v, want it to mention --patch requires --base", err)
 		}
 	})
 
 	t.Run("propagates a target scope outside the account", func(t *testing.T) {
-		coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
+		withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 
-		f := coverageBaseUploadFlags()
+		f := baseUploadFlags()
 		f.targetScope = "other-account/org"
-		if _, err := coverageResolveUploadParams(f); err == nil {
-			t.Fatal("coverageResolveUploadParams() expected an error for a target scope outside the account")
+		if _, err := resolveUploadParams(f); err == nil {
+			t.Fatal("resolveUploadParams() expected an error for a target scope outside the account")
 		}
 	})
 
 	t.Run("falls back to the default branch as base when the branch diverges", func(t *testing.T) {
-		coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
-		coverageSetDefaultBranch(t, "main")
+		withGitRemote(t, "https://example.com/test-owner/test-repo.git")
+		setDefaultBranch(t, "main")
 
-		params, err := coverageResolveUploadParams(coverageBaseUploadFlags())
+		params, err := resolveUploadParams(baseUploadFlags())
 		if err != nil {
-			t.Fatalf("coverageResolveUploadParams() error = %v", err)
+			t.Fatalf("resolveUploadParams() error = %v", err)
 		}
 		if params.defaultBranch != "main" {
 			t.Fatalf("defaultBranch = %q, want main", params.defaultBranch)
@@ -251,14 +251,14 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 	})
 
 	t.Run("does not override an explicit base with the default branch", func(t *testing.T) {
-		coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
-		coverageSetDefaultBranch(t, "main")
+		withGitRemote(t, "https://example.com/test-owner/test-repo.git")
+		setDefaultBranch(t, "main")
 
-		f := coverageBaseUploadFlags()
+		f := baseUploadFlags()
 		f.base = "release"
-		params, err := coverageResolveUploadParams(f)
+		params, err := resolveUploadParams(f)
 		if err != nil {
-			t.Fatalf("coverageResolveUploadParams() error = %v", err)
+			t.Fatalf("resolveUploadParams() error = %v", err)
 		}
 		if params.base != "release" {
 			t.Errorf("base = %q, want release (explicit flag kept)", params.base)
@@ -266,7 +266,7 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 	})
 }
 
-func coverageUploadTestCoverageFile(t *testing.T) string {
+func uploadTestCoverageFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "coverage.out")
 	content := "mode: set\nexample.com/pkg/file.go:1.1,2.1 1 1\n"
@@ -277,8 +277,8 @@ func coverageUploadTestCoverageFile(t *testing.T) string {
 }
 
 func TestCoverageUpload_FullSequence(t *testing.T) {
-	coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
-	coverFile := coverageUploadTestCoverageFile(t)
+	withGitRemote(t, "https://example.com/test-owner/test-repo.git")
+	coverFile := uploadTestCoverageFile(t)
 
 	var mu sync.Mutex
 	var calls []string
@@ -309,9 +309,9 @@ func TestCoverageUpload_FullSequence(t *testing.T) {
 		record("settings")
 		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
-	mux.HandleFunc(coverageUploadPath("acct"), func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(uploadPath("acct"), func(w http.ResponseWriter, r *http.Request) {
 		record("presign")
-		var req coverageSignURLRequest
+		var req signURLRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode presign request: %v", err)
 		}
@@ -323,7 +323,7 @@ func TestCoverageUpload_FullSequence(t *testing.T) {
 			req.TargetScope != "acct/org/proj" {
 			t.Errorf("presign request = %+v", req)
 		}
-		writeCoverageJSON(t, w, coverageSignURLResponse{ExternalID: "ext-1", Location: storageURL})
+		writeCoverageJSON(t, w, signURLResponse{ExternalID: "ext-1", Location: storageURL})
 	})
 	mux.HandleFunc("/storage/upload", func(w http.ResponseWriter, r *http.Request) {
 		record("put")
@@ -335,19 +335,19 @@ func TestCoverageUpload_FullSequence(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.HandleFunc(coverageCompletePath("acct", "ext-1"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(completePath("acct", "ext-1"), func(w http.ResponseWriter, _ *http.Request) {
 		record("complete")
 		w.WriteHeader(http.StatusOK)
 	})
 
-	ctx := coverageTestCtx(t, server.URL, "acct")
-	f := coverageBaseUploadFlags()
+	ctx := testCtx(t, server.URL, "acct")
+	f := baseUploadFlags()
 	f.files = []string{coverFile}
 	f.pullReqID = 42
 	f.tags = []string{"nightly", "release"}
 
-	if err := coverageUpload(ctx, f); err != nil {
-		t.Fatalf("coverageUpload() error = %v", err)
+	if err := upload(ctx, f); err != nil {
+		t.Fatalf("upload() error = %v", err)
 	}
 
 	want := []string{"ensure", "settings", "presign", "put", "complete"}
@@ -379,8 +379,8 @@ func TestCoverageUpload_ExcludeSettingsFailureStopsBeforePresign(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
-			coverFile := coverageUploadTestCoverageFile(t)
+			withGitRemote(t, "https://example.com/test-owner/test-repo.git")
+			coverFile := uploadTestCoverageFile(t)
 
 			var presignCalled bool
 			mux := http.NewServeMux()
@@ -402,18 +402,18 @@ func TestCoverageUpload_ExcludeSettingsFailureStopsBeforePresign(t *testing.T) {
 				}
 				writeCoverageJSON(t, w, covclient.RepoSettings{})
 			})
-			mux.HandleFunc(coverageUploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
+			mux.HandleFunc(uploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
 				presignCalled = true
-				writeCoverageJSON(t, w, coverageSignURLResponse{})
+				writeCoverageJSON(t, w, signURLResponse{})
 			})
 
-			ctx := coverageTestCtx(t, server.URL, "acct")
-			f := coverageBaseUploadFlags()
+			ctx := testCtx(t, server.URL, "acct")
+			f := baseUploadFlags()
 			f.files = []string{coverFile}
 
-			err := coverageUpload(ctx, f)
+			err := upload(ctx, f)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErrSubstr) {
-				t.Fatalf("coverageUpload() error = %v, want it to contain %q", err, tt.wantErrSubstr)
+				t.Fatalf("upload() error = %v, want it to contain %q", err, tt.wantErrSubstr)
 			}
 			if presignCalled {
 				t.Error("presign was called despite the exclude-settings lookup failing")
@@ -423,8 +423,8 @@ func TestCoverageUpload_ExcludeSettingsFailureStopsBeforePresign(t *testing.T) {
 }
 
 func TestCoverageUpload_PresignFailureStopsBeforeComplete(t *testing.T) {
-	coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
-	coverFile := coverageUploadTestCoverageFile(t)
+	withGitRemote(t, "https://example.com/test-owner/test-repo.git")
+	coverFile := uploadTestCoverageFile(t)
 
 	var completeCalled bool
 	mux := http.NewServeMux()
@@ -438,7 +438,7 @@ func TestCoverageUpload_PresignFailureStopsBeforeComplete(t *testing.T) {
 	mux.HandleFunc(covclient.RepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
 		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
-	mux.HandleFunc(coverageUploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(uploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -448,13 +448,13 @@ func TestCoverageUpload_PresignFailureStopsBeforeComplete(t *testing.T) {
 		http.NotFound(w, r)
 	})
 
-	ctx := coverageTestCtx(t, server.URL, "acct")
-	f := coverageBaseUploadFlags()
+	ctx := testCtx(t, server.URL, "acct")
+	f := baseUploadFlags()
 	f.files = []string{coverFile}
 
-	err := coverageUpload(ctx, f)
+	err := upload(ctx, f)
 	if err == nil || !strings.Contains(err.Error(), "presign failed") {
-		t.Fatalf("coverageUpload() error = %v, want it to contain \"presign failed\"", err)
+		t.Fatalf("upload() error = %v, want it to contain \"presign failed\"", err)
 	}
 	if completeCalled {
 		t.Error("complete was called despite the presign request failing")
@@ -462,8 +462,8 @@ func TestCoverageUpload_PresignFailureStopsBeforeComplete(t *testing.T) {
 }
 
 func TestCoverageUpload_StorageUploadFailureStopsBeforeComplete(t *testing.T) {
-	coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
-	coverFile := coverageUploadTestCoverageFile(t)
+	withGitRemote(t, "https://example.com/test-owner/test-repo.git")
+	coverFile := uploadTestCoverageFile(t)
 
 	var completeCalled bool
 	mux := http.NewServeMux()
@@ -478,24 +478,24 @@ func TestCoverageUpload_StorageUploadFailureStopsBeforeComplete(t *testing.T) {
 	mux.HandleFunc(covclient.RepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
 		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
-	mux.HandleFunc(coverageUploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
-		writeCoverageJSON(t, w, coverageSignURLResponse{ExternalID: "ext-1", Location: storageURL})
+	mux.HandleFunc(uploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
+		writeCoverageJSON(t, w, signURLResponse{ExternalID: "ext-1", Location: storageURL})
 	})
 	mux.HandleFunc("/storage/upload", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "storage down", http.StatusServiceUnavailable)
 	})
-	mux.HandleFunc(coverageCompletePath("acct", "ext-1"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(completePath("acct", "ext-1"), func(w http.ResponseWriter, _ *http.Request) {
 		completeCalled = true
 		w.WriteHeader(http.StatusOK)
 	})
 
-	ctx := coverageTestCtx(t, server.URL, "acct")
-	f := coverageBaseUploadFlags()
+	ctx := testCtx(t, server.URL, "acct")
+	f := baseUploadFlags()
 	f.files = []string{coverFile}
 
-	err := coverageUpload(ctx, f)
+	err := upload(ctx, f)
 	if err == nil || !strings.Contains(err.Error(), "upload failed") {
-		t.Fatalf("coverageUpload() error = %v, want it to contain \"upload failed\"", err)
+		t.Fatalf("upload() error = %v, want it to contain \"upload failed\"", err)
 	}
 	if completeCalled {
 		t.Error("complete was called despite the storage PUT failing")
@@ -503,14 +503,14 @@ func TestCoverageUpload_StorageUploadFailureStopsBeforeComplete(t *testing.T) {
 }
 
 // TestCoverageUpload_AllCallsUseTheAuthAccountID is a regression test for a
-// bug where coverageCompleteReport keyed its URL off the CI-vendor/flag
+// bug where completeReport keyed its URL off the CI-vendor/flag
 // account instead of ctx.Auth.AccountID, diverging from ensure-repo/settings/
 // presign. f.accountID is deliberately set to a different value than
 // ctx.Auth.AccountID: every handler is registered only under the auth
 // account's path, so a stray params.accountID reference 404s.
 func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
-	coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
-	coverFile := coverageUploadTestCoverageFile(t)
+	withGitRemote(t, "https://example.com/test-owner/test-repo.git")
+	coverFile := uploadTestCoverageFile(t)
 
 	var calls []string
 	mux := http.NewServeMux()
@@ -527,25 +527,25 @@ func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
 		calls = append(calls, "settings")
 		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
-	mux.HandleFunc(coverageUploadPath("auth-acct"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(uploadPath("auth-acct"), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "presign")
-		writeCoverageJSON(t, w, coverageSignURLResponse{ExternalID: "ext-1", Location: storageURL})
+		writeCoverageJSON(t, w, signURLResponse{ExternalID: "ext-1", Location: storageURL})
 	})
 	mux.HandleFunc("/storage/upload", func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "put")
 	})
-	mux.HandleFunc(coverageCompletePath("auth-acct", "ext-1"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(completePath("auth-acct", "ext-1"), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "complete")
 		w.WriteHeader(http.StatusOK)
 	})
 
-	ctx := coverageTestCtx(t, server.URL, "auth-acct")
-	f := coverageBaseUploadFlags()
+	ctx := testCtx(t, server.URL, "auth-acct")
+	f := baseUploadFlags()
 	f.accountID = "flag-acct"
 	f.files = []string{coverFile}
 
-	if err := coverageUpload(ctx, f); err != nil {
-		t.Fatalf("coverageUpload() error = %v (a stray params.accountID reference 404s against this server)", err)
+	if err := upload(ctx, f); err != nil {
+		t.Fatalf("upload() error = %v (a stray params.accountID reference 404s against this server)", err)
 	}
 
 	want := []string{"ensure", "settings", "presign", "put", "complete"}
@@ -558,7 +558,7 @@ func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
 // coverage-file lookup failure is caught before any coverage-service call,
 // mirroring HCli's TestUpload_MissingCoverageFile.
 func TestCoverageUpload_MissingCoverageFileNeverCallsNetwork(t *testing.T) {
-	coverageWithGitRemote(t, "https://example.com/test-owner/test-repo.git")
+	withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 
 	var networkCalled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -567,12 +567,12 @@ func TestCoverageUpload_MissingCoverageFileNeverCallsNetwork(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctx := coverageTestCtx(t, server.URL, "acct")
-	f := coverageBaseUploadFlags()
+	ctx := testCtx(t, server.URL, "acct")
+	f := baseUploadFlags()
 	f.files = []string{filepath.Join(t.TempDir(), "does-not-exist.out")}
 
-	if err := coverageUpload(ctx, f); err == nil {
-		t.Fatal("coverageUpload() expected an error for a missing coverage file")
+	if err := upload(ctx, f); err == nil {
+		t.Fatal("upload() expected an error for a missing coverage file")
 	}
 	if networkCalled {
 		t.Error("a network call was made despite the coverage file lookup failing")
@@ -587,7 +587,7 @@ func writeCoverageJSON(t *testing.T, w http.ResponseWriter, value any) {
 	}
 }
 
-func coverageTestCtx(t *testing.T, srvURL, accountID string) *cmdctx.Ctx {
+func testCtx(t *testing.T, srvURL, accountID string) *cmdctx.Ctx {
 	t.Helper()
 	return &cmdctx.Ctx{
 		Context: context.Background(),

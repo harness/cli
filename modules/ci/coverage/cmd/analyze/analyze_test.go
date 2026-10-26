@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package analyze
 
 import (
 	"bytes"
@@ -33,8 +33,8 @@ func TestCoverageCalcPercentage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := coverageCalcPercentage(tt.hits, tt.partials, tt.misses); got != tt.want {
-				t.Errorf("coverageCalcPercentage(%d,%d,%d) = %v, want %v", tt.hits, tt.partials, tt.misses, got, tt.want)
+			if got := calcPercentage(tt.hits, tt.partials, tt.misses); got != tt.want {
+				t.Errorf("calcPercentage(%d,%d,%d) = %v, want %v", tt.hits, tt.partials, tt.misses, got, tt.want)
 			}
 		})
 	}
@@ -57,33 +57,33 @@ func TestCoverageGetPercentageColor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := coverageGetPercentageColor(tt.percentage); got != tt.want {
-				t.Errorf("coverageGetPercentageColor(%v) = %v, want %v", tt.percentage, got, tt.want)
+			if got := getPercentageColor(tt.percentage); got != tt.want {
+				t.Errorf("getPercentageColor(%v) = %v, want %v", tt.percentage, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestCoverageAdjustLineCounts(t *testing.T) {
-	stats := &coverageFileStats{}
+	stats := &fileStats{}
 
-	coverageAdjustLineCounts(stats, format.LineCovered, 1, true)
+	adjustLineCounts(stats, format.LineCovered, 1, true)
 	if stats.Hits != 1 || stats.PatchHits != 1 {
 		t.Fatalf("after covered+patch: %+v, want Hits=1 PatchHits=1", stats)
 	}
 
-	coverageAdjustLineCounts(stats, format.LinePartial, 1, false)
+	adjustLineCounts(stats, format.LinePartial, 1, false)
 	if stats.Partials != 1 || stats.PatchPartials != 0 {
 		t.Fatalf("after partial, no patch: %+v, want Partials=1 PatchPartials=0", stats)
 	}
 
-	coverageAdjustLineCounts(stats, format.LineUncovered, 1, true)
+	adjustLineCounts(stats, format.LineUncovered, 1, true)
 	if stats.Misses != 1 || stats.PatchMisses != 1 {
 		t.Fatalf("after uncovered+patch: %+v, want Misses=1 PatchMisses=1", stats)
 	}
 
 	// Decrementing (the merge-rebalance path) must undo exactly what was added.
-	coverageAdjustLineCounts(stats, format.LineCovered, -1, true)
+	adjustLineCounts(stats, format.LineCovered, -1, true)
 	if stats.Hits != 0 || stats.PatchHits != 0 {
 		t.Fatalf("after decrementing covered+patch: %+v, want Hits=0 PatchHits=0", stats)
 	}
@@ -97,7 +97,7 @@ func TestCoverageParseCoverageFileInto_MergesSameLineAcrossReports(t *testing.T)
 		"TN:\nSF:src/service.ts\nDA:10,0\nend_of_record\n",
 	}
 	for _, report := range reports {
-		err := coverageParseCoverageFileInto(
+		err := parseCoverageFileInto(
 			format.FormatLCOV,
 			strings.NewReader(report),
 			".",
@@ -108,7 +108,7 @@ func TestCoverageParseCoverageFileInto_MergesSameLineAcrossReports(t *testing.T)
 			accumulator,
 		)
 		if err != nil {
-			t.Fatalf("coverageParseCoverageFileInto() error = %v", err)
+			t.Fatalf("parseCoverageFileInto() error = %v", err)
 		}
 	}
 
@@ -134,16 +134,16 @@ func TestCoveragePadRight(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := coveragePadRight(tt.s, tt.width); got != tt.want {
-				t.Errorf("coveragePadRight(%q, %d) = %q, want %q", tt.s, tt.width, got, tt.want)
+			if got := padRight(tt.s, tt.width); got != tt.want {
+				t.Errorf("padRight(%q, %d) = %q, want %q", tt.s, tt.width, got, tt.want)
 			}
 		})
 	}
 }
 
-// captureCoverageDisplayStats captures stdout produced by coverageDisplayStats.
+// captureCoverageDisplayStats captures stdout produced by displayStats.
 // NOTE: mutates os.Stdout — do not call from parallel subtests.
-func captureCoverageDisplayStats(stats *coverageStats) string {
+func captureCoverageDisplayStats(stats *analysisStats) string {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -156,7 +156,7 @@ func captureCoverageDisplayStats(stats *coverageStats) string {
 		_, _ = io.Copy(&buf, r)
 	}()
 
-	coverageDisplayStats(stats)
+	displayStats(stats)
 
 	_ = w.Close()
 	os.Stdout = old
@@ -166,10 +166,10 @@ func captureCoverageDisplayStats(stats *coverageStats) string {
 
 func TestCoverageDisplayStats_PatchFilter(t *testing.T) {
 	t.Run("patch mode: only files with patch lines shown", func(t *testing.T) {
-		stats := &coverageStats{
+		stats := &analysisStats{
 			Hits: 90, Misses: 10, OverallPercentage: 90.0,
 			HasPatchData: true, PatchHits: 5, PatchPercentage: 100.0,
-			Files: []coverageFileStats{
+			Files: []fileStats{
 				{FilePath: "a.go", Hits: 80, Misses: 20, Percentage: 80.0, PatchHits: 5, PatchPercentage: 100.0},
 				{FilePath: "b.go", Hits: 10, Percentage: 100.0},
 			},
@@ -187,10 +187,10 @@ func TestCoverageDisplayStats_PatchFilter(t *testing.T) {
 	})
 
 	t.Run("patch mode: no files with patch lines shows message instead of table", func(t *testing.T) {
-		stats := &coverageStats{
+		stats := &analysisStats{
 			Hits: 50, Misses: 50, OverallPercentage: 50.0,
 			HasPatchData: true,
-			Files:        []coverageFileStats{{FilePath: "a.go", Hits: 50, Misses: 50, Percentage: 50.0}},
+			Files:        []fileStats{{FilePath: "a.go", Hits: 50, Misses: 50, Percentage: 50.0}},
 		}
 		out := captureCoverageDisplayStats(stats)
 		if !strings.Contains(out, "patch files only") {
@@ -208,9 +208,9 @@ func TestCoverageDisplayStats_PatchFilter(t *testing.T) {
 	})
 
 	t.Run("non-patch mode: all files shown with original heading", func(t *testing.T) {
-		stats := &coverageStats{
+		stats := &analysisStats{
 			Hits: 80, Misses: 20, OverallPercentage: 80.0,
-			Files: []coverageFileStats{
+			Files: []fileStats{
 				{FilePath: "a.go", Hits: 80, Misses: 20, Percentage: 80.0},
 				{FilePath: "b.go", Misses: 10},
 			},
@@ -230,8 +230,8 @@ func TestCoverageAnalyze_NoFilesFound(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-	if _, err := coverageAnalyze(nil, nil, false, "", ""); err == nil {
-		t.Fatal("coverageAnalyze() error = nil, want error when no coverage files are found")
+	if _, err := analyze(nil, nil, false, "", ""); err == nil {
+		t.Fatal("analyze() error = nil, want error when no coverage files are found")
 	}
 }
 
@@ -242,9 +242,9 @@ func TestCoverageAnalyze_PatchRequiresBase(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	_, err := coverageAnalyze([]string{coverFile}, nil, true, "", "")
+	_, err := analyze([]string{coverFile}, nil, true, "", "")
 	if err == nil || !strings.Contains(err.Error(), "--patch requires --base") {
-		t.Fatalf("coverageAnalyze() error = %v, want \"--patch requires --base\"", err)
+		t.Fatalf("analyze() error = %v, want \"--patch requires --base\"", err)
 	}
 }
 
@@ -257,9 +257,9 @@ func TestCoverageAnalyze_ExcludeFiltersFiles(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	stats, err := coverageAnalyze([]string{lcovFile}, []string{"zzz_test_fixture_drop.go"}, false, "", "")
+	stats, err := analyze([]string{lcovFile}, []string{"zzz_test_fixture_drop.go"}, false, "", "")
 	if err != nil {
-		t.Fatalf("coverageAnalyze() error = %v", err)
+		t.Fatalf("analyze() error = %v", err)
 	}
 
 	if len(stats.Files) != 1 || stats.Files[0].FilePath != "zzz_test_fixture_keep.go" {
@@ -278,9 +278,9 @@ func TestCoverageAnalyze_MergesAcrossMultipleFiles(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	stats, err := coverageAnalyze([]string{fileA, fileB}, nil, false, "", "")
+	stats, err := analyze([]string{fileA, fileB}, nil, false, "", "")
 	if err != nil {
-		t.Fatalf("coverageAnalyze() error = %v", err)
+		t.Fatalf("analyze() error = %v", err)
 	}
 
 	if len(stats.Files) != 1 {
