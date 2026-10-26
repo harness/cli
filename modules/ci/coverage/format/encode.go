@@ -5,12 +5,12 @@ package format
 
 import (
 	"fmt"
-	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"io"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
 
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 

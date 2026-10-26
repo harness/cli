@@ -6,12 +6,12 @@ package file
 import (
 	"errors"
 	"fmt"
-	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 

@@ -7,12 +7,12 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 

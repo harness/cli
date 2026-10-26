@@ -4,10 +4,11 @@
 package format
 
 import (
-	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 )
 
 func TestCoverageRepositoryPathResolver_AmbiguousDroppedInFullFailsInPatch(t *testing.T) {

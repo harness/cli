@@ -5,8 +5,6 @@ package analyze
 
 import (
 	"bytes"
-	"github.com/harness/cli/v3/modules/ci/coverage/env"
-	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"github.com/harness/cli/v3/pkg/console"
 )
 

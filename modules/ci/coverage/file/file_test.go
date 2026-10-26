@@ -4,12 +4,13 @@
 package file
 
 import (
-	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 )
 
 func chdir(t *testing.T, dir string) {
