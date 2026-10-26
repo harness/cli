@@ -131,7 +131,7 @@ func waitUntil(ctx *cmdctx.Ctx, f waitUntilFlags) error {
 	defer cancel()
 	waitCtx.Context = timeoutContext
 
-	hlog.Info("waiting for coverage reports", "timeout", timeout.String())
+	hlog.Info("waiting for coverage reports", "endpoint", ctx.Auth.APIUrl, "timeout", timeout.String())
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
