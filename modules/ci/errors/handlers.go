@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package errors
 
 import (
 	"context"
@@ -15,16 +15,16 @@ import (
 )
 
 const (
-	executeErrorValidateHandlerID = "execute_error_validate"
-	executeErrorEvaluateHandlerID = "execute_error_evaluate"
+	ValidateHandlerID = "execute_error_validate"
+	EvaluateHandlerID = "execute_error_evaluate"
 )
 
-// executeErrorValidateHandler is the `execute error:validate` workflow handler.
+// ValidateHandler is the `execute error:validate` workflow handler.
 // It is a customer-facing, human-readable check of an errors.yaml file's syntax
 // and structure — meant to be run manually or in CI before trusting the file in
 // a real pipeline, unlike `error:evaluate` which lite-engine calls on every
 // failed step.
-func executeErrorValidateHandler(ctx *cmdctx.Ctx) error {
+func ValidateHandler(ctx *cmdctx.Ctx) error {
 	if len(ctx.Args) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(ctx.Args, " "))
 	}
@@ -104,11 +104,11 @@ func countErrorConditionsInExpression(expr *errorConditionExpr) int {
 	return count
 }
 
-// executeErrorEvaluateHandler is the `execute error:evaluate` workflow handler.
+// EvaluateHandler is the `execute error:evaluate` workflow handler.
 // It is intended for internal use by lite-engine on every failed step, so it
 // never hard-fails the CLI call: any internal error (parse failure, timeout)
 // still prints a JSON result and returns nil.
-func executeErrorEvaluateHandler(ctx *cmdctx.Ctx) error {
+func EvaluateHandler(ctx *cmdctx.Ctx) error {
 	if len(ctx.Args) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(ctx.Args, " "))
 	}
