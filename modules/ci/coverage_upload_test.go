@@ -4,6 +4,7 @@
 package ci
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -15,6 +16,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	covclient "github.com/harness/cli/v3/modules/ci/coverage/client"
+	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
 // coverageWithGitRemote chdirs into a disposable temp git repository whose
@@ -160,7 +165,7 @@ func TestCoverageUploadTargetScope(t *testing.T) {
 
 	harness := &coverageUploadParams{
 		provider:      "Harness",
-		resolvedScope: coverageScope{AccountID: "a", OrgID: "o", ProjectID: "p"},
+		resolvedScope: covclient.Scope{AccountID: "a", OrgID: "o", ProjectID: "p"},
 	}
 	if got := coverageUploadTargetScope(harness); got != "" {
 		t.Errorf("Harness target scope = %q, want empty", got)
@@ -168,7 +173,7 @@ func TestCoverageUploadTargetScope(t *testing.T) {
 
 	other := &coverageUploadParams{
 		provider:      "github",
-		resolvedScope: coverageScope{AccountID: "a", OrgID: "o", ProjectID: "p"},
+		resolvedScope: covclient.Scope{AccountID: "a", OrgID: "o", ProjectID: "p"},
 	}
 	if got := coverageUploadTargetScope(other); got != "a/o/p" {
 		t.Errorf("non-Harness target scope = %q, want a/o/p", got)
@@ -183,7 +188,7 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 		if err != nil {
 			t.Fatalf("coverageResolveUploadParams() error = %v", err)
 		}
-		wantScope := coverageScope{AccountID: "acct", OrgID: "org", ProjectID: "proj"}
+		wantScope := covclient.Scope{AccountID: "acct", OrgID: "org", ProjectID: "proj"}
 		if params.resolvedScope != wantScope {
 			t.Errorf("resolvedScope = %+v, want %+v", params.resolvedScope, wantScope)
 		}
@@ -288,9 +293,9 @@ func TestCoverageUpload_FullSequence(t *testing.T) {
 	defer server.Close()
 	storageURL := server.URL + "/storage/upload"
 
-	mux.HandleFunc(coverageEnsureRepoPath("acct"), func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(covclient.EnsureRepoPath("acct"), func(w http.ResponseWriter, r *http.Request) {
 		record("ensure")
-		var req coverageEnsureRepoRequest
+		var req covclient.EnsureRepoRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decode ensure request: %v", err)
 		}
@@ -298,11 +303,11 @@ func TestCoverageUpload_FullSequence(t *testing.T) {
 			t.Errorf("ensure request = %+v", req)
 		}
 		w.WriteHeader(http.StatusCreated)
-		writeCoverageJSON(t, w, coverageEnsureRepoResponse{Repository: &coverageRepository{ID: 7}})
+		writeCoverageJSON(t, w, covclient.EnsureRepoResponse{Repository: &covclient.Repository{ID: 7}})
 	})
-	mux.HandleFunc(coverageRepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(covclient.RepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
 		record("settings")
-		writeCoverageJSON(t, w, coverageRepoSettings{})
+		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
 	mux.HandleFunc(coverageUploadPath("acct"), func(w http.ResponseWriter, r *http.Request) {
 		record("presign")
@@ -382,20 +387,20 @@ func TestCoverageUpload_ExcludeSettingsFailureStopsBeforePresign(t *testing.T) {
 			server := httptest.NewServer(mux)
 			defer server.Close()
 
-			mux.HandleFunc(coverageEnsureRepoPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
+			mux.HandleFunc(covclient.EnsureRepoPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
 				if tt.ensureStatus != http.StatusCreated {
 					http.Error(w, "denied", tt.ensureStatus)
 					return
 				}
 				w.WriteHeader(http.StatusCreated)
-				writeCoverageJSON(t, w, coverageEnsureRepoResponse{Repository: &coverageRepository{ID: 7}})
+				writeCoverageJSON(t, w, covclient.EnsureRepoResponse{Repository: &covclient.Repository{ID: 7}})
 			})
-			mux.HandleFunc(coverageRepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
+			mux.HandleFunc(covclient.RepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
 				if tt.settingsFails {
 					http.Error(w, "denied", http.StatusInternalServerError)
 					return
 				}
-				writeCoverageJSON(t, w, coverageRepoSettings{})
+				writeCoverageJSON(t, w, covclient.RepoSettings{})
 			})
 			mux.HandleFunc(coverageUploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
 				presignCalled = true
@@ -426,12 +431,12 @@ func TestCoverageUpload_PresignFailureStopsBeforeComplete(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	mux.HandleFunc(coverageEnsureRepoPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(covclient.EnsureRepoPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		writeCoverageJSON(t, w, coverageEnsureRepoResponse{Repository: &coverageRepository{ID: 7}})
+		writeCoverageJSON(t, w, covclient.EnsureRepoResponse{Repository: &covclient.Repository{ID: 7}})
 	})
-	mux.HandleFunc(coverageRepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
-		writeCoverageJSON(t, w, coverageRepoSettings{})
+	mux.HandleFunc(covclient.RepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
+		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
 	mux.HandleFunc(coverageUploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
@@ -466,12 +471,12 @@ func TestCoverageUpload_StorageUploadFailureStopsBeforeComplete(t *testing.T) {
 	defer server.Close()
 	storageURL := server.URL + "/storage/upload"
 
-	mux.HandleFunc(coverageEnsureRepoPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(covclient.EnsureRepoPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		writeCoverageJSON(t, w, coverageEnsureRepoResponse{Repository: &coverageRepository{ID: 7}})
+		writeCoverageJSON(t, w, covclient.EnsureRepoResponse{Repository: &covclient.Repository{ID: 7}})
 	})
-	mux.HandleFunc(coverageRepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
-		writeCoverageJSON(t, w, coverageRepoSettings{})
+	mux.HandleFunc(covclient.RepoSettingsPath("acct", 7), func(w http.ResponseWriter, _ *http.Request) {
+		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
 	mux.HandleFunc(coverageUploadPath("acct"), func(w http.ResponseWriter, _ *http.Request) {
 		writeCoverageJSON(t, w, coverageSignURLResponse{ExternalID: "ext-1", Location: storageURL})
@@ -513,14 +518,14 @@ func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
 	defer server.Close()
 	storageURL := server.URL + "/storage/upload"
 
-	mux.HandleFunc(coverageEnsureRepoPath("auth-acct"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(covclient.EnsureRepoPath("auth-acct"), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "ensure")
 		w.WriteHeader(http.StatusCreated)
-		writeCoverageJSON(t, w, coverageEnsureRepoResponse{Repository: &coverageRepository{ID: 7}})
+		writeCoverageJSON(t, w, covclient.EnsureRepoResponse{Repository: &covclient.Repository{ID: 7}})
 	})
-	mux.HandleFunc(coverageRepoSettingsPath("auth-acct", 7), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(covclient.RepoSettingsPath("auth-acct", 7), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "settings")
-		writeCoverageJSON(t, w, coverageRepoSettings{})
+		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
 	mux.HandleFunc(coverageUploadPath("auth-acct"), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "presign")
@@ -571,5 +576,26 @@ func TestCoverageUpload_MissingCoverageFileNeverCallsNetwork(t *testing.T) {
 	}
 	if networkCalled {
 		t.Error("a network call was made despite the coverage file lookup failing")
+	}
+}
+
+func writeCoverageJSON(t *testing.T, w http.ResponseWriter, value any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		t.Fatalf("encode response: %v", err)
+	}
+}
+
+func coverageTestCtx(t *testing.T, srvURL, accountID string) *cmdctx.Ctx {
+	t.Helper()
+	return &cmdctx.Ctx{
+		Context: context.Background(),
+		Auth: &auth.ResolvedAuth{
+			APIUrl:    srvURL,
+			AccountID: accountID,
+			PATToken:  "token",
+			AuthType:  auth.AuthTypePAT,
+		},
 	}
 }

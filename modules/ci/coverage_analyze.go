@@ -5,8 +5,6 @@ package ci
 
 import (
 	"fmt"
-	"github.com/harness/cli/v3/modules/ci/coverage/env"
-	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
+	covfile "github.com/harness/cli/v3/modules/ci/coverage/file"
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/hlog"
 )
@@ -39,7 +40,7 @@ type coverageStats struct {
 	Misses            int
 	OverallPercentage float64
 	Files             []coverageFileStats
-	ProcessedFiles    []coverageFile
+	ProcessedFiles    []covfile.File
 	// Patch coverage statistics (only populated when --patch is used)
 	PatchHits       int
 	PatchPartials   int
@@ -86,7 +87,7 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 		return nil, fmt.Errorf("--patch requires --base to be specified (or auto-detected from CI environment)")
 	}
 
-	lookupFiles, err := coverageLookup(files...)
+	lookupFiles, err := covfile.Lookup(files...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup coverage files: %w", err)
 	}
@@ -114,7 +115,7 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 
 	mergedStats := &coverageStats{
 		Files:          make([]coverageFileStats, 0),
-		ProcessedFiles: make([]coverageFile, 0, len(lookupFiles)),
+		ProcessedFiles: make([]covfile.File, 0, len(lookupFiles)),
 		HasPatchData:   diffLines != nil,
 	}
 

@@ -8,11 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"io"
 	"net/http"
 	"time"
 
+	covclient "github.com/harness/cli/v3/modules/ci/coverage/client"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/hlog"
@@ -79,11 +80,11 @@ func (e *coverageHTTPError) IsClientError() bool {
 }
 
 func coverageStatusPath(accountID, executionID string) string {
-	return fmt.Sprintf(coverageAPIPrefix+"/accounts/%s/executions/%s/status", accountID, executionID)
+	return fmt.Sprintf(covclient.APIPrefix+"/accounts/%s/executions/%s/status", accountID, executionID)
 }
 
 func coverageTreePath(accountID, executionID string) string {
-	return fmt.Sprintf(coverageAPIPrefix+"/accounts/%s/executions/%s/tree/", accountID, executionID)
+	return fmt.Sprintf(covclient.APIPrefix+"/accounts/%s/executions/%s/tree/", accountID, executionID)
 }
 
 // coverageWaitUntil polls the coverage service until all reports for the

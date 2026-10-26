@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package client
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
-func coverageTestCtx(t *testing.T, srvURL, accountID string) *cmdctx.Ctx {
+func testCtx(t *testing.T, srvURL, accountID string) *cmdctx.Ctx {
 	t.Helper()
 	return &cmdctx.Ctx{
 		Context: context.Background(),
@@ -48,8 +48,8 @@ func TestCoverageEnsureRepoAndExcludeText(t *testing.T) {
 		}
 
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == coverageEnsureRepoPath("account"):
-			var req coverageEnsureRepoRequest
+		case r.Method == http.MethodPost && r.URL.Path == EnsureRepoPath("account"):
+			var req EnsureRepoRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Errorf("decode ensure request: %v", err)
 				w.WriteHeader(http.StatusBadRequest)
@@ -59,30 +59,30 @@ func TestCoverageEnsureRepoAndExcludeText(t *testing.T) {
 				t.Errorf("ensure request = %+v", req)
 			}
 			w.WriteHeader(http.StatusCreated)
-			writeCoverageJSON(t, w, coverageEnsureRepoResponse{Repository: &coverageRepository{ID: 42}})
-		case r.Method == http.MethodGet && r.URL.Path == coverageRepoSettingsPath("account", 42):
-			writeCoverageJSON(t, w, coverageRepoSettings{ExcludeText: &serverExcludeText})
+			writeCoverageJSON(t, w, EnsureRepoResponse{Repository: &Repository{ID: 42}})
+		case r.Method == http.MethodGet && r.URL.Path == RepoSettingsPath("account", 42):
+			writeCoverageJSON(t, w, RepoSettings{ExcludeText: &serverExcludeText})
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer server.Close()
 
-	ctx := coverageTestCtx(t, server.URL, "account")
-	scope := coverageScope{AccountID: "account", OrgID: "org", ProjectID: "project"}
-	repoID, err := coverageEnsureRepo(ctx, scope, "github", "owner", "repo")
+	ctx := testCtx(t, server.URL, "account")
+	scope := Scope{AccountID: "account", OrgID: "org", ProjectID: "project"}
+	repoID, err := EnsureRepo(ctx, scope, "github", "owner", "repo")
 	if err != nil {
-		t.Fatalf("coverageEnsureRepo() error = %v", err)
+		t.Fatalf("EnsureRepo() error = %v", err)
 	}
 	if repoID != 42 {
-		t.Fatalf("coverageEnsureRepo() = %d, want 42", repoID)
+		t.Fatalf("EnsureRepo() = %d, want 42", repoID)
 	}
-	excludeText, err := coverageExcludeText(ctx, scope, repoID)
+	excludeText, err := ExcludeText(ctx, scope, repoID)
 	if err != nil {
-		t.Fatalf("coverageExcludeText() error = %v", err)
+		t.Fatalf("ExcludeText() error = %v", err)
 	}
 	if excludeText == nil || *excludeText != serverExcludeText {
-		t.Fatalf("coverageExcludeText() = %v, want %q", excludeText, serverExcludeText)
+		t.Fatalf("ExcludeText() = %v, want %q", excludeText, serverExcludeText)
 	}
 }
 
@@ -92,18 +92,18 @@ func TestCoverageEnsureRepoFails(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctx := coverageTestCtx(t, server.URL, "account")
-	if _, err := coverageEnsureRepo(ctx, coverageScope{}, "github", "owner", "repo"); err == nil {
-		t.Fatal("coverageEnsureRepo() expected an error")
+	ctx := testCtx(t, server.URL, "account")
+	if _, err := EnsureRepo(ctx, Scope{}, "github", "owner", "repo"); err == nil {
+		t.Fatal("EnsureRepo() expected an error")
 	}
 }
 
 func TestCoverageExcludeTextHTTPErrorAfterEnsure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == coverageEnsureRepoPath("account"):
-			writeCoverageJSON(t, w, coverageEnsureRepoResponse{Repository: &coverageRepository{ID: 1}})
-		case r.URL.Path == coverageRepoSettingsPath("account", 1):
+		case r.Method == http.MethodPost && r.URL.Path == EnsureRepoPath("account"):
+			writeCoverageJSON(t, w, EnsureRepoResponse{Repository: &Repository{ID: 1}})
+		case r.URL.Path == RepoSettingsPath("account", 1):
 			http.Error(w, "denied", http.StatusForbidden)
 		default:
 			http.NotFound(w, r)
@@ -111,15 +111,15 @@ func TestCoverageExcludeTextHTTPErrorAfterEnsure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctx := coverageTestCtx(t, server.URL, "account")
-	repoID, err := coverageEnsureRepo(ctx, coverageScope{}, "github", "owner", "repo")
+	ctx := testCtx(t, server.URL, "account")
+	repoID, err := EnsureRepo(ctx, Scope{}, "github", "owner", "repo")
 	if err != nil {
-		t.Fatalf("coverageEnsureRepo() error = %v", err)
+		t.Fatalf("EnsureRepo() error = %v", err)
 	}
-	if _, err := coverageExcludeText(ctx, coverageScope{}, repoID); err == nil {
-		t.Fatal("coverageExcludeText() expected an error")
+	if _, err := ExcludeText(ctx, Scope{}, repoID); err == nil {
+		t.Fatal("ExcludeText() expected an error")
 	} else if !strings.Contains(err.Error(), "403") {
-		t.Fatalf("coverageExcludeText() error = %v, want it to mention HTTP 403", err)
+		t.Fatalf("ExcludeText() error = %v, want it to mention HTTP 403", err)
 	}
 }
 
@@ -133,7 +133,7 @@ func TestCoverageResolveScope(t *testing.T) {
 		owner       string
 		targetScope string
 		pipelineID  string
-		want        coverageScope
+		want        Scope
 		wantErr     bool
 	}{
 		{
@@ -142,14 +142,14 @@ func TestCoverageResolveScope(t *testing.T) {
 			provider:   "Harness",
 			owner:      "account/myOrg/myProject",
 			pipelineID: "account/pipelineOrg/pipelineProject/pipe",
-			want:       coverageScope{AccountID: "account", OrgID: "myOrg", ProjectID: "myProject"},
+			want:       Scope{AccountID: "account", OrgID: "myOrg", ProjectID: "myProject"},
 		},
 		{
 			name:      "harness code owner path is matched case-insensitively",
 			accountID: "Account",
 			provider:  "harness",
 			owner:     "account/myOrg/myProject",
-			want:      coverageScope{AccountID: "account", OrgID: "myOrg", ProjectID: "myProject"},
+			want:      Scope{AccountID: "account", OrgID: "myOrg", ProjectID: "myProject"},
 		},
 		{
 			name:        "harness code rejects target scope",
@@ -167,7 +167,7 @@ func TestCoverageResolveScope(t *testing.T) {
 			owner:       "owner",
 			targetScope: "/account/myOrg/myProject/",
 			pipelineID:  "account/pipelineOrg/pipelineProject/pipe",
-			want:        coverageScope{AccountID: "account", OrgID: "myOrg", ProjectID: "myProject"},
+			want:        Scope{AccountID: "account", OrgID: "myOrg", ProjectID: "myProject"},
 		},
 		{
 			name:        "org-only target scope leaves the project empty",
@@ -175,7 +175,7 @@ func TestCoverageResolveScope(t *testing.T) {
 			provider:    "github",
 			targetScope: "account/myOrg",
 			pipelineID:  "account/pipelineOrg/pipelineProject/pipe",
-			want:        coverageScope{AccountID: "account", OrgID: "myOrg"},
+			want:        Scope{AccountID: "account", OrgID: "myOrg"},
 		},
 		{
 			name:        "account-only target scope leaves org and project empty",
@@ -183,7 +183,7 @@ func TestCoverageResolveScope(t *testing.T) {
 			provider:    "github",
 			targetScope: "account",
 			pipelineID:  "account/pipelineOrg/pipelineProject/pipe",
-			want:        coverageScope{AccountID: "account"},
+			want:        Scope{AccountID: "account"},
 		},
 		{
 			name:        "rejects target scope in another account",
@@ -215,14 +215,14 @@ func TestCoverageResolveScope(t *testing.T) {
 			provider:   "github",
 			owner:      "owner",
 			pipelineID: "account/pipelineOrg/pipelineProject/pipe",
-			want:       coverageScope{AccountID: "account", OrgID: "pipelineOrg", ProjectID: "pipelineProject"},
+			want:       Scope{AccountID: "account", OrgID: "pipelineOrg", ProjectID: "pipelineProject"},
 		},
 		{
 			name:       "pipeline identifier only uses the account",
 			accountID:  "account",
 			provider:   "github",
 			pipelineID: "pipe",
-			want:       coverageScope{AccountID: "account"},
+			want:       Scope{AccountID: "account"},
 		},
 		{
 			name:      "rejects Harness Code owner with too many segments",
@@ -251,14 +251,14 @@ func TestCoverageResolveScope(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := coverageResolveScope(
+			got, err := ResolveScope(
 				test.accountID, test.provider, test.owner, test.targetScope, test.pipelineID,
 			)
 			if (err != nil) != test.wantErr {
-				t.Fatalf("coverageResolveScope() error = %v, wantErr %t", err, test.wantErr)
+				t.Fatalf("ResolveScope() error = %v, wantErr %t", err, test.wantErr)
 			}
 			if got != test.want {
-				t.Errorf("coverageResolveScope() = %+v, want %+v", got, test.want)
+				t.Errorf("ResolveScope() = %+v, want %+v", got, test.want)
 			}
 		})
 	}
@@ -267,10 +267,10 @@ func TestCoverageResolveScope(t *testing.T) {
 func TestCoverageScopeQueryOmitsEmpty(t *testing.T) {
 	t.Parallel()
 
-	if got := (coverageScope{AccountID: "acc"}).query(); len(got) != 0 {
+	if got := (Scope{AccountID: "acc"}).query(); len(got) != 0 {
 		t.Errorf("account-only query = %v, want empty", got)
 	}
-	got := coverageScope{AccountID: "acc", OrgID: "org", ProjectID: "proj"}.query()
+	got := Scope{AccountID: "acc", OrgID: "org", ProjectID: "proj"}.query()
 	want := map[string]string{"orgId": "org", "projectId": "proj"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("query() = %v, want %v", got, want)
@@ -280,10 +280,10 @@ func TestCoverageScopeQueryOmitsEmpty(t *testing.T) {
 func TestCoverageScopeSpacePath(t *testing.T) {
 	t.Parallel()
 
-	if got := (coverageScope{AccountID: "acc", OrgID: "org", ProjectID: "proj"}).SpacePath(); got != "acc/org/proj" {
+	if got := (Scope{AccountID: "acc", OrgID: "org", ProjectID: "proj"}).SpacePath(); got != "acc/org/proj" {
 		t.Errorf("SpacePath() = %q", got)
 	}
-	if got := (coverageScope{AccountID: "acc"}).SpacePath(); got != "acc" {
+	if got := (Scope{AccountID: "acc"}).SpacePath(); got != "acc" {
 		t.Errorf("account SpacePath() = %q", got)
 	}
 }
@@ -291,10 +291,10 @@ func TestCoverageScopeSpacePath(t *testing.T) {
 func TestCoverageClientPaths(t *testing.T) {
 	t.Parallel()
 
-	if got := coverageEnsureRepoPath("acc"); got != "/coverage/api/v1/accounts/acc/repos" {
-		t.Errorf("coverageEnsureRepoPath() = %q", got)
+	if got := EnsureRepoPath("acc"); got != "/coverage/api/v1/accounts/acc/repos" {
+		t.Errorf("EnsureRepoPath() = %q", got)
 	}
-	if got := coverageRepoSettingsPath("acc", 42); got != "/coverage/api/v1/accounts/acc/repos/42/settings" {
-		t.Errorf("coverageRepoSettingsPath() = %q", got)
+	if got := RepoSettingsPath("acc", 42); got != "/coverage/api/v1/accounts/acc/repos/42/settings" {
+		t.Errorf("RepoSettingsPath() = %q", got)
 	}
 }

@@ -8,8 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/harness/cli/v3/modules/ci/coverage/env"
-	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"io"
 	"net/http"
 	"os"
@@ -19,6 +17,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	covclient "github.com/harness/cli/v3/modules/ci/coverage/client"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
+	covfile "github.com/harness/cli/v3/modules/ci/coverage/file"
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/hlog"
@@ -61,7 +63,7 @@ type coverageUploadParams struct {
 	pipelineID    string
 	executionID   string
 	pullReqID     int64
-	resolvedScope coverageScope
+	resolvedScope covclient.Scope
 	tags          []string
 	base          string
 	commitBefore  string
@@ -173,7 +175,7 @@ func coverageResolveUploadParams(f coverageUploadFlags) (*coverageUploadParams, 
 		pipelineID = path.Join(accountID, vendor.OrgID(), vendor.ProjectID(), vendor.Pipeline())
 	}
 
-	resolvedScope, err := coverageResolveScope(accountID, provider, owner, f.targetScope, pipelineID)
+	resolvedScope, err := covclient.ResolveScope(accountID, provider, owner, f.targetScope, pipelineID)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +240,7 @@ func coverageParseIdentifierOwner(account, owner, identifier string) (string, st
 
 // coverageUploadTargetScope is the space path report upload and ensure-repo
 // share. Harness Code ignores target_scope on the server and uses the owner
-// path, which coverageResolveScope already applied; leave it empty so the two
+// path, which covclient.ResolveScope already applied; leave it empty so the two
 // paths stay aligned.
 func coverageUploadTargetScope(params *coverageUploadParams) string {
 	if strings.EqualFold(params.provider, env.HarnessProvider) {
@@ -279,11 +281,11 @@ type coverageSignURLResponse struct {
 }
 
 func coverageUploadPath(accountID string) string {
-	return fmt.Sprintf(coverageAPIPrefix+"/accounts/%s/reports/upload", accountID)
+	return fmt.Sprintf(covclient.APIPrefix+"/accounts/%s/reports/upload", accountID)
 }
 
 func coverageCompletePath(accountID, externalID string) string {
-	return fmt.Sprintf(coverageAPIPrefix+"/accounts/%s/reports/%s/complete", accountID, externalID)
+	return fmt.Sprintf(covclient.APIPrefix+"/accounts/%s/reports/%s/complete", accountID, externalID)
 }
 
 // coverageLoadUploadExcludePatterns resolves the effective exclude patterns
@@ -292,11 +294,11 @@ func coverageCompletePath(accountID, externalID string) string {
 func coverageLoadUploadExcludePatterns(
 	ctx *cmdctx.Ctx, params *coverageUploadParams, cliPatterns []string,
 ) ([]format.ExcludePattern, error) {
-	repoID, err := coverageEnsureRepo(ctx, params.resolvedScope, params.provider, params.owner, params.identifier)
+	repoID, err := covclient.EnsureRepo(ctx, params.resolvedScope, params.provider, params.owner, params.identifier)
 	if err != nil {
 		return nil, fmt.Errorf("resolve exclude settings repository: %w", err)
 	}
-	excludeText, err := coverageExcludeText(ctx, params.resolvedScope, repoID)
+	excludeText, err := covclient.ExcludeText(ctx, params.resolvedScope, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("load coverage repository exclude settings: %w", err)
 	}
@@ -312,7 +314,7 @@ func coverageUpload(ctx *cmdctx.Ctx, f coverageUploadFlags) error {
 		return err
 	}
 
-	lookupFiles, err := coverageLookup(f.files...)
+	lookupFiles, err := covfile.Lookup(f.files...)
 	if err != nil {
 		return fmt.Errorf("failed to lookup coverage file: %w", err)
 	}
@@ -341,7 +343,7 @@ func coverageProcessUploadFile(
 	ctx *cmdctx.Ctx,
 	params *coverageUploadParams,
 	repoRef string,
-	coverageFile coverageFile,
+	coverageFile covfile.File,
 	excludePatterns []format.ExcludePattern,
 	pathResolver *env.Tree,
 ) error {
@@ -363,7 +365,7 @@ func coverageProcessUploadFile(
 
 func coverageBuildReport(
 	repoRef string,
-	coverageFile coverageFile,
+	coverageFile covfile.File,
 	baseRef string,
 	excludePatterns []format.ExcludePattern,
 	pathResolver *env.Tree,
@@ -479,7 +481,7 @@ func coverageGetPresignedURL(
 		return coverageSignURLResponse{}, err
 	}
 	var resp coverageSignURLResponse
-	if err := coverageDecodeInto(raw, &resp); err != nil {
+	if err := covclient.DecodeInto(raw, &resp); err != nil {
 		return coverageSignURLResponse{}, err
 	}
 	return resp, nil

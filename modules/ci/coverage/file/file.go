@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package file
 
 import (
 	"errors"
@@ -15,18 +15,14 @@ import (
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 
-// coverageFormatTIRunner identifies TI Runner per-test coverage reports. It is
-// a file-discovery label only; format.NewParser does not yet support it.
-const coverageFormatTIRunner = "ti-runner"
-
-// coverageFile is a discovered coverage report and its inferred format.
-type coverageFile struct {
+// File is a discovered coverage report and its inferred format.
+type File struct {
 	Path     string
 	Language string
 	Format   string
 }
 
-var coverageFilePatterns = map[string]struct {
+var filePatterns = map[string]struct {
 	Language string
 	Format   string
 }{
@@ -44,10 +40,10 @@ var coverageFilePatterns = map[string]struct {
 	"cobertura.xml":        {"Java/Python/C++", format.FormatCobertura},
 	"scoverage.xml":        {"Scala", format.FormatCobertura},
 	"coveralls.json":       {"JavaScript/TypeScript/Ruby/Python", format.FormatCoveralls},
-	"_tiRunner.json":       {"TI Runner", coverageFormatTIRunner},
+	"_tiRunner.json":       {"TI Runner", format.FormatTIRunner},
 }
 
-var coverageSearchDirs = []string{
+var searchDirs = []string{
 	".",
 	"coverage",
 	"test",
@@ -57,14 +53,14 @@ var coverageSearchDirs = []string{
 	"target/site/jacoco",
 }
 
-var coverageIgnoreFileNames = []string{
+var ignoreFileNames = []string{
 	"Dockerfile.coverage",
 }
 
-// coverageSkipDirs lists directories coverageLookup's recursive fallback never
+// skipDirs lists directories Lookup's recursive fallback never
 // descends into: hidden dirs plus dependency/build output across Node, Go,
 // Java/Kotlin, Python, Ruby, and C#/.NET toolchains.
-var coverageSkipDirs = map[string]bool{
+var skipDirs = map[string]bool{
 	".git":    true,
 	".svn":    true,
 	".hg":     true,
@@ -98,20 +94,20 @@ var coverageSkipDirs = map[string]bool{
 	".nuxt":  true,
 }
 
-// coverageLookup discovers coverage report files. With explicit files it
+// Lookup discovers coverage report files. With explicit files it
 // validates each exists and matches a known pattern, erroring otherwise.
-// With none, it searches coverageSearchDirs non-recursively, then those same
+// With none, it searches searchDirs non-recursively, then those same
 // dirs nested one level inside each top-level subdirectory (multi-module
 // layouts), falling back to a full recursive walk only if both find nothing.
-func coverageLookup(files ...string) ([]coverageFile, error) {
+func Lookup(files ...string) ([]File, error) {
 	hlog.Debug("looking up coverage files", "explicit", files)
 
-	var found []coverageFile
+	var found []File
 
 	checkFile := func(path string) {
-		for pattern, meta := range coverageFilePatterns {
+		for pattern, meta := range filePatterns {
 			if strings.HasSuffix(path, pattern) || filepath.Base(path) == pattern {
-				found = append(found, coverageFile{
+				found = append(found, File{
 					Path:     path,
 					Language: meta.Language,
 					Format:   meta.Format,
@@ -142,7 +138,7 @@ func coverageLookup(files ...string) ([]coverageFile, error) {
 		return found, nil
 	}
 
-	for _, dir := range coverageSearchDirs {
+	for _, dir := range searchDirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -156,7 +152,7 @@ func coverageLookup(files ...string) ([]coverageFile, error) {
 				continue
 			}
 			name := entry.Name()
-			if slices.Contains(coverageIgnoreFileNames, name) {
+			if slices.Contains(ignoreFileNames, name) {
 				continue
 			}
 			checkFile(filepath.Join(dir, name))
@@ -170,7 +166,7 @@ func coverageLookup(files ...string) ([]coverageFile, error) {
 				if !topEntry.IsDir() || strings.HasPrefix(topEntry.Name(), ".") {
 					continue
 				}
-				for _, subDir := range coverageSearchDirs {
+				for _, subDir := range searchDirs {
 					if subDir == "." {
 						continue
 					}
@@ -184,7 +180,7 @@ func coverageLookup(files ...string) ([]coverageFile, error) {
 							continue
 						}
 						name := entry.Name()
-						if slices.Contains(coverageIgnoreFileNames, name) {
+						if slices.Contains(ignoreFileNames, name) {
 							continue
 						}
 						checkFile(filepath.Join(moduleDir, entry.Name()))
@@ -209,7 +205,7 @@ func coverageLookup(files ...string) ([]coverageFile, error) {
 		if d.IsDir() {
 			name := d.Name()
 			if name != "." {
-				if strings.HasPrefix(name, ".") || coverageSkipDirs[name] {
+				if strings.HasPrefix(name, ".") || skipDirs[name] {
 					return filepath.SkipDir
 				}
 			}
@@ -217,7 +213,7 @@ func coverageLookup(files ...string) ([]coverageFile, error) {
 		}
 
 		name := d.Name()
-		if slices.Contains(coverageIgnoreFileNames, name) {
+		if slices.Contains(ignoreFileNames, name) {
 			return nil
 		}
 

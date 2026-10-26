@@ -45,6 +45,10 @@ const (
 	FormatClover    = "clover"
 	FormatCobertura = "cobertura"
 	FormatCoveralls = "coveralls"
+
+	// FormatTIRunner identifies TI Runner per-test coverage reports. It is a
+	// file-discovery label only; NewParser does not yet support it.
+	FormatTIRunner = "ti-runner"
 )
 
 // NewParser returns the Parser for format, one of the
