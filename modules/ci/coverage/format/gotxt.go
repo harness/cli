@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"bufio"
@@ -14,18 +14,18 @@ import (
 	"strings"
 )
 
-// coverageGotxtParser decodes the text format `go test -coverprofile` produces.
-type coverageGotxtParser struct{}
+// gotxtParser decodes the text format `go test -coverprofile` produces.
+type gotxtParser struct{}
 
-func newCoverageGotxtParser() *coverageGotxtParser {
-	return &coverageGotxtParser{}
+func newGotxtParser() *gotxtParser {
+	return &gotxtParser{}
 }
 
-func (p *coverageGotxtParser) Err() error { return nil }
+func (p *gotxtParser) Err() error { return nil }
 
-var coverageGoProfileLineRe = regexp.MustCompile(`^(.+):(\d+)\.(\d+),(\d+)\.(\d+) \d+ (\d+)$`)
+var goProfileLineRe = regexp.MustCompile(`^(.+):(\d+)\.(\d+),(\d+)\.(\d+) \d+ (\d+)$`)
 
-type coverageGoBlock struct {
+type goBlock struct {
 	startLine int
 	startCol  int
 	endLine   int
@@ -33,14 +33,14 @@ type coverageGoBlock struct {
 	count     int
 }
 
-type coverageGoBlockKey struct {
+type goBlockKey struct {
 	startLine, startCol, endLine, endCol int
 }
 
-func (p *coverageGotxtParser) Parse(reader io.Reader) (iter.Seq[coverageLineRecord], error) {
+func (p *gotxtParser) Parse(reader io.Reader) (iter.Seq[LineRecord], error) {
 	scanner := bufio.NewScanner(reader)
-	blocksByFile := make(map[string][]coverageGoBlock)
-	blockIndexByFile := make(map[string]map[coverageGoBlockKey]int)
+	blocksByFile := make(map[string][]goBlock)
+	blockIndexByFile := make(map[string]map[goBlockKey]int)
 	var fileOrder []string
 	seenFile := make(map[string]bool)
 	mode := ""
@@ -59,7 +59,7 @@ func (p *coverageGotxtParser) Parse(reader io.Reader) (iter.Seq[coverageLineReco
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		m := coverageGoProfileLineRe.FindStringSubmatch(line)
+		m := goProfileLineRe.FindStringSubmatch(line)
 		if m == nil {
 			return nil, fmt.Errorf("bad go coverage profile line: %q", line)
 		}
@@ -72,10 +72,10 @@ func (p *coverageGotxtParser) Parse(reader io.Reader) (iter.Seq[coverageLineReco
 		if !seenFile[fileName] {
 			seenFile[fileName] = true
 			fileOrder = append(fileOrder, fileName)
-			blockIndexByFile[fileName] = make(map[coverageGoBlockKey]int)
+			blockIndexByFile[fileName] = make(map[goBlockKey]int)
 		}
 
-		key := coverageGoBlockKey{startLine, startCol, endLine, endCol}
+		key := goBlockKey{startLine, startCol, endLine, endCol}
 		if idx, ok := blockIndexByFile[fileName][key]; ok {
 			existing := &blocksByFile[fileName][idx]
 			if mode == "set" {
@@ -93,7 +93,7 @@ func (p *coverageGotxtParser) Parse(reader io.Reader) (iter.Seq[coverageLineReco
 			}
 		}
 		blockIndexByFile[fileName][key] = len(blocksByFile[fileName])
-		blocksByFile[fileName] = append(blocksByFile[fileName], coverageGoBlock{startLine: startLine, startCol: startCol, endLine: endLine, endCol: endCol, count: count})
+		blocksByFile[fileName] = append(blocksByFile[fileName], goBlock{startLine: startLine, startCol: startCol, endLine: endLine, endCol: endCol, count: count})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (p *coverageGotxtParser) Parse(reader io.Reader) (iter.Seq[coverageLineReco
 		return nil, fmt.Errorf("bad go coverage profile: empty input")
 	}
 
-	return func(yield func(coverageLineRecord) bool) {
+	return func(yield func(LineRecord) bool) {
 		for _, fileName := range fileOrder {
 			lineCounts := make(map[int][]int)
 			for _, block := range blocksByFile[fileName] {
@@ -125,14 +125,14 @@ func (p *coverageGotxtParser) Parse(reader io.Reader) (iter.Seq[coverageLineReco
 						hasUncovered = true
 					}
 				}
-				lineType := coverageLineUncovered
+				lineType := LineUncovered
 				switch {
 				case hasCovered && hasUncovered:
-					lineType = coverageLinePartial
+					lineType = LinePartial
 				case hasCovered:
-					lineType = coverageLineCovered
+					lineType = LineCovered
 				}
-				if !yield(coverageLineRecord{
+				if !yield(LineRecord{
 					FilePath:   fileName,
 					LineNumber: uint32(line),
 					LineType:   lineType,

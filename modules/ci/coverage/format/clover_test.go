@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"strings"
@@ -22,11 +22,11 @@ func TestCoverageCloverParser_Parse(t *testing.T) {
   </project>
 </coverage>`
 	records := collectCoverageClover(t, input)
-	want := map[uint32]coverageLineType{
-		1: coverageLineCovered,
-		2: coverageLineUncovered,
-		3: coverageLinePartial,
-		4: coverageLineUncovered,
+	want := map[uint32]LineType{
+		1: LineCovered,
+		2: LineUncovered,
+		3: LinePartial,
+		4: LineUncovered,
 	}
 	if len(records) != len(want) {
 		t.Fatalf("got %d records, want %d", len(records), len(want))
@@ -107,7 +107,7 @@ func TestCoverageCloverParser_SkipsLineNumberLessThanOne(t *testing.T) {
 }
 
 func TestCoverageCloverParser_MalformedXML(t *testing.T) {
-	p := newCoverageCloverParser()
+	p := newCloverParser()
 	seq, err := p.Parse(strings.NewReader("<coverage><unterminated"))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -121,7 +121,7 @@ func TestCoverageCloverParser_MalformedXML(t *testing.T) {
 }
 
 func TestCoverageCloverParser_EmptyInput(t *testing.T) {
-	p := newCoverageCloverParser()
+	p := newCloverParser()
 	seq, err := p.Parse(strings.NewReader(""))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -133,14 +133,14 @@ func TestCoverageCloverParser_EmptyInput(t *testing.T) {
 	}
 }
 
-func collectCoverageClover(t *testing.T, input string) []coverageLineRecord {
+func collectCoverageClover(t *testing.T, input string) []LineRecord {
 	t.Helper()
-	p := newCoverageCloverParser()
+	p := newCloverParser()
 	seq, err := p.Parse(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	var records []coverageLineRecord
+	var records []LineRecord
 	for r := range seq {
 		records = append(records, r)
 	}

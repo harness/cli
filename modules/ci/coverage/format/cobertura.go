@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"encoding/xml"
@@ -13,61 +13,61 @@ import (
 	"strings"
 )
 
-// coverageCoberturaParser decodes Cobertura (and scoverage, which shares the
+// coberturaParser decodes Cobertura (and scoverage, which shares the
 // same shape under a differently-named root element) XML coverage reports.
-type coverageCoberturaParser struct {
+type coberturaParser struct {
 	err error
 }
 
-func newCoverageCoberturaParser() *coverageCoberturaParser {
-	return &coverageCoberturaParser{}
+func newCoberturaParser() *coberturaParser {
+	return &coberturaParser{}
 }
 
-func (p *coverageCoberturaParser) Err() error { return p.err }
+func (p *coberturaParser) Err() error { return p.err }
 
-var coverageConditionCoverageRe = regexp.MustCompile(`\((\d+)/(\d+)\)`)
+var conditionCoverageRe = regexp.MustCompile(`\((\d+)/(\d+)\)`)
 
-type coverageCoberturaXMLLine struct {
+type coberturaXMLLine struct {
 	Number            string `xml:"number,attr"`
 	Hits              string `xml:"hits,attr"`
 	Branch            string `xml:"branch,attr"`
 	ConditionCoverage string `xml:"condition-coverage,attr"`
 }
 
-type coverageCoberturaXMLStatement struct {
+type coberturaXMLStatement struct {
 	Line            string `xml:"line,attr"`
 	InvocationCount string `xml:"invocation-count,attr"`
 	Ignored         string `xml:"ignored,attr"`
 }
 
-type coverageCoberturaXMLClass struct {
-	Filename   string                          `xml:"filename,attr"`
-	Lines      []coverageCoberturaXMLLine      `xml:"lines>line"`
-	Statements []coverageCoberturaXMLStatement `xml:"statements>statement"`
+type coberturaXMLClass struct {
+	Filename   string                  `xml:"filename,attr"`
+	Lines      []coberturaXMLLine      `xml:"lines>line"`
+	Statements []coberturaXMLStatement `xml:"statements>statement"`
 }
 
-type coverageCoberturaXMLPackage struct {
-	Classes []coverageCoberturaXMLClass `xml:"classes>class"`
+type coberturaXMLPackage struct {
+	Classes []coberturaXMLClass `xml:"classes>class"`
 }
 
-// coverageCoberturaXMLReport has no XMLName constraint so it decodes equally
+// coberturaXMLReport has no XMLName constraint so it decodes equally
 // well against a <coverage> (Cobertura) or <scoverage> root element.
-type coverageCoberturaXMLReport struct {
-	Sources  []string                      `xml:"sources>source"`
-	Packages []coverageCoberturaXMLPackage `xml:"packages>package"`
+type coberturaXMLReport struct {
+	Sources  []string              `xml:"sources>source"`
+	Packages []coberturaXMLPackage `xml:"packages>package"`
 }
 
-func (p *coverageCoberturaParser) Parse(reader io.Reader) (iter.Seq[coverageLineRecord], error) {
-	var report coverageCoberturaXMLReport
+func (p *coberturaParser) Parse(reader io.Reader) (iter.Seq[LineRecord], error) {
+	var report coberturaXMLReport
 	if err := xml.NewDecoder(reader).Decode(&report); err != nil {
 		p.err = err
-		return func(func(coverageLineRecord) bool) {}, nil
+		return func(func(LineRecord) bool) {}, nil
 	}
 
-	return func(yield func(coverageLineRecord) bool) {
+	return func(yield func(LineRecord) bool) {
 		for _, pkg := range report.Packages {
 			for _, class := range pkg.Classes {
-				if !coverageCoberturaProcessClass(class, report.Sources, yield) {
+				if !coberturaProcessClass(class, report.Sources, yield) {
 					return
 				}
 			}
@@ -75,12 +75,12 @@ func (p *coverageCoberturaParser) Parse(reader io.Reader) (iter.Seq[coverageLine
 	}, nil
 }
 
-func coverageCoberturaProcessClass(class coverageCoberturaXMLClass, sources []string, yield func(coverageLineRecord) bool) bool {
+func coberturaProcessClass(class coberturaXMLClass, sources []string, yield func(LineRecord) bool) bool {
 	if class.Filename == "" {
 		return true
 	}
 	filename := strings.ReplaceAll(class.Filename, `\`, "/")
-	candidates := coverageCoberturaSourceCandidates(sources, filename)
+	candidates := coberturaSourceCandidates(sources, filename)
 	for _, line := range class.Lines {
 		if line.Number == "undefined" || line.Number == "" {
 			continue
@@ -89,10 +89,10 @@ func coverageCoberturaProcessClass(class coverageCoberturaXMLClass, sources []st
 		if err != nil || ln <= 0 {
 			continue
 		}
-		if !yield(coverageLineRecord{
+		if !yield(LineRecord{
 			FilePath:       filename,
 			LineNumber:     uint32(ln),
-			LineType:       coverageCoberturaLineType(line),
+			LineType:       coberturaLineType(line),
 			PathCandidates: candidates,
 		}) {
 			return false
@@ -107,11 +107,11 @@ func coverageCoberturaProcessClass(class coverageCoberturaXMLClass, sources []st
 			continue
 		}
 		count, _ := strconv.Atoi(stmt.InvocationCount)
-		lineType := coverageLineUncovered
+		lineType := LineUncovered
 		if count > 0 {
-			lineType = coverageLineCovered
+			lineType = LineCovered
 		}
-		if !yield(coverageLineRecord{
+		if !yield(LineRecord{
 			FilePath:       filename,
 			LineNumber:     uint32(ln),
 			LineType:       lineType,
@@ -123,38 +123,38 @@ func coverageCoberturaProcessClass(class coverageCoberturaXMLClass, sources []st
 	return true
 }
 
-func coverageCoberturaLineType(line coverageCoberturaXMLLine) coverageLineType {
+func coberturaLineType(line coberturaXMLLine) LineType {
 	if line.Branch == "true" {
-		if m := coverageConditionCoverageRe.FindStringSubmatch(line.ConditionCoverage); m != nil {
-			return coverageCoberturaBranchLineType(m)
+		if m := conditionCoverageRe.FindStringSubmatch(line.ConditionCoverage); m != nil {
+			return coberturaBranchLineType(m)
 		}
 	}
 	hits, _ := strconv.Atoi(line.Hits)
 	if hits > 0 {
-		return coverageLineCovered
+		return LineCovered
 	}
-	return coverageLineUncovered
+	return LineUncovered
 }
 
-func coverageCoberturaBranchLineType(conditionMatch []string) coverageLineType {
+func coberturaBranchLineType(conditionMatch []string) LineType {
 	covered, _ := strconv.Atoi(conditionMatch[1])
 	total, _ := strconv.Atoi(conditionMatch[2])
 	switch {
 	case total == 0 || covered == 0:
-		return coverageLineUncovered
+		return LineUncovered
 	case covered == total:
-		return coverageLineCovered
+		return LineCovered
 	default:
-		return coverageLinePartial
+		return LinePartial
 	}
 }
 
-// coverageCoberturaIsAbsPath reports whether filename is absolute, either in
+// coberturaIsAbsPath reports whether filename is absolute, either in
 // the Unix sense (leading "/") or the Windows sense (a drive letter, e.g.
 // "C:/Users/foo.cs") — the latter shows up in reports from .NET/OpenCover
 // producers even when parsed on a non-Windows host, where path.IsAbs and
 // filepath.IsAbs both only recognize the leading-"/" form.
-func coverageCoberturaIsAbsPath(filename string) bool {
+func coberturaIsAbsPath(filename string) bool {
 	if path.IsAbs(filename) {
 		return true
 	}
@@ -165,8 +165,8 @@ func coverageCoberturaIsAbsPath(filename string) bool {
 	return false
 }
 
-func coverageCoberturaSourceCandidates(sources []string, filename string) []string {
-	if coverageCoberturaIsAbsPath(filename) {
+func coberturaSourceCandidates(sources []string, filename string) []string {
+	if coberturaIsAbsPath(filename) {
 		return nil
 	}
 	cleanFilename := path.Clean(filename)

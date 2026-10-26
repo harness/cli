@@ -4,6 +4,7 @@
 package ci
 
 import (
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"os"
 	"path/filepath"
 	"slices"
@@ -196,10 +197,10 @@ func TestCoverageLookup_CoberturaAndCoverallsPatterns(t *testing.T) {
 		filename string
 		format   string
 	}{
-		{"coverage.xml", coverageFormatCobertura},
-		{"cobertura.xml", coverageFormatCobertura},
-		{"scoverage.xml", coverageFormatCobertura},
-		{"coveralls.json", coverageFormatCoveralls},
+		{"coverage.xml", format.FormatCobertura},
+		{"cobertura.xml", format.FormatCobertura},
+		{"scoverage.xml", format.FormatCobertura},
+		{"coveralls.json", format.FormatCoveralls},
 	}
 	for _, tt := range tests {
 		t.Run(tt.filename, func(t *testing.T) {
@@ -241,8 +242,8 @@ func TestCoverageLookup_TIRunnerAlongsideCoverageFile(t *testing.T) {
 	for _, cf := range found {
 		formats[filepath.Base(cf.Path)] = cf.Format
 	}
-	if formats["coverage.out"] != coverageFormatGo {
-		t.Errorf("coverage.out format = %q, want %q", formats["coverage.out"], coverageFormatGo)
+	if formats["coverage.out"] != format.FormatGo {
+		t.Errorf("coverage.out format = %q, want %q", formats["coverage.out"], format.FormatGo)
 	}
 	if formats["_tiRunner.json"] != coverageFormatTIRunner {
 		t.Errorf("_tiRunner.json format = %q, want %q", formats["_tiRunner.json"], coverageFormatTIRunner)

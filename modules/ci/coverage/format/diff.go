@@ -1,22 +1,22 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 
-// coverageChangedLineIndex looks up changed lines by repository-relative file path.
-type coverageChangedLineIndex struct {
+// changedLineIndex looks up changed lines by repository-relative file path.
+type changedLineIndex struct {
 	lines map[string]map[uint32]bool
 }
 
-// coverageLoadChangedLineIndex returns repository-relative changed lines.
+// loadChangedLineIndex returns repository-relative changed lines.
 // A missing base is not an error; callers that require a diff for --patch
 // check for a nil index. A git failure is returned so --patch can fail closed.
-func coverageLoadChangedLineIndex(options *coverageWriteOptions) (*coverageChangedLineIndex, error) {
+func loadChangedLineIndex(options *writeOptions) (*changedLineIndex, error) {
 	if options == nil || options.baseRev == "" {
 		return nil, nil
 	}
@@ -37,11 +37,11 @@ func coverageLoadChangedLineIndex(options *coverageWriteOptions) (*coverageChang
 		hlog.Debug("diff file", "file", filename)
 	}
 
-	return &coverageChangedLineIndex{lines: diffLines}, nil
+	return &changedLineIndex{lines: diffLines}, nil
 }
 
 // linesFor returns changed line numbers for filePath, or false if the file is not in the diff.
-func (d *coverageChangedLineIndex) linesFor(filePath string) (map[uint32]bool, bool) {
+func (d *changedLineIndex) linesFor(filePath string) (map[uint32]bool, bool) {
 	if d == nil || d.lines == nil {
 		return nil, false
 	}

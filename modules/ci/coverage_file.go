@@ -6,6 +6,7 @@ package ci
 import (
 	"errors"
 	"fmt"
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,7 +16,7 @@ import (
 )
 
 // coverageFormatTIRunner identifies TI Runner per-test coverage reports. It is
-// a file-discovery label only; newCoverageParser does not yet support it.
+// a file-discovery label only; format.NewParser does not yet support it.
 const coverageFormatTIRunner = "ti-runner"
 
 // coverageFile is a discovered coverage report and its inferred format.
@@ -29,20 +30,20 @@ var coverageFilePatterns = map[string]struct {
 	Language string
 	Format   string
 }{
-	"coverage.out":         {"Golang", coverageFormatGo},
-	"cover.out":            {"Golang", coverageFormatGo},
-	".cov":                 {"Golang", coverageFormatGo},
-	".out":                 {"Golang", coverageFormatGo},
-	"lcov.info":            {"JavaScript/TypeScript", coverageFormatLCOV},
-	"coverage.info":        {"C/C++", coverageFormatLCOV},
-	"jacoco.xml":           {"Java/Kotlin", coverageFormatJacoco},
-	"jacocoTestReport.xml": {"Java/Kotlin", coverageFormatJacoco},
-	"jacocoReport.xml":     {"Java/Kotlin", coverageFormatJacoco},
-	"clover.xml":           {"PHP/Java/JavaScript", coverageFormatClover},
-	"coverage.xml":         {"Python/C#/C++/JavaScript", coverageFormatCobertura},
-	"cobertura.xml":        {"Java/Python/C++", coverageFormatCobertura},
-	"scoverage.xml":        {"Scala", coverageFormatCobertura},
-	"coveralls.json":       {"JavaScript/TypeScript/Ruby/Python", coverageFormatCoveralls},
+	"coverage.out":         {"Golang", format.FormatGo},
+	"cover.out":            {"Golang", format.FormatGo},
+	".cov":                 {"Golang", format.FormatGo},
+	".out":                 {"Golang", format.FormatGo},
+	"lcov.info":            {"JavaScript/TypeScript", format.FormatLCOV},
+	"coverage.info":        {"C/C++", format.FormatLCOV},
+	"jacoco.xml":           {"Java/Kotlin", format.FormatJacoco},
+	"jacocoTestReport.xml": {"Java/Kotlin", format.FormatJacoco},
+	"jacocoReport.xml":     {"Java/Kotlin", format.FormatJacoco},
+	"clover.xml":           {"PHP/Java/JavaScript", format.FormatClover},
+	"coverage.xml":         {"Python/C#/C++/JavaScript", format.FormatCobertura},
+	"cobertura.xml":        {"Java/Python/C++", format.FormatCobertura},
+	"scoverage.xml":        {"Scala", format.FormatCobertura},
+	"coveralls.json":       {"JavaScript/TypeScript/Ruby/Python", format.FormatCoveralls},
 	"_tiRunner.json":       {"TI Runner", coverageFormatTIRunner},
 }
 

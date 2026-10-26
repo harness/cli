@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"bufio"
@@ -16,8 +16,8 @@ import (
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 
-// coverageRepositoryPathOptions controls repository-relative path resolution.
-type coverageRepositoryPathOptions struct {
+// RepositoryPathOptions controls repository-relative path resolution.
+type RepositoryPathOptions struct {
 	// Tree is the git file inventory. Nil or unavailable inventory keeps a
 	// safe stored path in full mode and fails patch mode.
 	Tree *env.Tree
@@ -36,23 +36,23 @@ type coverageRepositoryPathOptions struct {
 	Format string
 }
 
-// coverageGoModule is a go.mod directory and the import path it declares.
-type coverageGoModule struct {
+// goModule is a go.mod directory and the import path it declares.
+type goModule struct {
 	rel  string
 	name string
 }
 
 // stopOnManifestMiss is true only for Go. A pom.xml or package.json above a
 // Cobertura, Clover, LCOV, or Coveralls report must not block a unique match.
-func (c *coverageRepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool) (string, error) {
-	if coverageHasParentTraversal(strings.ReplaceAll(raw, "\\", "/")) {
+func (c *RepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool) (string, error) {
+	if hasParentTraversal(strings.ReplaceAll(raw, "\\", "/")) {
 		if c.opts.Patch {
 			return "", fmt.Errorf("patch coverage path %q escapes the repository", raw)
 		}
 		hlog.Warn("coverage path escapes the repository; dropping the file", "path", raw)
 		return "", nil
 	}
-	normalized := coverageNormalizeRepoPath(raw)
+	normalized := normalizeRepoPath(raw)
 	if normalized == "" {
 		if c.opts.Patch {
 			return "", fmt.Errorf("patch coverage path %q is empty", raw)
@@ -61,8 +61,8 @@ func (c *coverageRepositoryPathResolver) resolvePath(raw string, stopOnManifestM
 	}
 
 	if filepath.IsAbs(raw) {
-		rel := coverageRelToGitRoot(raw, c.opts.GitRoot)
-		stored := coverageStoredUnresolvedPath(raw, rel, normalized)
+		rel := relToGitRoot(raw, c.opts.GitRoot)
+		stored := storedUnresolvedPath(raw, rel, normalized)
 		if c.opts.Tree == nil || !c.opts.Tree.Available() {
 			if c.opts.Patch {
 				return "", fmt.Errorf("patch coverage path %q cannot be resolved: git file inventory is unavailable", raw)
@@ -95,7 +95,7 @@ func (c *coverageRepositoryPathResolver) resolvePath(raw string, stopOnManifestM
 	}
 	// A non-empty module directory is authoritative. A miss must not unique-suffix
 	// onto a sibling. A manifest at the repository root does not disable unique suffix.
-	if prefixed := coverageNonEmptyManifestRels(c.manifestRels); len(prefixed) > 0 {
+	if prefixed := nonEmptyManifestRels(c.manifestRels); len(prefixed) > 0 {
 		exact, err := c.matchManifestPrefixes(raw, normalized, prefixed)
 		if err != nil || exact != "" {
 			return exact, err
@@ -124,13 +124,13 @@ func (c *coverageRepositoryPathResolver) resolvePath(raw string, stopOnManifestM
 		hlog.Warn("coverage path matched by unique suffix", "path", raw, "matched", resolution.Path)
 		return resolution.Path, nil
 	case env.PathResolutionAmbiguous:
-		return "", coverageAmbiguousPathError(raw, resolution.Candidates)
+		return "", ambiguousPathError(raw, resolution.Candidates)
 	default:
 		return c.unresolved(raw, normalized)
 	}
 }
 
-func (c *coverageRepositoryPathResolver) unresolved(raw, stored string) (string, error) {
+func (c *RepositoryPathResolver) unresolved(raw, stored string) (string, error) {
 	if c.opts.Patch {
 		return "", fmt.Errorf("patch coverage path %q was not found in the repository", raw)
 	}
@@ -138,11 +138,11 @@ func (c *coverageRepositoryPathResolver) unresolved(raw, stored string) (string,
 	return stored, nil
 }
 
-// coverageStoredUnresolvedPath chooses what full coverage keeps when a path
+// storedUnresolvedPath chooses what full coverage keeps when a path
 // cannot be joined to a tracked repository file. Absolute paths under the git
 // root keep the git-relative form; absolute paths outside the repository keep
 // the original absolute string so they are not mistaken for repo paths.
-func coverageStoredUnresolvedPath(raw, rel, normalized string) string {
+func storedUnresolvedPath(raw, rel, normalized string) string {
 	if rel != "" {
 		return rel
 	}
@@ -152,32 +152,32 @@ func coverageStoredUnresolvedPath(raw, rel, normalized string) string {
 	return normalized
 }
 
-// coveragePathChoice is one resolved coverage path after exclude filtering.
+// pathChoice is one resolved coverage path after exclude filtering.
 // Skip means the file was dropped or had no path to store.
-type coveragePathChoice struct {
+type pathChoice struct {
 	Path string
 	Skip bool
 }
 
-// coverageRepositoryPathResolver resolves each raw parser path once per report.
-type coverageRepositoryPathResolver struct {
-	opts         coverageRepositoryPathOptions
-	choices      map[string]coverageCachedChoice
-	goModules    []coverageGoModule
+// RepositoryPathResolver resolves each raw parser path once per report.
+type RepositoryPathResolver struct {
+	opts         RepositoryPathOptions
+	choices      map[string]cachedChoice
+	goModules    []goModule
 	manifestRels []string
 }
 
-type coverageCachedChoice struct {
-	choice coveragePathChoice
+type cachedChoice struct {
+	choice pathChoice
 	err    error
 }
 
-// newCoverageRepositoryPathResolver returns a path resolver for one coverage report.
-func newCoverageRepositoryPathResolver(opts coverageRepositoryPathOptions) *coverageRepositoryPathResolver {
-	modules, manifests := coverageDiscoverModules(opts)
-	return &coverageRepositoryPathResolver{
+// NewRepositoryPathResolver returns a path resolver for one coverage report.
+func NewRepositoryPathResolver(opts RepositoryPathOptions) *RepositoryPathResolver {
+	modules, manifests := discoverModules(opts)
+	return &RepositoryPathResolver{
 		opts:         opts,
-		choices:      make(map[string]coverageCachedChoice),
+		choices:      make(map[string]cachedChoice),
 		goModules:    modules,
 		manifestRels: manifests,
 	}
@@ -186,7 +186,7 @@ func newCoverageRepositoryPathResolver(opts coverageRepositoryPathOptions) *cove
 // Resolve returns the canonical path for raw. extra lists exact repository
 // paths supplied by the parser, such as JaCoCo module and source-root paths.
 // Select owns the policy, including excludes and full-mode ambiguity.
-func (c *coverageRepositoryPathResolver) Resolve(raw string, extra ...string) (string, error) {
+func (c *RepositoryPathResolver) Resolve(raw string, extra ...string) (string, error) {
 	choice, err := c.Select(raw, nil, nil, extra...)
 	if err != nil {
 		return "", err
@@ -199,53 +199,53 @@ func (c *coverageRepositoryPathResolver) Resolve(raw string, extra ...string) (s
 // tracked file wins. A miss tries the next path. The report name comes
 // before the report directory. An ambiguous file is dropped in full coverage
 // and fails patch.
-func (c *coverageRepositoryPathResolver) Select(
+func (c *RepositoryPathResolver) Select(
 	raw string,
-	patterns []coverageExcludePattern,
+	patterns []ExcludePattern,
 	excluded map[string]struct{},
 	extra ...string,
-) (coveragePathChoice, error) {
-	cacheKey := coverageSelectCacheKey(raw, patterns, extra)
+) (pathChoice, error) {
+	cacheKey := selectCacheKey(raw, patterns, extra)
 	if cached, ok := c.choices[cacheKey]; ok {
 		return cached.choice, cached.err
 	}
 	choice, err := c.selectUncached(raw, patterns, excluded, extra)
-	c.choices[cacheKey] = coverageCachedChoice{choice: choice, err: err}
+	c.choices[cacheKey] = cachedChoice{choice: choice, err: err}
 	return choice, err
 }
 
-func (c *coverageRepositoryPathResolver) selectUncached(
+func (c *RepositoryPathResolver) selectUncached(
 	raw string,
-	patterns []coverageExcludePattern,
+	patterns []ExcludePattern,
 	excluded map[string]struct{},
 	extra []string,
-) (coveragePathChoice, error) {
-	if coverageHasParentTraversal(strings.ReplaceAll(raw, "\\", "/")) {
+) (pathChoice, error) {
+	if hasParentTraversal(strings.ReplaceAll(raw, "\\", "/")) {
 		if c.opts.Patch {
-			return coveragePathChoice{}, fmt.Errorf("patch coverage path %q escapes the repository", raw)
+			return pathChoice{}, fmt.Errorf("patch coverage path %q escapes the repository", raw)
 		}
 		hlog.Warn("coverage path escapes the repository; dropping the file", "path", raw)
-		return coveragePathChoice{Skip: true}, nil
+		return pathChoice{Skip: true}, nil
 	}
-	if len(extra) > 0 && c.opts.Format == coverageFormatCobertura {
+	if len(extra) > 0 && c.opts.Format == FormatCobertura {
 		return c.selectSourceCandidates(raw, patterns, excluded, extra)
 	}
 	if len(extra) > 0 {
 		return c.selectNamedCandidates(raw, patterns, excluded, extra)
 	}
-	canonical, err := c.resolvePath(raw, c.opts.Format == coverageFormatGo)
+	canonical, err := c.resolvePath(raw, c.opts.Format == FormatGo)
 	return c.finishChoice(canonical, err, patterns, excluded)
 }
 
 // selectSourceCandidates tries each Cobertura <source> joined with the class
 // filename, in report order. The first tracked file wins. When none is
 // tracked, the bare filename goes through the normal lookup.
-func (c *coverageRepositoryPathResolver) selectSourceCandidates(
+func (c *RepositoryPathResolver) selectSourceCandidates(
 	raw string,
-	patterns []coverageExcludePattern,
+	patterns []ExcludePattern,
 	excluded map[string]struct{},
 	extra []string,
-) (coveragePathChoice, error) {
+) (pathChoice, error) {
 	if c.opts.Tree != nil && c.opts.Tree.Available() {
 		sawExcluded := false
 		for _, candidate := range extra {
@@ -253,15 +253,15 @@ func (c *coverageRepositoryPathResolver) selectSourceCandidates(
 			if tracked == "" {
 				continue
 			}
-			if coverageMatchesAnyExcludePattern(tracked, patterns) {
-				coverageLogExcludedFileOnce(excluded, tracked)
+			if matchesAnyExcludePattern(tracked, patterns) {
+				logExcludedFileOnce(excluded, tracked)
 				sawExcluded = true
 				continue
 			}
-			return coveragePathChoice{Path: tracked}, nil
+			return pathChoice{Path: tracked}, nil
 		}
 		if sawExcluded {
-			return coveragePathChoice{Skip: true}, nil
+			return pathChoice{Skip: true}, nil
 		}
 	}
 	canonical, err := c.resolvePath(raw, false)
@@ -270,12 +270,12 @@ func (c *coverageRepositoryPathResolver) selectSourceCandidates(
 
 // trackedSourceCandidate returns the tracked file for one source candidate.
 // An absolute source must be under the git root.
-func (c *coverageRepositoryPathResolver) trackedSourceCandidate(candidate string) string {
-	if coverageHasParentTraversal(strings.ReplaceAll(candidate, "\\", "/")) {
+func (c *RepositoryPathResolver) trackedSourceCandidate(candidate string) string {
+	if hasParentTraversal(strings.ReplaceAll(candidate, "\\", "/")) {
 		return ""
 	}
 	if filepath.IsAbs(candidate) || strings.HasPrefix(candidate, "/") {
-		rel := coverageRelToGitRoot(candidate, c.opts.GitRoot)
+		rel := relToGitRoot(candidate, c.opts.GitRoot)
 		if rel == "" {
 			return ""
 		}
@@ -284,7 +284,7 @@ func (c *coverageRepositoryPathResolver) trackedSourceCandidate(candidate string
 	return c.exactCandidate(candidate)
 }
 
-func coverageSelectCacheKey(raw string, patterns []coverageExcludePattern, extra []string) string {
+func selectCacheKey(raw string, patterns []ExcludePattern, extra []string) string {
 	var b strings.Builder
 	b.WriteString(raw)
 	b.WriteByte(0)
@@ -300,24 +300,24 @@ func coverageSelectCacheKey(raw string, patterns []coverageExcludePattern, extra
 	return b.String()
 }
 
-func (c *coverageRepositoryPathResolver) selectNamedCandidates(
+func (c *RepositoryPathResolver) selectNamedCandidates(
 	raw string,
-	patterns []coverageExcludePattern,
+	patterns []ExcludePattern,
 	excluded map[string]struct{},
 	extra []string,
-) (coveragePathChoice, error) {
-	normalized := coverageNormalizeRepoPath(raw)
+) (pathChoice, error) {
+	normalized := normalizeRepoPath(raw)
 	if normalized == "" {
 		if c.opts.Patch {
-			return coveragePathChoice{}, fmt.Errorf("patch coverage path %q is empty", raw)
+			return pathChoice{}, fmt.Errorf("patch coverage path %q is empty", raw)
 		}
-		return coveragePathChoice{Skip: true}, nil
+		return pathChoice{Skip: true}, nil
 	}
 	if c.opts.Tree == nil || !c.opts.Tree.Available() {
 		if c.opts.Patch {
-			return coveragePathChoice{}, fmt.Errorf("patch coverage path %q cannot be resolved: git file inventory is unavailable", raw)
+			return pathChoice{}, fmt.Errorf("patch coverage path %q cannot be resolved: git file inventory is unavailable", raw)
 		}
-		return coverageDropIfExcluded(normalized, patterns, excluded), nil
+		return dropIfExcluded(normalized, patterns, excluded), nil
 	}
 
 	sawExcluded := false
@@ -326,14 +326,14 @@ func (c *coverageRepositoryPathResolver) selectNamedCandidates(
 		if exact == "" {
 			continue
 		}
-		if coverageMatchesAnyExcludePattern(exact, patterns) {
-			coverageLogExcludedFileOnce(excluded, exact)
+		if matchesAnyExcludePattern(exact, patterns) {
+			logExcludedFileOnce(excluded, exact)
 			sawExcluded = true
 			continue
 		}
-		return coveragePathChoice{Path: exact}, nil
+		return pathChoice{Path: exact}, nil
 	}
-	for _, candidate := range coverageNonEmptySourceRootSuffixes(normalized) {
+	for _, candidate := range nonEmptySourceRootSuffixes(normalized) {
 		choice, err, next := c.matchSourceRoot(raw, candidate, patterns, excluded)
 		if err != nil {
 			return c.finishChoice("", err, patterns, excluded)
@@ -347,7 +347,7 @@ func (c *coverageRepositoryPathResolver) selectNamedCandidates(
 		return choice, nil
 	}
 	if sawExcluded {
-		return coveragePathChoice{Skip: true}, nil
+		return pathChoice{Skip: true}, nil
 	}
 	canonical, err := c.resolvePath(raw, false)
 	return c.finishChoice(canonical, err, patterns, excluded)
@@ -356,22 +356,22 @@ func (c *coverageRepositoryPathResolver) selectNamedCandidates(
 // orderedJacocoPaths lists exact paths to try. The report name comes first.
 // The module that owns the report file is the fallback. Within each prefix,
 // the package path comes first, then production source roots, then test roots.
-func (c *coverageRepositoryPathResolver) orderedJacocoPaths(filePath string, extra []string) []string {
-	suffixes := coverageSourceRootSuffixes(filePath)
+func (c *RepositoryPathResolver) orderedJacocoPaths(filePath string, extra []string) []string {
+	suffixes := sourceRootSuffixes(filePath)
 	suffixSet := make(map[string]struct{}, len(suffixes))
 	for _, suffix := range suffixes {
 		suffixSet[suffix] = struct{}{}
 	}
 	var qualifier string
 	for _, candidate := range extra {
-		if coverageHasParentTraversal(strings.ReplaceAll(candidate, "\\", "/")) {
+		if hasParentTraversal(strings.ReplaceAll(candidate, "\\", "/")) {
 			continue
 		}
-		if _, ok := suffixSet[coverageNormalizeRepoPath(candidate)]; ok {
+		if _, ok := suffixSet[normalizeRepoPath(candidate)]; ok {
 			continue
 		}
-		parsed, ok := coverageQualifierBeforeSuffix(candidate, suffixes)
-		if !ok || parsed == "" || coverageHasParentTraversal(parsed) {
+		parsed, ok := qualifierBeforeSuffix(candidate, suffixes)
+		if !ok || parsed == "" || hasParentTraversal(parsed) {
 			continue
 		}
 		qualifier = parsed
@@ -380,19 +380,19 @@ func (c *coverageRepositoryPathResolver) orderedJacocoPaths(filePath string, ext
 
 	var ordered []string
 	if qualifier != "" {
-		ordered = coverageAppendJoined(ordered, qualifier, suffixes)
+		ordered = appendJoined(ordered, qualifier, suffixes)
 	}
-	for _, dir := range coverageNonEmptyManifestRels(c.manifestRels) {
-		ordered = coverageAppendJoined(ordered, dir, suffixes)
+	for _, dir := range nonEmptyManifestRels(c.manifestRels) {
+		ordered = appendJoined(ordered, dir, suffixes)
 	}
 	return ordered
 }
 
-func coverageNonEmptySourceRootSuffixes(filePath string) []string {
-	suffixes := coverageSourceRootSuffixes(filePath)
+func nonEmptySourceRootSuffixes(filePath string) []string {
+	suffixes := sourceRootSuffixes(filePath)
 	var roots []string
 	for _, suffix := range suffixes {
-		if suffix == "" || suffix == filePath || coverageHasParentTraversal(suffix) {
+		if suffix == "" || suffix == filePath || hasParentTraversal(suffix) {
 			continue
 		}
 		roots = append(roots, suffix)
@@ -400,12 +400,12 @@ func coverageNonEmptySourceRootSuffixes(filePath string) []string {
 	return roots
 }
 
-func coverageAppendJoined(paths []string, prefix string, suffixes []string) []string {
-	if prefix == "" || coverageHasParentTraversal(prefix) {
+func appendJoined(paths []string, prefix string, suffixes []string) []string {
+	if prefix == "" || hasParentTraversal(prefix) {
 		return paths
 	}
 	for _, suffix := range suffixes {
-		if suffix == "" || coverageHasParentTraversal(suffix) {
+		if suffix == "" || hasParentTraversal(suffix) {
 			continue
 		}
 		paths = append(paths, path.Join(prefix, suffix))
@@ -413,12 +413,12 @@ func coverageAppendJoined(paths []string, prefix string, suffixes []string) []st
 	return paths
 }
 
-func (c *coverageRepositoryPathResolver) exactCandidate(candidate string) string {
-	if coverageHasParentTraversal(strings.ReplaceAll(candidate, "\\", "/")) {
+func (c *RepositoryPathResolver) exactCandidate(candidate string) string {
+	if hasParentTraversal(strings.ReplaceAll(candidate, "\\", "/")) {
 		return ""
 	}
-	candidate = coverageNormalizeRepoPath(candidate)
-	if candidate == "" || coverageHasParentTraversal(candidate) {
+	candidate = normalizeRepoPath(candidate)
+	if candidate == "" || hasParentTraversal(candidate) {
 		return ""
 	}
 	return c.opts.Tree.ResolveExact(candidate)
@@ -427,46 +427,46 @@ func (c *coverageRepositoryPathResolver) exactCandidate(candidate string) string
 // matchSourceRoot tries one source-root suffix.
 // next means this root did not choose a file, so the following root is tried.
 // An ambiguous root stops the search: a later test root must not win.
-func (c *coverageRepositoryPathResolver) matchSourceRoot(
+func (c *RepositoryPathResolver) matchSourceRoot(
 	raw string,
 	candidate string,
-	patterns []coverageExcludePattern,
+	patterns []ExcludePattern,
 	excluded map[string]struct{},
-) (coveragePathChoice, error, bool) {
-	if coverageHasParentTraversal(candidate) || !strings.Contains(candidate, "/") {
-		return coveragePathChoice{}, nil, true
+) (pathChoice, error, bool) {
+	if hasParentTraversal(candidate) || !strings.Contains(candidate, "/") {
+		return pathChoice{}, nil, true
 	}
 	resolution := c.opts.Tree.ResolveWithOutcome(candidate)
 	switch resolution.Kind {
 	case env.PathResolutionExact, env.PathResolutionUnique:
-		if coverageMatchesAnyExcludePattern(resolution.Path, patterns) {
-			coverageLogExcludedFileOnce(excluded, resolution.Path)
-			return coveragePathChoice{Skip: true}, nil, true
+		if matchesAnyExcludePattern(resolution.Path, patterns) {
+			logExcludedFileOnce(excluded, resolution.Path)
+			return pathChoice{Skip: true}, nil, true
 		}
 		if resolution.Kind == env.PathResolutionUnique {
 			hlog.Warn("coverage path matched by unique suffix", "path", raw, "matched", resolution.Path)
 		}
-		return coveragePathChoice{Path: resolution.Path}, nil, false
+		return pathChoice{Path: resolution.Path}, nil, false
 	case env.PathResolutionAmbiguous:
-		kept := coveragePathsKeptAfterExclude(resolution.Candidates, patterns, excluded)
+		kept := pathsKeptAfterExclude(resolution.Candidates, patterns, excluded)
 		switch len(kept) {
 		case 0:
-			return coveragePathChoice{Skip: true}, nil, true
+			return pathChoice{Skip: true}, nil, true
 		case 1:
-			return coveragePathChoice{Path: kept[0]}, nil, false
+			return pathChoice{Path: kept[0]}, nil, false
 		default:
-			return coveragePathChoice{}, coverageAmbiguousPathError(raw, kept), false
+			return pathChoice{}, ambiguousPathError(raw, kept), false
 		}
 	default:
-		return coveragePathChoice{}, nil, true
+		return pathChoice{}, nil, true
 	}
 }
 
-func coveragePathsKeptAfterExclude(paths []string, patterns []coverageExcludePattern, excluded map[string]struct{}) []string {
+func pathsKeptAfterExclude(paths []string, patterns []ExcludePattern, excluded map[string]struct{}) []string {
 	kept := make([]string, 0, len(paths))
 	for _, candidate := range paths {
-		if coverageMatchesAnyExcludePattern(candidate, patterns) {
-			coverageLogExcludedFileOnce(excluded, candidate)
+		if matchesAnyExcludePattern(candidate, patterns) {
+			logExcludedFileOnce(excluded, candidate)
 			continue
 		}
 		kept = append(kept, candidate)
@@ -474,8 +474,8 @@ func coveragePathsKeptAfterExclude(paths []string, patterns []coverageExcludePat
 	return kept
 }
 
-func coverageQualifierBeforeSuffix(candidate string, suffixes []string) (string, bool) {
-	candidate = coverageNormalizeRepoPath(candidate)
+func qualifierBeforeSuffix(candidate string, suffixes []string) (string, bool) {
+	candidate = normalizeRepoPath(candidate)
 	// The longest suffix is the source-root path, so the remainder is only
 	// the module directory and not src/main/java.
 	bestSuffix := ""
@@ -493,39 +493,39 @@ func coverageQualifierBeforeSuffix(candidate string, suffixes []string) (string,
 	return strings.TrimSuffix(candidate, "/"+bestSuffix), true
 }
 
-func (c *coverageRepositoryPathResolver) finishChoice(
+func (c *RepositoryPathResolver) finishChoice(
 	path string,
 	err error,
-	patterns []coverageExcludePattern,
+	patterns []ExcludePattern,
 	excluded map[string]struct{},
-) (coveragePathChoice, error) {
+) (pathChoice, error) {
 	if err != nil {
-		if !c.opts.Patch && coverageIsAmbiguousPath(err) {
+		if !c.opts.Patch && isAmbiguousPath(err) {
 			hlog.Warn("dropping the file from full coverage", "err", err.Error())
-			return coveragePathChoice{Skip: true}, nil
+			return pathChoice{Skip: true}, nil
 		}
-		return coveragePathChoice{}, err
+		return pathChoice{}, err
 	}
-	return coverageDropIfExcluded(path, patterns, excluded), nil
+	return dropIfExcluded(path, patterns, excluded), nil
 }
 
-type coverageAmbiguousPathsError struct {
+type ambiguousPathsError struct {
 	raw        string
 	candidates []string
 }
 
-func (e *coverageAmbiguousPathsError) Error() string {
+func (e *ambiguousPathsError) Error() string {
 	return fmt.Sprintf("coverage path %q matches multiple repository files: %s", e.raw, strings.Join(e.candidates, ", "))
 }
 
-func coverageIsAmbiguousPath(err error) bool {
-	var ambiguous *coverageAmbiguousPathsError
+func isAmbiguousPath(err error) bool {
+	var ambiguous *ambiguousPathsError
 	return errors.As(err, &ambiguous)
 }
 
-// coverageJoinPathErrors combines path failures from one report so --patch
+// JoinPathErrors combines path failures from one report so --patch
 // names every unresolved or ambiguous file instead of stopping at the first.
-func coverageJoinPathErrors(errs []error) error {
+func JoinPathErrors(errs []error) error {
 	if len(errs) == 0 {
 		return nil
 	}
@@ -541,8 +541,8 @@ func coverageJoinPathErrors(errs []error) error {
 	return errors.New(b.String())
 }
 
-// coverageAppendPathError records err once per raw coverage path.
-func coverageAppendPathError(errs []error, seen map[string]struct{}, raw string, err error) []error {
+// AppendPathError records err once per raw coverage path.
+func AppendPathError(errs []error, seen map[string]struct{}, raw string, err error) []error {
 	if err == nil {
 		return errs
 	}
@@ -555,23 +555,23 @@ func coverageAppendPathError(errs []error, seen map[string]struct{}, raw string,
 	return append(errs, err)
 }
 
-func coverageDropIfExcluded(path string, patterns []coverageExcludePattern, excluded map[string]struct{}) coveragePathChoice {
+func dropIfExcluded(path string, patterns []ExcludePattern, excluded map[string]struct{}) pathChoice {
 	if path == "" {
-		return coveragePathChoice{Skip: true}
+		return pathChoice{Skip: true}
 	}
-	if coverageMatchesAnyExcludePattern(path, patterns) {
-		coverageLogExcludedFileOnce(excluded, path)
-		return coveragePathChoice{Skip: true}
+	if matchesAnyExcludePattern(path, patterns) {
+		logExcludedFileOnce(excluded, path)
+		return pathChoice{Skip: true}
 	}
-	return coveragePathChoice{Path: path}
+	return pathChoice{Path: path}
 }
 
-func (c *coverageRepositoryPathResolver) matchGoModule(normalized string) (string, error) {
+func (c *RepositoryPathResolver) matchGoModule(normalized string) (string, error) {
 	bestLen := -1
 	var matches []string
 	seen := make(map[string]struct{})
 	for _, module := range c.goModules {
-		candidate := coverageModulePath(module, normalized)
+		candidate := modulePath(module, normalized)
 		if candidate == "" || len(module.name) < bestLen {
 			continue
 		}
@@ -592,33 +592,33 @@ func (c *coverageRepositoryPathResolver) matchGoModule(normalized string) (strin
 		seen[exact] = struct{}{}
 		matches = append(matches, exact)
 	}
-	return coverageOneExactMatch(normalized, matches)
+	return oneExactMatch(normalized, matches)
 }
 
-func (c *coverageRepositoryPathResolver) matchManifestPrefixes(raw, normalized string, rels []string) (string, error) {
-	if coverageHasParentTraversal(normalized) {
+func (c *RepositoryPathResolver) matchManifestPrefixes(raw, normalized string, rels []string) (string, error) {
+	if hasParentTraversal(normalized) {
 		return "", nil
 	}
 	var matches []string
 	for _, rel := range rels {
-		if rel != "" && coverageHasParentTraversal(rel) {
+		if rel != "" && hasParentTraversal(rel) {
 			continue
 		}
 		candidate := normalized
 		if rel != "" {
 			candidate = path.Join(rel, normalized)
 		}
-		if coverageHasParentTraversal(candidate) {
+		if hasParentTraversal(candidate) {
 			continue
 		}
 		if exact := c.opts.Tree.ResolveExact(candidate); exact != "" {
 			matches = append(matches, exact)
 		}
 	}
-	return coverageOneExactMatch(raw, matches)
+	return oneExactMatch(raw, matches)
 }
 
-func coverageNonEmptyManifestRels(rels []string) []string {
+func nonEmptyManifestRels(rels []string) []string {
 	var prefixed []string
 	for _, rel := range rels {
 		if rel != "" {
@@ -628,38 +628,38 @@ func coverageNonEmptyManifestRels(rels []string) []string {
 	return prefixed
 }
 
-func coverageOneExactMatch(raw string, matches []string) (string, error) {
+func oneExactMatch(raw string, matches []string) (string, error) {
 	switch len(matches) {
 	case 0:
 		return "", nil
 	case 1:
 		return matches[0], nil
 	default:
-		return "", coverageAmbiguousPathError(raw, matches)
+		return "", ambiguousPathError(raw, matches)
 	}
 }
 
-func coverageAmbiguousPathError(raw string, candidates []string) error {
-	return &coverageAmbiguousPathsError{raw: raw, candidates: append([]string(nil), candidates...)}
+func ambiguousPathError(raw string, candidates []string) error {
+	return &ambiguousPathsError{raw: raw, candidates: append([]string(nil), candidates...)}
 }
 
-var coverageProjectManifestNames = map[string]struct{}{
+var projectManifestNames = map[string]struct{}{
 	"go.mod": {}, "package.json": {}, "pom.xml": {}, "build.gradle": {},
 	"build.gradle.kts": {}, "pyproject.toml": {}, "setup.py": {},
 	"Cargo.toml": {}, "composer.json": {},
 }
 
-func coverageDiscoverModules(opts coverageRepositoryPathOptions) ([]coverageGoModule, []string) {
+func discoverModules(opts RepositoryPathOptions) ([]goModule, []string) {
 	if opts.Tree == nil || !opts.Tree.Available() {
 		return nil, nil
 	}
-	gitRoot := coverageResolvedDir(opts.GitRoot)
+	gitRoot := resolvedDir(opts.GitRoot)
 	tracked := opts.Tree.Files()
 	manifestDirs := make(map[string]struct{})
-	var modules []coverageGoModule
+	var modules []goModule
 	for _, trackedPath := range tracked {
 		base := path.Base(trackedPath)
-		if _, ok := coverageProjectManifestNames[base]; !ok {
+		if _, ok := projectManifestNames[base]; !ok {
 			continue
 		}
 		rel := path.Dir(trackedPath)
@@ -670,13 +670,13 @@ func coverageDiscoverModules(opts coverageRepositoryPathOptions) ([]coverageGoMo
 		if base != "go.mod" || gitRoot == "" {
 			continue
 		}
-		name, err := coverageReadGoModuleName(filepath.Join(gitRoot, filepath.FromSlash(trackedPath)))
+		name, err := readGoModuleName(filepath.Join(gitRoot, filepath.FromSlash(trackedPath)))
 		if err != nil {
 			hlog.Warn("failed to read module name", "file", trackedPath, "err", err)
 			continue
 		}
 		if name != "" {
-			modules = append(modules, coverageGoModule{rel: rel, name: name})
+			modules = append(modules, goModule{rel: rel, name: name})
 		}
 	}
 
@@ -685,9 +685,9 @@ func coverageDiscoverModules(opts coverageRepositoryPathOptions) ([]coverageGoMo
 	// a module.
 	var reportRels []string
 	for _, hint := range opts.HintDirs {
-		if rel, ok := coveragePathRelativeToRoot(hint, gitRoot); ok {
-			if moduleRel, found := coverageNearestManifestDir(rel, manifestDirs); found {
-				reportRels = coverageAppendUnique(reportRels, moduleRel)
+		if rel, ok := pathRelativeToRoot(hint, gitRoot); ok {
+			if moduleRel, found := nearestManifestDir(rel, manifestDirs); found {
+				reportRels = appendUnique(reportRels, moduleRel)
 			}
 		}
 	}
@@ -695,8 +695,8 @@ func coverageDiscoverModules(opts coverageRepositoryPathOptions) ([]coverageGoMo
 		return modules, reportRels
 	}
 	if wd, err := os.Getwd(); err == nil {
-		if rel, ok := coverageRepositoryRelative(wd, gitRoot); ok {
-			if moduleRel, found := coverageNearestManifestDir(rel, manifestDirs); found {
+		if rel, ok := repositoryRelative(wd, gitRoot); ok {
+			if moduleRel, found := nearestManifestDir(rel, manifestDirs); found {
 				return modules, []string{moduleRel}
 			}
 		}
@@ -704,7 +704,7 @@ func coverageDiscoverModules(opts coverageRepositoryPathOptions) ([]coverageGoMo
 	return modules, nil
 }
 
-func coveragePathRelativeToRoot(candidate, gitRoot string) (string, bool) {
+func pathRelativeToRoot(candidate, gitRoot string) (string, bool) {
 	if candidate == "" || gitRoot == "" {
 		return "", false
 	}
@@ -715,10 +715,10 @@ func coveragePathRelativeToRoot(candidate, gitRoot string) (string, bool) {
 		}
 		candidate = absolute
 	}
-	return coverageRepositoryRelative(candidate, gitRoot)
+	return repositoryRelative(candidate, gitRoot)
 }
 
-func coverageNearestManifestDir(rel string, manifests map[string]struct{}) (string, bool) {
+func nearestManifestDir(rel string, manifests map[string]struct{}) (string, bool) {
 	rel = strings.Trim(filepath.ToSlash(rel), "/")
 	for {
 		if _, ok := manifests[rel]; ok {
@@ -736,7 +736,7 @@ func coverageNearestManifestDir(rel string, manifests map[string]struct{}) (stri
 	}
 }
 
-func coverageAppendUnique(values []string, value string) []string {
+func appendUnique(values []string, value string) []string {
 	for _, existing := range values {
 		if existing == value {
 			return values
@@ -745,7 +745,7 @@ func coverageAppendUnique(values []string, value string) []string {
 	return append(values, value)
 }
 
-func coverageReadGoModuleName(modPath string) (string, error) {
+func readGoModuleName(modPath string) (string, error) {
 	moduleFile, err := os.Open(modPath)
 	if err != nil {
 		return "", err
@@ -774,7 +774,7 @@ func coverageReadGoModuleName(modPath string) (string, error) {
 	return "", fmt.Errorf("module name not found in %s", modPath)
 }
 
-func coverageModulePath(module coverageGoModule, importPath string) string {
+func modulePath(module goModule, importPath string) string {
 	if module.name == "" || importPath == module.name {
 		return module.rel
 	}
@@ -789,7 +789,7 @@ func coverageModulePath(module coverageGoModule, importPath string) string {
 	return path.Join(module.rel, rest)
 }
 
-func coverageResolvedDir(dir string) string {
+func resolvedDir(dir string) string {
 	if dir == "" {
 		return ""
 	}
@@ -799,16 +799,16 @@ func coverageResolvedDir(dir string) string {
 	return dir
 }
 
-// coverageRepositoryRelative reports whether dir is inside gitRoot. An empty
+// repositoryRelative reports whether dir is inside gitRoot. An empty
 // rel means dir is the repository root.
-func coverageRepositoryRelative(dir, gitRoot string) (string, bool) {
+func repositoryRelative(dir, gitRoot string) (string, bool) {
 	if gitRoot == "" {
 		return "", false
 	}
-	dir = coverageResolvedDir(dir)
-	gitRoot = coverageResolvedDir(gitRoot)
+	dir = resolvedDir(dir)
+	gitRoot = resolvedDir(gitRoot)
 	rel, err := filepath.Rel(gitRoot, dir)
-	if err != nil || coverageHasParentTraversal(filepath.ToSlash(rel)) {
+	if err != nil || hasParentTraversal(filepath.ToSlash(rel)) {
 		return "", false
 	}
 	if rel == "." {
@@ -817,7 +817,7 @@ func coverageRepositoryRelative(dir, gitRoot string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-func coverageRelToGitRoot(raw, gitRoot string) string {
+func relToGitRoot(raw, gitRoot string) string {
 	if gitRoot == "" || !filepath.IsAbs(raw) {
 		return ""
 	}
@@ -828,13 +828,13 @@ func coverageRelToGitRoot(raw, gitRoot string) string {
 		raw = resolved
 	}
 	rel, err := filepath.Rel(gitRoot, raw)
-	if err != nil || rel == "." || rel == "" || coverageHasParentTraversal(filepath.ToSlash(rel)) {
+	if err != nil || rel == "." || rel == "" || hasParentTraversal(filepath.ToSlash(rel)) {
 		return ""
 	}
 	return filepath.ToSlash(rel)
 }
 
-func coverageHasParentTraversal(filePath string) bool {
+func hasParentTraversal(filePath string) bool {
 	for _, segment := range strings.Split(filepath.ToSlash(filePath), "/") {
 		if segment == ".." {
 			return true
@@ -843,7 +843,7 @@ func coverageHasParentTraversal(filePath string) bool {
 	return false
 }
 
-func coverageNormalizeRepoPath(raw string) string {
+func normalizeRepoPath(raw string) string {
 	cleaned := strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
 	if cleaned == "" {
 		return ""

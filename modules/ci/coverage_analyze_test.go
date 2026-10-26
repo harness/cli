@@ -6,6 +6,7 @@ package ci
 import (
 	"bytes"
 	"github.com/harness/cli/v3/modules/ci/coverage/env"
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"io"
 	"os"
 	"path/filepath"
@@ -66,23 +67,23 @@ func TestCoverageGetPercentageColor(t *testing.T) {
 func TestCoverageAdjustLineCounts(t *testing.T) {
 	stats := &coverageFileStats{}
 
-	coverageAdjustLineCounts(stats, coverageLineCovered, 1, true)
+	coverageAdjustLineCounts(stats, format.LineCovered, 1, true)
 	if stats.Hits != 1 || stats.PatchHits != 1 {
 		t.Fatalf("after covered+patch: %+v, want Hits=1 PatchHits=1", stats)
 	}
 
-	coverageAdjustLineCounts(stats, coverageLinePartial, 1, false)
+	coverageAdjustLineCounts(stats, format.LinePartial, 1, false)
 	if stats.Partials != 1 || stats.PatchPartials != 0 {
 		t.Fatalf("after partial, no patch: %+v, want Partials=1 PatchPartials=0", stats)
 	}
 
-	coverageAdjustLineCounts(stats, coverageLineUncovered, 1, true)
+	coverageAdjustLineCounts(stats, format.LineUncovered, 1, true)
 	if stats.Misses != 1 || stats.PatchMisses != 1 {
 		t.Fatalf("after uncovered+patch: %+v, want Misses=1 PatchMisses=1", stats)
 	}
 
 	// Decrementing (the merge-rebalance path) must undo exactly what was added.
-	coverageAdjustLineCounts(stats, coverageLineCovered, -1, true)
+	coverageAdjustLineCounts(stats, format.LineCovered, -1, true)
 	if stats.Hits != 0 || stats.PatchHits != 0 {
 		t.Fatalf("after decrementing covered+patch: %+v, want Hits=0 PatchHits=0", stats)
 	}
@@ -97,7 +98,7 @@ func TestCoverageParseCoverageFileInto_MergesSameLineAcrossReports(t *testing.T)
 	}
 	for _, report := range reports {
 		err := coverageParseCoverageFileInto(
-			coverageFormatLCOV,
+			format.FormatLCOV,
 			strings.NewReader(report),
 			".",
 			tree,

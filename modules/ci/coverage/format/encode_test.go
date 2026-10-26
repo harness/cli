@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"bytes"
@@ -16,19 +16,19 @@ import (
 
 func TestCoverageMergeLineType(t *testing.T) {
 	tests := []struct {
-		left, right coverageLineType
-		want        coverageLineType
+		left, right LineType
+		want        LineType
 	}{
-		{coverageLineCovered, coverageLineCovered, coverageLineCovered},
-		{coverageLineUncovered, coverageLineUncovered, coverageLineUncovered},
-		{coverageLineCovered, coverageLineUncovered, coverageLinePartial},
-		{coverageLineUncovered, coverageLineCovered, coverageLinePartial},
-		{coverageLinePartial, coverageLineCovered, coverageLinePartial},
-		{coverageLineCovered, coverageLinePartial, coverageLinePartial},
+		{LineCovered, LineCovered, LineCovered},
+		{LineUncovered, LineUncovered, LineUncovered},
+		{LineCovered, LineUncovered, LinePartial},
+		{LineUncovered, LineCovered, LinePartial},
+		{LinePartial, LineCovered, LinePartial},
+		{LineCovered, LinePartial, LinePartial},
 	}
 	for _, tt := range tests {
-		if got := coverageMergeLineType(tt.left, tt.right); got != tt.want {
-			t.Errorf("coverageMergeLineType(%v, %v) = %v, want %v", tt.left, tt.right, got, tt.want)
+		if got := MergeLineType(tt.left, tt.right); got != tt.want {
+			t.Errorf("MergeLineType(%v, %v) = %v, want %v", tt.left, tt.right, got, tt.want)
 		}
 	}
 }
@@ -39,22 +39,22 @@ example.com/pkg/file.go:3.1,3.10 1 1
 example.com/pkg/file.go:4.1,4.10 1 0
 `
 	var buf bytes.Buffer
-	result, err := coverageWrite("repo-ref", coverageFormatGo, strings.NewReader(input), &buf)
+	result, err := Write("repo-ref", FormatGo, strings.NewReader(input), &buf)
 	if err != nil {
-		t.Fatalf("coverageWrite() error = %v", err)
+		t.Fatalf("Write() error = %v", err)
 	}
-	if result.Format != coverageFormatParquet {
-		t.Fatalf("result.Format = %q, want %q", result.Format, coverageFormatParquet)
+	if result.Format != formatParquet {
+		t.Fatalf("result.Format = %q, want %q", result.Format, formatParquet)
 	}
 
-	reader := parquet.NewGenericReader[coverageLineRecord](bytes.NewReader(buf.Bytes()))
+	reader := parquet.NewGenericReader[LineRecord](bytes.NewReader(buf.Bytes()))
 	defer func() { _ = reader.Close() }()
-	rows := make([]coverageLineRecord, 2)
+	rows := make([]LineRecord, 2)
 	n, err := reader.Read(rows)
 	if n != 2 {
 		t.Fatalf("read %d rows (err=%v), want 2", n, err)
 	}
-	want := map[uint32]coverageLineType{3: coverageLineCovered, 4: coverageLineUncovered}
+	want := map[uint32]LineType{3: LineCovered, 4: LineUncovered}
 	for _, row := range rows {
 		if row.RepoRef != "repo-ref" {
 			t.Errorf("row.RepoRef = %q, want %q", row.RepoRef, "repo-ref")
@@ -71,15 +71,15 @@ example.com/pkg/file.go:4.1,4.10 1 0
 func TestCoverageWriteParquet_PatchWithoutDiffBaseFails(t *testing.T) {
 	input := "mode: set\nexample.com/pkg/file.go:3.1,3.10 1 1\n"
 	var buf bytes.Buffer
-	if _, err := coverageWrite("repo-ref", coverageFormatGo, strings.NewReader(input), &buf, coverageWithPatch(true)); err == nil {
-		t.Fatal("coverageWrite() error = nil, want error: patch coverage requires a diff base")
+	if _, err := Write("repo-ref", FormatGo, strings.NewReader(input), &buf, WithPatch(true)); err == nil {
+		t.Fatal("Write() error = nil, want error: patch coverage requires a diff base")
 	}
 }
 
 func TestCoverageWrite_UnsupportedFormatErrors(t *testing.T) {
 	var buf bytes.Buffer
-	if _, err := coverageWrite("repo-ref", "bogus-format", strings.NewReader(""), &buf); err == nil {
-		t.Fatal("coverageWrite() error = nil, want error for an unsupported format")
+	if _, err := Write("repo-ref", "bogus-format", strings.NewReader(""), &buf); err == nil {
+		t.Fatal("Write() error = nil, want error for an unsupported format")
 	}
 }
 
@@ -89,13 +89,13 @@ pkg/kept.go:1.1,1.10 1 1
 pkg/excluded.go:1.1,1.10 1 1
 `
 	var buf bytes.Buffer
-	if _, err := coverageWrite("repo-ref", coverageFormatGo, strings.NewReader(input), &buf, coverageWithExclude([]string{"pkg/excluded.go"})); err != nil {
-		t.Fatalf("coverageWrite() error = %v", err)
+	if _, err := Write("repo-ref", FormatGo, strings.NewReader(input), &buf, WithExclude([]string{"pkg/excluded.go"})); err != nil {
+		t.Fatalf("Write() error = %v", err)
 	}
 
-	reader := parquet.NewGenericReader[coverageLineRecord](bytes.NewReader(buf.Bytes()))
+	reader := parquet.NewGenericReader[LineRecord](bytes.NewReader(buf.Bytes()))
 	defer func() { _ = reader.Close() }()
-	rows := make([]coverageLineRecord, 2)
+	rows := make([]LineRecord, 2)
 	n, _ := reader.Read(rows)
 	if n != 1 {
 		t.Fatalf("read %d rows, want exactly 1 (the excluded file must be dropped)", n)
@@ -156,15 +156,15 @@ foo.go:3.1,3.10 1 1
 foo.go:5.1,5.10 1 1
 `
 	var buf bytes.Buffer
-	_, err = coverageWrite("repo-ref", coverageFormatGo, strings.NewReader(input), &buf,
-		coverageWithDiff(string(trimNewline(baseSHA)), "HEAD"))
+	_, err = Write("repo-ref", FormatGo, strings.NewReader(input), &buf,
+		WithDiff(string(trimNewline(baseSHA)), "HEAD"))
 	if err != nil {
-		t.Fatalf("coverageWrite() error = %v", err)
+		t.Fatalf("Write() error = %v", err)
 	}
 
-	reader := parquet.NewGenericReader[coverageLineRecord](bytes.NewReader(buf.Bytes()))
+	reader := parquet.NewGenericReader[LineRecord](bytes.NewReader(buf.Bytes()))
 	defer func() { _ = reader.Close() }()
-	rows := make([]coverageLineRecord, 2)
+	rows := make([]LineRecord, 2)
 	n, errRead := reader.Read(rows)
 	if n != 2 {
 		t.Fatalf("read %d rows (err=%v), want 2", n, errRead)

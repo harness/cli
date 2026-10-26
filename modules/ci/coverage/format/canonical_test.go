@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"github.com/harness/cli/v3/modules/ci/coverage/env"
@@ -16,7 +16,7 @@ func TestCoverageRepositoryPathResolver_AmbiguousDroppedInFullFailsInPatch(t *te
 		"b/com/example/Foo.java",
 	})
 
-	full := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatJacoco})
+	full := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatJacoco})
 	choice, err := full.Resolve("com/example/Foo.java")
 	if err != nil {
 		t.Fatalf("full mode error = %v, want nil (ambiguous files are dropped, not failed)", err)
@@ -25,7 +25,7 @@ func TestCoverageRepositoryPathResolver_AmbiguousDroppedInFullFailsInPatch(t *te
 		t.Fatalf("full mode choice = %q, want \"\" (dropped)", choice)
 	}
 
-	patch := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatJacoco, Patch: true})
+	patch := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatJacoco, Patch: true})
 	if _, err := patch.Resolve("com/example/Foo.java"); err == nil {
 		t.Fatal("patch mode error = nil, want error for an ambiguous match")
 	}
@@ -34,7 +34,7 @@ func TestCoverageRepositoryPathResolver_AmbiguousDroppedInFullFailsInPatch(t *te
 func TestCoverageRepositoryPathResolver_BasenameOnlyUniqueMatchRefused(t *testing.T) {
 	tree := env.NewTree([]string{"pkg/bar.go"})
 
-	full := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatGo})
+	full := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatGo})
 	choice, err := full.Resolve("bar.go")
 	if err != nil {
 		t.Fatalf("full mode error = %v", err)
@@ -43,7 +43,7 @@ func TestCoverageRepositoryPathResolver_BasenameOnlyUniqueMatchRefused(t *testin
 		t.Fatalf("full mode choice = %q, want the stored bare name %q (basename-only match refused)", choice, "bar.go")
 	}
 
-	patch := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatGo, Patch: true})
+	patch := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatGo, Patch: true})
 	if _, err := patch.Resolve("bar.go"); err == nil {
 		t.Fatal("patch mode error = nil, want error for a basename-only match")
 	}
@@ -57,12 +57,12 @@ func TestCoverageRepositoryPathResolver_ExcludeReducesAmbiguousSourceRootToOne(t
 		"moduleA/src/main/java/com/example/Foo.java",
 		"moduleB/src/main/java/com/example/Foo.java",
 	})
-	patterns, err := coverageCompileExcludePatterns([]string{"moduleA/**"})
+	patterns, err := compileExcludePatterns([]string{"moduleA/**"})
 	if err != nil {
-		t.Fatalf("coverageCompileExcludePatterns() error = %v", err)
+		t.Fatalf("compileExcludePatterns() error = %v", err)
 	}
 
-	resolver := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatJacoco})
+	resolver := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatJacoco})
 	choice, err := resolver.Select("com/example/Foo.java", patterns, map[string]struct{}{}, "unused-jacoco-candidate")
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
@@ -74,7 +74,7 @@ func TestCoverageRepositoryPathResolver_ExcludeReducesAmbiguousSourceRootToOne(t
 
 func TestCoverageRepositoryPathResolver_CoberturaSourceCandidatesTryInOrder(t *testing.T) {
 	tree := env.NewTree([]string{"src/main/pkg/Foo.cs"})
-	resolver := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatCobertura})
+	resolver := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatCobertura})
 
 	choice, err := resolver.Select("Foo.cs", nil, nil, "other/pkg/Foo.cs", "src/main/pkg/Foo.cs")
 	if err != nil {
@@ -86,14 +86,14 @@ func TestCoverageRepositoryPathResolver_CoberturaSourceCandidatesTryInOrder(t *t
 }
 
 func TestCoverageRepositoryPathResolver_ProductionSourceRootWinsOverTestRoot(t *testing.T) {
-	// src/main/* layouts are listed before src/test/* in coverageSourceRootLayouts;
+	// src/main/* layouts are listed before src/test/* in sourceRootLayouts;
 	// matchSourceRoot must stop at the first non-"next" result, so a unique
 	// production-root match must never fall through to the test root.
 	tree := env.NewTree([]string{
 		"moduleA/src/main/java/com/example/Foo.java",
 		"moduleA/src/test/java/com/example/Foo.java",
 	})
-	resolver := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatJacoco})
+	resolver := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatJacoco})
 
 	choice, err := resolver.Select("com/example/Foo.java", nil, map[string]struct{}{}, "unused-jacoco-candidate")
 	if err != nil {
@@ -106,11 +106,11 @@ func TestCoverageRepositoryPathResolver_ProductionSourceRootWinsOverTestRoot(t *
 
 func TestCoverageRepositoryPathResolver_CoberturaExcludedSourceTriesNextCandidate(t *testing.T) {
 	tree := env.NewTree([]string{"excluded/pkg/Foo.cs", "kept/pkg/Foo.cs"})
-	patterns, err := coverageCompileExcludePatterns([]string{"excluded/**"})
+	patterns, err := compileExcludePatterns([]string{"excluded/**"})
 	if err != nil {
-		t.Fatalf("coverageCompileExcludePatterns() error = %v", err)
+		t.Fatalf("compileExcludePatterns() error = %v", err)
 	}
-	resolver := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatCobertura})
+	resolver := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatCobertura})
 
 	choice, err := resolver.Select("Foo.cs", patterns, map[string]struct{}{}, "excluded/pkg/Foo.cs", "kept/pkg/Foo.cs")
 	if err != nil {
@@ -123,11 +123,11 @@ func TestCoverageRepositoryPathResolver_CoberturaExcludedSourceTriesNextCandidat
 
 func TestCoverageRepositoryPathResolver_CoberturaAllCandidatesExcludedDropsFile(t *testing.T) {
 	tree := env.NewTree([]string{"excluded/pkg/Foo.cs"})
-	patterns, err := coverageCompileExcludePatterns([]string{"excluded/**"})
+	patterns, err := compileExcludePatterns([]string{"excluded/**"})
 	if err != nil {
-		t.Fatalf("coverageCompileExcludePatterns() error = %v", err)
+		t.Fatalf("compileExcludePatterns() error = %v", err)
 	}
-	resolver := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatCobertura})
+	resolver := NewRepositoryPathResolver(RepositoryPathOptions{Tree: tree, Format: FormatCobertura})
 
 	choice, err := resolver.Select("Foo.cs", patterns, map[string]struct{}{}, "excluded/pkg/Foo.cs")
 	if err != nil {
@@ -144,9 +144,9 @@ func TestCoverageReadGoModuleName_StripsTrailingComment(t *testing.T) {
 	if err := os.WriteFile(modPath, []byte("module example.com/app // some comment\n\ngo 1.22\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	name, err := coverageReadGoModuleName(modPath)
+	name, err := readGoModuleName(modPath)
 	if err != nil {
-		t.Fatalf("coverageReadGoModuleName() error = %v", err)
+		t.Fatalf("readGoModuleName() error = %v", err)
 	}
 	if name != "example.com/app" {
 		t.Fatalf("name = %q, want example.com/app (trailing comment stripped)", name)
@@ -155,9 +155,9 @@ func TestCoverageReadGoModuleName_StripsTrailingComment(t *testing.T) {
 
 func TestCoverageRepositoryPathResolver_ManifestPrefixRejectsParentTraversal(t *testing.T) {
 	tree := env.NewTree([]string{"pkg.json", "sub/pkg/foo.js"})
-	resolver := &coverageRepositoryPathResolver{
-		opts:         coverageRepositoryPathOptions{Tree: tree},
-		choices:      make(map[string]coverageCachedChoice),
+	resolver := &RepositoryPathResolver{
+		opts:         RepositoryPathOptions{Tree: tree},
+		choices:      make(map[string]cachedChoice),
 		manifestRels: []string{"../escape"},
 	}
 	if exact, err := resolver.matchManifestPrefixes("foo.js", "foo.js", []string{"../escape"}); err != nil || exact != "" {
@@ -178,10 +178,10 @@ func TestCoverageRepositoryPathResolver_GoModuleResolvesImportPath(t *testing.T)
 	}
 
 	tree := env.NewTree([]string{"go.mod", "pkg/foo/bar.go"})
-	resolver := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{
+	resolver := NewRepositoryPathResolver(RepositoryPathOptions{
 		Tree:    tree,
 		GitRoot: root,
-		Format:  coverageFormatGo,
+		Format:  FormatGo,
 	})
 
 	choice, err := resolver.Resolve("example.com/app/pkg/foo/bar.go")

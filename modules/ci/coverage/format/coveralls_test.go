@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"strings"
@@ -11,7 +11,7 @@ import (
 func TestCoverageCoverallsParser_Parse(t *testing.T) {
 	input := `{"source_files":[{"name":"foo.go","coverage":[1,0,null,3]}]}`
 	records := collectCoverageCoveralls(t, input)
-	want := map[uint32]coverageLineType{1: coverageLineCovered, 2: coverageLineUncovered, 4: coverageLineCovered}
+	want := map[uint32]LineType{1: LineCovered, 2: LineUncovered, 4: LineCovered}
 	if len(records) != len(want) {
 		t.Fatalf("got %d records, want %d (null entry at line 3 must be skipped)", len(records), len(want))
 	}
@@ -70,7 +70,7 @@ func TestCoverageCoverallsParser_EmptyCoverageArray(t *testing.T) {
 }
 
 func TestCoverageCoverallsParser_MalformedJSON(t *testing.T) {
-	p := newCoverageCoverallsParser()
+	p := newCoverallsParser()
 	seq, err := p.Parse(strings.NewReader("{not json"))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -84,7 +84,7 @@ func TestCoverageCoverallsParser_MalformedJSON(t *testing.T) {
 }
 
 func TestCoverageCoverallsParser_EmptyInput(t *testing.T) {
-	p := newCoverageCoverallsParser()
+	p := newCoverallsParser()
 	seq, err := p.Parse(strings.NewReader(""))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -97,7 +97,7 @@ func TestCoverageCoverallsParser_EmptyInput(t *testing.T) {
 }
 
 func TestCoverageCoverallsParser_CoverageStringWithInvalidJSONInside(t *testing.T) {
-	p := newCoverageCoverallsParser()
+	p := newCoverallsParser()
 	seq, err := p.Parse(strings.NewReader(`{"source_files":[{"name":"foo.go","coverage":"not json"}]}`))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -109,14 +109,14 @@ func TestCoverageCoverallsParser_CoverageStringWithInvalidJSONInside(t *testing.
 	}
 }
 
-func collectCoverageCoveralls(t *testing.T, input string) []coverageLineRecord {
+func collectCoverageCoveralls(t *testing.T, input string) []LineRecord {
 	t.Helper()
-	p := newCoverageCoverallsParser()
+	p := newCoverallsParser()
 	seq, err := p.Parse(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	var records []coverageLineRecord
+	var records []LineRecord
 	for r := range seq {
 		records = append(records, r)
 	}

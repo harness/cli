@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"bufio"
@@ -12,19 +12,19 @@ import (
 	"strings"
 )
 
-// coverageLcovParser decodes LCOV tracefiles (DA: line-hit records).
-type coverageLcovParser struct {
+// lcovParser decodes LCOV tracefiles (DA: line-hit records).
+type lcovParser struct {
 	err error
 }
 
-func newCoverageLcovParser() *coverageLcovParser {
-	return &coverageLcovParser{}
+func newLcovParser() *lcovParser {
+	return &lcovParser{}
 }
 
-func (p *coverageLcovParser) Err() error { return p.err }
+func (p *lcovParser) Err() error { return p.err }
 
-func (p *coverageLcovParser) Parse(reader io.Reader) (iter.Seq[coverageLineRecord], error) {
-	return func(yield func(coverageLineRecord) bool) {
+func (p *lcovParser) Parse(reader io.Reader) (iter.Seq[LineRecord], error) {
+	return func(yield func(LineRecord) bool) {
 		scanner := bufio.NewScanner(reader)
 		currFile := ""
 		for scanner.Scan() {
@@ -38,16 +38,16 @@ func (p *coverageLcovParser) Parse(reader io.Reader) (iter.Seq[coverageLineRecor
 				if currFile == "" {
 					continue
 				}
-				lineNum, count, err := coverageParseLcovLineData(strings.TrimPrefix(line, "DA:"))
+				lineNum, count, err := parseLcovLineData(strings.TrimPrefix(line, "DA:"))
 				if err != nil {
 					p.err = err
 					return
 				}
-				lineType := coverageLineUncovered
+				lineType := LineUncovered
 				if count > 0 {
-					lineType = coverageLineCovered
+					lineType = LineCovered
 				}
-				if !yield(coverageLineRecord{
+				if !yield(LineRecord{
 					FilePath:   currFile,
 					LineNumber: uint32(lineNum),
 					LineType:   lineType,
@@ -62,7 +62,7 @@ func (p *coverageLcovParser) Parse(reader io.Reader) (iter.Seq[coverageLineRecor
 	}, nil
 }
 
-func coverageParseLcovLineData(data string) (int, int, error) {
+func parseLcovLineData(data string) (int, int, error) {
 	parts := strings.Split(data, ",")
 	if len(parts) != 2 {
 		return 0, 0, fmt.Errorf("malformed DA line data: %q", data)

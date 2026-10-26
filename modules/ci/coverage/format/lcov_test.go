@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ DA:3,1
 end_of_record
 `
 	records := collectCoverageLcov(t, input)
-	want := map[uint32]coverageLineType{1: coverageLineCovered, 2: coverageLineUncovered, 3: coverageLineCovered}
+	want := map[uint32]LineType{1: LineCovered, 2: LineUncovered, 3: LineCovered}
 	if len(records) != len(want) {
 		t.Fatalf("got %d records, want %d", len(records), len(want))
 	}
@@ -102,7 +102,7 @@ end_of_record
 
 func TestCoverageLcovParser_Parse_MalformedDALine(t *testing.T) {
 	input := "SF:a.go\nDA:bad\nend_of_record\n"
-	p := newCoverageLcovParser()
+	p := newLcovParser()
 	seq, err := p.Parse(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -121,7 +121,7 @@ func (r errReader) Read([]byte) (int, error) { return 0, r.err }
 
 func TestCoverageLcovParser_Parse_ScannerErrorIsSurfaced(t *testing.T) {
 	wantErr := errors.New("boom")
-	p := newCoverageLcovParser()
+	p := newLcovParser()
 	seq, err := p.Parse(errReader{err: wantErr})
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -136,27 +136,27 @@ func TestCoverageLcovParser_Parse_ScannerErrorIsSurfaced(t *testing.T) {
 func TestCoverageParseLcovLineData_InvalidFormat(t *testing.T) {
 	cases := []string{"42", "42,5,6", "", "abc,5", "42,abc"}
 	for _, c := range cases {
-		if _, _, err := coverageParseLcovLineData(c); err == nil {
-			t.Errorf("coverageParseLcovLineData(%q) = nil error, want error", c)
+		if _, _, err := parseLcovLineData(c); err == nil {
+			t.Errorf("parseLcovLineData(%q) = nil error, want error", c)
 		}
 	}
 }
 
 func TestCoverageParseLcovLineData_LargeNumbers(t *testing.T) {
-	ln, count, err := coverageParseLcovLineData("1000000,999999")
+	ln, count, err := parseLcovLineData("1000000,999999")
 	if err != nil || ln != 1000000 || count != 999999 {
-		t.Fatalf("coverageParseLcovLineData large numbers = (%d, %d, %v)", ln, count, err)
+		t.Fatalf("parseLcovLineData large numbers = (%d, %d, %v)", ln, count, err)
 	}
 }
 
-func collectCoverageLcov(t *testing.T, input string) []coverageLineRecord {
+func collectCoverageLcov(t *testing.T, input string) []LineRecord {
 	t.Helper()
-	p := newCoverageLcovParser()
+	p := newLcovParser()
 	seq, err := p.Parse(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	var records []coverageLineRecord
+	var records []LineRecord
 	for r := range seq {
 		records = append(records, r)
 	}

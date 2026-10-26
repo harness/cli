@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"fmt"
@@ -16,164 +16,164 @@ import (
 
 // Sent verbatim in the presign request, so this must match the coverage
 // server's types.CoverageFormat value.
-const coverageFormatParquet = "parquet"
+const formatParquet = "parquet"
 
-// coverageEncodeResult describes what coverageWrite produced for the server
+// EncodeResult describes what Write produced for the server
 // (mirrors format.IndexResult).
-type coverageEncodeResult struct {
+type EncodeResult struct {
 	Format      string
 	SkippedKeys []string
 	DiffByFile  map[string][]uint32
 }
 
-// coverageParquetEncode builds the result for the Parquet format.
-func coverageParquetEncode() coverageEncodeResult {
-	return coverageEncodeResult{Format: coverageFormatParquet}
+// parquetEncode builds the result for the Parquet format.
+func parquetEncode() EncodeResult {
+	return EncodeResult{Format: formatParquet}
 }
 
-// coverageWriteOption is a functional option for configuring coverageWrite.
-type coverageWriteOption func(*coverageWriteOptions)
+// WriteOption is a functional option for configuring Write.
+type WriteOption func(*writeOptions)
 
-// coverageWriteOptions contains configuration for coverageWrite.
-type coverageWriteOptions struct {
+// writeOptions contains configuration for Write.
+type writeOptions struct {
 	baseRev            string
 	headRev            string
 	patch              bool
 	hintDirs           []string // report directories walked upward to a project manifest
 	excludePatterns    []string
-	compiledExcludes   []coverageExcludePattern
+	compiledExcludes   []ExcludePattern
 	hasCompiledExclude bool
 	pathResolver       *env.Tree
 }
 
-func (o *coverageWriteOptions) excludeMatchers() ([]coverageExcludePattern, error) {
+func (o *writeOptions) excludeMatchers() ([]ExcludePattern, error) {
 	if o.hasCompiledExclude {
 		return o.compiledExcludes, nil
 	}
-	return coverageCompileExcludePatterns(o.excludePatterns)
+	return compileExcludePatterns(o.excludePatterns)
 }
 
-// coverageWithDiff enables diff tracking against the specified base revision.
+// WithDiff enables diff tracking against the specified base revision.
 // baseRev can be a branch name (e.g., "main"), remote branch (e.g.,
 // "origin/main"), or commit SHA. headRev is optional - if provided, uses
 // explicit commit range (baseRev..headRev) for precise diff. If baseRev is
 // empty, diff tracking is disabled.
-func coverageWithDiff(baseRev, headRev string) coverageWriteOption {
-	return func(o *coverageWriteOptions) {
+func WithDiff(baseRev, headRev string) WriteOption {
+	return func(o *writeOptions) {
 		o.baseRev = baseRev
 		o.headRev = headRev
 	}
 }
 
-// coverageWithPatch enables patch coverage mode, which only includes coverage
+// WithPatch enables patch coverage mode, which only includes coverage
 // data for lines that are part of the diff. When enabled, lines not in the
-// diff are excluded from the output. Requires coverageWithDiff to be set.
-func coverageWithPatch(v bool) coverageWriteOption {
-	return func(o *coverageWriteOptions) {
+// diff are excluded from the output. Requires WithDiff to be set.
+func WithPatch(v bool) WriteOption {
+	return func(o *writeOptions) {
 		o.patch = v
 	}
 }
 
-// coverageWithHintDirs provides coverage report directories. Repository path
+// WithHintDirs provides coverage report directories. Repository path
 // resolution walks upward from them to tracked project manifests; it never
 // uses a report directory itself as a source path prefix.
-func coverageWithHintDirs(dirs ...string) coverageWriteOption {
-	return func(o *coverageWriteOptions) {
+func WithHintDirs(dirs ...string) WriteOption {
+	return func(o *writeOptions) {
 		o.hintDirs = append(o.hintDirs, dirs...)
 	}
 }
 
-// coverageWithExclude excludes source files whose paths match any of the
+// WithExclude excludes source files whose paths match any of the
 // given patterns. Patterns prefixed with "regex:" are compiled as regular
 // expressions; all others are treated as doublestar glob patterns.
-func coverageWithExclude(patterns []string) coverageWriteOption {
-	return func(o *coverageWriteOptions) {
+func WithExclude(patterns []string) WriteOption {
+	return func(o *writeOptions) {
 		o.excludePatterns = patterns
 	}
 }
 
-// coverageWithExcludePatterns applies already compiled exclude patterns so
-// coverageWrite does not compile them a second time.
-func coverageWithExcludePatterns(patterns []coverageExcludePattern) coverageWriteOption {
-	return func(o *coverageWriteOptions) {
+// WithExcludePatterns applies already compiled exclude patterns so
+// Write does not compile them a second time.
+func WithExcludePatterns(patterns []ExcludePattern) WriteOption {
+	return func(o *writeOptions) {
 		o.compiledExcludes = patterns
 		o.hasCompiledExclude = true
 	}
 }
 
-// coverageWithPathResolver supplies a shared git path inventory for
+// WithPathResolver supplies a shared git path inventory for
 // repository path resolution, excludes, and patch matching at write time.
-func coverageWithPathResolver(resolver *env.Tree) coverageWriteOption {
-	return func(o *coverageWriteOptions) {
+func WithPathResolver(resolver *env.Tree) WriteOption {
+	return func(o *writeOptions) {
 		o.pathResolver = resolver
 	}
 }
 
-// coverageWrite encodes coverage data from r into the parquet stream w. The
-// returned coverageEncodeResult tells the caller what it produced and what
+// Write encodes coverage data from r into the parquet stream w. The
+// returned EncodeResult tells the caller what it produced and what
 // metadata the coverage server needs with it.
 //
 // Per-test (TI runner) coverage, which bypasses the line parsers for a
 // bitmap-shaped schema, is not yet ported; every format here goes through
 // the conventional line-coverage parquet encoding.
-func coverageWrite(
+func Write(
 	repoRef string,
 	format string,
 	r io.Reader,
 	w io.Writer,
-	opts ...coverageWriteOption,
-) (coverageEncodeResult, error) {
+	opts ...WriteOption,
+) (EncodeResult, error) {
 	hlog.Debug("writing coverage data to stream", "format", format)
 	defer hlog.Debug("finished writing coverage data to stream", "format", format)
 
-	options := &coverageWriteOptions{}
+	options := &writeOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}
 
-	return coverageWriteParquet(repoRef, format, r, w, options)
+	return writeParquet(repoRef, format, r, w, options)
 }
 
-type coverageLineRecordKey struct {
+type lineRecordKey struct {
 	path string
 	line uint32
 }
 
-// coverageWriteParquet encodes one of the conventional line-coverage formats
-// as parquet: parse to coverageLineRecord, annotate with diff state, and
+// writeParquet encodes one of the conventional line-coverage formats
+// as parquet: parse to LineRecord, annotate with diff state, and
 // write one row per source line.
-func coverageWriteParquet(
+func writeParquet(
 	repoRef string,
 	format string,
 	r io.Reader,
 	w io.Writer,
-	options *coverageWriteOptions,
-) (coverageEncodeResult, error) {
-	parser, err := newCoverageParser(format)
+	options *writeOptions,
+) (EncodeResult, error) {
+	parser, err := NewParser(format)
 	if err != nil {
-		return coverageEncodeResult{}, err
+		return EncodeResult{}, err
 	}
 
 	excludePatterns, err := options.excludeMatchers()
 	if err != nil {
-		return coverageEncodeResult{}, err
+		return EncodeResult{}, err
 	}
-	coverageLogExcludePatterns(excludePatterns)
+	logExcludePatterns(excludePatterns)
 	excludedFiles := make(map[string]struct{})
 
-	pw := parquet.NewGenericWriter[coverageLineRecord](w, parquet.Compression(&snappy.Codec{}))
+	pw := parquet.NewGenericWriter[LineRecord](w, parquet.Compression(&snappy.Codec{}))
 	defer func() { _ = pw.Close() }()
 
-	diff, err := coverageLoadChangedLineIndex(options)
+	diff, err := loadChangedLineIndex(options)
 	if err != nil {
 		if options.patch {
-			return coverageEncodeResult{}, fmt.Errorf("failed to compute patch diff: %w", err)
+			return EncodeResult{}, fmt.Errorf("failed to compute patch diff: %w", err)
 		}
 		hlog.Warn("failed to get diff lines, continuing without diff tracking", "err", err)
 		diff = nil
 	}
 	if options.patch && diff == nil {
-		return coverageEncodeResult{}, fmt.Errorf("patch coverage requires a diff base")
+		return EncodeResult{}, fmt.Errorf("patch coverage requires a diff base")
 	}
 
 	hlog.Debug("parsing coverage data")
@@ -181,27 +181,27 @@ func coverageWriteParquet(
 
 	lines, err := parser.Parse(r)
 	if err != nil {
-		return coverageEncodeResult{}, err
+		return EncodeResult{}, err
 	}
 	gitRoot, rootErr := env.RepositoryRoot()
 	if rootErr != nil {
 		gitRoot = ""
 	}
-	paths := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{
+	paths := NewRepositoryPathResolver(RepositoryPathOptions{
 		Tree:     options.pathResolver,
 		HintDirs: options.hintDirs,
 		GitRoot:  gitRoot,
 		Patch:    options.patch,
 		Format:   format,
 	})
-	covLines := make([]coverageLineRecord, 0, 1000)
-	lineIndex := make(map[coverageLineRecordKey]int)
+	covLines := make([]LineRecord, 0, 1000)
+	lineIndex := make(map[lineRecordKey]int)
 	var pathErrs []error
 	seenPathErrs := make(map[string]struct{})
 	for line := range lines {
 		choice, err := paths.Select(line.FilePath, excludePatterns, excludedFiles, line.PathCandidates...)
 		if err != nil {
-			pathErrs = coverageAppendPathError(pathErrs, seenPathErrs, line.FilePath, err)
+			pathErrs = AppendPathError(pathErrs, seenPathErrs, line.FilePath, err)
 			continue
 		}
 		if choice.Skip {
@@ -218,9 +218,9 @@ func coverageWriteParquet(
 			continue
 		}
 
-		key := coverageLineRecordKey{path: line.FilePath, line: line.LineNumber}
+		key := lineRecordKey{path: line.FilePath, line: line.LineNumber}
 		if existing, ok := lineIndex[key]; ok {
-			covLines[existing].LineType = coverageMergeLineType(covLines[existing].LineType, line.LineType)
+			covLines[existing].LineType = MergeLineType(covLines[existing].LineType, line.LineType)
 			covLines[existing].Diff = covLines[existing].Diff || line.Diff
 			continue
 		}
@@ -230,10 +230,10 @@ func coverageWriteParquet(
 
 	// Check for errors after consuming the iterator.
 	if err := parser.Err(); err != nil {
-		return coverageEncodeResult{}, fmt.Errorf("failed to parse %s coverage report: %w", format, err)
+		return EncodeResult{}, fmt.Errorf("failed to parse %s coverage report: %w", format, err)
 	}
-	if err := coverageJoinPathErrors(pathErrs); err != nil {
-		return coverageEncodeResult{}, err
+	if err := JoinPathErrors(pathErrs); err != nil {
+		return EncodeResult{}, err
 	}
 
 	for len(covLines) > 0 {
@@ -245,22 +245,22 @@ func coverageWriteParquet(
 			covLines = nil
 		}
 		if _, err = pw.Write(batch); err != nil {
-			return coverageEncodeResult{}, err
+			return EncodeResult{}, err
 		}
 	}
 
 	if err := pw.Flush(); err != nil {
-		return coverageEncodeResult{}, err
+		return EncodeResult{}, err
 	}
 
-	return coverageParquetEncode(), nil
+	return parquetEncode(), nil
 }
 
-// coverageMergeLineType combines two observations of the same source line.
+// MergeLineType combines two observations of the same source line.
 // Any disagreement, including covered plus uncovered, becomes partial.
-func coverageMergeLineType(left, right coverageLineType) coverageLineType {
-	if left == coverageLinePartial || right == coverageLinePartial || left != right {
-		return coverageLinePartial
+func MergeLineType(left, right LineType) LineType {
+	if left == LinePartial || right == LinePartial || left != right {
+		return LinePartial
 	}
 	return left
 }

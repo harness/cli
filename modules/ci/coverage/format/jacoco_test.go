@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"strings"
@@ -20,7 +20,7 @@ func TestCoverageJacocoParser_Parse(t *testing.T) {
   </package>
 </report>`
 	records := collectCoverageJacoco(t, input)
-	want := map[uint32]coverageLineType{1: coverageLineCovered, 2: coverageLineUncovered, 3: coverageLinePartial}
+	want := map[uint32]LineType{1: LineCovered, 2: LineUncovered, 3: LinePartial}
 	if len(records) != len(want) {
 		t.Fatalf("got %d records, want %d (line 4 has no coverage data and should be skipped)", len(records), len(want))
 	}
@@ -40,7 +40,7 @@ func TestCoverageJacocoParser_BranchTakesPrecedenceOverInstruction(t *testing.T)
   </package>
 </report>`
 	records := collectCoverageJacoco(t, input)
-	if len(records) != 1 || records[0].LineType != coverageLinePartial {
+	if len(records) != 1 || records[0].LineType != LinePartial {
 		t.Fatalf("records = %+v, want 1 Partial record (branch overrides instruction)", records)
 	}
 }
@@ -60,7 +60,7 @@ func TestCoverageJacocoParser_MissingLineAttributes(t *testing.T) {
 }
 
 func TestCoverageJacocoParser_MalformedXML(t *testing.T) {
-	p := newCoverageJacocoParser()
+	p := newJacocoParser()
 	seq, err := p.Parse(strings.NewReader("<report><unterminated"))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -130,14 +130,14 @@ func TestCoverageJacocoParser_BackslashTraversalInGroupNameRejected(t *testing.T
 	}
 }
 
-func collectCoverageJacoco(t *testing.T, input string) []coverageLineRecord {
+func collectCoverageJacoco(t *testing.T, input string) []LineRecord {
 	t.Helper()
-	p := newCoverageJacocoParser()
+	p := newJacocoParser()
 	seq, err := p.Parse(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	var records []coverageLineRecord
+	var records []LineRecord
 	for r := range seq {
 		records = append(records, r)
 	}

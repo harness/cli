@@ -6,6 +6,7 @@ package ci
 import (
 	"fmt"
 	"github.com/harness/cli/v3/modules/ci/coverage/env"
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"io"
 	"os"
 	"path/filepath"
@@ -61,7 +62,7 @@ func coverageCalcPercentage(hits, partials, misses int) float64 {
 func coverageAnalyze(files, excludePatterns []string, patch bool, base, head string) (*coverageStats, error) {
 	hlog.Debug("running analyze for files", "files", files)
 
-	compiledExcludes, err := coverageCompileCLIExcludePatterns(excludePatterns)
+	compiledExcludes, err := format.CompileCLIExcludePatterns(excludePatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +173,7 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 // far for one file+line, used to adjust Hits/Partials/Misses deltas as later
 // reports merge in rather than double-counting.
 type coverageSeenLine struct {
-	lineType coverageLineType
+	lineType format.LineType
 	inPatch  bool
 }
 
@@ -203,10 +204,10 @@ func coverageParseCoverageFileInto(
 	tree *env.Tree,
 	diffLines map[string]map[uint32]bool,
 	patch bool,
-	excludes []coverageExcludePattern,
+	excludes []format.ExcludePattern,
 	accumulator *coverageAnalysisAccumulator,
 ) error {
-	parser, err := newCoverageParser(formatType)
+	parser, err := format.NewParser(formatType)
 	if err != nil {
 		return err
 	}
@@ -220,7 +221,7 @@ func coverageParseCoverageFileInto(
 	if rootErr != nil {
 		gitRoot = ""
 	}
-	paths := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{
+	paths := format.NewRepositoryPathResolver(format.RepositoryPathOptions{
 		Tree:     tree,
 		HintDirs: []string{hintDir},
 		GitRoot:  gitRoot,
@@ -233,7 +234,7 @@ func coverageParseCoverageFileInto(
 	for line := range lines {
 		choice, selectErr := paths.Select(line.FilePath, excludes, accumulator.excluded, line.PathCandidates...)
 		if selectErr != nil {
-			pathErrs = coverageAppendPathError(pathErrs, seenPathErrs, line.FilePath, selectErr)
+			pathErrs = format.AppendPathError(pathErrs, seenPathErrs, line.FilePath, selectErr)
 			continue
 		}
 		if choice.Skip {
@@ -254,7 +255,7 @@ func coverageParseCoverageFileInto(
 
 		key := filePath + "\x00" + strconv.FormatUint(uint64(line.LineNumber), 10)
 		if prev, ok := accumulator.lines[key]; ok {
-			merged := coverageMergeLineType(prev.lineType, line.LineType)
+			merged := format.MergeLineType(prev.lineType, line.LineType)
 			coverageAdjustLineCounts(stats, prev.lineType, -1, prev.inPatch)
 			nowPatch := prev.inPatch || inPatch
 			coverageAdjustLineCounts(stats, merged, 1, nowPatch)
@@ -268,17 +269,17 @@ func coverageParseCoverageFileInto(
 	if err := parser.Err(); err != nil {
 		return fmt.Errorf("failed to parse %s coverage report: %w", formatType, err)
 	}
-	return coverageJoinPathErrors(pathErrs)
+	return format.JoinPathErrors(pathErrs)
 }
 
-func coverageAdjustLineCounts(stats *coverageFileStats, lineType coverageLineType, delta int, inPatch bool) {
+func coverageAdjustLineCounts(stats *coverageFileStats, lineType format.LineType, delta int, inPatch bool) {
 	switch lineType {
-	case coverageLineCovered:
+	case format.LineCovered:
 		stats.Hits += delta
 		if inPatch {
 			stats.PatchHits += delta
 		}
-	case coverageLinePartial:
+	case format.LinePartial:
 		stats.Partials += delta
 		if inPatch {
 			stats.PatchPartials += delta

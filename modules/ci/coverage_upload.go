@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/harness/cli/v3/modules/ci/coverage/env"
+	"github.com/harness/cli/v3/modules/ci/coverage/format"
 	"io"
 	"net/http"
 	"os"
@@ -287,10 +288,10 @@ func coverageCompletePath(accountID, externalID string) string {
 
 // coverageLoadUploadExcludePatterns resolves the effective exclude patterns
 // for report upload: coverage repository settings (even an empty value)
-// replace cliPatterns entirely; see coveragePatternsFromSettings.
+// replace cliPatterns entirely; see format.PatternsFromSettings.
 func coverageLoadUploadExcludePatterns(
 	ctx *cmdctx.Ctx, params *coverageUploadParams, cliPatterns []string,
-) ([]coverageExcludePattern, error) {
+) ([]format.ExcludePattern, error) {
 	repoID, err := coverageEnsureRepo(ctx, params.resolvedScope, params.provider, params.owner, params.identifier)
 	if err != nil {
 		return nil, fmt.Errorf("resolve exclude settings repository: %w", err)
@@ -299,7 +300,7 @@ func coverageLoadUploadExcludePatterns(
 	if err != nil {
 		return nil, fmt.Errorf("load coverage repository exclude settings: %w", err)
 	}
-	return coveragePatternsFromSettings(excludeText, cliPatterns)
+	return format.PatternsFromSettings(excludeText, cliPatterns)
 }
 
 // coverageUpload is the `execute coverage:upload` orchestration: resolve
@@ -341,7 +342,7 @@ func coverageProcessUploadFile(
 	params *coverageUploadParams,
 	repoRef string,
 	coverageFile coverageFile,
-	excludePatterns []coverageExcludePattern,
+	excludePatterns []format.ExcludePattern,
 	pathResolver *env.Tree,
 ) error {
 	hlog.Info("processing coverage file", "path", coverageFile.Path)
@@ -364,39 +365,39 @@ func coverageBuildReport(
 	repoRef string,
 	coverageFile coverageFile,
 	baseRef string,
-	excludePatterns []coverageExcludePattern,
+	excludePatterns []format.ExcludePattern,
 	pathResolver *env.Tree,
 	params *coverageUploadParams,
-) ([]byte, coverageEncodeResult, error) {
+) ([]byte, format.EncodeResult, error) {
 	f, err := os.Open(coverageFile.Path)
 	if err != nil {
-		return nil, coverageEncodeResult{}, fmt.Errorf("failed to open coverage file: %w", err)
+		return nil, format.EncodeResult{}, fmt.Errorf("failed to open coverage file: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
 	buf := new(bytes.Buffer)
 
-	var writeOpts []coverageWriteOption
+	var writeOpts []format.WriteOption
 	switch {
 	case params.commitBefore != "":
-		writeOpts = append(writeOpts, coverageWithDiff(params.commitBefore, params.commitID))
+		writeOpts = append(writeOpts, format.WithDiff(params.commitBefore, params.commitID))
 	case baseRef != "":
-		writeOpts = append(writeOpts, coverageWithDiff(baseRef, params.commitID))
+		writeOpts = append(writeOpts, format.WithDiff(baseRef, params.commitID))
 	}
 
-	writeOpts = append(writeOpts, coverageWithHintDirs(filepath.Dir(coverageFile.Path)))
-	writeOpts = append(writeOpts, coverageWithPathResolver(pathResolver))
+	writeOpts = append(writeOpts, format.WithHintDirs(filepath.Dir(coverageFile.Path)))
+	writeOpts = append(writeOpts, format.WithPathResolver(pathResolver))
 
 	if params.patch {
-		writeOpts = append(writeOpts, coverageWithPatch(true))
+		writeOpts = append(writeOpts, format.WithPatch(true))
 	}
 	if len(excludePatterns) > 0 {
-		writeOpts = append(writeOpts, coverageWithExcludePatterns(excludePatterns))
+		writeOpts = append(writeOpts, format.WithExcludePatterns(excludePatterns))
 	}
 
-	enc, err := coverageWrite(repoRef, coverageFile.Format, f, buf, writeOpts...)
+	enc, err := format.Write(repoRef, coverageFile.Format, f, buf, writeOpts...)
 	if err != nil {
-		return nil, coverageEncodeResult{}, fmt.Errorf("failed to parse coverage file: %w", err)
+		return nil, format.EncodeResult{}, fmt.Errorf("failed to parse coverage file: %w", err)
 	}
 
 	return buf.Bytes(), enc, nil
@@ -406,7 +407,7 @@ func coverageBuildReport(
 // report, PUTs the bytes there, then marks the report complete. The storage
 // PUT carries no Harness auth header: the presigned URL embeds its own.
 func coverageUploadCoverageReport(
-	ctx *cmdctx.Ctx, params *coverageUploadParams, baseRef string, reportData []byte, enc coverageEncodeResult,
+	ctx *cmdctx.Ctx, params *coverageUploadParams, baseRef string, reportData []byte, enc format.EncodeResult,
 ) error {
 	urlResp, err := coverageGetPresignedURL(ctx, params, baseRef, enc)
 	if err != nil {
@@ -427,7 +428,7 @@ func coverageUploadCoverageReport(
 }
 
 func coverageGetPresignedURL(
-	ctx *cmdctx.Ctx, params *coverageUploadParams, baseRef string, enc coverageEncodeResult,
+	ctx *cmdctx.Ctx, params *coverageUploadParams, baseRef string, enc format.EncodeResult,
 ) (coverageSignURLResponse, error) {
 	var mergeBaseSHA string
 	var err error

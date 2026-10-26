@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package format
 
 import (
 	"strings"
@@ -31,12 +31,12 @@ func TestCoverageCoberturaParser_Parse(t *testing.T) {
   </packages>
 </coverage>`
 	records := collectCoverageCobertura(t, input)
-	want := map[uint32]coverageLineType{
-		1: coverageLineCovered,
-		2: coverageLineUncovered,
-		3: coverageLinePartial,
-		4: coverageLineCovered,
-		5: coverageLineUncovered,
+	want := map[uint32]LineType{
+		1: LineCovered,
+		2: LineUncovered,
+		3: LinePartial,
+		4: LineCovered,
+		5: LineUncovered,
 	}
 	if len(records) != len(want) {
 		t.Fatalf("got %d records, want %d (undefined line number must be skipped)", len(records), len(want))
@@ -66,7 +66,7 @@ func TestCoverageCoberturaParser_BranchFallsBackToHitsOnInvalidConditionCoverage
   </packages>
 </coverage>`
 	records := collectCoverageCobertura(t, input)
-	if len(records) != 1 || records[0].LineType != coverageLineCovered {
+	if len(records) != 1 || records[0].LineType != LineCovered {
 		t.Fatalf("records = %+v, want 1 Covered record (falls back to hits)", records)
 	}
 }
@@ -111,7 +111,7 @@ func TestCoverageCoberturaParser_ClassWithBothLinesAndStatements(t *testing.T) {
   </packages>
 </coverage>`
 	records := collectCoverageCobertura(t, input)
-	want := map[uint32]coverageLineType{1: coverageLineCovered, 2: coverageLineUncovered, 3: coverageLineCovered}
+	want := map[uint32]LineType{1: LineCovered, 2: LineUncovered, 3: LineCovered}
 	if len(records) != len(want) {
 		t.Fatalf("got %d records, want %d (ignored statement must be skipped)", len(records), len(want))
 	}
@@ -138,7 +138,7 @@ func TestCoverageCoberturaParser_ScoverageRootElement(t *testing.T) {
   </packages>
 </scoverage>`
 	records := collectCoverageCobertura(t, input)
-	want := map[uint32]coverageLineType{1: coverageLineCovered, 2: coverageLineUncovered}
+	want := map[uint32]LineType{1: LineCovered, 2: LineUncovered}
 	if len(records) != len(want) {
 		t.Fatalf("got %d records, want %d", len(records), len(want))
 	}
@@ -220,7 +220,7 @@ func TestCoverageCoberturaParser_WindowsAbsolutePathClassGetsNoCandidates(t *tes
 }
 
 func TestCoverageCoberturaParser_MalformedXML(t *testing.T) {
-	p := newCoverageCoberturaParser()
+	p := newCoberturaParser()
 	seq, err := p.Parse(strings.NewReader("<coverage><unterminated"))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -234,7 +234,7 @@ func TestCoverageCoberturaParser_MalformedXML(t *testing.T) {
 }
 
 func TestCoverageCoberturaParser_EmptyInput(t *testing.T) {
-	p := newCoverageCoberturaParser()
+	p := newCoberturaParser()
 	seq, err := p.Parse(strings.NewReader(""))
 	if err != nil {
 		t.Fatalf("Parse() error = %v, want nil top-level error", err)
@@ -246,14 +246,14 @@ func TestCoverageCoberturaParser_EmptyInput(t *testing.T) {
 	}
 }
 
-func collectCoverageCobertura(t *testing.T, input string) []coverageLineRecord {
+func collectCoverageCobertura(t *testing.T, input string) []LineRecord {
 	t.Helper()
-	p := newCoverageCoberturaParser()
+	p := newCoberturaParser()
 	seq, err := p.Parse(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	var records []coverageLineRecord
+	var records []LineRecord
 	for r := range seq {
 		records = append(records, r)
 	}
