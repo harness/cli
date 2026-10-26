@@ -4,13 +4,14 @@
 package ci
 
 import (
+	"github.com/harness/cli/v3/modules/ci/annotations"
 	"github.com/harness/cli/v3/modules/ci/coverage"
 	"github.com/harness/cli/v3/pkg/registry"
 )
 
 // ModuleInit registers ci workflows. Commands are declared in ci.spec.yaml.
 func ModuleInit(reg registry.ModuleRegistrar) {
-	reg.RegisterWorkflow(executeAnnotationHandlerID, executeAnnotationHandler)
+	reg.RegisterWorkflow(annotations.HandlerID, annotations.Handler)
 	reg.RegisterWorkflow(executeErrorValidateHandlerID, executeErrorValidateHandler)
 	reg.RegisterWorkflow(executeErrorEvaluateHandlerID, executeErrorEvaluateHandler)
 	coverage.Register(reg)

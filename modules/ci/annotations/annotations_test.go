@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package annotations
 
 import (
 	"os"
@@ -288,7 +288,7 @@ func TestExecuteAnnotationHandlerFeatureFlagOff(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "annotations.json")
 	t.Setenv(envAnnotFile, path)
 
-	err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: baseFlags()})
+	err := Handler(&cmdctx.Ctx{FlagValues: baseFlags()})
 	if err != nil {
 		t.Fatalf("expected a silent no-op, got error: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestExecuteAnnotationHandlerFeatureFlagOff(t *testing.T) {
 
 func TestExecuteAnnotationHandlerRejectsStrayArgs(t *testing.T) {
 	enableAnnotations(t)
-	err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: baseFlags(), Args: []string{"extra"}})
+	err := Handler(&cmdctx.Ctx{FlagValues: baseFlags(), Args: []string{"extra"}})
 	if err == nil || !strings.Contains(err.Error(), "unexpected arguments") {
 		t.Fatalf("got %v, want an unexpected-arguments error", err)
 	}
@@ -322,7 +322,7 @@ func TestExecuteAnnotationHandlerValidation(t *testing.T) {
 			enableAnnotations(t)
 			flags := baseFlags()
 			tt.mutate(flags)
-			err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: flags})
+			err := Handler(&cmdctx.Ctx{FlagValues: flags})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("got %v, want an error containing %q", err, tt.wantErr)
 			}
@@ -337,8 +337,8 @@ func TestExecuteAnnotationHandlerWritesFile(t *testing.T) {
 	t.Setenv(hbase.EnvProjectID, "proj1")
 	t.Setenv(envStepID, "step1")
 
-	if err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: baseFlags()}); err != nil {
-		t.Fatalf("executeAnnotationHandler: %v", err)
+	if err := Handler(&cmdctx.Ctx{FlagValues: baseFlags()}); err != nil {
+		t.Fatalf("Handler: %v", err)
 	}
 
 	env, err := loadEnvelope(path)
@@ -368,8 +368,8 @@ func TestExecuteAnnotationHandlerSummaryFileWinsOverSummary(t *testing.T) {
 	flags["summary"] = "from inline"
 	flags["summary-file"] = summaryPath
 
-	if err := executeAnnotationHandler(&cmdctx.Ctx{FlagValues: flags}); err != nil {
-		t.Fatalf("executeAnnotationHandler: %v", err)
+	if err := Handler(&cmdctx.Ctx{FlagValues: flags}); err != nil {
+		t.Fatalf("Handler: %v", err)
 	}
 
 	env, err := loadEnvelope(path)
