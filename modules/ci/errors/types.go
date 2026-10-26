@@ -39,7 +39,7 @@ const (
 
 const evaluationModeFirstMatch = "firstMatch"
 
-const errorSourceCustom = "custom" // User-defined rules from errors.yaml
+const sourceCustom = "custom" // User-defined rules from errors.yaml
 
 // Guardrail constants for error categorization — these keep a customer-authored
 // errors.yaml from becoming a ReDoS/OOM/hang vector during evaluate.
@@ -77,41 +77,41 @@ var validActionTypes = map[string]bool{
 	actionTypeSetErrorMessage:     true,
 }
 
-// errorRulesConfig is the root structure of an errors.yaml file.
-type errorRulesConfig struct {
-	Version    string           `yaml:"version" json:"version"`
-	Settings   errorSettings    `yaml:"settings,omitempty" json:"settings,omitempty"`
-	RuleGroups []errorRuleGroup `yaml:"ruleGroups" json:"ruleGroups"`
+// rulesConfig is the root structure of an errors.yaml file.
+type rulesConfig struct {
+	Version    string        `yaml:"version" json:"version"`
+	Settings   rulesSettings `yaml:"settings,omitempty" json:"settings,omitempty"`
+	RuleGroups []ruleGroup   `yaml:"ruleGroups" json:"ruleGroups"`
 }
 
-type errorSettings struct {
+type rulesSettings struct {
 	EvaluationMode string `yaml:"evaluationMode,omitempty" json:"evaluationMode,omitempty"`
 }
 
-type errorRuleGroup struct {
-	Name                string              `yaml:"name" json:"name"`
-	Enabled             *bool               `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	ConditionExpression *errorConditionExpr `yaml:"conditionExpression" json:"conditionExpression"`
-	Actions             []errorAction       `yaml:"actions" json:"actions"`
+type ruleGroup struct {
+	Name                string         `yaml:"name" json:"name"`
+	Enabled             *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	ConditionExpression *conditionExpr `yaml:"conditionExpression" json:"conditionExpression"`
+	Actions             []ruleAction   `yaml:"actions" json:"actions"`
 }
 
-// errorConditionExpr is a recursive AND/OR tree: a node has Operator+Conditions,
+// conditionExpr is a recursive AND/OR tree: a node has Operator+Conditions,
 // a leaf has Key/Operand/Value. Never both on the same node.
-type errorConditionExpr struct {
-	Operator   string               `yaml:"operator" json:"operator,omitempty"`
-	Conditions []errorConditionExpr `yaml:"conditions" json:"conditions,omitempty"`
-	Key        string               `yaml:"key,omitempty" json:"key,omitempty"`
-	Operand    string               `yaml:"operand,omitempty" json:"operand,omitempty"`
-	Value      interface{}          `yaml:"value,omitempty" json:"value,omitempty"`
+type conditionExpr struct {
+	Operator   string          `yaml:"operator" json:"operator,omitempty"`
+	Conditions []conditionExpr `yaml:"conditions" json:"conditions,omitempty"`
+	Key        string          `yaml:"key,omitempty" json:"key,omitempty"`
+	Operand    string          `yaml:"operand,omitempty" json:"operand,omitempty"`
+	Value      interface{}     `yaml:"value,omitempty" json:"value,omitempty"`
 }
 
-type errorAction struct {
+type ruleAction struct {
 	Type  string `yaml:"type" json:"type"`
 	Value string `yaml:"value" json:"value"`
 }
 
-// errorStepContext is the execution context an evaluate call checks rules against.
-type errorStepContext struct {
+// stepContext is the execution context an evaluate call checks rules against.
+type stepContext struct {
 	StdoutPath string
 	StderrPath string
 	ExitCode   int
@@ -120,8 +120,8 @@ type errorStepContext struct {
 	PipelineID string
 }
 
-// errorCategorization is the internal result of a matched rule group.
-type errorCategorization struct {
+// categorization is the internal result of a matched rule group.
+type categorization struct {
 	Category    string
 	Subcategory string
 	Message     string
@@ -129,8 +129,8 @@ type errorCategorization struct {
 	Source      string
 }
 
-// errorEvaluationResult is the JSON printed by `execute error:evaluate`.
-type errorEvaluationResult struct {
+// evaluationResult is the JSON printed by `execute error:evaluate`.
+type evaluationResult struct {
 	Matched     bool   `json:"matched"`
 	Category    string `json:"category,omitempty"`
 	Subcategory string `json:"subcategory,omitempty"`

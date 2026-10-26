@@ -36,20 +36,20 @@ func ValidateHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("file not found: %s", yamlPath)
 	}
 
-	yamlContent, err := loadErrorsYAMLFromPath(yamlPath)
+	yamlContent, err := loadYAMLFromPath(yamlPath)
 	if err != nil {
 		fmt.Println("✗ Failed to read file:", err)
 		return err
 	}
 
-	if err := validateErrorsYAML(yamlContent); err != nil {
+	if err := validateYAML(yamlContent); err != nil {
 		fmt.Println("✗ YAML syntax invalid:")
 		fmt.Println(" ", err)
 		return err
 	}
 	fmt.Println("✓ YAML syntax valid")
 
-	config, err := parseErrorsYAML(yamlPath)
+	config, err := parseYAML(yamlPath)
 	if err != nil {
 		fmt.Println("✗ Validation failed:")
 		fmt.Println(" ", err)
@@ -71,7 +71,7 @@ func ValidateHandler(ctx *cmdctx.Ctx) error {
 	conditionCount := 0
 	actionCount := 0
 	for _, group := range config.RuleGroups {
-		conditionCount += countErrorConditionsInExpression(group.ConditionExpression)
+		conditionCount += countConditionsInExpression(group.ConditionExpression)
 		actionCount += len(group.Actions)
 	}
 	fmt.Printf("✓ Total conditions: %d\n", conditionCount)
@@ -90,7 +90,7 @@ func ValidateHandler(ctx *cmdctx.Ctx) error {
 	return nil
 }
 
-func countErrorConditionsInExpression(expr *errorConditionExpr) int {
+func countConditionsInExpression(expr *conditionExpr) int {
 	if expr == nil {
 		return 0
 	}
@@ -99,7 +99,7 @@ func countErrorConditionsInExpression(expr *errorConditionExpr) int {
 	}
 	count := 0
 	for i := range expr.Conditions {
-		count += countErrorConditionsInExpression(&expr.Conditions[i])
+		count += countConditionsInExpression(&expr.Conditions[i])
 	}
 	return count
 }
@@ -113,25 +113,25 @@ func EvaluateHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(ctx.Args, " "))
 	}
 
-	result := errorEvaluationResult{Matched: false}
+	result := evaluationResult{Matched: false}
 
 	yamlPath := cmdctx.GetString(ctx.FlagValues, "yaml-path")
 	cacheDir := cmdctx.GetString(ctx.FlagValues, "cache-dir")
 
-	config, err := getOrParseErrorRules(yamlPath, cacheDir)
+	config, err := getOrParseRules(yamlPath, cacheDir)
 	if err != nil {
 		result.Error = err.Error()
-		printErrorEvaluationResult(result)
+		printEvaluationResult(result)
 		return nil
 	}
 	if config == nil {
-		printErrorEvaluationResult(result)
+		printEvaluationResult(result)
 		return nil
 	}
 
 	result.RuleCount = len(config.RuleGroups)
 
-	stepCtx := &errorStepContext{
+	stepCtx := &stepContext{
 		StdoutPath: cmdctx.GetString(ctx.FlagValues, "stdout-path"),
 		StderrPath: cmdctx.GetString(ctx.FlagValues, "stderr-path"),
 		ExitCode:   cmdctx.GetInt(ctx.FlagValues, "exit-code"),
@@ -143,12 +143,12 @@ func EvaluateHandler(ctx *cmdctx.Ctx) error {
 	evalCtx, cancel := context.WithTimeout(context.Background(), evaluationTimeout)
 	defer cancel()
 
-	categorization, err := evaluateErrorRules(evalCtx, config, stepCtx)
+	categorization, err := evaluateRules(evalCtx, config, stepCtx)
 	if err != nil {
 		if errors.Is(evalCtx.Err(), context.DeadlineExceeded) {
 			result.TimedOut = true
 		}
-		printErrorEvaluationResult(result)
+		printEvaluationResult(result)
 		return nil
 	}
 
@@ -161,11 +161,11 @@ func EvaluateHandler(ctx *cmdctx.Ctx) error {
 		result.Source = categorization.Source
 	}
 
-	printErrorEvaluationResult(result)
+	printEvaluationResult(result)
 	return nil
 }
 
-func printErrorEvaluationResult(result errorEvaluationResult) {
+func printEvaluationResult(result evaluationResult) {
 	data, err := json.Marshal(result)
 	if err != nil {
 		fmt.Printf(`{"matched":false,"error":"failed to marshal result: %s"}`, err.Error())

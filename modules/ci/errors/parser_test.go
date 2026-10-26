@@ -40,9 +40,9 @@ ruleGroups:
         value: "BuildFailure"
 `)
 
-	config, err := parseErrorsYAML(path)
+	config, err := parseYAML(path)
 	if err != nil {
-		t.Fatalf("parseErrorsYAML: %v", err)
+		t.Fatalf("parseYAML: %v", err)
 	}
 	if config.Version != "1.0" || len(config.RuleGroups) != 1 {
 		t.Fatalf("unexpected config: %+v", config)
@@ -65,9 +65,9 @@ ruleGroups:
         value: "TestFailure"
 `)
 
-	config, err := parseErrorsYAML(path)
+	config, err := parseYAML(path)
 	if err != nil {
-		t.Fatalf("parseErrorsYAML: %v", err)
+		t.Fatalf("parseYAML: %v", err)
 	}
 	if config.Settings.EvaluationMode != evaluationModeFirstMatch {
 		t.Fatalf("got evaluationMode %q, want default %q", config.Settings.EvaluationMode, evaluationModeFirstMatch)
@@ -79,7 +79,7 @@ ruleGroups:
 
 func TestParseErrorsYAMLMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "does-not-exist.yaml")
-	if _, err := parseErrorsYAML(path); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, err := parseYAML(path); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("got %v, want a not-found error", err)
 	}
 }
@@ -87,7 +87,7 @@ func TestParseErrorsYAMLMissingFile(t *testing.T) {
 func TestParseErrorsYAMLRootIsList(t *testing.T) {
 	path := writeYAML(t, `- name: "oops"
 `)
-	_, err := parseErrorsYAML(path)
+	_, err := parseYAML(path)
 	if err == nil || !strings.Contains(err.Error(), "root must be a map") {
 		t.Fatalf("got %v, want the friendly list-vs-map error", err)
 	}
@@ -104,7 +104,7 @@ func TestParseErrorsYAMLMissingVersion(t *testing.T) {
       - type: "setErrorCategory"
         value: "X"
 `)
-	if _, err := parseErrorsYAML(path); err == nil || !strings.Contains(err.Error(), "missing required 'version'") {
+	if _, err := parseYAML(path); err == nil || !strings.Contains(err.Error(), "missing required 'version'") {
 		t.Fatalf("got %v, want a missing-version error", err)
 	}
 }
@@ -112,7 +112,7 @@ func TestParseErrorsYAMLMissingVersion(t *testing.T) {
 func TestParseErrorsYAMLMissingRuleGroups(t *testing.T) {
 	path := writeYAML(t, `version: "1.0"
 `)
-	if _, err := parseErrorsYAML(path); err == nil || !strings.Contains(err.Error(), "missing required 'ruleGroups'") {
+	if _, err := parseYAML(path); err == nil || !strings.Contains(err.Error(), "missing required 'ruleGroups'") {
 		t.Fatalf("got %v, want a missing-ruleGroups error", err)
 	}
 }
@@ -129,7 +129,7 @@ ruleGroups:
       - type: "setErrorCategory"
         value: "X"
 `)
-	if _, err := parseErrorsYAML(path); err == nil || !strings.Contains(err.Error(), "invalid key") {
+	if _, err := parseYAML(path); err == nil || !strings.Contains(err.Error(), "invalid key") {
 		t.Fatalf("got %v, want an invalid-key error", err)
 	}
 }
@@ -146,7 +146,7 @@ ruleGroups:
       - type: "setErrorCategory"
         value: "X"
 `)
-	if _, err := parseErrorsYAML(path); err == nil || !strings.Contains(err.Error(), "invalid operand") {
+	if _, err := parseYAML(path); err == nil || !strings.Contains(err.Error(), "invalid operand") {
 		t.Fatalf("got %v, want an invalid-operand error", err)
 	}
 }
@@ -163,7 +163,7 @@ ruleGroups:
       - type: "bogusAction"
         value: "X"
 `)
-	if _, err := parseErrorsYAML(path); err == nil || !strings.Contains(err.Error(), "invalid type") {
+	if _, err := parseYAML(path); err == nil || !strings.Contains(err.Error(), "invalid type") {
 		t.Fatalf("got %v, want an invalid-action-type error", err)
 	}
 }
@@ -181,7 +181,7 @@ ruleGroups:
       - type: "setErrorCategory"
         value: "X"
 `)
-	if _, err := parseErrorsYAML(path); err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
+	if _, err := parseYAML(path); err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
 		t.Fatalf("got %v, want a regex-length error", err)
 	}
 }
@@ -198,15 +198,15 @@ ruleGroups:
       - type: "setErrorCategory"
         value: "X"
 `)
-	if _, err := parseErrorsYAML(path); err == nil || !strings.Contains(err.Error(), "invalid regex pattern") {
+	if _, err := parseYAML(path); err == nil || !strings.Contains(err.Error(), "invalid regex pattern") {
 		t.Fatalf("got %v, want an invalid-regex error", err)
 	}
 }
 
 func TestValidateConditionExpressionDepthExceeded(t *testing.T) {
-	expr := &errorConditionExpr{Key: fieldKeyStandardOutput, Operand: operandContains, Value: "x"}
+	expr := &conditionExpr{Key: fieldKeyStandardOutput, Operand: operandContains, Value: "x"}
 	for i := 0; i <= maxConditionDepth+1; i++ {
-		expr = &errorConditionExpr{Operator: operatorAND, Conditions: []errorConditionExpr{*expr}}
+		expr = &conditionExpr{Operator: operatorAND, Conditions: []conditionExpr{*expr}}
 	}
 	if err := validateConditionExpression(expr, "root", 0); err == nil || !strings.Contains(err.Error(), "exceeds maximum condition depth") {
 		t.Fatalf("got %v, want a depth-exceeded error", err)
@@ -223,7 +223,7 @@ func TestValidateConditionErrorCodeRequiresNumericValue(t *testing.T) {
 }
 
 func TestValidateErrorsYAMLEmpty(t *testing.T) {
-	if err := validateErrorsYAML(nil); err == nil || !strings.Contains(err.Error(), "empty") {
+	if err := validateYAML(nil); err == nil || !strings.Contains(err.Error(), "empty") {
 		t.Fatalf("got %v, want an empty-file error", err)
 	}
 }

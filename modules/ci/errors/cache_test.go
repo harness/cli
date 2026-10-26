@@ -11,25 +11,25 @@ import (
 )
 
 func TestResolveErrorsCacheDir(t *testing.T) {
-	t.Setenv(errorsCacheDirEnvVar, "")
-	if got := resolveErrorsCacheDir(""); got != defaultErrorsCacheDir {
-		t.Fatalf("got %q, want default %q", got, defaultErrorsCacheDir)
+	t.Setenv(cacheDirEnvVar, "")
+	if got := resolveCacheDir(""); got != defaultCacheDir {
+		t.Fatalf("got %q, want default %q", got, defaultCacheDir)
 	}
 
-	t.Setenv(errorsCacheDirEnvVar, "/tmp/from-env")
-	if got := resolveErrorsCacheDir(""); got != "/tmp/from-env" {
+	t.Setenv(cacheDirEnvVar, "/tmp/from-env")
+	if got := resolveCacheDir(""); got != "/tmp/from-env" {
 		t.Fatalf("got %q, want env override", got)
 	}
 
-	if got := resolveErrorsCacheDir("/explicit"); got != "/explicit" {
+	if got := resolveCacheDir("/explicit"); got != "/explicit" {
 		t.Fatalf("got %q, want explicit arg to win over env", got)
 	}
 }
 
 func TestComputeErrorsCacheKeyIsStableAndPathSensitive(t *testing.T) {
-	a := computeErrorsCacheKey("/a/errors.yaml")
-	b := computeErrorsCacheKey("/a/errors.yaml")
-	c := computeErrorsCacheKey("/b/errors.yaml")
+	a := computeCacheKey("/a/errors.yaml")
+	b := computeCacheKey("/a/errors.yaml")
+	c := computeCacheKey("/b/errors.yaml")
 	if a != b {
 		t.Fatalf("same path must hash the same, got %q vs %q", a, b)
 	}
@@ -52,7 +52,7 @@ ruleGroups:
         value: "X"
 `)
 
-	config1, err := getOrParseErrorRules(path, cacheDir)
+	config1, err := getOrParseRules(path, cacheDir)
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
@@ -63,7 +63,7 @@ ruleGroups:
 		t.Fatalf("mutate: %v", err)
 	}
 
-	config2, err := getOrParseErrorRules(path, cacheDir)
+	config2, err := getOrParseRules(path, cacheDir)
 	if err != nil {
 		t.Fatalf("second call should hit cache despite the file now being broken: %v", err)
 	}
@@ -76,12 +76,12 @@ func TestGetOrParseErrorRulesCachesParseFailure(t *testing.T) {
 	cacheDir := t.TempDir()
 	path := writeYAML(t, `not valid yaml: [`)
 
-	_, err1 := getOrParseErrorRules(path, cacheDir)
+	_, err1 := getOrParseRules(path, cacheDir)
 	if err1 == nil {
 		t.Fatal("expected a parse error on first call")
 	}
 
-	_, err2 := getOrParseErrorRules(path, cacheDir)
+	_, err2 := getOrParseRules(path, cacheDir)
 	if err2 == nil || !strings.Contains(err2.Error(), "cached parse error") {
 		t.Fatalf("got %v, want the cached-failure path replayed", err2)
 	}
@@ -89,7 +89,7 @@ func TestGetOrParseErrorRulesCachesParseFailure(t *testing.T) {
 
 func TestLoadErrorsFromCacheMiss(t *testing.T) {
 	cacheDir := t.TempDir()
-	got, err := loadErrorsFromCache(cacheDir, "nonexistent")
+	got, err := loadFromCache(cacheDir, "nonexistent")
 	if err != nil || got != nil {
 		t.Fatalf("got (%v, %v), want (nil, nil) on a cache miss", got, err)
 	}
@@ -97,12 +97,12 @@ func TestLoadErrorsFromCacheMiss(t *testing.T) {
 
 func TestLoadErrorsFromCacheCorruptFileIsDeleted(t *testing.T) {
 	cacheDir := t.TempDir()
-	cachePath := errorsCachePath(cacheDir, "k")
+	cachePath := cachePath(cacheDir, "k")
 	if err := os.WriteFile(cachePath, []byte("not gob data"), 0o644); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
-	if _, err := loadErrorsFromCache(cacheDir, "k"); err == nil {
+	if _, err := loadFromCache(cacheDir, "k"); err == nil {
 		t.Fatal("expected a decode error for a corrupt cache file")
 	}
 	if _, statErr := os.Stat(cachePath); !os.IsNotExist(statErr) {
@@ -131,7 +131,7 @@ ruleGroups:
         value: "X"
 `)
 
-	config, err := getOrParseErrorRules(path, badCacheDir)
+	config, err := getOrParseRules(path, badCacheDir)
 	if err != nil {
 		t.Fatalf("expected a graceful fallback to uncached parsing, got error: %v", err)
 	}

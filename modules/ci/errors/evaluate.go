@@ -15,14 +15,14 @@ import (
 	"sync"
 )
 
-var errorScannerBufPool = sync.Pool{
+var scannerBufPool = sync.Pool{
 	New: func() interface{} {
 		buf := make([]byte, maxLineSize)
 		return &buf
 	},
 }
 
-type errorLogCondition struct {
+type logCondition struct {
 	operand    string
 	value      string
 	cacheKey   string
@@ -30,37 +30,37 @@ type errorLogCondition struct {
 	valueLower string
 }
 
-type errorConditionResultCache struct {
+type conditionResultCache struct {
 	mu      sync.Mutex
 	results map[string]bool
 }
 
-func newErrorConditionResultCache() *errorConditionResultCache {
-	return &errorConditionResultCache{results: make(map[string]bool)}
+func newConditionResultCache() *conditionResultCache {
+	return &conditionResultCache{results: make(map[string]bool)}
 }
 
-func (c *errorConditionResultCache) set(key string, value bool) {
+func (c *conditionResultCache) set(key string, value bool) {
 	c.mu.Lock()
 	c.results[key] = value
 	c.mu.Unlock()
 }
 
-func (c *errorConditionResultCache) get(key string) (bool, bool) {
+func (c *conditionResultCache) get(key string) (bool, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	v, ok := c.results[key]
 	return v, ok
 }
 
-func errorConditionCacheKey(fieldKey, operand, value string) string {
+func conditionCacheKey(fieldKey, operand, value string) string {
 	return fieldKey + ":" + operand + ":" + value
 }
 
-// evaluateErrorRules is the 3-phase orchestrator: collect which log conditions
+// evaluateRules is the 3-phase orchestrator: collect which log conditions
 // are even needed, scan stdout/stderr once each to resolve them, then walk each
 // enabled rule group's condition tree and apply the first matching group's
 // actions. Groups are evaluated in file order — first match wins.
-func evaluateErrorRules(ctx context.Context, config *errorRulesConfig, stepCtx *errorStepContext) (*errorCategorization, error) {
+func evaluateRules(ctx context.Context, config *rulesConfig, stepCtx *stepContext) (*categorization, error) {
 	if config == nil {
 		return nil, fmt.Errorf("rules config is nil")
 	}
@@ -69,22 +69,22 @@ func evaluateErrorRules(ctx context.Context, config *errorRulesConfig, stepCtx *
 		config.RuleGroups = config.RuleGroups[:maxRuleGroups]
 	}
 
-	cache := newErrorConditionResultCache()
+	cache := newConditionResultCache()
 
 	stdoutSeen := make(map[string]bool)
 	stderrSeen := make(map[string]bool)
-	var stdoutConds, stderrConds []errorLogCondition
+	var stdoutConds, stderrConds []logCondition
 
 	for i := range config.RuleGroups {
 		group := &config.RuleGroups[i]
 		if group.Enabled != nil && !*group.Enabled {
 			continue
 		}
-		collectErrorLogConditions(group.ConditionExpression, &stdoutConds, &stderrConds, stdoutSeen, stderrSeen)
+		collectLogConditions(group.ConditionExpression, &stdoutConds, &stderrConds, stdoutSeen, stderrSeen)
 	}
 
 	if len(stdoutConds) > 0 || len(stderrConds) > 0 {
-		scanErrorLogFiles(ctx, stepCtx, stdoutConds, stderrConds, cache)
+		scanLogFiles(ctx, stepCtx, stdoutConds, stderrConds, cache)
 	}
 
 	for i := range config.RuleGroups {
@@ -99,15 +99,15 @@ func evaluateErrorRules(ctx context.Context, config *errorRulesConfig, stepCtx *
 			continue
 		}
 
-		match, err := evaluateErrorExpressionFromCache(ctx, group.ConditionExpression, stepCtx, cache, 0)
+		match, err := evaluateExpressionFromCache(ctx, group.ConditionExpression, stepCtx, cache, 0)
 		if err != nil {
 			continue
 		}
 
 		if match {
-			categorization := &errorCategorization{
+			categorization := &categorization{
 				MatchedRule: group.Name,
-				Source:      errorSourceCustom,
+				Source:      sourceCustom,
 			}
 			for _, action := range group.Actions {
 				switch action.Type {
@@ -126,7 +126,7 @@ func evaluateErrorRules(ctx context.Context, config *errorRulesConfig, stepCtx *
 	return nil, nil
 }
 
-func collectErrorLogConditions(expr *errorConditionExpr, stdout, stderr *[]errorLogCondition, stdoutSeen, stderrSeen map[string]bool) {
+func collectLogConditions(expr *conditionExpr, stdout, stderr *[]logCondition, stdoutSeen, stderrSeen map[string]bool) {
 	if expr == nil {
 		return
 	}
@@ -141,8 +141,8 @@ func collectErrorLogConditions(expr *errorConditionExpr, stdout, stderr *[]error
 			return
 		}
 
-		cKey := errorConditionCacheKey(expr.Key, expr.Operand, valueStr)
-		cond := errorLogCondition{operand: expr.Operand, value: valueStr, cacheKey: cKey}
+		cKey := conditionCacheKey(expr.Key, expr.Operand, valueStr)
+		cond := logCondition{operand: expr.Operand, value: valueStr, cacheKey: cKey}
 
 		if expr.Operand == operandRegex {
 			if len(valueStr) <= maxRegexPatternLength {
@@ -170,11 +170,11 @@ func collectErrorLogConditions(expr *errorConditionExpr, stdout, stderr *[]error
 	}
 
 	for i := range expr.Conditions {
-		collectErrorLogConditions(&expr.Conditions[i], stdout, stderr, stdoutSeen, stderrSeen)
+		collectLogConditions(&expr.Conditions[i], stdout, stderr, stdoutSeen, stderrSeen)
 	}
 }
 
-func scanErrorLogFiles(ctx context.Context, stepCtx *errorStepContext, stdoutConds, stderrConds []errorLogCondition, cache *errorConditionResultCache) {
+func scanLogFiles(ctx context.Context, stepCtx *stepContext, stdoutConds, stderrConds []logCondition, cache *conditionResultCache) {
 	needsStdout := len(stdoutConds) > 0
 	needsStderr := len(stderrConds) > 0
 
@@ -183,27 +183,27 @@ func scanErrorLogFiles(ctx context.Context, stepCtx *errorStepContext, stdoutCon
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			scanErrorLogFileForConditions(ctx, stepCtx.StdoutPath, stdoutConds, cache)
+			scanLogFileForConditions(ctx, stepCtx.StdoutPath, stdoutConds, cache)
 		}()
 		go func() {
 			defer wg.Done()
-			scanErrorLogFileForConditions(ctx, stepCtx.StderrPath, stderrConds, cache)
+			scanLogFileForConditions(ctx, stepCtx.StderrPath, stderrConds, cache)
 		}()
 		wg.Wait()
 		return
 	}
 
 	if needsStdout {
-		scanErrorLogFileForConditions(ctx, stepCtx.StdoutPath, stdoutConds, cache)
+		scanLogFileForConditions(ctx, stepCtx.StdoutPath, stdoutConds, cache)
 		return
 	}
-	scanErrorLogFileForConditions(ctx, stepCtx.StderrPath, stderrConds, cache)
+	scanLogFileForConditions(ctx, stepCtx.StderrPath, stderrConds, cache)
 }
 
-func scanErrorLogFileForConditions(ctx context.Context, filePath string, conditions []errorLogCondition, cache *errorConditionResultCache) {
+func scanLogFileForConditions(ctx context.Context, filePath string, conditions []logCondition, cache *conditionResultCache) {
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		for _, cond := range conditions {
-			result, _ := evaluateEmptyErrorContent(cond.operand, cond.value)
+			result, _ := evaluateEmptyContent(cond.operand, cond.value)
 			cache.set(cond.cacheKey, result)
 		}
 		return
@@ -212,7 +212,7 @@ func scanErrorLogFileForConditions(ctx context.Context, filePath string, conditi
 	file, err := os.Open(filePath)
 	if err != nil {
 		for _, cond := range conditions {
-			result, _ := evaluateEmptyErrorContent(cond.operand, cond.value)
+			result, _ := evaluateEmptyContent(cond.operand, cond.value)
 			cache.set(cond.cacheKey, result)
 		}
 		return
@@ -233,8 +233,8 @@ func scanErrorLogFileForConditions(ctx context.Context, filePath string, conditi
 		tailSeeked = true
 	}
 
-	bufPtr := errorScannerBufPool.Get().(*[]byte)
-	defer errorScannerBufPool.Put(bufPtr)
+	bufPtr := scannerBufPool.Get().(*[]byte)
+	defer scannerBufPool.Put(bufPtr)
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(*bufPtr, maxScannerBufSize)
@@ -244,7 +244,7 @@ func scanErrorLogFileForConditions(ctx context.Context, filePath string, conditi
 	}
 
 	type condState struct {
-		cond     errorLogCondition
+		cond     logCondition
 		resolved bool
 		result   bool
 	}
@@ -361,7 +361,7 @@ func scanErrorLogFileForConditions(ctx context.Context, filePath string, conditi
 	}
 }
 
-func evaluateErrorExpressionFromCache(ctx context.Context, expr *errorConditionExpr, stepCtx *errorStepContext, cache *errorConditionResultCache, depth int) (bool, error) {
+func evaluateExpressionFromCache(ctx context.Context, expr *conditionExpr, stepCtx *stepContext, cache *conditionResultCache, depth int) (bool, error) {
 	select {
 	case <-ctx.Done():
 		return false, fmt.Errorf("evaluation timed out at depth %d", depth)
@@ -376,14 +376,14 @@ func evaluateErrorExpressionFromCache(ctx context.Context, expr *errorConditionE
 	}
 
 	if expr.Key != "" {
-		return evaluateErrorLeafFromCache(expr.Key, expr.Operand, expr.Value, stepCtx, cache)
+		return evaluateLeafFromCache(expr.Key, expr.Operand, expr.Value, stepCtx, cache)
 	}
 
 	if expr.Operator != "" && len(expr.Conditions) > 0 {
 		switch expr.Operator {
 		case operatorAND:
 			for i, nested := range expr.Conditions {
-				match, err := evaluateErrorExpressionFromCache(ctx, &nested, stepCtx, cache, depth+1)
+				match, err := evaluateExpressionFromCache(ctx, &nested, stepCtx, cache, depth+1)
 				if err != nil {
 					return false, fmt.Errorf("AND condition index %d: %w", i, err)
 				}
@@ -395,7 +395,7 @@ func evaluateErrorExpressionFromCache(ctx context.Context, expr *errorConditionE
 
 		case operatorOR:
 			for _, nested := range expr.Conditions {
-				match, err := evaluateErrorExpressionFromCache(ctx, &nested, stepCtx, cache, depth+1)
+				match, err := evaluateExpressionFromCache(ctx, &nested, stepCtx, cache, depth+1)
 				if err != nil {
 					continue
 				}
@@ -413,13 +413,13 @@ func evaluateErrorExpressionFromCache(ctx context.Context, expr *errorConditionE
 	return false, fmt.Errorf("invalid expression")
 }
 
-func evaluateErrorLeafFromCache(key, operand string, value interface{}, stepCtx *errorStepContext, cache *errorConditionResultCache) (bool, error) {
+func evaluateLeafFromCache(key, operand string, value interface{}, stepCtx *stepContext, cache *conditionResultCache) (bool, error) {
 	if key == fieldKeyStandardOutput || key == fieldKeyStandardErrorOutput {
 		valueStr, ok := value.(string)
 		if !ok {
 			return false, fmt.Errorf("rule value must be string for field '%s', got %T", key, value)
 		}
-		cKey := errorConditionCacheKey(key, operand, valueStr)
+		cKey := conditionCacheKey(key, operand, valueStr)
 		result, exists := cache.get(cKey)
 		if !exists {
 			return false, nil
@@ -429,19 +429,19 @@ func evaluateErrorLeafFromCache(key, operand string, value interface{}, stepCtx 
 
 	switch key {
 	case fieldKeyErrorCode:
-		return evaluateErrorIntCondition(operand, stepCtx.ExitCode, value)
+		return evaluateIntCondition(operand, stepCtx.ExitCode, value)
 	case fieldKeyStepId:
-		return evaluateErrorStringCondition(operand, stepCtx.StepID, value)
+		return evaluateStringCondition(operand, stepCtx.StepID, value)
 	case fieldKeyStageId:
-		return evaluateErrorStringCondition(operand, stepCtx.StageID, value)
+		return evaluateStringCondition(operand, stepCtx.StageID, value)
 	case fieldKeyPipelineId:
-		return evaluateErrorStringCondition(operand, stepCtx.PipelineID, value)
+		return evaluateStringCondition(operand, stepCtx.PipelineID, value)
 	default:
 		return false, fmt.Errorf("unknown field key: %s", key)
 	}
 }
 
-func evaluateErrorStringCondition(operand, fieldValue string, ruleValue interface{}) (bool, error) {
+func evaluateStringCondition(operand, fieldValue string, ruleValue interface{}) (bool, error) {
 	ruleValueStr, ok := ruleValue.(string)
 	if !ok {
 		return false, fmt.Errorf("rule value must be string, got %T", ruleValue)
@@ -470,7 +470,7 @@ func evaluateErrorStringCondition(operand, fieldValue string, ruleValue interfac
 	}
 }
 
-func evaluateErrorIntCondition(operand string, fieldValue int, ruleValue interface{}) (bool, error) {
+func evaluateIntCondition(operand string, fieldValue int, ruleValue interface{}) (bool, error) {
 	if operand == operandRegex {
 		ruleValueStr, ok := ruleValue.(string)
 		if !ok {
@@ -516,7 +516,7 @@ func evaluateErrorIntCondition(operand string, fieldValue int, ruleValue interfa
 	}
 }
 
-func evaluateEmptyErrorContent(operand, value string) (bool, error) {
+func evaluateEmptyContent(operand, value string) (bool, error) {
 	switch operand {
 	case operandContains:
 		return strings.Contains("", strings.ToLower(value)), nil

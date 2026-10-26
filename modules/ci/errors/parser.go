@@ -14,7 +14,7 @@ import (
 
 var errRuleGroupEnabledDefault = true
 
-func loadErrorsYAMLFromPath(path string) ([]byte, error) {
+func loadYAMLFromPath(path string) ([]byte, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("errors YAML file not found at path: %s", path)
 	}
@@ -25,9 +25,9 @@ func loadErrorsYAMLFromPath(path string) ([]byte, error) {
 	return content, nil
 }
 
-// validateErrorsYAML is a syntax-level check: parseable YAML, root is a map,
+// validateYAML is a syntax-level check: parseable YAML, root is a map,
 // and the two required top-level keys are present.
-func validateErrorsYAML(yamlContent []byte) error {
+func validateYAML(yamlContent []byte) error {
 	if len(yamlContent) == 0 {
 		return fmt.Errorf("errors YAML file is empty")
 	}
@@ -54,16 +54,16 @@ func validateErrorsYAML(yamlContent []byte) error {
 	return nil
 }
 
-func parseErrorsYAML(yamlPath string) (*errorRulesConfig, error) {
-	yamlContent, err := loadErrorsYAMLFromPath(yamlPath)
+func parseYAML(yamlPath string) (*rulesConfig, error) {
+	yamlContent, err := loadYAMLFromPath(yamlPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load errors YAML file: %w", err)
 	}
-	if err := validateErrorsYAML(yamlContent); err != nil {
+	if err := validateYAML(yamlContent); err != nil {
 		return nil, fmt.Errorf("failed to validate errors YAML: %w", err)
 	}
 
-	var config errorRulesConfig
+	var config rulesConfig
 	if err := yaml.Unmarshal(yamlContent, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse errors YAML: %w", err)
 	}
@@ -76,7 +76,7 @@ func parseErrorsYAML(yamlPath string) (*errorRulesConfig, error) {
 // validateParsedRules checks structure beyond plain YAML syntax: required
 // fields, known enums, action counts, and recurses into every condition tree.
 // It also fills in defaults (evaluationMode, a group's Enabled pointer) in place.
-func validateParsedRules(config *errorRulesConfig) error {
+func validateParsedRules(config *rulesConfig) error {
 	if config == nil {
 		return fmt.Errorf("config cannot be nil")
 	}
@@ -128,7 +128,7 @@ func validateParsedRules(config *errorRulesConfig) error {
 	return nil
 }
 
-func validateConditionExpression(expr *errorConditionExpr, context string, depth int) error {
+func validateConditionExpression(expr *conditionExpr, context string, depth int) error {
 	if depth > maxConditionDepth {
 		return fmt.Errorf("%s exceeds maximum condition depth of %d", context, maxConditionDepth)
 	}

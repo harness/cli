@@ -13,47 +13,47 @@ import (
 )
 
 const (
-	defaultErrorsCacheDir = "/tmp/.harness-errors-cache"
-	errorsCacheDirEnvVar  = "HARNESS_ERRORS_CACHE_DIR"
+	defaultCacheDir = "/tmp/.harness-errors-cache"
+	cacheDirEnvVar  = "HARNESS_ERRORS_CACHE_DIR"
 
-	// errorsCacheDirPerm is 0777 for cross-container/cross-user access: lite-engine
+	// cacheDirPerm is 0777 for cross-container/cross-user access: lite-engine
 	// and the step process that writes this cache may run as different users.
-	errorsCacheDirPerm = 0o777
+	cacheDirPerm = 0o777
 )
 
-// errorsCachedResult wraps both success and failure cases so a prior parse
+// cachedResult wraps both success and failure cases so a prior parse
 // failure can be replayed without re-parsing a still-broken errors.yaml.
-type errorsCachedResult struct {
-	Config *errorRulesConfig
+type cachedResult struct {
+	Config *rulesConfig
 	Error  string
 }
 
-func resolveErrorsCacheDir(explicit string) string {
+func resolveCacheDir(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	if dir := os.Getenv(errorsCacheDirEnvVar); dir != "" {
+	if dir := os.Getenv(cacheDirEnvVar); dir != "" {
 		return dir
 	}
-	return defaultErrorsCacheDir
+	return defaultCacheDir
 }
 
-// computeErrorsCacheKey hashes the yaml path, not its content: one errors.yaml
+// computeCacheKey hashes the yaml path, not its content: one errors.yaml
 // is parsed once per pipeline stage and reused by every step in that stage, so
 // the path alone is a sufficient and stable cache key for that lifetime.
-func computeErrorsCacheKey(yamlPath string) string {
+func computeCacheKey(yamlPath string) string {
 	hash := sha256.Sum256([]byte(yamlPath))
 	return hex.EncodeToString(hash[:])
 }
 
-func errorsCachePath(cacheDir, key string) string {
+func cachePath(cacheDir, key string) string {
 	return filepath.Join(cacheDir, key+".bin")
 }
 
-// loadErrorsFromCache returns nil, nil on a cache miss (not an error). A
+// loadFromCache returns nil, nil on a cache miss (not an error). A
 // corrupt cache file is deleted and also treated as a miss.
-func loadErrorsFromCache(cacheDir, key string) (*errorsCachedResult, error) {
-	cachePath := errorsCachePath(cacheDir, key)
+func loadFromCache(cacheDir, key string) (*cachedResult, error) {
+	cachePath := cachePath(cacheDir, key)
 
 	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
 		return nil, nil
@@ -65,7 +65,7 @@ func loadErrorsFromCache(cacheDir, key string) (*errorsCachedResult, error) {
 	}
 	defer file.Close()
 
-	var result errorsCachedResult
+	var result cachedResult
 	if err := gob.NewDecoder(file).Decode(&result); err != nil {
 		file.Close()
 		os.Remove(cachePath)
@@ -74,8 +74,8 @@ func loadErrorsFromCache(cacheDir, key string) (*errorsCachedResult, error) {
 	return &result, nil
 }
 
-func saveErrorsToCache(cacheDir, key string, result *errorsCachedResult) error {
-	cachePath := errorsCachePath(cacheDir, key)
+func saveToCache(cacheDir, key string, result *cachedResult) error {
+	cachePath := cachePath(cacheDir, key)
 
 	file, err := os.Create(cachePath)
 	if err != nil {
@@ -91,31 +91,31 @@ func saveErrorsToCache(cacheDir, key string, result *errorsCachedResult) error {
 	return nil
 }
 
-func parseErrorsYAMLWithoutCache(yamlPath string) (*errorRulesConfig, error) {
-	config, err := parseErrorsYAML(yamlPath)
+func parseYAMLWithoutCache(yamlPath string) (*rulesConfig, error) {
+	config, err := parseYAML(yamlPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 	return config, nil
 }
 
-// getOrParseErrorRules is the cached entry point used by `execute error:evaluate`:
+// getOrParseRules is the cached entry point used by `execute error:evaluate`:
 // resolve the cache dir, hash the path, replay a cache hit (success or a
 // previously cached failure), or parse fresh and cache the outcome either way.
 // Any cache-layer failure (mkdir, decode, encode) degrades to parsing without a
 // cache rather than failing the call — evaluate must never hard-fail a step
 // just because its cache directory is unwritable.
-func getOrParseErrorRules(yamlPath, explicitCacheDir string) (*errorRulesConfig, error) {
-	cacheDir := resolveErrorsCacheDir(explicitCacheDir)
+func getOrParseRules(yamlPath, explicitCacheDir string) (*rulesConfig, error) {
+	cacheDir := resolveCacheDir(explicitCacheDir)
 
-	if err := os.MkdirAll(cacheDir, errorsCacheDirPerm); err != nil {
+	if err := os.MkdirAll(cacheDir, cacheDirPerm); err != nil {
 		fmt.Fprintf(os.Stderr, "cache disabled (mkdir failed): %v\n", err)
-		return parseErrorsYAMLWithoutCache(yamlPath)
+		return parseYAMLWithoutCache(yamlPath)
 	}
 
-	key := computeErrorsCacheKey(yamlPath)
+	key := computeCacheKey(yamlPath)
 
-	cached, err := loadErrorsFromCache(cacheDir, key)
+	cached, err := loadFromCache(cacheDir, key)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cache load failed (will re-parse): %v\n", err)
 	}
@@ -126,16 +126,16 @@ func getOrParseErrorRules(yamlPath, explicitCacheDir string) (*errorRulesConfig,
 		return cached.Config, nil
 	}
 
-	config, err := parseErrorsYAML(yamlPath)
+	config, err := parseYAML(yamlPath)
 	if err != nil {
 		parseErr := fmt.Errorf("failed to parse YAML: %w", err)
-		if cacheErr := saveErrorsToCache(cacheDir, key, &errorsCachedResult{Error: parseErr.Error()}); cacheErr != nil {
+		if cacheErr := saveToCache(cacheDir, key, &cachedResult{Error: parseErr.Error()}); cacheErr != nil {
 			fmt.Fprintf(os.Stderr, "cache save failed: %v\n", cacheErr)
 		}
 		return nil, parseErr
 	}
 
-	if err := saveErrorsToCache(cacheDir, key, &errorsCachedResult{Config: config}); err != nil {
+	if err := saveToCache(cacheDir, key, &cachedResult{Config: config}); err != nil {
 		fmt.Fprintf(os.Stderr, "cache save failed (continuing without cache): %v\n", err)
 	}
 	return config, nil
