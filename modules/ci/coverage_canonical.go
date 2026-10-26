@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 type coverageRepositoryPathOptions struct {
 	// Tree is the git file inventory. Nil or unavailable inventory keeps a
 	// safe stored path in full mode and fails patch mode.
-	Tree *coverageTree
+	Tree *env.Tree
 	// HintDirs are coverage-file directories. They are used only to walk upward
 	// to a directory that contains a project manifest. The directory itself is
 	// not glued onto a path.
@@ -104,26 +105,26 @@ func (c *coverageRepositoryPathResolver) resolvePath(raw string, stopOnManifestM
 		}
 	}
 
-	switch resolution := c.opts.Tree.ResolveWithOutcome(normalized); resolution.kind {
-	case coveragePathResolutionExact:
-		return resolution.path, nil
-	case coveragePathResolutionUnique:
+	switch resolution := c.opts.Tree.ResolveWithOutcome(normalized); resolution.Kind {
+	case env.PathResolutionExact:
+		return resolution.Path, nil
+	case env.PathResolutionUnique:
 		// A bare basename can unique-match the wrong file in a monorepo.
 		if !strings.Contains(normalized, "/") {
 			if c.opts.Patch {
 				return "", fmt.Errorf(
 					"patch coverage path %q matched %q by basename only; refusing unique-suffix match",
-					raw, resolution.path,
+					raw, resolution.Path,
 				)
 			}
 			hlog.Warn("coverage path matched by basename only; refusing unique-suffix match",
-				"path", raw, "matched", resolution.path, "stored", normalized)
+				"path", raw, "matched", resolution.Path, "stored", normalized)
 			return normalized, nil
 		}
-		hlog.Warn("coverage path matched by unique suffix", "path", raw, "matched", resolution.path)
-		return resolution.path, nil
-	case coveragePathResolutionAmbiguous:
-		return "", coverageAmbiguousPathError(raw, resolution.candidates)
+		hlog.Warn("coverage path matched by unique suffix", "path", raw, "matched", resolution.Path)
+		return resolution.Path, nil
+	case env.PathResolutionAmbiguous:
+		return "", coverageAmbiguousPathError(raw, resolution.Candidates)
 	default:
 		return c.unresolved(raw, normalized)
 	}
@@ -436,18 +437,18 @@ func (c *coverageRepositoryPathResolver) matchSourceRoot(
 		return coveragePathChoice{}, nil, true
 	}
 	resolution := c.opts.Tree.ResolveWithOutcome(candidate)
-	switch resolution.kind {
-	case coveragePathResolutionExact, coveragePathResolutionUnique:
-		if coverageMatchesAnyExcludePattern(resolution.path, patterns) {
-			coverageLogExcludedFileOnce(excluded, resolution.path)
+	switch resolution.Kind {
+	case env.PathResolutionExact, env.PathResolutionUnique:
+		if coverageMatchesAnyExcludePattern(resolution.Path, patterns) {
+			coverageLogExcludedFileOnce(excluded, resolution.Path)
 			return coveragePathChoice{Skip: true}, nil, true
 		}
-		if resolution.kind == coveragePathResolutionUnique {
-			hlog.Warn("coverage path matched by unique suffix", "path", raw, "matched", resolution.path)
+		if resolution.Kind == env.PathResolutionUnique {
+			hlog.Warn("coverage path matched by unique suffix", "path", raw, "matched", resolution.Path)
 		}
-		return coveragePathChoice{Path: resolution.path}, nil, false
-	case coveragePathResolutionAmbiguous:
-		kept := coveragePathsKeptAfterExclude(resolution.candidates, patterns, excluded)
+		return coveragePathChoice{Path: resolution.Path}, nil, false
+	case env.PathResolutionAmbiguous:
+		kept := coveragePathsKeptAfterExclude(resolution.Candidates, patterns, excluded)
 		switch len(kept) {
 		case 0:
 			return coveragePathChoice{Skip: true}, nil, true

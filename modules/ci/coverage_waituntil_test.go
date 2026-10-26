@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -379,5 +380,28 @@ func TestCoverageWaitUntil_ClientErrorFailsFastWithoutExhaustingTimeout(t *testi
 	}
 	if atomic.LoadInt32(&calls) > 2 {
 		t.Fatalf("status endpoint was called %d times, want it to fail fast on the first 403 instead of retrying toward the 5s timeout", calls)
+	}
+}
+
+func coverageClearCIEnv(t *testing.T) {
+	t.Helper()
+	vars := []string{
+		"CI", "CONTINUOUS_INTEGRATION", "BUILD_NUMBER", "RUN_ID",
+		"APPVEYOR", "SYSTEM_TEAMFOUNDATIONCOLLECTIONURI", "AC_APPCIRCLE",
+		"bamboo_planKey", "BITBUCKET_COMMIT", "BITRISE_IO", "BUDDY_WORKSPACE_ID",
+		"BUILDKITE", "CIRCLECI", "CIRRUS_CI", "CODEBUILD_BUILD_ARN",
+		"CF_BUILD_ID", "CI_NAME", "DRONE", "DSARI", "EAS_BUILD",
+		"GITHUB_ACTIONS", "GITLAB_CI", "GO_PIPELINE_LABEL", "LAYERCI",
+		"HUDSON_URL", "JENKINS_URL", "BUILD_ID", "MAGNUM", "NETLIFY",
+		"NEVERCODE", "RENDER", "SAILCI", "SEMAPHORE", "SCREWDRIVER",
+		"SHIPPABLE", "TDDIUM", "STRIDER", "TASK_ID", "TEAMCITY_VERSION",
+		"TRAVIS", "NOW_BUILDER", "APPCENTER_BUILD_ID",
+	}
+	for _, v := range vars {
+		orig, ok := os.LookupEnv(v)
+		os.Unsetenv(v)
+		if ok {
+			t.Cleanup(func() { os.Setenv(v, orig) })
+		}
 	}
 }

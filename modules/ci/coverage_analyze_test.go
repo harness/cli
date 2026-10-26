@@ -5,6 +5,7 @@ package ci
 
 import (
 	"bytes"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"io"
 	"os"
 	"path/filepath"
@@ -89,7 +90,7 @@ func TestCoverageAdjustLineCounts(t *testing.T) {
 
 func TestCoverageParseCoverageFileInto_MergesSameLineAcrossReports(t *testing.T) {
 	accumulator := newCoverageAnalysisAccumulator()
-	tree := newCoverageTree([]string{"src/service.ts"})
+	tree := env.NewTree([]string{"src/service.ts"})
 	reports := []string{
 		"TN:\nSF:src/service.ts\nDA:10,1\nend_of_record\n",
 		"TN:\nSF:src/service.ts\nDA:10,0\nend_of_record\n",

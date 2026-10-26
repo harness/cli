@@ -4,13 +4,14 @@
 package ci
 
 import (
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestCoverageRepositoryPathResolver_AmbiguousDroppedInFullFailsInPatch(t *testing.T) {
-	tree := newCoverageTree([]string{
+	tree := env.NewTree([]string{
 		"a/com/example/Foo.java",
 		"b/com/example/Foo.java",
 	})
@@ -31,7 +32,7 @@ func TestCoverageRepositoryPathResolver_AmbiguousDroppedInFullFailsInPatch(t *te
 }
 
 func TestCoverageRepositoryPathResolver_BasenameOnlyUniqueMatchRefused(t *testing.T) {
-	tree := newCoverageTree([]string{"pkg/bar.go"})
+	tree := env.NewTree([]string{"pkg/bar.go"})
 
 	full := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatGo})
 	choice, err := full.Resolve("bar.go")
@@ -52,7 +53,7 @@ func TestCoverageRepositoryPathResolver_ExcludeReducesAmbiguousSourceRootToOne(t
 	// Two Maven modules shadow the same package-relative path under the
 	// standard src/main/java source root; matchSourceRoot must apply
 	// excludes to the ambiguous suffix match before giving up.
-	tree := newCoverageTree([]string{
+	tree := env.NewTree([]string{
 		"moduleA/src/main/java/com/example/Foo.java",
 		"moduleB/src/main/java/com/example/Foo.java",
 	})
@@ -72,7 +73,7 @@ func TestCoverageRepositoryPathResolver_ExcludeReducesAmbiguousSourceRootToOne(t
 }
 
 func TestCoverageRepositoryPathResolver_CoberturaSourceCandidatesTryInOrder(t *testing.T) {
-	tree := newCoverageTree([]string{"src/main/pkg/Foo.cs"})
+	tree := env.NewTree([]string{"src/main/pkg/Foo.cs"})
 	resolver := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{Tree: tree, Format: coverageFormatCobertura})
 
 	choice, err := resolver.Select("Foo.cs", nil, nil, "other/pkg/Foo.cs", "src/main/pkg/Foo.cs")
@@ -88,7 +89,7 @@ func TestCoverageRepositoryPathResolver_ProductionSourceRootWinsOverTestRoot(t *
 	// src/main/* layouts are listed before src/test/* in coverageSourceRootLayouts;
 	// matchSourceRoot must stop at the first non-"next" result, so a unique
 	// production-root match must never fall through to the test root.
-	tree := newCoverageTree([]string{
+	tree := env.NewTree([]string{
 		"moduleA/src/main/java/com/example/Foo.java",
 		"moduleA/src/test/java/com/example/Foo.java",
 	})
@@ -104,7 +105,7 @@ func TestCoverageRepositoryPathResolver_ProductionSourceRootWinsOverTestRoot(t *
 }
 
 func TestCoverageRepositoryPathResolver_CoberturaExcludedSourceTriesNextCandidate(t *testing.T) {
-	tree := newCoverageTree([]string{"excluded/pkg/Foo.cs", "kept/pkg/Foo.cs"})
+	tree := env.NewTree([]string{"excluded/pkg/Foo.cs", "kept/pkg/Foo.cs"})
 	patterns, err := coverageCompileExcludePatterns([]string{"excluded/**"})
 	if err != nil {
 		t.Fatalf("coverageCompileExcludePatterns() error = %v", err)
@@ -121,7 +122,7 @@ func TestCoverageRepositoryPathResolver_CoberturaExcludedSourceTriesNextCandidat
 }
 
 func TestCoverageRepositoryPathResolver_CoberturaAllCandidatesExcludedDropsFile(t *testing.T) {
-	tree := newCoverageTree([]string{"excluded/pkg/Foo.cs"})
+	tree := env.NewTree([]string{"excluded/pkg/Foo.cs"})
 	patterns, err := coverageCompileExcludePatterns([]string{"excluded/**"})
 	if err != nil {
 		t.Fatalf("coverageCompileExcludePatterns() error = %v", err)
@@ -153,7 +154,7 @@ func TestCoverageReadGoModuleName_StripsTrailingComment(t *testing.T) {
 }
 
 func TestCoverageRepositoryPathResolver_ManifestPrefixRejectsParentTraversal(t *testing.T) {
-	tree := newCoverageTree([]string{"pkg.json", "sub/pkg/foo.js"})
+	tree := env.NewTree([]string{"pkg.json", "sub/pkg/foo.js"})
 	resolver := &coverageRepositoryPathResolver{
 		opts:         coverageRepositoryPathOptions{Tree: tree},
 		choices:      make(map[string]coverageCachedChoice),
@@ -176,7 +177,7 @@ func TestCoverageRepositoryPathResolver_GoModuleResolvesImportPath(t *testing.T)
 		t.Fatal(err)
 	}
 
-	tree := newCoverageTree([]string{"go.mod", "pkg/foo/bar.go"})
+	tree := env.NewTree([]string{"go.mod", "pkg/foo/bar.go"})
 	resolver := newCoverageRepositoryPathResolver(coverageRepositoryPathOptions{
 		Tree:    tree,
 		GitRoot: root,

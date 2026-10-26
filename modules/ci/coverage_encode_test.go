@@ -180,3 +180,10 @@ foo.go:5.1,5.10 1 1
 		t.Error("line 5 Diff = false, want true (introduced by the head commit)")
 	}
 }
+
+func trimNewline(b []byte) []byte {
+	for len(b) > 0 && (b[len(b)-1] == '\n' || b[len(b)-1] == '\r') {
+		b = b[:len(b)-1]
+	}
+	return b
+}

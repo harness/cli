@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package env
 
 import (
 	"os/exec"
@@ -12,66 +12,66 @@ import (
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 
-// coveragePathResolutionKind is the outcome of matching a coverage path
+// PathResolutionKind is the outcome of matching a coverage path
 // against the git inventory.
-type coveragePathResolutionKind int
+type PathResolutionKind int
 
 const (
-	// coveragePathResolutionUnavailable means the git file inventory could not be loaded.
-	coveragePathResolutionUnavailable coveragePathResolutionKind = iota
-	// coveragePathResolutionExact means the path is already a tracked git-relative path.
-	coveragePathResolutionExact
-	// coveragePathResolutionUnique means exactly one tracked file ends with the coverage path.
-	coveragePathResolutionUnique
-	// coveragePathResolutionNotFound means no tracked file matches.
-	coveragePathResolutionNotFound
-	// coveragePathResolutionAmbiguous means more than one tracked file matches.
-	coveragePathResolutionAmbiguous
+	// PathResolutionUnavailable means the git file inventory could not be loaded.
+	PathResolutionUnavailable PathResolutionKind = iota
+	// PathResolutionExact means the path is already a tracked git-relative path.
+	PathResolutionExact
+	// PathResolutionUnique means exactly one tracked file ends with the coverage path.
+	PathResolutionUnique
+	// PathResolutionNotFound means no tracked file matches.
+	PathResolutionNotFound
+	// PathResolutionAmbiguous means more than one tracked file matches.
+	PathResolutionAmbiguous
 )
 
-// coverageTreeResolution is one path-matching outcome. Candidates is set for ambiguous matches.
-type coverageTreeResolution struct {
-	kind       coveragePathResolutionKind
-	path       string
-	candidates []string
+// TreeResolution is one path-matching outcome. Candidates is set for ambiguous matches.
+type TreeResolution struct {
+	Kind       PathResolutionKind
+	Path       string
+	Candidates []string
 }
 
-// coverageTree is a reverse-path-component suffix trie built from a list of
+// Tree is a reverse-path-component suffix trie built from a list of
 // repository files. It resolves coverage paths (which may omit leading
 // directory components such as a monorepo module prefix or Maven source
 // root) to their canonical git-relative path via suffix matching.
 //
 // Inspired by Codecov's pathmap.py implementation.
-type coverageTree struct {
-	root *coverageTrieNode
+type Tree struct {
+	root *trieNode
 
 	loader func() ([]string, error)
 	once   sync.Once
 	ready  bool
 }
 
-type coverageTrieNode struct {
+type trieNode struct {
 	// fullPaths holds the complete git-relative paths that end at this node.
 	fullPaths []string
-	children  map[string]*coverageTrieNode
+	children  map[string]*trieNode
 }
 
-// newCoverageTree builds a suffix trie from the provided list of git-relative file paths.
-func newCoverageTree(files []string) *coverageTree {
-	t := &coverageTree{ready: true}
+// NewTree builds a suffix trie from the provided list of git-relative file paths.
+func NewTree(files []string) *Tree {
+	t := &Tree{ready: true}
 	t.build(files)
 	return t
 }
 
-func (t *coverageTree) build(files []string) {
-	t.root = &coverageTrieNode{children: make(map[string]*coverageTrieNode)}
+func (t *Tree) build(files []string) {
+	t.root = &trieNode{children: make(map[string]*trieNode)}
 	for _, f := range files {
 		t.insert(strings.TrimSpace(f))
 	}
 }
 
 // Available reports whether the file inventory is available.
-func (t *coverageTree) Available() bool {
+func (t *Tree) Available() bool {
 	if t == nil {
 		return false
 	}
@@ -81,7 +81,7 @@ func (t *coverageTree) Available() bool {
 	return t.ready
 }
 
-func (t *coverageTree) load() {
+func (t *Tree) load() {
 	files, err := t.loader()
 	if err != nil {
 		hlog.Warn("git ls-files failed, path resolution disabled", "err", err)
@@ -93,7 +93,7 @@ func (t *coverageTree) load() {
 }
 
 // insert adds a single path to the trie in reverse component order.
-func (t *coverageTree) insert(path string) {
+func (t *Tree) insert(path string) {
 	if path == "" {
 		return
 	}
@@ -107,7 +107,7 @@ func (t *coverageTree) insert(path string) {
 		}
 		child, ok := node.children[part]
 		if !ok {
-			child = &coverageTrieNode{children: make(map[string]*coverageTrieNode)}
+			child = &trieNode{children: make(map[string]*trieNode)}
 			node.children[part] = child
 		}
 		node = child
@@ -117,10 +117,10 @@ func (t *coverageTree) insert(path string) {
 
 // Resolve returns an exact or unique full-suffix match. It never drops leading
 // path components to force a match.
-func (t *coverageTree) Resolve(path string) string {
+func (t *Tree) Resolve(path string) string {
 	resolution := t.ResolveWithOutcome(path)
-	if resolution.kind == coveragePathResolutionExact || resolution.kind == coveragePathResolutionUnique {
-		return resolution.path
+	if resolution.Kind == PathResolutionExact || resolution.Kind == PathResolutionUnique {
+		return resolution.Path
 	}
 	return ""
 }
@@ -128,7 +128,7 @@ func (t *coverageTree) Resolve(path string) string {
 // ResolveExact is "does this exact git path exist?"
 // Walks the whole candidate (filename → parents). Only paths stored on that
 // node count — a shorter prefix or a file in a child folder does not match.
-func (t *coverageTree) ResolveExact(path string) string {
+func (t *Tree) ResolveExact(path string) string {
 	if !t.Available() {
 		return ""
 	}
@@ -153,51 +153,51 @@ func (t *coverageTree) ResolveExact(path string) string {
 		node = child
 	}
 
-	return coverageUniquePath(node.fullPaths)
+	return uniquePath(node.fullPaths)
 }
 
 // ResolveWithOutcome reports whether path is exact, a unique suffix, missing, or ambiguous.
 // It does not walk shorter suffixes after an ambiguous match.
-func (t *coverageTree) ResolveWithOutcome(path string) coverageTreeResolution {
+func (t *Tree) ResolveWithOutcome(path string) TreeResolution {
 	if !t.Available() {
-		return coverageTreeResolution{kind: coveragePathResolutionUnavailable}
+		return TreeResolution{Kind: PathResolutionUnavailable}
 	}
 
-	path = coverageNormalizeTriePath(path)
+	path = normalizeTriePath(path)
 	if path == "" {
-		return coverageTreeResolution{kind: coveragePathResolutionNotFound}
+		return TreeResolution{Kind: PathResolutionNotFound}
 	}
 
 	if exact := t.ResolveExact(path); exact != "" {
-		return coverageTreeResolution{kind: coveragePathResolutionExact, path: exact}
+		return TreeResolution{Kind: PathResolutionExact, Path: exact}
 	}
 
 	// Match the whole path, including a git path that has extra leading
 	// directories. Do not drop a leading component: that is what turns
 	// build/generated/com/example/Foo.java into src/main/java/com/example/Foo.java.
-	return coverageSuffixResolution(coverageDistinctPaths(t.pathsForSuffix(strings.Split(path, "/"))))
+	return suffixResolution(distinctPaths(t.pathsForSuffix(strings.Split(path, "/"))))
 }
 
 // Files returns the tracked file paths used to build the inventory.
-func (t *coverageTree) Files() []string {
+func (t *Tree) Files() []string {
 	if !t.Available() {
 		return nil
 	}
-	return coverageDistinctPaths(coverageCollectPaths(t.root))
+	return distinctPaths(collectPaths(t.root))
 }
 
-func coverageSuffixResolution(matches []string) coverageTreeResolution {
+func suffixResolution(matches []string) TreeResolution {
 	switch len(matches) {
 	case 0:
-		return coverageTreeResolution{kind: coveragePathResolutionNotFound}
+		return TreeResolution{Kind: PathResolutionNotFound}
 	case 1:
-		return coverageTreeResolution{kind: coveragePathResolutionUnique, path: matches[0]}
+		return TreeResolution{Kind: PathResolutionUnique, Path: matches[0]}
 	default:
-		return coverageTreeResolution{kind: coveragePathResolutionAmbiguous, candidates: matches}
+		return TreeResolution{Kind: PathResolutionAmbiguous, Candidates: matches}
 	}
 }
 
-func (t *coverageTree) pathsForSuffix(parts []string) []string {
+func (t *Tree) pathsForSuffix(parts []string) []string {
 	node := t.root
 	for i := len(parts) - 1; i >= 0; i-- {
 		part := parts[i]
@@ -210,16 +210,16 @@ func (t *coverageTree) pathsForSuffix(parts []string) []string {
 		}
 		node = child
 	}
-	return coverageCollectPaths(node)
+	return collectPaths(node)
 }
 
-func coverageNormalizeTriePath(path string) string {
+func normalizeTriePath(path string) string {
 	path = strings.ReplaceAll(path, "\\", "/")
 	path = strings.TrimPrefix(path, "/")
 	return strings.Trim(path, "/")
 }
 
-func coverageDistinctPaths(paths []string) []string {
+func distinctPaths(paths []string) []string {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -239,8 +239,8 @@ func coverageDistinctPaths(paths []string) []string {
 	return out
 }
 
-// coverageUniquePath: one distinct path → that path; 0 or 2+ distinct paths → "".
-func coverageUniquePath(paths []string) string {
+// uniquePath: one distinct path → that path; 0 or 2+ distinct paths → "".
+func uniquePath(paths []string) string {
 	var seen string
 	for _, candidate := range paths {
 		if candidate == "" {
@@ -257,20 +257,20 @@ func coverageUniquePath(paths []string) string {
 	return seen
 }
 
-// coverageCollectPaths gathers all full paths stored at or beneath the given node.
-func coverageCollectPaths(n *coverageTrieNode) []string {
+// collectPaths gathers all full paths stored at or beneath the given node.
+func collectPaths(n *trieNode) []string {
 	var result []string
 	result = append(result, n.fullPaths...)
 	for _, child := range n.children {
-		result = append(result, coverageCollectPaths(child)...)
+		result = append(result, collectPaths(child)...)
 	}
 	return result
 }
 
-// coverageGitLsFiles runs `git ls-files` and returns the list of tracked file
+// gitLsFiles runs `git ls-files` and returns the list of tracked file
 // paths relative to the git root. Returns an error if git is not available or
 // the working directory is not inside a git repository.
-func coverageGitLsFiles() ([]string, error) {
+func gitLsFiles() ([]string, error) {
 	out, err := exec.Command("git", "ls-files", "--full-name", "--", ":(top)").Output()
 	if err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func coverageGitLsFiles() ([]string, error) {
 	return files, nil
 }
 
-// newCoverageLazyTreeFromGit returns a tree loaded from Git on first use.
-func newCoverageLazyTreeFromGit() *coverageTree {
-	return &coverageTree{loader: coverageGitLsFiles}
+// NewLazyTreeFromGit returns a tree loaded from Git on first use.
+func NewLazyTreeFromGit() *Tree {
+	return &Tree{loader: gitLsFiles}
 }

@@ -6,6 +6,7 @@ package ci
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"path"
 	"strings"
 
@@ -61,7 +62,7 @@ func (s coverageScope) query() map[string]string {
 // --target-scope, else the pipeline path. analyze is local-only and does not
 // call coverage-server, so this is only used by upload/wait-until.
 func coverageResolveScope(accountID, provider, owner, targetScope, pipelineID string) (coverageScope, error) {
-	if strings.EqualFold(provider, coverageHarnessProvider) {
+	if strings.EqualFold(provider, env.HarnessProvider) {
 		if targetScope != "" {
 			return coverageScope{}, fmt.Errorf(
 				"--target-scope is not supported for Harness Code; coverage is stored on the repository",

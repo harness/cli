@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package env
 
 import (
 	"context"
@@ -16,25 +16,25 @@ import (
 	"time"
 )
 
-//go:embed coverage_vendors.json
-var coverageVendorsJSON []byte
+//go:embed vendors.json
+var vendorsJSON []byte
 
-var coverageVendors []coverageVendor
+var vendors []Vendor
 
 func init() {
-	if err := json.Unmarshal(coverageVendorsJSON, &coverageVendors); err != nil {
+	if err := json.Unmarshal(vendorsJSON, &vendors); err != nil {
 		panic(err)
 	}
 }
 
-var coverageCommonEnv = []string{
+var commonEnv = []string{
 	"CI",
 	"CONTINUOUS_INTEGRATION",
 	"BUILD_NUMBER",
 	"RUN_ID",
 }
 
-type coverageVariables struct {
+type variables struct {
 	AccountID     string   `json:"account_id,omitempty"`
 	OrgID         string   `json:"org_id,omitempty"`
 	ProjectID     string   `json:"project_id,omitempty"`
@@ -54,78 +54,78 @@ type coverageVariables struct {
 	PRID          []string `json:"pr_id,omitempty"`
 }
 
-type coverageVendor struct {
+type Vendor struct {
 	Name     string `json:"name,omitempty"`
 	Constant string `json:"constant,omitempty"`
 	Env      any    `json:"env,omitempty"`
 	PR       any    `json:"pr,omitempty"`
 	Val      string `json:"val,omitempty"`
-	coverageVariables
+	variables
 }
 
-func (v coverageVendor) String() string {
+func (v Vendor) String() string {
 	return fmt.Sprintf("Name:  %s\nConst: %s\nEnv:   %v\nVal:   %v", v.Name, v.Constant, v.Env, v.Val)
 }
 
-func (v coverageVendor) IsCI() bool {
+func (v Vendor) IsCI() bool {
 	return v.Val != ""
 }
 
-func (v coverageVendor) IsPR() bool {
+func (v Vendor) IsPR() bool {
 	return v.IsPRBuild()
 }
 
-func (v coverageVendor) AccountID() (string, error) {
-	accountID := os.Getenv(v.coverageVariables.AccountID)
+func (v Vendor) AccountID() (string, error) {
+	accountID := os.Getenv(v.variables.AccountID)
 	if accountID == "" {
 		return "", fmt.Errorf("no account ID found")
 	}
 	return accountID, nil
 }
 
-func (v coverageVendor) OrgID() string {
-	return os.Getenv(v.coverageVariables.OrgID)
+func (v Vendor) OrgID() string {
+	return os.Getenv(v.variables.OrgID)
 }
 
-func (v coverageVendor) ProjectID() string {
-	return os.Getenv(v.coverageVariables.ProjectID)
+func (v Vendor) ProjectID() string {
+	return os.Getenv(v.variables.ProjectID)
 }
 
-func (v coverageVendor) SCM() (string, error) {
-	if scm := os.Getenv(v.coverageVariables.SCM); scm != "" {
+func (v Vendor) SCM() (string, error) {
+	if scm := os.Getenv(v.variables.SCM); scm != "" {
 		return scm, nil
 	}
-	repoInfo, err := coverageGetRepoInfo()
+	repoInfo, err := getRepoInfo()
 	if err != nil {
 		return "", err
 	}
 	return repoInfo.Provider, nil
 }
 
-func (v coverageVendor) Owner() (string, error) {
-	if owner := os.Getenv(v.coverageVariables.Owner); owner != "" {
+func (v Vendor) Owner() (string, error) {
+	if owner := os.Getenv(v.variables.Owner); owner != "" {
 		return owner, nil
 	}
-	repoInfo, err := coverageGetRepoInfo()
+	repoInfo, err := getRepoInfo()
 	if err != nil {
 		return "", err
 	}
 	return repoInfo.Owner, nil
 }
 
-func (v coverageVendor) Identifier() (string, error) {
-	if identifier := os.Getenv(v.coverageVariables.Identifier); identifier != "" {
+func (v Vendor) Identifier() (string, error) {
+	if identifier := os.Getenv(v.variables.Identifier); identifier != "" {
 		return identifier, nil
 	}
-	repoInfo, err := coverageGetRepoInfo()
+	repoInfo, err := getRepoInfo()
 	if err != nil {
 		return "", err
 	}
 	return repoInfo.Name, nil
 }
 
-func (v coverageVendor) Commit() (string, error) {
-	for _, envVar := range v.coverageVariables.Commit {
+func (v Vendor) Commit() (string, error) {
+	for _, envVar := range v.variables.Commit {
 		if commit := os.Getenv(envVar); commit != "" {
 			return commit, nil
 		}
@@ -141,7 +141,7 @@ func (v coverageVendor) Commit() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func (v coverageVendor) DefaultBranch() (string, error) {
+func (v Vendor) DefaultBranch() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -154,8 +154,8 @@ func (v coverageVendor) DefaultBranch() (string, error) {
 	return branch, nil
 }
 
-func (v coverageVendor) Branch() (string, error) {
-	for _, envVar := range v.coverageVariables.Branch {
+func (v Vendor) Branch() (string, error) {
+	for _, envVar := range v.variables.Branch {
 		if branch := os.Getenv(envVar); branch != "" {
 			return branch, nil
 		}
@@ -171,8 +171,8 @@ func (v coverageVendor) Branch() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func (v coverageVendor) Base() (string, error) {
-	for _, envVar := range v.coverageVariables.Base {
+func (v Vendor) Base() (string, error) {
+	for _, envVar := range v.variables.Base {
 		if val := os.Getenv(envVar); val != "" {
 			return val, nil
 		}
@@ -180,18 +180,18 @@ func (v coverageVendor) Base() (string, error) {
 	return "", nil
 }
 
-func (v coverageVendor) CommitBefore() string {
-	return os.Getenv(v.coverageVariables.CommitBefore)
+func (v Vendor) CommitBefore() string {
+	return os.Getenv(v.variables.CommitBefore)
 }
 
-func (v coverageVendor) CommitAfter() string {
-	return os.Getenv(v.coverageVariables.CommitAfter)
+func (v Vendor) CommitAfter() string {
+	return os.Getenv(v.variables.CommitAfter)
 }
 
 // IsValidCommitBefore reports whether CommitBefore holds a usable SHA: not empty
 // and not all zeros. Harness CI PR pipelines using the source-branch strategy
 // (rather than merge-commit) can leave DRONE_COMMIT_BEFORE empty or all-zero.
-func (v coverageVendor) IsValidCommitBefore() bool {
+func (v Vendor) IsValidCommitBefore() bool {
 	commitBefore := v.CommitBefore()
 	if commitBefore == "" {
 		return false
@@ -207,7 +207,7 @@ func (v coverageVendor) IsValidCommitBefore() bool {
 // IsPRBuild evaluates the vendor's PR field, which may be a bare env-var name,
 // an {"env":..., "ne":...} not-equal check, an {"any":[...]} first-match list,
 // or a map of {envVar: expectedValue} pairs.
-func (v coverageVendor) IsPRBuild() bool {
+func (v Vendor) IsPRBuild() bool {
 	if v.PR == nil {
 		return false
 	}
@@ -247,8 +247,8 @@ func (v coverageVendor) IsPRBuild() bool {
 	return false
 }
 
-func (v coverageVendor) Build() int {
-	build := os.Getenv(v.coverageVariables.Build)
+func (v Vendor) Build() int {
+	build := os.Getenv(v.variables.Build)
 	if build != "" {
 		i, _ := strconv.Atoi(build)
 		return i
@@ -256,31 +256,31 @@ func (v coverageVendor) Build() int {
 	return 0
 }
 
-func (v coverageVendor) Pipeline() string {
-	return os.Getenv(v.coverageVariables.Pipeline)
+func (v Vendor) Pipeline() string {
+	return os.Getenv(v.variables.Pipeline)
 }
 
-func (v coverageVendor) Execution() string {
-	return os.Getenv(v.coverageVariables.Execution)
+func (v Vendor) Execution() string {
+	return os.Getenv(v.variables.Execution)
 }
 
 // PullRequestID returns the numeric pull request ID from CI, or 0 if unknown.
-func (v coverageVendor) PullRequestID() int64 {
+func (v Vendor) PullRequestID() int64 {
 	for _, envVar := range v.PRID {
-		if id := coverageParsePullRequestID(os.Getenv(envVar)); id > 0 {
+		if id := parsePullRequestID(os.Getenv(envVar)); id > 0 {
 			return id
 		}
 	}
-	return coveragePullRequestIDFromPRConfig(v.PR)
+	return pullRequestIDFromPRConfig(v.PR)
 }
 
-func coveragePullRequestIDFromPRConfig(pr any) int64 {
+func pullRequestIDFromPRConfig(pr any) int64 {
 	switch cfg := pr.(type) {
 	case string:
-		return coverageParsePullRequestID(os.Getenv(cfg))
+		return parsePullRequestID(os.Getenv(cfg))
 	case map[string]any:
 		if envVar, ok := cfg["env"].(string); ok {
-			return coverageParsePullRequestID(os.Getenv(envVar))
+			return parsePullRequestID(os.Getenv(envVar))
 		}
 		if anyVars, ok := cfg["any"].([]any); ok {
 			for _, item := range anyVars {
@@ -288,7 +288,7 @@ func coveragePullRequestIDFromPRConfig(pr any) int64 {
 				if !ok {
 					continue
 				}
-				if id := coverageParsePullRequestID(os.Getenv(envVar)); id > 0 {
+				if id := parsePullRequestID(os.Getenv(envVar)); id > 0 {
 					return id
 				}
 			}
@@ -297,9 +297,9 @@ func coveragePullRequestIDFromPRConfig(pr any) int64 {
 	return 0
 }
 
-// coverageParsePullRequestID extracts a positive PR number from a CI env value.
+// parsePullRequestID extracts a positive PR number from a CI env value.
 // Accepts a bare number, a GitHub ref (refs/pull/123/merge), or a PR/MR URL.
-func coverageParsePullRequestID(raw string) int64 {
+func parsePullRequestID(raw string) int64 {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.EqualFold(raw, "false") ||
 		strings.EqualFold(raw, "true") || strings.EqualFold(raw, "null") {
@@ -309,7 +309,7 @@ func coverageParsePullRequestID(raw string) int64 {
 	if i := strings.Index(raw, "refs/pull/"); i >= 0 {
 		rest := raw[i+len("refs/pull/"):]
 		num, _, _ := strings.Cut(rest, "/")
-		return coverageParsePositiveInt(num)
+		return parsePositiveInt(num)
 	}
 
 	for _, marker := range []string{"/pull/", "/merge_requests/", "/pull-requests/"} {
@@ -321,15 +321,15 @@ func coverageParsePullRequestID(raw string) int64 {
 		num, _, _ := strings.Cut(rest, "/")
 		num, _, _ = strings.Cut(num, "?")
 		num, _, _ = strings.Cut(num, "#")
-		if id := coverageParsePositiveInt(num); id > 0 {
+		if id := parsePositiveInt(num); id > 0 {
 			return id
 		}
 	}
 
-	return coverageParsePositiveInt(raw)
+	return parsePositiveInt(raw)
 }
 
-func coverageParsePositiveInt(s string) int64 {
+func parsePositiveInt(s string) int64 {
 	id, err := strconv.ParseInt(s, 10, 64)
 	if err != nil || id <= 0 {
 		return 0
@@ -337,22 +337,22 @@ func coverageParsePositiveInt(s string) int64 {
 	return id
 }
 
-func (v coverageVendor) RepoBaseURL() (string, error) {
+func (v Vendor) RepoBaseURL() (string, error) {
 	if baseURL := os.Getenv(v.BaseURL); baseURL != "" {
 		return baseURL, nil
 	}
-	repoInfo, err := coverageGetRepoInfo()
+	repoInfo, err := getRepoInfo()
 	if err != nil {
 		return "", err
 	}
 	return repoInfo.BaseURL, nil
 }
 
-// coverageInfo detects the current CI vendor from the environment, consulting
+// Info detects the current CI vendor from the environment, consulting
 // the data-driven vendor table before falling back to a short list of common
 // CI env vars (CI, CONTINUOUS_INTEGRATION, BUILD_NUMBER, RUN_ID).
-func coverageInfo() (coverageVendor, error) {
-	for _, v := range coverageVendors {
+func Info() (Vendor, error) {
+	for _, v := range vendors {
 		switch vt := v.Env.(type) {
 		case string:
 			val := os.Getenv(vt)
@@ -389,10 +389,10 @@ func coverageInfo() (coverageVendor, error) {
 		}
 	}
 
-	for _, ce := range coverageCommonEnv {
+	for _, ce := range commonEnv {
 		val := os.Getenv(ce)
 		if val != "" {
-			return coverageVendor{
+			return Vendor{
 				Name:     "Common Var",
 				Constant: "COMMON",
 				Env:      ce,
@@ -400,22 +400,22 @@ func coverageInfo() (coverageVendor, error) {
 			}, nil
 		}
 	}
-	return coverageVendor{}, fmt.Errorf("no CI vendor found")
+	return Vendor{}, fmt.Errorf("no CI vendor found")
 }
 
-const coverageHarnessProvider = "Harness"
+const HarnessProvider = "Harness"
 
-type coverageRepoInfo struct {
+type repoInfo struct {
 	Provider string
 	BaseURL  string
 	Owner    string // full path: group/subgroup
 	Name     string
 }
 
-// coverageParseGitURL parses a git remote URL (SSH shorthand or scheme://host/path)
-// into a coverageRepoInfo, special-casing any harness.io host and stripping the
+// parseGitURL parses a git remote URL (SSH shorthand or scheme://host/path)
+// into a repoInfo, special-casing any harness.io host and stripping the
 // DevSpace-convention code/git/ or git/ path prefix for Harness/localhost remotes.
-func coverageParseGitURL(remoteURL string) (*coverageRepoInfo, error) {
+func parseGitURL(remoteURL string) (*repoInfo, error) {
 	var scheme, host, repoPath string
 
 	if strings.HasPrefix(remoteURL, "git@") {
@@ -440,12 +440,12 @@ func coverageParseGitURL(remoteURL string) (*coverageRepoInfo, error) {
 	provider = strings.Split(provider, ":")[0]
 
 	if strings.Contains(strings.ToLower(host), "harness.io") {
-		provider = coverageHarnessProvider
+		provider = HarnessProvider
 	}
 
 	repoPath = strings.TrimSuffix(repoPath, ".git")
 
-	if provider == coverageHarnessProvider || provider == "localhost" {
+	if provider == HarnessProvider || provider == "localhost" {
 		repoPath = strings.TrimPrefix(repoPath, "code/git/")
 		repoPath = strings.TrimPrefix(repoPath, "git/")
 	}
@@ -458,7 +458,7 @@ func coverageParseGitURL(remoteURL string) (*coverageRepoInfo, error) {
 	owner := strings.Join(parts[:len(parts)-1], "/")
 	repoName := parts[len(parts)-1]
 
-	return &coverageRepoInfo{
+	return &repoInfo{
 		Provider: provider,
 		BaseURL:  fmt.Sprintf("%s://%s", scheme, host),
 		Owner:    owner,
@@ -466,7 +466,7 @@ func coverageParseGitURL(remoteURL string) (*coverageRepoInfo, error) {
 	}, nil
 }
 
-func coverageGetRemoteURL() (string, error) {
+func getRemoteURL() (string, error) {
 	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get remote URL: %w", err)
@@ -474,13 +474,13 @@ func coverageGetRemoteURL() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// coverageGetRepoInfo fetches the git remote URL and parses it into a coverageRepoInfo.
-func coverageGetRepoInfo() (*coverageRepoInfo, error) {
-	remoteURL, err := coverageGetRemoteURL()
+// getRepoInfo fetches the git remote URL and parses it into a repoInfo.
+func getRepoInfo() (*repoInfo, error) {
+	remoteURL, err := getRemoteURL()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get remote URL: %w", err)
 	}
-	repoInfo, err := coverageParseGitURL(remoteURL)
+	repoInfo, err := parseGitURL(remoteURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse remote URL: %w", err)
 	}

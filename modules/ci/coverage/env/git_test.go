@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package env
 
 import (
 	"os"
@@ -29,9 +29,9 @@ index 0000000..2222222 100644
 @@ -0,0 +1 @@
 +hello
 `
-	result, err := coverageParseDiff(diff)
+	result, err := parseDiff(diff)
 	if err != nil {
-		t.Fatalf("coverageParseDiff() error = %v", err)
+		t.Fatalf("parseDiff() error = %v", err)
 	}
 	wantFoo := map[uint32]bool{2: true, 3: true, 4: true, 12: true}
 	for line, want := range wantFoo {
@@ -48,9 +48,9 @@ index 0000000..2222222 100644
 }
 
 func TestCoverageParseDiff_EmptyDiffReturnsEmptyMap(t *testing.T) {
-	result, err := coverageParseDiff("")
+	result, err := parseDiff("")
 	if err != nil {
-		t.Fatalf("coverageParseDiff() error = %v", err)
+		t.Fatalf("parseDiff() error = %v", err)
 	}
 	if len(result) != 0 {
 		t.Fatalf("result = %v, want empty map for an empty diff", result)
@@ -70,9 +70,9 @@ index 0000000..1111111 100644
 +y
 +z
 `
-	result, err := coverageParseDiff(diff)
+	result, err := parseDiff(diff)
 	if err != nil {
-		t.Fatalf("coverageParseDiff() error = %v", err)
+		t.Fatalf("parseDiff() error = %v", err)
 	}
 	want := map[uint32]bool{5: true, 6: true, 7: true}
 	for line, w := range want {
@@ -105,15 +105,15 @@ func TestCoverageGetMergeBase_InvalidRefErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := coverageGetMergeBase("does-not-exist", "HEAD"); err == nil {
-		t.Fatal("coverageGetMergeBase() error = nil, want error for a nonexistent ref")
+	if _, err := GetMergeBase("does-not-exist", "HEAD"); err == nil {
+		t.Fatal("GetMergeBase() error = nil, want error for a nonexistent ref")
 	}
 }
 
 func TestCoverageChangedLines_SameRevisionShortCircuits(t *testing.T) {
-	result, err := coverageChangedLines("abc123", "abc123")
+	result, err := ChangedLines("abc123", "abc123")
 	if err != nil {
-		t.Fatalf("coverageChangedLines() error = %v", err)
+		t.Fatalf("ChangedLines() error = %v", err)
 	}
 	if len(result) != 0 {
 		t.Fatalf("result = %v, want empty map when base == head", result)
@@ -121,8 +121,8 @@ func TestCoverageChangedLines_SameRevisionShortCircuits(t *testing.T) {
 }
 
 func TestCoverageChangedLines_EmptyBaseRevIsError(t *testing.T) {
-	if _, err := coverageChangedLines("", "HEAD"); err == nil {
-		t.Fatal("coverageChangedLines() error = nil, want error for empty baseRev")
+	if _, err := ChangedLines("", "HEAD"); err == nil {
+		t.Fatal("ChangedLines() error = nil, want error for empty baseRev")
 	}
 }
 
@@ -172,9 +172,9 @@ func TestCoverageChangedLines_AgainstRealRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := coverageChangedLines(string(trimNewline(baseSHA)), "HEAD")
+	result, err := ChangedLines(string(trimNewline(baseSHA)), "HEAD")
 	if err != nil {
-		t.Fatalf("coverageChangedLines() error = %v", err)
+		t.Fatalf("ChangedLines() error = %v", err)
 	}
 	if !result["foo.go"][5] {
 		t.Fatalf("result = %v, want foo.go line 5 (func B) marked changed", result)

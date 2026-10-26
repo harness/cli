@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package env
 
 import (
 	"context"
@@ -14,8 +14,8 @@ import (
 	"github.com/harness/cli/v3/pkg/hlog"
 )
 
-// coverageRefExists checks if a git ref (branch, tag, or commit) exists locally.
-func coverageRefExists(ref string) bool {
+// RefExists checks if a git ref (branch, tag, or commit) exists locally.
+func RefExists(ref string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", ref)
@@ -23,16 +23,16 @@ func coverageRefExists(ref string) bool {
 	return err == nil
 }
 
-// coverageEnsureRefFetched ensures a ref is available locally, fetching it from
+// EnsureRefFetched ensures a ref is available locally, fetching it from
 // origin if needed. Returns the ref name to use for git operations (may be
 // prefixed with "origin/" if local branch doesn't exist). For refs like
 // "origin/main", it will fetch from remote if not present. For refs like
 // "main", it will try to fetch and return "origin/main" if local "main" does
 // not exist. This function never fails - it logs warnings if fetch fails and
 // returns the original ref.
-func coverageEnsureRefFetched(ref string) string {
+func EnsureRefFetched(ref string) string {
 	// If ref already exists locally, use it as-is
-	if coverageRefExists(ref) {
+	if RefExists(ref) {
 		hlog.Debug("ref exists locally", "ref", ref)
 		return ref
 	}
@@ -69,8 +69,8 @@ func coverageEnsureRefFetched(ref string) string {
 	return useRef
 }
 
-// coverageGetMergeBase returns the merge-base SHA between the base and head refs.
-func coverageGetMergeBase(base, head string) (string, error) {
+// GetMergeBase returns the merge-base SHA between the base and head refs.
+func GetMergeBase(base, head string) (string, error) {
 	hlog.Debug("running git merge-base", "base", base, "head", head)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -89,8 +89,8 @@ func coverageGetMergeBase(base, head string) (string, error) {
 	return result, nil
 }
 
-// coverageRepositoryRoot returns the absolute path of the git repository root.
-func coverageRepositoryRoot() (string, error) {
+// RepositoryRoot returns the absolute path of the git repository root.
+func RepositoryRoot() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
@@ -101,13 +101,13 @@ func coverageRepositoryRoot() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// coverageChangedLines returns changed line numbers keyed by repository-relative
+// ChangedLines returns changed line numbers keyed by repository-relative
 // path. baseRev is required - the revision to compare against (e.g., "main",
 // "origin/main", or a commit SHA). headRev is optional. An empty head compares
 // against HEAD. The comparison is triple-dot: changes head introduced since it
 // diverged from base. When both are commit SHAs, the diff is more reproducible
 // across environments.
-func coverageChangedLines(baseRev, headRev string) (map[string]map[uint32]bool, error) {
+func ChangedLines(baseRev, headRev string) (map[string]map[uint32]bool, error) {
 	if baseRev == "" {
 		return nil, fmt.Errorf("baseRev is required")
 	}
@@ -142,11 +142,11 @@ func coverageChangedLines(baseRev, headRev string) (map[string]map[uint32]bool, 
 		return nil, fmt.Errorf("failed to get git diff: %w", err)
 	}
 
-	return coverageParseDiff(string(out))
+	return parseDiff(string(out))
 }
 
-// coverageParseDiff parses the unified diff output and extracts changed line numbers.
-func coverageParseDiff(diffOutput string) (map[string]map[uint32]bool, error) {
+// parseDiff parses the unified diff output and extracts changed line numbers.
+func parseDiff(diffOutput string) (map[string]map[uint32]bool, error) {
 	result := make(map[string]map[uint32]bool)
 	var currentFile string
 

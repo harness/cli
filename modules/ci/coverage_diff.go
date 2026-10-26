@@ -3,7 +3,10 @@
 
 package ci
 
-import "github.com/harness/cli/v3/pkg/hlog"
+import (
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
+	"github.com/harness/cli/v3/pkg/hlog"
+)
 
 // coverageChangedLineIndex looks up changed lines by repository-relative file path.
 type coverageChangedLineIndex struct {
@@ -24,7 +27,7 @@ func coverageLoadChangedLineIndex(options *coverageWriteOptions) (*coverageChang
 		hlog.Debug("getting diff lines for base revision", "base", options.baseRev)
 	}
 
-	diffLines, err := coverageChangedLines(options.baseRev, options.headRev)
+	diffLines, err := env.ChangedLines(options.baseRev, options.headRev)
 	if err != nil {
 		return nil, err
 	}

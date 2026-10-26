@@ -5,6 +5,7 @@ package ci
 
 import (
 	"fmt"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"io"
 	"os"
 	"path/filepath"
@@ -66,7 +67,7 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 	}
 
 	if patch && base == "" {
-		vendor, vendorErr := coverageInfo()
+		vendor, vendorErr := env.Info()
 		if vendorErr != nil {
 			hlog.Debug("no CI vendor detected", "err", vendorErr)
 		} else {
@@ -95,8 +96,8 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 
 	var diffLines map[string]map[uint32]bool
 	if base != "" {
-		baseRef := coverageEnsureRefFetched(base)
-		diffLines, err = coverageChangedLines(baseRef, head)
+		baseRef := env.EnsureRefFetched(base)
+		diffLines, err = env.ChangedLines(baseRef, head)
 		if err != nil {
 			if patch {
 				return nil, fmt.Errorf("failed to compute patch diff: %w", err)
@@ -108,7 +109,7 @@ func coverageAnalyze(files, excludePatterns []string, patch bool, base, head str
 		}
 	}
 
-	gitTrie := newCoverageLazyTreeFromGit()
+	gitTrie := env.NewLazyTreeFromGit()
 
 	mergedStats := &coverageStats{
 		Files:          make([]coverageFileStats, 0),
@@ -199,7 +200,7 @@ func coverageParseCoverageFileInto(
 	formatType string,
 	reader io.Reader,
 	hintDir string,
-	tree *coverageTree,
+	tree *env.Tree,
 	diffLines map[string]map[uint32]bool,
 	patch bool,
 	excludes []coverageExcludePattern,
@@ -215,7 +216,7 @@ func coverageParseCoverageFileInto(
 		return err
 	}
 
-	gitRoot, rootErr := coverageRepositoryRoot()
+	gitRoot, rootErr := env.RepositoryRoot()
 	if rootErr != nil {
 		gitRoot = ""
 	}

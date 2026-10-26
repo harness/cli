@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"io"
 	"net/http"
 	"os"
@@ -68,10 +69,10 @@ type coverageUploadParams struct {
 
 // coverageResolveUploadParams fills in any unset flag with CI-vendor-detected
 // values, mirroring HCli's upload checkFlags. A failed vendor lookup is not
-// fatal: the zero-value coverageVendor still resolves owner/identifier/commit
+// fatal: the zero-value env.Vendor still resolves owner/identifier/commit
 // from the local git remote and HEAD.
 func coverageResolveUploadParams(f coverageUploadFlags) (*coverageUploadParams, error) {
-	vendor, err := coverageInfo()
+	vendor, err := env.Info()
 	if err != nil {
 		hlog.Debug("no CI vendor detected, will use git remote for SCM detection", "err", err)
 	}
@@ -114,7 +115,7 @@ func coverageResolveUploadParams(f coverageUploadFlags) (*coverageUploadParams, 
 		if err != nil {
 			return nil, fmt.Errorf("failed to get SCM identifier: %w", err)
 		}
-		if strings.EqualFold(provider, coverageHarnessProvider) {
+		if strings.EqualFold(provider, env.HarnessProvider) {
 			identifier, owner = coverageParseIdentifierOwner(accountID, owner, identifier)
 		}
 	}
@@ -239,7 +240,7 @@ func coverageParseIdentifierOwner(account, owner, identifier string) (string, st
 // path, which coverageResolveScope already applied; leave it empty so the two
 // paths stay aligned.
 func coverageUploadTargetScope(params *coverageUploadParams) string {
-	if strings.EqualFold(params.provider, coverageHarnessProvider) {
+	if strings.EqualFold(params.provider, env.HarnessProvider) {
 		return ""
 	}
 	return params.resolvedScope.SpacePath()
@@ -320,7 +321,7 @@ func coverageUpload(ctx *cmdctx.Ctx, f coverageUploadFlags) error {
 		return err
 	}
 
-	pathResolver := newCoverageLazyTreeFromGit()
+	pathResolver := env.NewLazyTreeFromGit()
 	repoRef := path.Join(params.owner, params.identifier)
 
 	var errGroup errgroup.Group
@@ -341,14 +342,14 @@ func coverageProcessUploadFile(
 	repoRef string,
 	coverageFile coverageFile,
 	excludePatterns []coverageExcludePattern,
-	pathResolver *coverageTree,
+	pathResolver *env.Tree,
 ) error {
 	hlog.Info("processing coverage file", "path", coverageFile.Path)
 	defer hlog.Info("finished processing coverage file", "path", coverageFile.Path)
 
 	baseRef := ""
 	if params.base != "" {
-		baseRef = coverageEnsureRefFetched(params.base)
+		baseRef = env.EnsureRefFetched(params.base)
 	}
 
 	reportData, enc, err := coverageBuildReport(repoRef, coverageFile, baseRef, excludePatterns, pathResolver, params)
@@ -364,7 +365,7 @@ func coverageBuildReport(
 	coverageFile coverageFile,
 	baseRef string,
 	excludePatterns []coverageExcludePattern,
-	pathResolver *coverageTree,
+	pathResolver *env.Tree,
 	params *coverageUploadParams,
 ) ([]byte, coverageEncodeResult, error) {
 	f, err := os.Open(coverageFile.Path)
@@ -434,7 +435,7 @@ func coverageGetPresignedURL(
 	case params.commitBefore != "":
 		mergeBaseSHA = params.commitBefore
 	case baseRef != "" && params.branch != "" && params.base != params.branch:
-		mergeBaseSHA, err = coverageGetMergeBase(baseRef, params.branch)
+		mergeBaseSHA, err = env.GetMergeBase(baseRef, params.branch)
 		if err != nil {
 			return coverageSignURLResponse{}, fmt.Errorf("failed to get merge base [%s, %s]: %w", baseRef, params.branch, err)
 		}

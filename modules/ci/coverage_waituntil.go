@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"io"
 	"net/http"
 	"time"
@@ -94,7 +95,7 @@ func coverageWaitUntil(ctx *cmdctx.Ctx, f coverageWaitUntilFlags) error {
 		return fmt.Errorf("at least one threshold flag must be specified (--gt, --gte, --patch-gt, --patch-gte)")
 	}
 
-	vendor, err := coverageInfo()
+	vendor, err := env.Info()
 	if err != nil {
 		return fmt.Errorf("failed to get CI vendor info: %v", err)
 	}

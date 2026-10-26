@@ -5,6 +5,7 @@ package ci
 
 import (
 	"fmt"
+	"github.com/harness/cli/v3/modules/ci/coverage/env"
 	"io"
 
 	"github.com/parquet-go/parquet-go"
@@ -42,7 +43,7 @@ type coverageWriteOptions struct {
 	excludePatterns    []string
 	compiledExcludes   []coverageExcludePattern
 	hasCompiledExclude bool
-	pathResolver       *coverageTree
+	pathResolver       *env.Tree
 }
 
 func (o *coverageWriteOptions) excludeMatchers() ([]coverageExcludePattern, error) {
@@ -102,7 +103,7 @@ func coverageWithExcludePatterns(patterns []coverageExcludePattern) coverageWrit
 
 // coverageWithPathResolver supplies a shared git path inventory for
 // repository path resolution, excludes, and patch matching at write time.
-func coverageWithPathResolver(resolver *coverageTree) coverageWriteOption {
+func coverageWithPathResolver(resolver *env.Tree) coverageWriteOption {
 	return func(o *coverageWriteOptions) {
 		o.pathResolver = resolver
 	}
@@ -182,7 +183,7 @@ func coverageWriteParquet(
 	if err != nil {
 		return coverageEncodeResult{}, err
 	}
-	gitRoot, rootErr := coverageRepositoryRoot()
+	gitRoot, rootErr := env.RepositoryRoot()
 	if rootErr != nil {
 		gitRoot = ""
 	}

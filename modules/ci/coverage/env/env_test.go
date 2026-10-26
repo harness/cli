@@ -1,7 +1,7 @@
 // Copyright © 2026 Harness Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package ci
+package env
 
 import (
 	"os"
@@ -9,17 +9,17 @@ import (
 )
 
 func TestCoverageVendor_IsCI(t *testing.T) {
-	if (coverageVendor{Val: "x"}).IsCI() != true {
+	if (Vendor{Val: "x"}).IsCI() != true {
 		t.Error("IsCI() = false, want true when Val is set")
 	}
-	if (coverageVendor{}).IsCI() != false {
+	if (Vendor{}).IsCI() != false {
 		t.Error("IsCI() = true, want false when Val is empty")
 	}
 }
 
 func TestCoverageVendor_AccountID(t *testing.T) {
 	t.Setenv("TEST_ACCOUNT_ID", "acct-123")
-	v := coverageVendor{coverageVariables: coverageVariables{AccountID: "TEST_ACCOUNT_ID"}}
+	v := Vendor{variables: variables{AccountID: "TEST_ACCOUNT_ID"}}
 	got, err := v.AccountID()
 	if err != nil {
 		t.Fatalf("AccountID() error = %v", err)
@@ -30,7 +30,7 @@ func TestCoverageVendor_AccountID(t *testing.T) {
 }
 
 func TestCoverageVendor_AccountID_MissingErrors(t *testing.T) {
-	v := coverageVendor{coverageVariables: coverageVariables{AccountID: "NONEXISTENT_ACCOUNT_ID_VAR"}}
+	v := Vendor{variables: variables{AccountID: "NONEXISTENT_ACCOUNT_ID_VAR"}}
 	if _, err := v.AccountID(); err == nil {
 		t.Fatal("AccountID() error = nil, want error when the env var is unset")
 	}
@@ -51,7 +51,7 @@ func TestCoverageVendor_Build(t *testing.T) {
 			if tt.value != "" {
 				t.Setenv("TEST_BUILD_ID", tt.value)
 			}
-			v := coverageVendor{coverageVariables: coverageVariables{Build: "TEST_BUILD_ID"}}
+			v := Vendor{variables: variables{Build: "TEST_BUILD_ID"}}
 			if got := v.Build(); got != tt.want {
 				t.Errorf("Build() = %d, want %d", got, tt.want)
 			}
@@ -76,7 +76,7 @@ func TestCoverageVendor_IsValidCommitBefore(t *testing.T) {
 			if tt.value != "" {
 				t.Setenv("TEST_COMMIT_BEFORE", tt.value)
 			}
-			v := coverageVendor{coverageVariables: coverageVariables{CommitBefore: "TEST_COMMIT_BEFORE"}}
+			v := Vendor{variables: variables{CommitBefore: "TEST_COMMIT_BEFORE"}}
 			if got := v.IsValidCommitBefore(); got != tt.want {
 				t.Errorf("IsValidCommitBefore() = %v, want %v", got, tt.want)
 			}
@@ -107,7 +107,7 @@ func TestCoverageVendor_IsPRBuild(t *testing.T) {
 			if tt.envVar != "" {
 				t.Setenv(tt.envVar, tt.envVal)
 			}
-			v := coverageVendor{PR: tt.pr}
+			v := Vendor{PR: tt.pr}
 			if got := v.IsPRBuild(); got != tt.want {
 				t.Errorf("IsPRBuild() = %v, want %v", got, tt.want)
 			}
@@ -138,8 +138,8 @@ func TestCoverageParsePullRequestID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.raw, func(t *testing.T) {
-			if got := coverageParsePullRequestID(tt.raw); got != tt.want {
-				t.Errorf("coverageParsePullRequestID(%q) = %d, want %d", tt.raw, got, tt.want)
+			if got := parsePullRequestID(tt.raw); got != tt.want {
+				t.Errorf("parsePullRequestID(%q) = %d, want %d", tt.raw, got, tt.want)
 			}
 		})
 	}
@@ -148,7 +148,7 @@ func TestCoverageParsePullRequestID(t *testing.T) {
 func TestCoverageVendor_PullRequestID(t *testing.T) {
 	t.Run("from pr_id env list, second entry", func(t *testing.T) {
 		t.Setenv("GITHUB_REF", "refs/pull/321/merge")
-		v := coverageVendor{coverageVariables: coverageVariables{PRID: []string{"GITHUB_PR_NUMBER", "GITHUB_REF"}}}
+		v := Vendor{variables: variables{PRID: []string{"GITHUB_PR_NUMBER", "GITHUB_REF"}}}
 		if got := v.PullRequestID(); got != 321 {
 			t.Errorf("PullRequestID() = %d, want 321", got)
 		}
@@ -156,7 +156,7 @@ func TestCoverageVendor_PullRequestID(t *testing.T) {
 
 	t.Run("falls back to PR config when pr_id unset", func(t *testing.T) {
 		t.Setenv("BITBUCKET_PR_ID", "15")
-		v := coverageVendor{PR: "BITBUCKET_PR_ID"}
+		v := Vendor{PR: "BITBUCKET_PR_ID"}
 		if got := v.PullRequestID(); got != 15 {
 			t.Errorf("PullRequestID() = %d, want 15", got)
 		}
@@ -164,7 +164,7 @@ func TestCoverageVendor_PullRequestID(t *testing.T) {
 
 	t.Run("PR config env/ne", func(t *testing.T) {
 		t.Setenv("TRAVIS_PULL_REQUEST", "9")
-		v := coverageVendor{PR: map[string]any{"env": "TRAVIS_PULL_REQUEST", "ne": "false"}}
+		v := Vendor{PR: map[string]any{"env": "TRAVIS_PULL_REQUEST", "ne": "false"}}
 		if got := v.PullRequestID(); got != 9 {
 			t.Errorf("PullRequestID() = %d, want 9", got)
 		}
@@ -172,21 +172,21 @@ func TestCoverageVendor_PullRequestID(t *testing.T) {
 
 	t.Run("travis false sentinel is not an id", func(t *testing.T) {
 		t.Setenv("TRAVIS_PULL_REQUEST", "false")
-		v := coverageVendor{PR: map[string]any{"env": "TRAVIS_PULL_REQUEST", "ne": "false"}}
+		v := Vendor{PR: map[string]any{"env": "TRAVIS_PULL_REQUEST", "ne": "false"}}
 		if got := v.PullRequestID(); got != 0 {
 			t.Errorf("PullRequestID() = %d, want 0", got)
 		}
 	})
 
 	t.Run("empty when nothing set", func(t *testing.T) {
-		v := coverageVendor{}
+		v := Vendor{}
 		if got := v.PullRequestID(); got != 0 {
 			t.Errorf("PullRequestID() = %d, want 0", got)
 		}
 	})
 }
 
-func coverageClearCIEnv(t *testing.T) {
+func clearCIEnv(t *testing.T) {
 	t.Helper()
 	vars := []string{
 		"CI", "CONTINUOUS_INTEGRATION", "BUILD_NUMBER", "RUN_ID",
@@ -211,11 +211,11 @@ func coverageClearCIEnv(t *testing.T) {
 
 func TestCoverageInfo_VendorEnvShapes(t *testing.T) {
 	t.Run("string-shaped env wins over common fallback", func(t *testing.T) {
-		coverageClearCIEnv(t)
+		clearCIEnv(t)
 		t.Setenv("CIRCLECI", "true")
-		vendor, err := coverageInfo()
+		vendor, err := Info()
 		if err != nil {
-			t.Fatalf("coverageInfo() error = %v", err)
+			t.Fatalf("Info() error = %v", err)
 		}
 		if vendor.Constant != "CIRCLE" {
 			t.Fatalf("vendor.Constant = %q, want CIRCLE", vendor.Constant)
@@ -226,11 +226,11 @@ func TestCoverageInfo_VendorEnvShapes(t *testing.T) {
 	})
 
 	t.Run("list-shaped env matches one entry", func(t *testing.T) {
-		coverageClearCIEnv(t)
+		clearCIEnv(t)
 		t.Setenv("JENKINS_URL", "http://jenkins.example.com")
-		vendor, err := coverageInfo()
+		vendor, err := Info()
 		if err != nil {
-			t.Fatalf("coverageInfo() error = %v", err)
+			t.Fatalf("Info() error = %v", err)
 		}
 		if vendor.Constant != "JENKINS" {
 			t.Fatalf("vendor.Constant = %q, want JENKINS", vendor.Constant)
@@ -241,11 +241,11 @@ func TestCoverageInfo_VendorEnvShapes(t *testing.T) {
 	})
 
 	t.Run("map-shaped env requires exact value match", func(t *testing.T) {
-		coverageClearCIEnv(t)
+		clearCIEnv(t)
 		t.Setenv("CI_NAME", "codeship")
-		vendor, err := coverageInfo()
+		vendor, err := Info()
 		if err != nil {
-			t.Fatalf("coverageInfo() error = %v", err)
+			t.Fatalf("Info() error = %v", err)
 		}
 		if vendor.Val != "codeship" {
 			t.Fatalf("vendor.Val = %q, want codeship (exact map-value match)", vendor.Val)
@@ -253,12 +253,12 @@ func TestCoverageInfo_VendorEnvShapes(t *testing.T) {
 	})
 
 	t.Run("map-shaped env rejects a non-matching value", func(t *testing.T) {
-		coverageClearCIEnv(t)
+		clearCIEnv(t)
 		t.Setenv("CI_NAME", "something-else")
 		t.Setenv("CI", "true")
-		vendor, err := coverageInfo()
+		vendor, err := Info()
 		if err != nil {
-			t.Fatalf("coverageInfo() error = %v", err)
+			t.Fatalf("Info() error = %v", err)
 		}
 		if vendor.Constant != "COMMON" {
 			t.Fatalf("vendor.Constant = %q, want COMMON (CI_NAME value must not match an unrelated vendor)", vendor.Constant)
@@ -266,11 +266,11 @@ func TestCoverageInfo_VendorEnvShapes(t *testing.T) {
 	})
 
 	t.Run("falls back to common env when no vendor matches", func(t *testing.T) {
-		coverageClearCIEnv(t)
+		clearCIEnv(t)
 		t.Setenv("CI", "true")
-		vendor, err := coverageInfo()
+		vendor, err := Info()
 		if err != nil {
-			t.Fatalf("coverageInfo() error = %v", err)
+			t.Fatalf("Info() error = %v", err)
 		}
 		if vendor.Constant != "COMMON" || vendor.Val != "true" {
 			t.Fatalf("vendor = %+v, want the Common Var fallback", vendor)
@@ -278,9 +278,9 @@ func TestCoverageInfo_VendorEnvShapes(t *testing.T) {
 	})
 
 	t.Run("errors when nothing matches", func(t *testing.T) {
-		coverageClearCIEnv(t)
-		if _, err := coverageInfo(); err == nil {
-			t.Fatal("coverageInfo() error = nil, want \"no CI vendor found\"")
+		clearCIEnv(t)
+		if _, err := Info(); err == nil {
+			t.Fatal("Info() error = nil, want \"no CI vendor found\"")
 		}
 	})
 }
@@ -299,24 +299,24 @@ func TestCoverageParseGitURL(t *testing.T) {
 		{"gitlab nested group", "https://gitlab.com/group/subgroup/repo.git", false, "gitlab", "group/subgroup", "repo", ""},
 		{"ssh shorthand", "git@github.com:user/repo.git", false, "github", "user", "repo", ""},
 		{"no .git suffix", "https://github.com/user/repo", false, "github", "user", "repo", ""},
-		{"harness.io host with git/ prefix", "https://git.harness.io/git/user/repo.git", false, coverageHarnessProvider, "user", "repo", ""},
-		{"harness.io host with code/git/ devspace prefix", "https://harness.io/code/git/user/repo.git", false, coverageHarnessProvider, "user", "repo", ""},
-		{"harness.io devspace full path", "https://teamintelci.pr2.harness.io/code/git/abc123/default/tidev/uuid.git", false, coverageHarnessProvider, "abc123/default/tidev", "uuid", ""},
+		{"harness.io host with git/ prefix", "https://git.harness.io/git/user/repo.git", false, HarnessProvider, "user", "repo", ""},
+		{"harness.io host with code/git/ devspace prefix", "https://harness.io/code/git/user/repo.git", false, HarnessProvider, "user", "repo", ""},
+		{"harness.io devspace full path", "https://teamintelci.pr2.harness.io/code/git/abc123/default/tidev/uuid.git", false, HarnessProvider, "abc123/default/tidev", "uuid", ""},
 		{"invalid ssh url, no colon", "git@github.com", true, "", "", "", ""},
 		{"invalid repo path, single segment", "https://github.com/repo", true, "", "", "", ""},
 		{"invalid url", "://invalid", true, "", "", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			info, err := coverageParseGitURL(tt.url)
+			info, err := parseGitURL(tt.url)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatal("coverageParseGitURL() error = nil, want error")
+					t.Fatal("parseGitURL() error = nil, want error")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("coverageParseGitURL() error = %v", err)
+				t.Fatalf("parseGitURL() error = %v", err)
 			}
 			if info.Provider != tt.provider {
 				t.Errorf("Provider = %q, want %q", info.Provider, tt.provider)
@@ -335,9 +335,9 @@ func TestCoverageParseGitURL(t *testing.T) {
 }
 
 func TestCoverageParseGitURL_ProviderExtractionStripsPort(t *testing.T) {
-	info, err := coverageParseGitURL("https://git.example.com:8080/user/repo.git")
+	info, err := parseGitURL("https://git.example.com:8080/user/repo.git")
 	if err != nil {
-		t.Fatalf("coverageParseGitURL() error = %v", err)
+		t.Fatalf("parseGitURL() error = %v", err)
 	}
 	if info.Provider != "git" {
 		t.Fatalf("Provider = %q, want git (host label before the first dot, port stripped)", info.Provider)
