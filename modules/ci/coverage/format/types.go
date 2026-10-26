@@ -32,6 +32,18 @@ type LineRecord struct {
 	PathCandidates []string `parquet:"-"`
 }
 
+// UnitCoverageRecord is one row of per-test coverage: the lines a single
+// coverage key (test) hit in one source file. It is the schema of the
+// parquet-bitmap wire format and must match the coverage service.
+type UnitCoverageRecord struct {
+	RepoRef         string   `parquet:"repo_ref,dict"`
+	UnitKey         string   `parquet:"unit_key,dict"`
+	FilePath        string   `parquet:"file_path,dict"`
+	HitLines        []uint32 `parquet:"hit_lines,list"`
+	PartialLines    []uint32 `parquet:"partial_lines,list"`
+	ExecutableLines []uint32 `parquet:"executable_lines,list"`
+}
+
 // Parser decodes one coverage report dialect into lineRecords.
 type Parser interface {
 	Parse(reader io.Reader) (iter.Seq[LineRecord], error)
