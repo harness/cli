@@ -271,15 +271,18 @@ func TestResolvePipelineAuth(t *testing.T) {
 		}
 	})
 
-	t.Run("missing a scope var errors naming it", func(t *testing.T) {
+	t.Run("account-scoped pipeline: org and project unset resolve to empty", func(t *testing.T) {
 		clearAuthEnv(t)
 		t.Setenv(hbase.EnvPipelineID, "pipe1")
 		t.Setenv(hbase.EnvAccountID, "acct1")
-		// HARNESS_ORG_ID deliberately left unset.
+		t.Setenv("PIPELINE_TOKEN", "tok123")
 		cfg := &PipelineAuthConfig{TokenEnvVar: "PIPELINE_TOKEN"}
 		r, triggered, err := ResolvePipelineAuth(cfg, false, noopEvalHeaders)
-		if r != nil || !triggered || err == nil || !strings.Contains(err.Error(), hbase.EnvOrgID) {
-			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want error naming %s", r, triggered, err, hbase.EnvOrgID)
+		if err != nil || !triggered || r == nil {
+			t.Fatalf("ResolvePipelineAuth = (%v, %v, %v), want resolved auth", r, triggered, err)
+		}
+		if r.AccountID != "acct1" || r.OrgID != "" || r.ProjectID != "" {
+			t.Fatalf("scope = %q/%q/%q, want acct1 with empty org and project", r.AccountID, r.OrgID, r.ProjectID)
 		}
 	})
 

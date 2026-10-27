@@ -300,14 +300,6 @@ func ResolvePipelineAuth(cfg *PipelineAuthConfig, forced bool, evalHeaders func(
 	if account == "" {
 		return nil, true, fmt.Errorf("%s is required in pipeline mode", hbase.EnvAccountID)
 	}
-	org := os.Getenv(hbase.EnvOrgID)
-	if org == "" {
-		return nil, true, fmt.Errorf("%s is required in pipeline mode", hbase.EnvOrgID)
-	}
-	project := os.Getenv(hbase.EnvProjectID)
-	if project == "" {
-		return nil, true, fmt.Errorf("%s is required in pipeline mode", hbase.EnvProjectID)
-	}
 	token := os.Getenv(cfg.TokenEnvVar)
 	if token == "" {
 		return nil, true, fmt.Errorf("%s is required in pipeline mode", cfg.TokenEnvVar)
@@ -315,8 +307,8 @@ func ResolvePipelineAuth(cfg *PipelineAuthConfig, forced bool, evalHeaders func(
 	return &ResolvedAuth{
 		Source:      SourcePipeline,
 		AccountID:   account,
-		OrgID:       org,
-		ProjectID:   project,
+		OrgID:       os.Getenv(hbase.EnvOrgID),
+		ProjectID:   os.Getenv(hbase.EnvProjectID),
 		APIUrl:      os.Getenv(cfg.APIURLEnvVar),
 		RegistryURL: os.Getenv(cfg.RegistryURLEnvVar),
 		Headers:     evalHeaders(cfg.Headers, token),
