@@ -51,11 +51,13 @@ func TestRunArtifactDelete_VerifiesRemoval(t *testing.T) {
 	cases := []struct {
 		name          string
 		summaryStatus int
+		summaryBody   string
 		wantErr       string
 	}{
-		{"read-back 404 means removed", http.StatusNotFound, ""},
-		{"read-back 200 means still present", http.StatusOK, "still present"},
-		{"read-back 500 is unconfirmed", http.StatusInternalServerError, "could not be confirmed"},
+		{"read-back 404 means removed", http.StatusNotFound, `{"status":"x"}`, ""},
+		{"read-back 200 means still present", http.StatusOK, `{"data":{"deletedAt":""}}`, "still present"},
+		{"read-back soft-deleted means removed", http.StatusOK, `{"data":{"deletedAt":"1761550000000"}}`, ""},
+		{"read-back 500 is unconfirmed", http.StatusInternalServerError, `{"status":"x"}`, "could not be confirmed"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,7 +75,7 @@ func TestRunArtifactDelete_VerifiesRemoval(t *testing.T) {
 				default:
 					summaryType = r.URL.Query().Get("artifact_type")
 					w.WriteHeader(tc.summaryStatus)
-					_, _ = w.Write([]byte(`{"status":"x"}`))
+					_, _ = w.Write([]byte(tc.summaryBody))
 				}
 			}))
 			t.Cleanup(srv.Close)
@@ -118,8 +120,21 @@ func TestRunArtifactDelete_ArtifactTypeResolution(t *testing.T) {
 		wantLookups  int
 		wantDeleteAs string
 		wantErr      string
+		rows         string
 	}{
-		{name: "ambiguous name is refused before deleting", wantLookups: 1, wantErr: "more than one artifact type"},
+		{
+			name: "ambiguous name is refused before deleting", wantLookups: 1, wantErr: "more than one artifact type",
+			rows: `{"name":"org/m","registryIdentifier":"reg","artifactType":"model"},
+				{"name":"org/m","registryIdentifier":"reg","artifactType":"dataset"}`,
+		},
+		{
+			name: "no exact match is refused before deleting", wantLookups: 1, wantErr: "not found in registry reg",
+			rows: `{"name":"org/m-x","registryIdentifier":"reg","artifactType":"model"}`,
+		},
+		{
+			name: "untyped match deletes without a type", wantLookups: 1,
+			rows: `{"name":"org/m","registryIdentifier":"reg"}`,
+		},
 		{name: "explicit type skips the lookup", flagType: "dataset", wantDeleteAs: "dataset"},
 	}
 	for _, tc := range cases {
@@ -134,9 +149,7 @@ func TestRunArtifactDelete_ArtifactTypeResolution(t *testing.T) {
 					_, _ = w.Write([]byte(`{"status":"SUCCESS"}`))
 				case strings.HasSuffix(r.URL.Path, "/+/artifacts"):
 					lookups++
-					_, _ = w.Write([]byte(`{"data":{"artifacts":[
-						{"name":"org/m","registryIdentifier":"reg","artifactType":"model"},
-						{"name":"org/m","registryIdentifier":"reg","artifactType":"dataset"}]}}`))
+					_, _ = w.Write([]byte(`{"data":{"artifacts":[` + tc.rows + `]}}`))
 				default:
 					w.WriteHeader(http.StatusNotFound)
 					_, _ = w.Write([]byte(`{"status":"x"}`))

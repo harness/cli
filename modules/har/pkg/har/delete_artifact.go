@@ -63,10 +63,6 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 	yes := cmdctx.GetBool(ctx.FlagValues, "yes")
 	jsonOut := ctx.FormatFlags.Format == "json"
 
-	if yes && dryRun {
-		return fmt.Errorf("--yes confirms a real delete and cannot be combined with the default dry run; " +
-			"pass --dry-run=false to delete, or drop --yes to preview")
-	}
 	if jsonOut && !dryRun && !yes {
 		return fmt.Errorf("--format json does not show the preview, so it cannot prompt; " +
 			"pass --yes to delete, or drop --dry-run=false to preview")
@@ -107,6 +103,9 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 
 	// Gap 6 fix: if nothing to delete, exit early without second prompt.
 	if len(parsed.SuccessPackages) == 0 || dryRun {
+		if yes && dryRun {
+			pterm.Warning.WithWriter(os.Stderr).Println("--yes has no effect without --dry-run=false; nothing was deleted")
+		}
 		if jsonOut {
 			return printBulkDeleteJSON(newBulkDeleteResult(parsed, false, nil))
 		}

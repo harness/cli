@@ -133,7 +133,7 @@ func TestBulkDeleteArtifactHandler_ConfirmationGates(t *testing.T) {
 		wantErr   string
 		wantCalls int
 	}{
-		{"--yes with the default dry run is rejected", map[string]any{"yes": true}, "", true, "cannot be combined", 0},
+		{"--yes with the default dry run only previews", map[string]any{"yes": true}, "", false, "", 1},
 		{"piped stdin cannot confirm a real delete", map[string]any{"dry-run": "false"}, "", false, "--yes", 1},
 		{"dry run with --force never prompts", map[string]any{"force": true}, "", false, "", 1},
 		{"json real delete without --yes is refused before any call", map[string]any{"dry-run": "false"}, "json", true, "--yes", 0},

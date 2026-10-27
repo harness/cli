@@ -146,14 +146,20 @@ func lookupArtifactType(c *client.Client, scope string, t artifactTarget, qp map
 	for at := range found {
 		return at, nil
 	}
-	return "", nil
+	return "", fmt.Errorf("artifact %s not found in registry %s", t.Name, t.Registry)
 }
 
-// verifyArtifactGone reads the target back after a successful DELETE; only a
-// 404 counts as removed.
+// verifyArtifactGone reads the target back after a successful DELETE. The
+// summary endpoint also returns soft-deleted rows, so a set deletedAt counts as
+// removed alongside a 404.
 func verifyArtifactGone(c *client.Client, path string, qp map[string]string, id string) error {
-	_, _, err := c.Get(path+"/summary", qp)
+	res, _, err := c.Get(path+"/summary", qp)
 	if err == nil {
+		body, _ := res.(map[string]any)
+		data, _ := body["data"].(map[string]any)
+		if deletedAt, _ := data["deletedAt"].(string); deletedAt != "" {
+			return nil
+		}
 		return fmt.Errorf("delete returned success but %s is still present", id)
 	}
 	var apiErr *client.APIError
