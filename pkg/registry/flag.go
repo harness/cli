@@ -134,6 +134,8 @@ var coreFlagTable = []CoreFlag{
 	{Name: "preview-request", Bool: true},
 	{Name: "from"},
 	{Name: "to"},
+	{Name: "api-url"}, // har module only (addHARCredentialFlags)
+	{Name: "token"},   // har module only (addHARCredentialFlags)
 }
 
 // coreFlagBool maps every known long ("--name") and short ("-x") spelling of
