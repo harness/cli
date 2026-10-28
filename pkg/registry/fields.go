@@ -207,7 +207,7 @@ func buildTspec(columnIDs []string, fields []spec.FieldDef) *spec.TableSpec {
 	if len(columnIDs) > 0 {
 		for _, id := range columnIDs {
 			if f, ok := byID[id]; ok {
-				cols = append(cols, spec.TableColumn{Header: fieldLabel(f), Expr: f.Expr, Align: f.Align, FieldType: f.FieldType, WidthMax: f.WidthMax})
+				cols = append(cols, spec.TableColumn{ID: f.ID, Header: fieldLabel(f), Expr: f.Expr, Align: f.Align, FieldType: f.FieldType, WidthMax: f.WidthMax})
 			}
 		}
 	} else {
@@ -223,7 +223,7 @@ func buildTspec(columnIDs []string, fields []spec.FieldDef) *spec.TableSpec {
 func FieldsToTableColumns(fields []spec.FieldDef) []spec.TableColumn {
 	cols := make([]spec.TableColumn, len(fields))
 	for i, f := range fields {
-		cols[i] = spec.TableColumn{Header: fieldLabel(f), Expr: f.Expr, Align: f.Align, FieldType: f.FieldType, WidthMax: f.WidthMax}
+		cols[i] = spec.TableColumn{ID: f.ID, Header: fieldLabel(f), Expr: f.Expr, Align: f.Align, FieldType: f.FieldType, WidthMax: f.WidthMax}
 	}
 	return cols
 }

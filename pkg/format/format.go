@@ -108,7 +108,9 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		if err != nil {
 			return fmt.Errorf("jsonl items_expr %q: %w", itemsExpr, err)
 		}
-		if !flags.Raw {
+		if flags.Columns != "" && !flags.Raw {
+			items = projectColumns(tspec, items, exprEnv)
+		} else if !flags.Raw {
 			for i, it := range items {
 				items[i] = injectURL(exprEnv, it)
 			}
@@ -164,8 +166,12 @@ func FormatArrayOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemsExpr
 		if err != nil {
 			return fmt.Errorf("items_expr %q: %w", itemsExpr, err)
 		}
-		for i, it := range extracted {
-			extracted[i] = injectURL(exprEnv, it)
+		if flags.Columns != "" {
+			extracted = projectColumns(tspec, extracted, exprEnv)
+		} else {
+			for i, it := range extracted {
+				extracted[i] = injectURL(exprEnv, it)
+			}
 		}
 		payload = extracted
 	}
@@ -277,6 +283,21 @@ func FormatSingleOutput(flags cmdctx.FormatFlags, isPty bool, data any, itemExpr
 		payload = injectURL(exprEnv, payload)
 	}
 	return writeJSON(w, payload)
+}
+
+// projectColumns reshapes each row into an object keyed by column ID, holding that
+// column's expr result, so json/jsonl output under --columns uses the names from --list-columns.
+func projectColumns(tspec *spec.TableSpec, rows []any, exprEnv map[string]any) []any {
+	out := make([]any, len(rows))
+	for i, row := range rows {
+		env := withIt(exprEnv, row)
+		obj := make(map[string]any, len(tspec.Columns))
+		for _, col := range tspec.Columns {
+			obj[col.ID] = evalColumnExpr(env, col.Expr)
+		}
+		out[i] = obj
+	}
+	return out
 }
 
 // injectURL returns item with a "url" key added, computed via exprEnv["url"](item) — the

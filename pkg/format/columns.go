@@ -137,7 +137,7 @@ func resolveToken(token string, byID map[string]spec.FieldDef) (spec.TableColumn
 		if !ok {
 			return spec.TableColumn{}, fmt.Errorf("unknown field ID %q; run with --list-columns to see available fields", token)
 		}
-		return spec.TableColumn{Header: fieldLabel(f), Expr: f.Expr, Align: f.Align, FieldType: f.FieldType, WidthMax: f.WidthMax}, nil
+		return spec.TableColumn{ID: f.ID, Header: fieldLabel(f), Expr: f.Expr, Align: f.Align, FieldType: f.FieldType, WidthMax: f.WidthMax}, nil
 	}
 	// Ad-hoc: id:expr
 	id := token[:idx]
@@ -145,7 +145,7 @@ func resolveToken(token string, byID map[string]spec.FieldDef) (spec.TableColumn
 	if expr == "" {
 		return spec.TableColumn{}, fmt.Errorf("column %q has empty expression after ':'", id)
 	}
-	return spec.TableColumn{Header: labelFromID(id), Expr: expr}, nil
+	return spec.TableColumn{ID: id, Header: labelFromID(id), Expr: expr}, nil
 }
 
 // splitTokens splits a comma-separated token string, trimming whitespace.

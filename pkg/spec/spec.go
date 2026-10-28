@@ -335,6 +335,7 @@ type TableSpec struct {
 
 // TableColumn is one column in a TableSpec.
 type TableColumn struct {
+	ID        string
 	Header    string
 	Expr      string
 	Align     string
