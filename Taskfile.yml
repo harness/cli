@@ -16,6 +16,7 @@ vars:
   BUILD_TIME:
     sh: date -u +%Y%m%d%H%MZ
   SEGMENT_WRITE_KEY: '{{default "" (env "SEGMENT_WRITE_KEY")}}'
+  RELEASE_GO_TAGS: grammar_subset,grammar_subset_java,grammar_subset_python,grammar_subset_javascript,grammar_subset_typescript,grammar_subset_tsx
   LDFLAGS: >-
     -X github.com/harness/cli/v3/pkg/hbase.Version={{.VERSION}}
     -X github.com/harness/cli/v3/pkg/hbase.BuildTime={{.BUILD_TIME}}
@@ -92,7 +93,7 @@ tasks:
       # to bin/opt-* rather than the normal paths: this is only for reading sizes,
       # so it must not clobber the debuggable binaries or the devhome plugin.
       - mkdir -p bin
-      - go build -trimpath -ldflags "{{.LDFLAGS}} -s -w" -o bin/opt-{{.BINARY}} {{.MAIN}}
+      - CGO_ENABLED=0 go build -trimpath -tags={{.RELEASE_GO_TAGS}} -ldflags "{{.LDFLAGS}} -s -w" -o bin/opt-{{.BINARY}} {{.MAIN}}
       - cd modules/har && go build -trimpath -ldflags "{{.HAR_LDFLAGS}} -s -w" -o ../../bin/opt-{{.BINARY}}-har ./cmd/harness-har/main-harness-har.go
       - ls -lh bin/opt-*
 

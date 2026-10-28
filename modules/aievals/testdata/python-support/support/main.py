@@ -1,5 +1,9 @@
-from pydantic import BaseModel
 import uvicorn
+from fastapi import FastAPI, Header
+from pydantic import BaseModel
+from typing import Annotated
+
+app = FastAPI()
 
 
 class Output(BaseModel):

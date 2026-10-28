@@ -2242,9 +2242,13 @@ commands:
     long: |
       TODO(onboarding-schema): provisional command.
       Writes the versioned onboarding skill to an explicit or detected coding-agent
-      directory, or to stdout when neither is available. Scans the repository,
-      stages a candidate .harness/evals tree, and asks one batched question when
-      inference is not confident.
+      directory, or to stdout when neither is available. Parses Java, Python,
+      JavaScript, and TypeScript sources into syntax trees, stages a candidate
+      .harness/evals tree, and requires --route '<METHOD path>' when more than
+      one supported candidate is found. Append ' [<service root>]' when the same
+      route exists in more than one service. Unsupported or unparsable syntax is
+      reported and never staged; it cannot be selected with --route and requires
+      guided/manual configuration. --yes does not authorize it.
     handler_type: workflow
     workflow_id: setup
     flags:
@@ -2257,20 +2261,23 @@ commands:
         description: Explicit file or directory for the onboarding skill
       - name: yes
         is_bool: true
-        description: Accept the batched medium-confidence confirmations
+        description: Accept medium-confidence values for a selected supported route only
+      - name: route
+        description: Explicit method-qualified supported AST-detected route only, for example "POST /api/analyze" or "POST /api/analyze [services/billing]"; unsupported syntax requires guided/manual configuration
 
   # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
   - command: run eval_onboarding
     verb: run
     noun: eval_onboarding
     no_id: true
-    short: "Run a staged agent through ai-evals onboard-run: harness run eval_onboarding --agent <identifier>"
+    short: "Run a staged agent through ai-evals onboard-run: harness run eval_onboarding --agent <identifier> [--profile <name>]"
     long: |
       TODO(onboarding-schema): provisional command.
       Verifies the pinned ai-evals-runner, then invokes
       `ai-evals onboard-run --root <root> --agent <identifier> --environment local`.
       local is the default. A PAT or SAT is passed to the runner. An SSO session
-      is not.
+      is not. Use --profile <name> or HARNESS_PROFILE to select an existing
+      profile; this command never changes profiles.
     handler_type: workflow
     workflow_id: run
     flags:
@@ -2294,7 +2301,9 @@ commands:
       TODO(onboarding-schema): provisional command.
       Validates the tree with the pinned runner, builds a deterministic zip, and
       POSTs it to the import-archive endpoint using the active profile scope.
-      Prints the server-returned Agent and Eval paths.
+      Prints the server-returned Agent and Eval paths. Use --profile <name> or
+      HARNESS_PROFILE to select an existing profile; this command never changes
+      profiles.
     handler_type: workflow
     workflow_id: upload
     flags:

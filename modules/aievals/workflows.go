@@ -36,24 +36,46 @@ func (e *StatusError) Error() string {
 
 // SetupOptions controls skill placement and staging.
 type SetupOptions struct {
-	Repo          string
-	SkillDir      string
-	AcceptMedium  bool
-	Answers       map[string]string
-	IsPty         bool
-	Stdout        io.Writer
-	Stderr        io.Writer
-	Python        string
-	Run           CommandFunc
-	ReadLine      func() (string, error)
+	Repo         string
+	SkillDir     string
+	AcceptMedium bool
+	Answers      map[string]string
+	IsPty        bool
+	Stdout       io.Writer
+	Stderr       io.Writer
+	Python       string
+	Run          CommandFunc
+	ReadLine     func() (string, error)
+	Route        string
+	// Deprecated: retained for callers compiled against earlier onboarding APIs.
+	// Validation is always required before files are committed.
 	SkipValidator bool
 }
 
-// Setup writes the skill and stages high-confidence files.
+// GuideQuestions is the no-signal fallback, one question at a time.
+var GuideQuestions = []string{
+	"What local URL should the eval call?",
+	"Which HTTP method should the eval use?",
+	"Where does the request text go in the body?",
+	"Where is the reply text in the response?",
+	"Is an auth header name required? Reply with the header name, or none. Do not send a secret value.",
+}
+
+var guideFields = []string{"endpoint_url", "method", "request_field", "response_path", "auth_header"}
+
+// LocalRunCommand is the command printed after the fallback guide is complete.
+func LocalRunCommand(agent string) string {
+	return fmt.Sprintf("harness run eval_onboarding --agent %s --environment local", agent)
+}
+
+// Setup writes the skill and stages a draft from any agent signal.
 func Setup(opts SetupOptions) (int, error) {
 	stderr := opts.Stderr
 	if stderr == nil {
 		stderr = os.Stderr
+	}
+	if opts.SkipValidator {
+		return 1, fmt.Errorf("SkipValidator is deprecated and cannot bypass pinned schema validation")
 	}
 	if _, err := PlaceSkill(opts.Repo, opts.SkillDir, opts.Stdout); err != nil {
 		return 1, err
@@ -62,60 +84,172 @@ func Setup(opts SetupOptions) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	accept := opts.AcceptMedium
-	needsMedium := len(inf.Medium()) > 0 && !accept
-	needsLow := unansweredLow(inf, opts.Answers)
-	if opts.IsPty && opts.ReadLine != nil && (needsMedium || needsLow) {
-		line, err := opts.ReadLine()
+	if strings.TrimSpace(opts.Route) != "" {
+		if _, ok := selectAdapterRoute(inf.RouteCandidates, opts.Route); !ok {
+			var candidates []string
+			for _, candidate := range inf.RouteCandidates {
+				candidates = append(candidates, candidate.Identity())
+			}
+			msg := fmt.Sprintf("route %q is not a supported AST-detected route and cannot be selected with --route; use guided/manual configuration instead", opts.Route)
+			if len(candidates) > 0 {
+				msg += ": supported candidates are " + strings.Join(candidates, ", ")
+			}
+			fmt.Fprintln(stderr, msg)
+			return 2, &StatusError{Code: 2, Msg: msg}
+		}
+		inf, err = InferWithRoute(opts.Repo, opts.Route)
 		if err != nil {
 			return 1, err
 		}
-		if strings.EqualFold(strings.TrimSpace(line), "yes") {
-			accept = true
-			needsMedium = false
+	}
+	if ambiguity := inf.RouteAmbiguity(); ambiguity != nil {
+		if strings.TrimSpace(opts.Route) == "" {
+			fmt.Fprintln(stderr, ambiguity)
+			return 2, &StatusError{Code: 2, Msg: ambiguity.Error()}
 		}
 	}
-	if medium := FormatMediumConfirmation(inf); medium != "" && !accept {
-		fmt.Fprint(stderr, medium)
+	if !inf.HasSignal {
+		for _, note := range inf.Notes {
+			fmt.Fprintln(stderr, note)
+		}
+		return setupGuide(opts, stderr)
 	}
-	pendingLow := unansweredLow(inf, opts.Answers)
-	if low := FormatLowQuestion(inf); low != "" && pendingLow {
-		fmt.Fprint(stderr, low)
+	for _, note := range inf.Notes {
+		fmt.Fprintln(stderr, note)
 	}
-	files := ApplyFiles(inf, accept, opts.Answers)
+	// One location question at most. It does not block the draft.
+	if q := FormatLowQuestion(inf); q != "" {
+		fmt.Fprint(stderr, q)
+	}
+	files := ApplyFiles(inf, opts.AcceptMedium, opts.Answers)
 	if len(files) == 0 {
-		return 2, &StatusError{Code: 2, Msg: "onboarding did not find a high-confidence tree to stage"}
+		if medium := FormatMediumConfirmation(inf); medium != "" {
+			msg := medium + "Pass --yes to accept these values before staging."
+			fmt.Fprintln(stderr, msg)
+			return 2, &StatusError{Code: 2, Msg: msg}
+		}
+		return setupGuide(opts, stderr)
 	}
-	if opts.SkipValidator {
-		if _, err := commitFiles(filepath.Join(opts.Repo, ".harness", "evals"), files); err != nil {
-			return 1, err
-		}
-	} else {
-		python := opts.Python
-		if python == "" {
-			layout, err := EnsureRunner(RunnerHome(), nil, opts.Run)
-			if err != nil {
-				return 1, err
-			}
-			python = layout.Python
-		}
-		if _, err := Stage(opts.Repo, files, python, opts.Run); err != nil {
-			return 1, err
-		}
-	}
-	if (len(inf.Medium()) > 0 && !accept) || pendingLow {
-		return 2, &StatusError{Code: 2, Msg: "onboarding needs an answer before staging the remaining values"}
+	if err := writeStaged(opts, files); err != nil {
+		return 1, err
 	}
 	return 0, nil
 }
 
-func unansweredLow(inf Inference, answers map[string]string) bool {
-	for _, ev := range inf.Low() {
-		if answers[ev.Field] == "" {
-			return true
+func writeStaged(opts SetupOptions, files map[string]string) error {
+	python := opts.Python
+	if python == "" {
+		layout, err := EnsureRunner(RunnerHome(), nil, opts.Run)
+		if err != nil {
+			return err
+		}
+		python = layout.Python
+	}
+	_, err := Stage(opts.Repo, files, python, opts.Run)
+	return err
+}
+
+func setupGuide(opts SetupOptions, stderr io.Writer) (int, error) {
+	answers := map[string]string{}
+	for key, value := range opts.Answers {
+		answers[key] = strings.TrimSpace(value)
+	}
+	interactive := opts.IsPty && opts.ReadLine != nil
+	for i, field := range guideFields {
+		if answers[field] != "" {
+			continue
+		}
+		if !interactive {
+			break
+		}
+		fmt.Fprintln(stderr, GuideQuestions[i])
+		line, err := opts.ReadLine()
+		if err != nil {
+			return 1, err
+		}
+		answers[field] = strings.TrimSpace(line)
+		if answers["endpoint_url"] == "" {
+			continue
+		}
+		if err := stageGuideAnswers(opts, answers, guideComplete(answers)); err != nil {
+			return 1, err
 		}
 	}
-	return false
+	if answers["endpoint_url"] == "" {
+		fmt.Fprintln(stderr, GuideQuestions[0])
+		return 2, &StatusError{Code: 2, Msg: "No agent was staged. " + GuideQuestions[0]}
+	}
+	complete := guideComplete(answers)
+	if err := stageGuideAnswers(opts, answers, complete); err != nil {
+		return 1, err
+	}
+	if !complete {
+		for i, field := range guideFields {
+			if answers[field] == "" {
+				fmt.Fprintln(stderr, GuideQuestions[i])
+				return 0, nil
+			}
+		}
+	}
+	fmt.Fprintln(stderr, LocalRunCommand(agentFromDir(opts.Repo)))
+	return 0, nil
+}
+
+func guideComplete(answers map[string]string) bool {
+	for _, field := range guideFields {
+		if strings.TrimSpace(answers[field]) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func stageGuideAnswers(opts SetupOptions, answers map[string]string, complete bool) error {
+	files := materialize(guideInference(opts.Repo, answers), false, nil)
+	if len(files) == 0 {
+		return fmt.Errorf("guide answers did not produce a tree")
+	}
+	if !complete {
+		files[".onboard-guide-draft"] = "guided onboarding is incomplete\n"
+	}
+	return writeStaged(opts, files)
+}
+
+func guideInference(repo string, answers map[string]string) Inference {
+	var ev []FieldEvidence
+	port, path := splitEndpointURL(answers["endpoint_url"])
+	if path == "" {
+		path = "/"
+	}
+	if port == "" {
+		port = "8080"
+	}
+	add(&ev, "endpoint_path", path, "guide", ConfidenceHigh)
+	add(&ev, "port", port, "guide", ConfidenceHigh)
+	method := strings.ToUpper(strings.TrimSpace(answers["method"]))
+	if method == "" {
+		method = "GET"
+	}
+	add(&ev, "method", method, "guide", ConfidenceHigh)
+	requestField := strings.TrimSpace(answers["request_field"])
+	if requestField == "" {
+		requestField = "text"
+	}
+	add(&ev, "request_field", requestField, "guide", ConfidenceHigh)
+	responsePath := strings.TrimSpace(answers["response_path"])
+	if responsePath == "" {
+		responsePath = "output.text"
+	}
+	add(&ev, "response_path", responsePath, "guide", ConfidenceHigh)
+	gap := "expected value was not evidenced for " + responsePath
+	add(&ev, "expected_gap", gap, "gap", ConfidenceHigh)
+	header := strings.TrimSpace(answers["auth_header"])
+	if header != "" && !strings.EqualFold(header, "none") && !strings.EqualFold(header, "no") {
+		add(&ev, "auth_header", canonicalHeader(header), "guide", ConfidenceHigh)
+	}
+	agent := agentFromDir(repo)
+	add(&ev, "agent_id", agent, "directory", ConfidenceHigh)
+	return Inference{Language: "guide", AgentID: agent, Evidence: ev, HasSignal: true, Notes: []string{gap}}
 }
 
 // RunAgent verifies the pinned runner and invokes onboard-run.
@@ -162,6 +296,7 @@ func setupWorkflow(ctx *cmdctx.Ctx) error {
 		Repo:         repo,
 		SkillDir:     cmdctx.GetString(ctx.FlagValues, "skill-dir"),
 		AcceptMedium: cmdctx.GetBool(ctx.FlagValues, "yes"),
+		Route:        cmdctx.GetString(ctx.FlagValues, "route"),
 		IsPty:        ctx.IsPty,
 		Stdout:       os.Stdout,
 		Stderr:       os.Stderr,

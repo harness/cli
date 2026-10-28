@@ -89,6 +89,12 @@ func writeTreeFile(root, rel string, data []byte) error {
 
 func commitFiles(destRoot string, files map[string]string) (StageResult, error) {
 	var result StageResult
+	draftMarker := filepath.Join(destRoot, ".onboard-guide-draft")
+	_, draftErr := os.Stat(draftMarker)
+	draft := draftErr == nil
+	if draftErr != nil && !os.IsNotExist(draftErr) {
+		return StageResult{}, draftErr
+	}
 	type pending struct {
 		rel  string
 		body string
@@ -114,6 +120,10 @@ func commitFiles(destRoot string, files map[string]string) (StageResult, error) 
 			result.Identical = append(result.Identical, rel)
 			continue
 		}
+		if draft {
+			writes = append(writes, pending{rel, body})
+			continue
+		}
 		result.Collisions = append(result.Collisions, rel)
 	}
 	for _, item := range writes {
@@ -124,6 +134,13 @@ func commitFiles(destRoot string, files map[string]string) (StageResult, error) 
 	}
 	if len(result.Collisions) > 0 {
 		return result, fmt.Errorf("destination differs and was left unchanged: %s", strings.Join(result.Collisions, ", "))
+	}
+	if draft {
+		if _, stagedDraft := files[".onboard-guide-draft"]; !stagedDraft {
+			if err := os.Remove(draftMarker); err != nil && !os.IsNotExist(err) {
+				return result, err
+			}
+		}
 	}
 	return result, nil
 }

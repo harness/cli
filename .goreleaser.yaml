@@ -21,6 +21,7 @@ builds:
       - arm64
     flags:
       - -trimpath
+      - -tags=grammar_subset,grammar_subset_java,grammar_subset_python,grammar_subset_javascript,grammar_subset_typescript,grammar_subset_tsx
     ldflags:
       - -s -w
       - -X github.com/harness/cli/v3/pkg/hbase.Version={{.Version}}

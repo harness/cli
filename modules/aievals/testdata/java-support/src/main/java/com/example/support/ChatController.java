@@ -1,5 +1,7 @@
 package com.example.support;
 
+import org.springframework.web.bind.annotation.*;
+
 @RestController
 @RequestMapping("/api")
 public class ChatController {
