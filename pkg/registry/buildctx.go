@@ -5,7 +5,6 @@ package registry
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -148,8 +147,8 @@ func resolveAuthForCommand(pa *spec.PipelineAuthSpec, profileFlag, orgFlag, proj
 }
 
 // resolveCommandAuth resolves saved auth, then applies --api-url and --token.
-// --token is a complete credential: when nothing is logged in, the flag is
-// used instead of returning ErrNotLoggedIn.
+// --token is a complete credential: if the saved or env credential is missing
+// or invalid, the command still runs with that source's URLs and scope.
 func resolveCommandAuth(cmd *cobra.Command, pa *spec.PipelineAuthSpec, module string) (*auth.ResolvedAuth, error) {
 	profileFlag, _ := cmd.Flags().GetString("profile")
 	orgFlag, _ := cmd.Flags().GetString("org")
@@ -157,14 +156,11 @@ func resolveCommandAuth(cmd *cobra.Command, pa *spec.PipelineAuthSpec, module st
 	creds := credentialFlagsFrom(cmd)
 	resolved, err := resolveAuthForCommand(pa, profileFlag, orgFlag, projectFlag)
 	if err != nil {
-		if !creds.TokenSet || !errors.Is(err, auth.ErrNotLoggedIn) {
+		if !creds.TokenSet {
 			return nil, err
 		}
-		resolved = &auth.ResolvedAuth{
-			Source:    auth.SourceEnv,
-			APIUrl:    hbase.DefaultAPIURL,
-			OrgID:     orgFlag,
-			ProjectID: projectFlag,
+		if resolved, err = auth.LoadSettings(profileFlag, orgFlag, projectFlag); err != nil {
+			return nil, err
 		}
 	}
 	creds.ResolveRegistryURL = module == "har"

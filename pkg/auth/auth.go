@@ -150,19 +150,88 @@ func loadEnvMode() (*ResolvedAuth, error) {
 	if key == "" {
 		return nil, fmt.Errorf("%s is required for env auth mode", hbase.EnvAPIKey)
 	}
+	r := envSettings()
+	r.AuthType = AuthTypePAT
+	r.PATToken = key
+	r.AccountID = AccountIDFromToken(key)
+	r.TokenKind = TokenType(key)
+	return r, nil
+}
+
+func envSettings() *ResolvedAuth {
 	apiURL := os.Getenv(hbase.EnvAPIURL)
 	if apiURL == "" {
 		apiURL = hbase.DefaultAPIURL
 	}
-	r := &ResolvedAuth{
+	return &ResolvedAuth{
 		Source:    SourceEnv,
-		AuthType:  AuthTypePAT,
-		PATToken:  key,
-		AccountID: AccountIDFromToken(key),
 		OrgID:     os.Getenv(hbase.EnvOrg),
 		ProjectID: os.Getenv(hbase.EnvProject),
 		APIUrl:    apiURL,
-		TokenKind: TokenType(key),
+	}
+}
+
+func profileSettings(name string, p *config.Profile) *ResolvedAuth {
+	apiURL := p.APIUrl
+	if apiURL == "" {
+		apiURL = hbase.DefaultAPIURL
+	}
+	return &ResolvedAuth{
+		Source:    "profile:" + name,
+		APIUrl:    apiURL,
+		UIUrl:     p.UIUrl,
+		AccountID: p.AccountID,
+		OrgID:     p.OrgID,
+		ProjectID: p.ProjectID,
+		Email:     p.Email,
+		UserType:  p.UserType,
+		UserID:    p.UserID,
+	}
+}
+
+// LoadSettings selects the profile or env source the same way Load does, but
+// returns only its URLs and scope: the stored credential is neither read nor
+// checked. For callers that supply their own token.
+func LoadSettings(profileFlag, orgOverride, projectOverride string) (*ResolvedAuth, error) {
+	r, err := loadSettings(profileFlag)
+	if err != nil {
+		return nil, err
+	}
+	if orgOverride != "" {
+		r.OrgID = orgOverride
+	}
+	if projectOverride != "" {
+		r.ProjectID = projectOverride
+	}
+	return r, nil
+}
+
+func loadSettings(profileFlag string) (*ResolvedAuth, error) {
+	selector := EffectiveProfileSelector(profileFlag)
+	switch {
+	case selector == ProfileSentinelPipeline:
+		return nil, fmt.Errorf("profile %q has no context to resolve here — it only applies to commands run inside a pipeline", selector)
+	case selector == ProfileSentinelEnv, selector == "" && os.Getenv(hbase.EnvAPIKey) != "":
+		return envSettings(), nil
+	}
+	name := selector
+	if name == "" {
+		name = "default"
+	}
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+	p, ok := cfg.Profiles[name]
+	if !ok {
+		if name == "default" {
+			return envSettings(), nil
+		}
+		return nil, fmt.Errorf("profile %q not found", name)
+	}
+	r := profileSettings(name, p)
+	if profileFlag != "" {
+		r.ExplicitProfile = profileFlag
 	}
 	return r, nil
 }
@@ -353,23 +422,10 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	if activeToken == "" {
 		return nil, fmt.Errorf("no token found for profile %q — run 'harness auth login' to re-authenticate", name)
 	}
-	apiURL := p.APIUrl
-	if apiURL == "" {
-		apiURL = hbase.DefaultAPIURL
-	}
-	r := &ResolvedAuth{
-		Source:    "profile:" + name,
-		AuthType:  authType,
-		APIUrl:    apiURL,
-		UIUrl:     p.UIUrl,
-		AccountID: accountFromToken(activeToken, p.AccountID),
-		OrgID:     p.OrgID,
-		ProjectID: p.ProjectID,
-		Email:     p.Email,
-		UserType:  p.UserType,
-		UserID:    p.UserID,
-		TokenKind: TokenType(activeToken),
-	}
+	r := profileSettings(name, p)
+	r.AuthType = authType
+	r.AccountID = accountFromToken(activeToken, p.AccountID)
+	r.TokenKind = TokenType(activeToken)
 	if authType == AuthTypeSSO {
 		r.SSOToken = activeToken
 		r.RefreshToken = profileCreds.RefreshToken

@@ -7,11 +7,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/config"
 	"github.com/harness/cli/v3/pkg/hbase"
 )
 
@@ -36,6 +38,83 @@ func TestResolveCommandAuthTokenWithoutLogin(t *testing.T) {
 	}
 	if resolved.RegistryURL != "https://pkg.derived.example.com" {
 		t.Errorf("RegistryURL = %q", resolved.RegistryURL)
+	}
+}
+
+func TestResolveCommandAuthTokenKeepsSourceSettings(t *testing.T) {
+	const token = "pat.flag-account.test-token.not-a-secret"
+	cases := []struct {
+		name    string
+		setup   func(t *testing.T, apiURL string)
+		profile string
+		wantErr string
+	}{
+		{
+			name: "malformed HARNESS_API_KEY",
+			setup: func(t *testing.T, apiURL string) {
+				t.Setenv(hbase.EnvAPIKey, "not-a-token")
+				t.Setenv(hbase.EnvAPIURL, apiURL)
+				t.Setenv(hbase.EnvOrg, "src-org")
+				t.Setenv(hbase.EnvProject, "src-project")
+			},
+		},
+		{
+			name: "not logged in uses HARNESS_API_URL and scope",
+			setup: func(t *testing.T, apiURL string) {
+				t.Setenv(hbase.EnvAPIURL, apiURL)
+				t.Setenv(hbase.EnvOrg, "src-org")
+				t.Setenv(hbase.EnvProject, "src-project")
+			},
+		},
+		{
+			name:    "profile without a stored token",
+			profile: "tokenless",
+			setup: func(t *testing.T, apiURL string) {
+				cfg := &config.Config{Profiles: map[string]*config.Profile{
+					"tokenless": {APIUrl: apiURL, OrgID: "src-org", ProjectID: "src-project"},
+				}}
+				if err := config.SaveConfig(cfg); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:    "unknown explicit profile is still an error",
+			profile: "missing",
+			setup:   func(*testing.T, string) {},
+			wantErr: `profile "missing" not found`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearPipelineAuthTestEnv(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"data":{"registryUrl":"https://pkg.derived.example.com"}}`))
+			}))
+			defer srv.Close()
+			tc.setup(t, srv.URL)
+
+			args := []string{"--token", token}
+			if tc.profile != "" {
+				args = append(args, "--profile", tc.profile)
+			}
+			resolved, err := runResolveCommandAuth(t, args)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolved.APIUrl != srv.URL || resolved.OrgID != "src-org" || resolved.ProjectID != "src-project" {
+				t.Errorf("settings = api %q org %q project %q, want the source's", resolved.APIUrl, resolved.OrgID, resolved.ProjectID)
+			}
+			if resolved.PATToken != token || resolved.AccountID != "flag-account" {
+				t.Errorf("credential = token %q account %q, want --token's", resolved.PATToken, resolved.AccountID)
+			}
+		})
 	}
 }
 
