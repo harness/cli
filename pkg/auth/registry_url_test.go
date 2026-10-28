@@ -6,6 +6,7 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -58,6 +59,26 @@ func TestApplyCredentialFlags(t *testing.T) {
 		}
 		if gotAccount != "flag-account" {
 			t.Errorf("lookup account = %q, want flag-account", gotAccount)
+		}
+	})
+
+	t.Run("failed lookup off production does not fall back to the production host", func(t *testing.T) {
+		for name, handler := range map[string]http.HandlerFunc{
+			"server error":   func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) },
+			"no registryUrl": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"data":{}}`)) },
+		} {
+			t.Run(name, func(t *testing.T) {
+				failing := httptest.NewServer(handler)
+				defer failing.Close()
+				r := base()
+				err := ApplyCredentialFlags(r, CredentialFlags{APIURL: failing.URL, APIURLSet: true, ResolveRegistryURL: true})
+				if err == nil || !strings.Contains(err.Error(), failing.URL) {
+					t.Fatalf("error = %v, want a lookup failure naming %s", err, failing.URL)
+				}
+				if r.RegistryURL == hbase.DefaultRegistryURL {
+					t.Errorf("RegistryURL fell back to %s", hbase.DefaultRegistryURL)
+				}
+			})
 		}
 	})
 

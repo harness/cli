@@ -5,6 +5,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -87,18 +88,29 @@ func ApplyCredentialFlags(r *ResolvedAuth, f CredentialFlags) error {
 		r.APIUrl = NormalizeAPIURL(f.APIURL)
 	}
 	if f.ResolveRegistryURL && r.Source != SourcePipeline {
-		r.RegistryURL = fetchRegistryURLFromSystem(r)
+		registryURL, err := fetchRegistryURLFromSystem(r)
+		if err != nil {
+			return err
+		}
+		r.RegistryURL = registryURL
 	}
 	return nil
 }
 
 // fetchRegistryURLFromSystem looks up the package host for r.APIUrl from /system/info.
-// A failed lookup falls back to the production package host.
-func fetchRegistryURLFromSystem(r *ResolvedAuth) string {
+// Only the production API URL may fall back to the production package host on a
+// failed lookup; any other deployment would send its credential and uploads there.
+func fetchRegistryURLFromSystem(r *ResolvedAuth) (string, error) {
 	registryURL, err := FetchRegistryURL(r.APIUrl, r.AccountID, r.SetAuthHeader)
-	if err != nil || registryURL == "" {
-		hlog.Debug("registry URL lookup failed, using default", "api_url", r.APIUrl, "error", err)
-		return hbase.DefaultRegistryURL
+	if err == nil && registryURL != "" {
+		return registryURL, nil
 	}
-	return registryURL
+	if err == nil {
+		err = errors.New("response has no registryUrl")
+	}
+	if strings.TrimRight(r.APIUrl, "/") == hbase.DefaultAPIURL {
+		hlog.Debug("registry URL lookup failed, using default", "api_url", r.APIUrl, "error", err)
+		return hbase.DefaultRegistryURL, nil
+	}
+	return "", fmt.Errorf("could not get the package registry URL from %s: %w", r.APIUrl, err)
 }

@@ -35,7 +35,7 @@ Without either sentinel, pipeline mode is still auto-detected whenever `HARNESS_
 
 `--org` and `--project` are global flags available on every command. They override the org and project from the active profile or env vars for that invocation only.
 
-`--api-url` and `--token` are flags on Artifact Registry commands. `--api-url` sets the API URL for that command. `--token` sets the credential, including when nothing is logged in, and the account comes from that token. The package registry URL comes from the API URL. There is no account flag and no registry URL flag.
+`--api-url` and `--token` are flags on Artifact Registry commands. `--api-url` sets the API URL for that command. `--token` sets the credential, including when nothing is logged in, and the account comes from that token. The package registry URL comes from the API URL. If that lookup fails, only the production API URL falls back to `https://pkg.harness.io`; any other API URL fails the command. There is no account flag and no registry URL flag.
 
 ```
 harness pipeline list --org myorg --project myproject
