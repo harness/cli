@@ -108,8 +108,8 @@ func TestPipelineLogStepCompletion_emptyWhenNoStage(t *testing.T) {
 
 func TestValidateLogFilters(t *testing.T) {
 	entries := []logstream.LogKeyEntry{
-		{Name: "Jira RCA", FQN: "pipeline.stages.jira_rca"},
-		{Name: "Output RCA", FQN: "pipeline.stages.jira_rca.spec.execution.steps.print_rca"},
+		{Name: "Jira RCA", Identifier: "jira_rca", FQN: "pipeline.stages.jira_rca"},
+		{Name: "Output RCA", Identifier: "print_rca", FQN: "pipeline.stages.jira_rca.spec.execution.steps.print_rca"},
 	}
 	tests := []struct {
 		name       string
@@ -120,8 +120,10 @@ func TestValidateLogFilters(t *testing.T) {
 		{name: "no filters"},
 		{name: "stage only", stage: "jira rca"},
 		{name: "stage and step", stage: "Jira RCA", step: "output rca"},
-		{name: "stage missing", stage: "jira_rca", step: "Output RCA", wantErrSub: `stage "jira_rca" not found`},
-		{name: "step missing", stage: "Jira RCA", step: "print_rca", wantErrSub: `step "print_rca" not found in stage "Jira RCA"`},
+		{name: "stage and step by identifier", stage: "jira_rca", step: "print_rca"},
+		{name: "display stage, identifier step", stage: "Jira RCA", step: "print_rca"},
+		{name: "stage missing", stage: "nope", step: "Output RCA", wantErrSub: `stage "nope" not found`},
+		{name: "step missing", stage: "Jira RCA", step: "nope", wantErrSub: `step "nope" not found in stage "Jira RCA"`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

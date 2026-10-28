@@ -98,7 +98,7 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 		if prefixFlag != "" && !strings.HasPrefix(e.LogKey, prefixFlag) {
 			continue
 		}
-		if stepFlag != "" && !strings.EqualFold(e.Name, stepFlag) {
+		if stepFlag != "" && !logstream.MatchesFilter(e.Name, e.Identifier, stepFlag) {
 			continue
 		}
 		label := e.FQN
@@ -148,7 +148,7 @@ func validateLogFilters(entries []logstream.LogKeyEntry, stage, step string) err
 	}
 	stageFound := false
 	for _, e := range entries {
-		if strings.EqualFold(e.Name, stage) {
+		if logstream.MatchesFilter(e.Name, e.Identifier, stage) {
 			stageFound = true
 			break
 		}
@@ -160,7 +160,7 @@ func validateLogFilters(entries []logstream.LogKeyEntry, stage, step string) err
 		return nil
 	}
 	for _, e := range logstream.StageSubtreeEntries(entries, stage) {
-		if strings.EqualFold(e.Name, step) {
+		if logstream.MatchesFilter(e.Name, e.Identifier, step) {
 			return nil
 		}
 	}
