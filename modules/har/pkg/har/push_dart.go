@@ -25,6 +25,9 @@ import (
 //
 // Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/pub/api/packages/versions/new/upload/{uploadId}
 func pushDartArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push dart artifact requires a local file path: push artifact <registry/name> <local-file>")
 	}

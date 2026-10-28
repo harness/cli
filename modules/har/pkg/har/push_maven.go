@@ -73,6 +73,9 @@ type mavenVersioning struct {
 //  4. Uploads jar, pom, jar.md5, jar.sha1, pom.md5, pom.sha1 sequentially via PUT.
 //  5. Fetches or creates maven-metadata.xml and uploads the updated version.
 func pushMavenArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push maven artifact requires a local file path: push artifact <registry/name> <local-file> --pom-file <pom>")
 	}
