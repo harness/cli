@@ -5,6 +5,7 @@ package har
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/bzip2"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/klauspost/compress/zstd"
 )
 
 // condaIndexJSON holds the fields we need from info/index.json inside a conda package.
@@ -27,8 +29,8 @@ type condaIndexJSON struct {
 // pushCondaArtifact implements "push artifact <registry> <local-file>" for conda packages.
 //
 // Supported formats:
-//   - .tar.bz2  — fully supported
-//   - .conda    — requires zstd decompression; not yet supported (no zstd dependency in go.mod)
+//   - .tar.bz2
+//   - .conda (zip containing an info-*.tar.zst metadata archive)
 //
 // The upload is a raw PUT to:
 //
@@ -39,6 +41,9 @@ type condaIndexJSON struct {
 //	X-File-Name: <filename>
 //	X-Subdir:    <subdir from index.json>
 func pushCondaArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push conda requires a local file path: push artifact <registry> <local-file>")
 	}
@@ -46,11 +51,12 @@ func pushCondaArtifact(ctx *cmdctx.Ctx) error {
 	fileName := filepath.Base(localFile)
 
 	lower := strings.ToLower(fileName)
+	var readMeta func(string) (*condaIndexJSON, error)
 	switch {
 	case strings.HasSuffix(lower, ".conda"):
-		return fmt.Errorf("push conda: .conda format requires zstd decompression which is not yet supported; please use .tar.bz2")
+		readMeta = condaMetaFromConda
 	case strings.HasSuffix(lower, ".tar.bz2"):
-		// supported below
+		readMeta = condaMetaFromBZ2
 	default:
 		return fmt.Errorf("push conda: unsupported file extension for %q; expected .conda or .tar.bz2", fileName)
 	}
@@ -63,8 +69,7 @@ func pushCondaArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("%q is a directory; conda push requires a file", localFile)
 	}
 
-	// Parse metadata from .tar.bz2
-	meta, err := condaMetaFromBZ2(localFile)
+	meta, err := readMeta(localFile)
 	if err != nil {
 		return fmt.Errorf("reading conda metadata from %q: %w", localFile, err)
 	}
@@ -126,8 +131,41 @@ func condaMetaFromBZ2(filePath string) (*condaIndexJSON, error) {
 	}
 	defer f.Close()
 
-	bzReader := bzip2.NewReader(f)
-	tarReader := tar.NewReader(io.LimitReader(bzReader, 1<<30)) // 1 GiB safety limit
+	return condaMetaFromTar(bzip2.NewReader(f))
+}
+
+// condaMetaFromConda reads index.json from the info-*.tar.zst entry of a .conda package
+// (a zip archive) and returns the name, version, and subdir fields.
+func condaMetaFromConda(filePath string) (*condaIndexJSON, error) {
+	zr, err := zip.OpenReader(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("opening .conda archive: %w", err)
+	}
+	defer zr.Close()
+
+	for _, entry := range zr.File {
+		if !strings.HasPrefix(entry.Name, "info-") || !strings.HasSuffix(entry.Name, ".tar.zst") {
+			continue
+		}
+		rc, err := entry.Open()
+		if err != nil {
+			return nil, fmt.Errorf("opening %s: %w", entry.Name, err)
+		}
+		defer rc.Close()
+
+		zstdReader, err := zstd.NewReader(rc)
+		if err != nil {
+			return nil, fmt.Errorf("creating zstd reader: %w", err)
+		}
+		defer zstdReader.Close()
+
+		return condaMetaFromTar(zstdReader)
+	}
+	return nil, fmt.Errorf("info-*.tar.zst not found in .conda archive")
+}
+
+func condaMetaFromTar(r io.Reader) (*condaIndexJSON, error) {
+	tarReader := tar.NewReader(io.LimitReader(r, 1<<30)) // 1 GiB safety limit
 
 	for {
 		hdr, err := tarReader.Next()

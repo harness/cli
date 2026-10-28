@@ -32,6 +32,9 @@ import (
 // Upload endpoint: PUT {registryURL}/pkg/{accountID}/{registry}/go/upload
 // Multipart fields: mod, info, zip
 func pushGoArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err

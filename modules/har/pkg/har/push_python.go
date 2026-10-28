@@ -30,6 +30,9 @@ type pythonPackageMeta struct {
 //
 // The upload endpoint is POST {registryURL}/pkg/{accountID}/{registry}/python/
 func pushPythonArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push python requires a local file path or directory")
 	}
@@ -62,9 +65,9 @@ func pushPythonArtifact(ctx *cmdctx.Ctx) error {
 		files = []string{localPath}
 	}
 
-	maxConcurrent := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-uploads")
-	if maxConcurrent <= 0 {
-		maxConcurrent = defaultMaxConcurrentUploads
+	maxConcurrent, err := maxConcurrentUploadsFlag(ctx)
+	if err != nil {
+		return err
 	}
 
 	sem := make(chan struct{}, maxConcurrent)

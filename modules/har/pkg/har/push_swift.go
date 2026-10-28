@@ -25,6 +25,9 @@ import (
 //
 // Upload endpoint: PUT {registryURL}/pkg/{accountID}/{registry}/swift/{scope}/{name}/{version}
 func pushSwiftArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 2); err != nil {
+		return err
+	}
 	if len(ctx.Args) < 2 {
 		return fmt.Errorf("push swift requires a local .zip file and a target path: push artifact <registry/anything> <file.zip> <scope/name/version>")
 	}

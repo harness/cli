@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
@@ -33,6 +34,9 @@ import (
 //	[4 bytes LE uint32: .crate file length]
 //	[N bytes: .crate file bytes]
 func pushCargoArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push cargo: local file path required as positional argument")
 	}
@@ -110,70 +114,24 @@ func pushCargoArtifact(ctx *cmdctx.Ctx) error {
 }
 
 // parseCargoToml extracts the package name and version from the contents of a
-// Cargo.toml file using simple line-by-line string parsing (no TOML library).
-// It looks for lines of the form:
-//
-//	name = "my-crate"
-//	version = "1.2.3"
-//
-// within the [package] section.
+// Cargo.toml file.
 func parseCargoToml(data []byte) (name, version string, err error) {
-	inPackage := false
-	for _, rawLine := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(rawLine)
-
-		// Track [package] section.
-		if strings.HasPrefix(line, "[") {
-			inPackage = line == "[package]"
-			continue
-		}
-
-		if !inPackage {
-			continue
-		}
-
-		if name == "" {
-			if v := extractTomlStringValue(line, "name"); v != "" {
-				name = v
-			}
-		}
-		if version == "" {
-			if v := extractTomlStringValue(line, "version"); v != "" {
-				version = v
-			}
-		}
-
-		if name != "" && version != "" {
-			break
-		}
+	var manifest struct {
+		Package struct {
+			Name    string `toml:"name"`
+			Version string `toml:"version"`
+		} `toml:"package"`
 	}
-
-	if name == "" {
+	if err := toml.Unmarshal(data, &manifest); err != nil {
+		return "", "", fmt.Errorf("failed parsing Cargo.toml: %w", err)
+	}
+	if manifest.Package.Name == "" {
 		return "", "", fmt.Errorf("Cargo.toml: package name not found")
 	}
-	if version == "" {
+	if manifest.Package.Version == "" {
 		return "", "", fmt.Errorf("Cargo.toml: package version not found")
 	}
-	return name, version, nil
-}
-
-// extractTomlStringValue parses a line like:  key = "value"
-// Returns the unquoted value string, or "" if the line does not match.
-func extractTomlStringValue(line, key string) string {
-	// key must appear at the start of the (already trimmed) line.
-	if !strings.HasPrefix(line, key) {
-		return ""
-	}
-	rest := strings.TrimSpace(line[len(key):])
-	if !strings.HasPrefix(rest, "=") {
-		return ""
-	}
-	rest = strings.TrimSpace(rest[1:])
-	// Strip surrounding double quotes.
-	if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
-		return rest[1 : len(rest)-1]
-	}
-	return ""
+	return manifest.Package.Name, manifest.Package.Version, nil
 }
 
 // buildCargoPayload constructs the binary upload body used by the Cargo

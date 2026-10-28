@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +23,24 @@ import (
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
-const defaultMaxConcurrentUploads = 4
+const defaultMaxConcurrentUploads = 5
+
+// maxConcurrentUploadsFlag parses --max-concurrent-uploads, falling back to the default
+// when it is unset or <= 0 and returning an error when it is not an integer.
+func maxConcurrentUploadsFlag(ctx *cmdctx.Ctx) (int, error) {
+	raw := strings.TrimSpace(cmdctx.GetString(ctx.FlagValues, "max-concurrent-uploads"))
+	if raw == "" {
+		return defaultMaxConcurrentUploads, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("--max-concurrent-uploads must be an integer, got %q", raw)
+	}
+	if n <= 0 {
+		return defaultMaxConcurrentUploads, nil
+	}
+	return n, nil
+}
 
 // pomXML is a minimal representation of a Maven POM file used for coordinate extraction.
 type pomXML struct {
@@ -73,6 +91,9 @@ type mavenVersioning struct {
 //  4. Uploads jar, pom, jar.md5, jar.sha1, pom.md5, pom.sha1 sequentially via PUT.
 //  5. Fetches or creates maven-metadata.xml and uploads the updated version.
 func pushMavenArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push maven artifact requires a local file path: push artifact <registry> <local-file> --pom-file <pom>")
 	}
@@ -130,9 +151,9 @@ func pushMavenArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("SNAPSHOT version upload is not supported")
 	}
 
-	maxConcurrent := cmdctx.GetInt(ctx.FlagValues, "max-concurrent-uploads")
-	if maxConcurrent <= 0 {
-		maxConcurrent = defaultMaxConcurrentUploads
+	maxConcurrent, err := maxConcurrentUploadsFlag(ctx)
+	if err != nil {
+		return err
 	}
 
 	groupPath := strings.ReplaceAll(coords.GroupID, ".", "/")
