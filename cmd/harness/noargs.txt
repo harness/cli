@@ -37,9 +37,10 @@ Output formats:
   - table / csv / tsv (list) — the noun's projected columns, shaped by --columns
     (a subset, not the whole object). table prints the paging footer
     (Showing X-Y of Z); tsv is a clean pick for shell/awk.
-  - json (any verb) — the raw API response: the full object + envelope (ids,
-    timestamps, status), ignores --columns. Reach for it when the field you need
-    isn't a column, or to see the full response of a create/update/execute.
+  - json (any verb) — the parsed resource, HTTP envelope removed, plus any
+    metadata the API nests with it (timestamps, validity); ignores --columns.
+    Reach for it when the field you need isn't a column. Add --raw for the
+    full response (status, correlationId, data).
   - yaml (get) — the full data object, envelope stripped: the body that
     round-trips through update -f and create -f.
   - text (any non-list verb) — the default human-readable summary.
