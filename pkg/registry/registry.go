@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -897,9 +898,24 @@ func (r *Registry) execPluginRunE(binaryPath, moduleName, version string) func(*
 		// HARNESS_PLUGIN lets a well-behaved plugin self-check that the grammar
 		// the host parsed came from this binary.
 		os.Setenv("HARNESS_PLUGIN", moduleName+" "+version)
-		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", pluginArgs)
+		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", redactTokenArgs(pluginArgs))
 		return plugin.Exec(binPath, pluginArgs)
 	}
+}
+
+func redactTokenArgs(args []string) []string {
+	out := slices.Clone(args)
+	for i, a := range out {
+		if a == "--" {
+			break
+		}
+		if a == "--token" && i+1 < len(out) {
+			out[i+1] = "[redacted]"
+		} else if strings.HasPrefix(a, "--token=") {
+			out[i] = "--token=[redacted]"
+		}
+	}
+	return out
 }
 
 func misconfiguredCmd(cmd *cobra.Command, cs *spec.CommandSpec, fmtStr string, args ...any) {

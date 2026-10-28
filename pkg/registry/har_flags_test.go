@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -38,5 +39,31 @@ func TestHARCredentialFlagsAreModuleScoped(t *testing.T) {
 	r.AttachGlobalAuthFlags(root)
 	if root.PersistentFlags().Lookup("token") != nil || root.PersistentFlags().Lookup("api-url") != nil {
 		t.Fatal("--api-url/--token are still global")
+	}
+}
+
+func TestRedactTokenArgs(t *testing.T) {
+	cases := []struct {
+		in, want []string
+	}{
+		{
+			in:   []string{"push", "artifact:generic", "--token", "pat.a.b.c", "reg/pkg", "f.txt"},
+			want: []string{"push", "artifact:generic", "--token", "[redacted]", "reg/pkg", "f.txt"},
+		},
+		{
+			in:   []string{"--debug", "--token=pat.a.b.c", "list", "registry"},
+			want: []string{"--debug", "--token=[redacted]", "list", "registry"},
+		},
+		{in: []string{"list", "registry", "--token"}, want: []string{"list", "registry", "--token"}},
+		{in: []string{"push", "--", "--token", "literal"}, want: []string{"push", "--", "--token", "literal"}},
+	}
+	for _, tc := range cases {
+		in := slices.Clone(tc.in)
+		if got := redactTokenArgs(in); !slices.Equal(got, tc.want) {
+			t.Errorf("redactTokenArgs(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if !slices.Equal(in, tc.in) {
+			t.Errorf("redactTokenArgs modified its input: %q", in)
+		}
 	}
 }
