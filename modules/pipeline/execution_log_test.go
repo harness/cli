@@ -11,6 +11,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/logstream"
 )
 
 func testCtx(flags map[string]any) *cmdctx.Ctx {
@@ -102,5 +103,38 @@ func TestPipelineLogStepCompletion_emptyWhenNoStage(t *testing.T) {
 	}
 	if len(steps) != 0 {
 		t.Fatalf("expected no steps, got %v", steps)
+	}
+}
+
+func TestValidateLogFilters(t *testing.T) {
+	entries := []logstream.LogKeyEntry{
+		{Name: "Jira RCA", FQN: "pipeline.stages.jira_rca"},
+		{Name: "Output RCA", FQN: "pipeline.stages.jira_rca.spec.execution.steps.print_rca"},
+	}
+	tests := []struct {
+		name       string
+		stage      string
+		step       string
+		wantErrSub string
+	}{
+		{name: "no filters"},
+		{name: "stage only", stage: "jira rca"},
+		{name: "stage and step", stage: "Jira RCA", step: "output rca"},
+		{name: "stage missing", stage: "jira_rca", step: "Output RCA", wantErrSub: `stage "jira_rca" not found`},
+		{name: "step missing", stage: "Jira RCA", step: "print_rca", wantErrSub: `step "print_rca" not found in stage "Jira RCA"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateLogFilters(entries, tc.stage, tc.step)
+			if tc.wantErrSub == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Fatalf("error = %v, want substring %q", err, tc.wantErrSub)
+			}
+		})
 	}
 }
