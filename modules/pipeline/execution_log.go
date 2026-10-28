@@ -83,6 +83,9 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 	if err != nil {
 		return err
 	}
+	if err := validateLogFilters(entries, stageFlag, stepFlag); err != nil {
+		return err
+	}
 	entries = logstream.StageSubtreeEntries(entries, stageFlag)
 
 	type result struct {
@@ -95,7 +98,7 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 		if prefixFlag != "" && !strings.HasPrefix(e.LogKey, prefixFlag) {
 			continue
 		}
-		if stepFlag != "" && !strings.EqualFold(e.Name, stepFlag) {
+		if stepFlag != "" && !logstream.MatchesFilter(e.Name, e.Identifier, stepFlag) {
 			continue
 		}
 		label := e.FQN
@@ -137,6 +140,31 @@ func getPipelineLogHandler(ctx *cmdctx.Ctx) error {
 		fmt.Fprint(w, r.body)
 	}
 	return nil
+}
+
+func validateLogFilters(entries []logstream.LogKeyEntry, stage, step string) error {
+	if stage == "" {
+		return nil
+	}
+	stageFound := false
+	for _, e := range entries {
+		if logstream.MatchesFilter(e.Name, e.Identifier, stage) {
+			stageFound = true
+			break
+		}
+	}
+	if !stageFound {
+		return fmt.Errorf("stage %q not found", stage)
+	}
+	if step == "" {
+		return nil
+	}
+	for _, e := range logstream.StageSubtreeEntries(entries, stage) {
+		if logstream.MatchesFilter(e.Name, e.Identifier, step) {
+			return nil
+		}
+	}
+	return fmt.Errorf("step %q not found in stage %q", step, stage)
 }
 
 func pipelineLogStageCompletion(ctx *cmdctx.Ctx, args []string, flags *pflag.FlagSet) ([]string, error) {

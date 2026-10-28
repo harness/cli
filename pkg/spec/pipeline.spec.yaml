@@ -910,10 +910,10 @@ commands:
       ui: true
     flags:
       - name: stage
-        description: Filter to a specific stage
+        description: Filter to a specific stage (name or identifier)
         completion_fn: pipeline_log_stage_completion
       - name: step
-        description: Filter to a specific step within --stage (requires --stage)
+        description: Filter to a specific step within --stage, by name or identifier (requires --stage)
         completion_fn: pipeline_log_step_completion
       - name: logkey-prefix
         description: Only show logs whose key starts with this string (use 'list execution_log' to find keys)
