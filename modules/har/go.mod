@@ -11,6 +11,7 @@ require (
 	github.com/harness/cli/v3 v3.6.2
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/jedib0t/go-pretty/v6 v6.8.3
+	github.com/klauspost/compress v1.19.2
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/pterm/pterm v0.12.84
 	github.com/rs/zerolog v1.35.1
@@ -66,7 +67,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/lithammer/fuzzysearch v1.1.8 // indirect
 	github.com/lmittmann/tint v1.2.1 // indirect
