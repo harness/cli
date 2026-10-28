@@ -18,6 +18,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/console"
+	"github.com/harness/cli/v3/pkg/format"
 )
 
 const bulkDeleteArtifactHandlerID = "bulk_delete_artifact"
@@ -107,7 +108,7 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 			pterm.Warning.WithWriter(os.Stderr).Println("--yes has no effect without --dry-run=false; nothing was deleted")
 		}
 		if jsonOut {
-			return printBulkDeleteJSON(newBulkDeleteResult(parsed, false, nil))
+			return printBulkDeleteJSON(ctx, newBulkDeleteResult(parsed, false, nil))
 		}
 		if len(parsed.SuccessPackages) == 0 {
 			pterm.Info.Println("No package/Version found to be deleted matching given pattern")
@@ -145,11 +146,11 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 	if final.Failed == 0 {
 		var after bulkDeleteResponse
 		if after, verifyErr = callBulkDelete(apiURL, ctx, preview); verifyErr == nil {
-			remaining = stillPresent(final.SuccessPackages, after.SuccessPackages)
+			remaining = stillPresent(parsed.SuccessPackages, after.SuccessPackages)
 		}
 	}
 	if jsonOut {
-		if err := printBulkDeleteJSON(newBulkDeleteResult(final, true, remaining)); err != nil {
+		if err := printBulkDeleteJSON(ctx, newBulkDeleteResult(final, true, remaining)); err != nil {
 			return err
 		}
 	}
@@ -166,15 +167,15 @@ func bulkDeleteArtifactHandler(ctx *cmdctx.Ctx) error {
 	return nil
 }
 
-// stillPresent returns the deleted names that the pattern still matches, ignoring
-// matches that were pushed after the delete.
-func stillPresent(deleted, matching []string) []string {
+// stillPresent returns the confirmed names that the pattern still matches, ignoring
+// matches that were pushed after the preview.
+func stillPresent(confirmed, matching []string) []string {
 	matched := make(map[string]bool, len(matching))
 	for _, name := range matching {
 		matched[name] = true
 	}
 	var remaining []string
-	for _, name := range deleted {
+	for _, name := range confirmed {
 		if matched[name] {
 			remaining = append(remaining, name)
 		}
@@ -218,13 +219,17 @@ func newBulkDeleteResult(r bulkDeleteResponse, mutated bool, stillPresent []stri
 	}
 }
 
-func printBulkDeleteJSON(r bulkDeleteResult) error {
+func printBulkDeleteJSON(ctx *cmdctx.Ctx, r bulkDeleteResult) error {
 	out, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal bulk delete result: %w", err)
 	}
-	fmt.Println(string(out))
-	return nil
+	w, err := format.OpenWriter(ctx.FormatFlags.OutFile)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(w, string(out))
+	return err
 }
 
 // newBulkDeleteRequest builds the request body with pointer fields.

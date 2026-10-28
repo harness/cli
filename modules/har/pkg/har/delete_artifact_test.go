@@ -43,6 +43,7 @@ type recordedCall struct {
 // the real call reports as failed.
 type bulkDeleteServerOpts struct {
 	survivesDelete bool
+	noopDelete     bool
 	failed         int
 }
 
@@ -75,6 +76,9 @@ func newBulkDeleteServerWith(t *testing.T, successPackages []string, opts bulkDe
 			deleted = true
 			resp.Failed = opts.failed
 			resp.Total += opts.failed
+			if opts.noopDelete {
+				resp.Success, resp.Total, resp.SuccessPackages = 0, 0, nil
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -295,6 +299,10 @@ func TestBulkDeleteArtifactHandler_RealRunFailures(t *testing.T) {
 	}{
 		{"server reports failed packages", bulkDeleteServerOpts{failed: 1}, "failed for 1 of 3", 2},
 		{"packages still match after delete", bulkDeleteServerOpts{survivesDelete: true}, "still match: nginx-test, nginx-other", 3},
+		{
+			"server reports a no-op delete", bulkDeleteServerOpts{survivesDelete: true, noopDelete: true},
+			"still match: nginx-test, nginx-other", 3,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -319,7 +327,26 @@ func TestBulkDeleteArtifactHandler_RealRunFailures(t *testing.T) {
 func TestStillPresent(t *testing.T) {
 	got := stillPresent([]string{"express", "express-util"}, []string{"express-util", "express-new"})
 	if strings.Join(got, ",") != "express-util" {
-		t.Fatalf("stillPresent = %v, want only the deleted name that still matches", got)
+		t.Fatalf("stillPresent = %v, want only the confirmed name that still matches", got)
+	}
+}
+
+func TestBulkDeleteArtifactHandler_JSONHonorsOut(t *testing.T) {
+	srv, _ := newBulkDeleteServer(t, []string{"nginx-test"})
+	ctx := bulkDeleteTestCtx(map[string]any{"registry": "mikereg", "dry-run": "false", "yes": true}, srv.URL)
+	ctx.FormatFlags.Format = "json"
+	ctx.FormatFlags.OutFile = t.TempDir() + "/result.json"
+
+	if err := bulkDeleteArtifactHandler(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(ctx.FormatFlags.OutFile)
+	if err != nil {
+		t.Fatalf("reading --out file: %v", err)
+	}
+	var got bulkDeleteResult
+	if err := json.Unmarshal(data, &got); err != nil || !got.Mutated || len(got.Packages) != 1 {
+		t.Fatalf("--out file = %s (%v), want the real-run JSON result", data, err)
 	}
 }
 
