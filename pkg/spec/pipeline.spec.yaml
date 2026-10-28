@@ -453,6 +453,7 @@ commands:
     endpoint:
       path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
       item_expr: it
+      yaml_pick_expr: yamlParse(it.pipeline_yaml)
       field_extract: pipeline_yaml
       text_formatter: pipeline_yaml
       query_params:
