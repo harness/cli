@@ -21,7 +21,7 @@ import (
 
 // pushGoArtifact uploads a Go module package to Harness Artifact Registry.
 //
-// ctx.Id      = "<registry>/<name>" where name is not used directly (registry identifies the target)
+// ctx.Id      = "<registry>" (a legacy "<registry>/<name>" is accepted; name is ignored)
 // ctx.Args[0] = local directory path containing go.mod (option a), or ignored when all three
 //
 //	--mod-file / --info-file / --zip-file flags are supplied (option b).
@@ -35,7 +35,7 @@ func pushGoArtifact(ctx *cmdctx.Ctx) error {
 	if err := rejectExtraArgs(ctx, 1); err != nil {
 		return err
 	}
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func pushGoArtifact(ctx *cmdctx.Ctx) error {
 	} else {
 		// Option (a): generate from a source directory.
 		if len(ctx.Args) == 0 {
-			return fmt.Errorf("push go artifact requires a source directory: push artifact <registry/name> <dir> --version <version>")
+			return fmt.Errorf("push go artifact requires a source directory: push artifact <registry> <dir> --version <version>")
 		}
 		srcDir := ctx.Args[0]
 
@@ -129,7 +129,7 @@ func pushGoArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("upload failed: %w", doErr)
 	}
 
-	fmt.Fprintf(os.Stderr, "Successfully pushed Go module %s to %s\n", version, ctx.Id)
+	fmt.Fprintf(os.Stderr, "Successfully pushed Go module %s to %s\n", version, registry)
 	modulePath, _ := parseModulePath(modData)
 	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, modulePath, version)
 	return nil

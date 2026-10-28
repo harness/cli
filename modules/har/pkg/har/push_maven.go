@@ -95,7 +95,7 @@ func pushMavenArtifact(ctx *cmdctx.Ctx) error {
 		return err
 	}
 	if len(ctx.Args) == 0 {
-		return fmt.Errorf("push maven artifact requires a local file path: push artifact <registry/name> <local-file> --pom-file <pom>")
+		return fmt.Errorf("push maven artifact requires a local file path: push artifact <registry> <local-file> --pom-file <pom>")
 	}
 	localFile := ctx.Args[0]
 
@@ -104,7 +104,7 @@ func pushMavenArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("--pom-file is required for maven artifact push")
 	}
 
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err
 	}

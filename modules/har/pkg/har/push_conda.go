@@ -26,7 +26,7 @@ type condaIndexJSON struct {
 	Subdir  string `json:"subdir"`
 }
 
-// pushCondaArtifact implements "push artifact <registry/name> <local-file>" for conda packages.
+// pushCondaArtifact implements "push artifact <registry> <local-file>" for conda packages.
 //
 // Supported formats:
 //   - .tar.bz2
@@ -45,7 +45,7 @@ func pushCondaArtifact(ctx *cmdctx.Ctx) error {
 		return err
 	}
 	if len(ctx.Args) == 0 {
-		return fmt.Errorf("push conda requires a local file path: push artifact <registry/name> <local-file>")
+		return fmt.Errorf("push conda requires a local file path: push artifact <registry> <local-file>")
 	}
 	localFile := ctx.Args[0]
 	fileName := filepath.Base(localFile)
@@ -83,7 +83,7 @@ func pushCondaArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("conda metadata in %q is missing 'version' field", localFile)
 	}
 
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func pushCondaArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("conda upload failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Successfully pushed %s to %s\n", fileName, ctx.Id)
+	fmt.Fprintf(os.Stderr, "Successfully pushed %s to %s\n", fileName, registry)
 	return nil
 }
 
