@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -137,6 +138,42 @@ type npmUploadPayload struct {
 	Attachments map[string]*npmAttachment   `json:"_attachments"`
 }
 
+// ensureNpmVersionUnpublished GETs the package metadata from metadataURL and fails if
+// version is already published, mirroring `npm publish`. A 404 means a new package.
+func ensureNpmVersionUnpublished(ctx *cmdctx.Ctx, metadataURL, name, version, registry string) error {
+	req, err := http.NewRequest(http.MethodGet, metadataURL, nil)
+	if err != nil {
+		return fmt.Errorf("building request: %w", err)
+	}
+	setAuthHeader(req, ctx.Auth)
+
+	resp, err := newHTTPClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("checking existing npm versions: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		return nil
+	case http.StatusOK:
+	default:
+		return fmt.Errorf("checking existing npm versions: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var existing struct {
+		Versions map[string]json.RawMessage `json:"versions"`
+	}
+	if err := json.Unmarshal(body, &existing); err != nil {
+		return fmt.Errorf("parsing existing npm versions: %w", err)
+	}
+	if _, ok := existing.Versions[version]; ok {
+		return fmt.Errorf("npm package %s@%s already exists in registry %s; published versions cannot be overwritten", name, version, registry)
+	}
+	return nil
+}
+
 // pushNpmArtifact implements "push artifact <registry/name> <local.tgz>" for npm packages.
 //
 // Steps:
@@ -180,6 +217,33 @@ func pushNpmArtifact(ctx *cmdctx.Ctx) error {
 	}
 	if pkg.Name == "" || pkg.Version == "" {
 		return fmt.Errorf("package.json must contain non-empty 'name' and 'version'")
+	}
+
+	// Scoped packages (@scope/name) route to a separate path segment on the
+	// server. Both scoped and unscoped use PUT per the HAR API spec.
+	var subpath string
+	if strings.HasPrefix(name, "@") {
+		if !strings.Contains(name, "/") {
+			pterm.Error.Println("Invalid scoped package name format")
+			return fmt.Errorf("invalid scoped package name: %s (scoped packages must be in format @scope/package)", name)
+		}
+		parts := strings.SplitN(name[1:], "/", 2)
+		if len(parts) != 2 {
+			pterm.Error.Println("Invalid scoped package name format")
+			return fmt.Errorf("invalid scoped package name: %s", name)
+		}
+		pterm.Info.Printf("Uploading scoped package @%s/%s\n", parts[0], parts[1])
+		subpath = fmt.Sprintf("%s/npm/@%s/%s", registry, parts[0], parts[1])
+	} else {
+		subpath = fmt.Sprintf("%s/npm/%s", registry, name)
+	}
+	uploadURL, err := buildPkgURL(ctx.Auth.RegistryURL, ctx.Auth.AccountID, subpath)
+	if err != nil {
+		return err
+	}
+
+	if err := ensureNpmVersionUnpublished(ctx, uploadURL, pkg.Name, pkg.Version, registry); err != nil {
+		return err
 	}
 
 	// --- 3. Optionally extract README (best-effort) -------------------------
@@ -270,29 +334,6 @@ func pushNpmArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	// --- 5. PUT to the npm upload endpoint ---------------------------------
-	// Scoped packages (@scope/name) route to a separate path segment on the
-	// server. Both scoped and unscoped use PUT per the HAR API spec.
-	var subpath string
-	if strings.HasPrefix(name, "@") {
-		if !strings.Contains(name, "/") {
-			pterm.Error.Println("Invalid scoped package name format")
-			return fmt.Errorf("invalid scoped package name: %s (scoped packages must be in format @scope/package)", name)
-		}
-		parts := strings.SplitN(name[1:], "/", 2)
-		if len(parts) != 2 {
-			pterm.Error.Println("Invalid scoped package name format")
-			return fmt.Errorf("invalid scoped package name: %s", name)
-		}
-		pterm.Info.Printf("Uploading scoped package @%s/%s\n", parts[0], parts[1])
-		subpath = fmt.Sprintf("%s/npm/@%s/%s", registry, parts[0], parts[1])
-	} else {
-		subpath = fmt.Sprintf("%s/npm/%s", registry, name)
-	}
-	uploadURL, err := buildPkgURL(ctx.Auth.RegistryURL, ctx.Auth.AccountID, subpath)
-	if err != nil {
-		return err
-	}
-
 	fmt.Fprintf(os.Stderr, "Uploading npm package %s@%s to registry %s ...\n", pkg.Name, pkg.Version, registry)
 
 	req, err := http.NewRequest(http.MethodPut, uploadURL, bytes.NewReader(bodyBytes))
