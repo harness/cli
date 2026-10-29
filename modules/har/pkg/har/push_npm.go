@@ -174,7 +174,10 @@ func ensureNpmVersionUnpublished(ctx *cmdctx.Ctx, metadataURL, name, version, re
 	return nil
 }
 
-// pushNpmArtifact implements "push artifact <registry/name> <local.tgz>" for npm packages.
+// pushNpmArtifact implements "push artifact <registry> <local.tgz>" for npm packages.
+//
+// ctx.Id = "<registry>" (a legacy "<registry>/<name>" is accepted; the package
+// name always comes from package.json, so scoped "@scope/name" packages work).
 //
 // Steps:
 //  1. Read the .tgz file from ctx.Args[0].
@@ -186,11 +189,11 @@ func pushNpmArtifact(ctx *cmdctx.Ctx) error {
 		return err
 	}
 	if len(ctx.Args) == 0 {
-		return fmt.Errorf("push npm artifact requires a local file path: push artifact <registry/name> <local-file>")
+		return fmt.Errorf("push npm artifact requires a local file path: push artifact <registry> <local-file>")
 	}
 	localFile := ctx.Args[0]
 
-	registry, name, err := parseRegistryAndName(ctx.Id)
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err
 	}
@@ -218,6 +221,7 @@ func pushNpmArtifact(ctx *cmdctx.Ctx) error {
 	if pkg.Name == "" || pkg.Version == "" {
 		return fmt.Errorf("package.json must contain non-empty 'name' and 'version'")
 	}
+	name := pkg.Name
 
 	// Scoped packages (@scope/name) route to a separate path segment on the
 	// server. Both scoped and unscoped use PUT per the HAR API spec.
@@ -351,7 +355,7 @@ func pushNpmArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("npm upload failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Successfully pushed %s@%s to %s\n", pkg.Name, pkg.Version, ctx.Id)
+	fmt.Fprintf(os.Stderr, "Successfully pushed %s@%s to %s\n", pkg.Name, pkg.Version, registry)
 	applyPostPushMetadata(ctx, cmdctx.GetString(ctx.FlagValues, "metadata"), registry, pkg.Name, pkg.Version)
 	return nil
 }
