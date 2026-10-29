@@ -90,6 +90,22 @@ func TestPushNpmArtifact_ExistingVersionCheck(t *testing.T) {
 			wantPath:   "/pkg/acct/reg/npm/left-pad",
 			wantErrSub: "HTTP 403",
 		},
+		{
+			name:      "bare registry with scoped package uses the scoped path",
+			id:        "reg",
+			pkgJSON:   `{"name":"@acme/demo-pkg","version":"1.0.0"}`,
+			getStatus: http.StatusNotFound,
+			wantPath:  "/pkg/acct/reg/npm/@acme/demo-pkg",
+			wantPut:   true,
+		},
+		{
+			name:      "legacy registry/name id defers to the package.json name",
+			id:        "reg/other-name",
+			pkgJSON:   `{"name":"left-pad","version":"1.0.0"}`,
+			getStatus: http.StatusNotFound,
+			wantPath:  "/pkg/acct/reg/npm/left-pad",
+			wantPut:   true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
