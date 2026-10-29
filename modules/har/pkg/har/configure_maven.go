@@ -30,6 +30,14 @@ func configureMaven(ctx *cmdctx.Ctx) error {
 	}
 	settingsPath := filepath.Join(m2Dir, "settings.xml")
 
+	backupPath, err := backupFile(settingsPath, "settings-xml")
+	if err != nil {
+		return fmt.Errorf("backing up settings.xml: %w", err)
+	}
+	if backupPath != "" {
+		fmt.Printf("Backed up existing settings.xml → %s\n", backupPath)
+	}
+
 	if err := writeMavenSettings(settingsPath, registryID, registryURL, a.PATToken); err != nil {
 		return fmt.Errorf("writing settings.xml: %w", err)
 	}
