@@ -23,6 +23,14 @@ func configurePip(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
+	backupPath, err := backupFile(pipConfPath, "pip-conf")
+	if err != nil {
+		return fmt.Errorf("backing up pip.conf: %w", err)
+	}
+	if backupPath != "" {
+		fmt.Printf("Backed up existing pip.conf → %s\n", backupPath)
+	}
+
 	if err := writePipConf(pipConfPath, registryURL, a.PATToken); err != nil {
 		return fmt.Errorf("writing pip.conf: %w", err)
 	}
