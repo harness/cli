@@ -118,25 +118,9 @@ func buildMutationBodyWithPick(base map[string]any, pickedFields []spec.FieldDef
 			if !found {
 				return nil, fmt.Errorf("patch_always_fields: unknown or read-only field %q", fieldID)
 			}
-			current, present := getDotPathValuePresent(mutable, field.MutablePath)
-			if !present {
-				continue
+			if current, present := getDotPathValuePresent(mutable, field.MutablePath); present {
+				setDotPath(result, field.MutablePath, cloneMutationValue(current))
 			}
-			handler := handlers[field.FieldType]
-			current = cloneMutationValue(current)
-			if handler.Normalize != nil && !normalized[fieldID] {
-				var err error
-				if current, err = handler.Normalize(field, current); err != nil {
-					return nil, err
-				}
-			}
-			if handler.Encode != nil {
-				var err error
-				if current, err = handler.Encode(field, current); err != nil {
-					return nil, err
-				}
-			}
-			setDotPath(result, field.MutablePath, cloneMutationValue(current))
 		}
 	}
 	for _, fieldID := range touchOrder {

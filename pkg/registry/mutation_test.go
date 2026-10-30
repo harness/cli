@@ -292,17 +292,6 @@ func TestBuildMutationBodyWithPickPatchAlwaysFields(t *testing.T) {
 	if want := map[string]any{"title": "new", "description": "keep"}; err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("body = %#v, error = %v, want %#v", got, err, want)
 	}
-	fields["owner"] = spec.FieldDef{ID: "owner", MutablePath: "owner", FieldType: "example:owner"}
-	handlers["example:owner"] = cmdctx.FieldTypeHandler{
-		Normalize: func(_ spec.FieldDef, current any) (any, error) { return map[string]any{"id": current}, nil },
-		Encode: func(_ spec.FieldDef, current any) (any, error) {
-			return current.(map[string]any)["id"].(string) + "!", nil
-		},
-	}
-	got, err = buildMutationBodyWithPick(map[string]any{"title": "t", "owner": "o"}, nil, fields, handlers, nil, "", nil, true, []string{"owner"})
-	if want := map[string]any{"owner": "o!"}; err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("typed always-field body = %#v, error = %v, want %#v", got, err, want)
-	}
 	if _, err := buildMutationBodyWithPick(base, nil, fields, handlers, nil, "", nil, true, []string{"missing"}); err == nil {
 		t.Fatal("unknown always-field: want error")
 	}
