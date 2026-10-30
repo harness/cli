@@ -67,7 +67,7 @@ Active whenever `HARNESS_PIPELINE_ID` is set — i.e. the command is running ins
 Required:
 
 - `HARNESS_PIPELINE_ID` — presence alone triggers pipeline mode
-- `HARNESS_ACCOUNT_ID`, `HARNESS_ORG_ID`, `HARNESS_PROJECT_ID` — fixed scope for the run; `--org`/`--project` are rejected in this mode since scope can't be overridden
+- `HARNESS_ACCOUNT_ID`, `HARNESS_ORG_ID`, `HARNESS_PROJECT_ID` — fixed scope for the run (org and project are optional for account-scoped pipelines); `--org`/`--project` are rejected in this mode since scope can't be overridden
 
 Pipeline mode is infra-agnostic: it reads whatever `HARNESS_INFRA` happens to be, but doesn't gate on its value. If the token/URL vars a command's `pipeline_auth` block names aren't actually injected on a given infra, resolution fails with the normal "`<var>` is required in pipeline mode" error rather than an infra-specific one.
 
