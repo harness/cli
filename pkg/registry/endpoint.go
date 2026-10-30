@@ -795,7 +795,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, fmt.Errorf("get-then-%s: copying picked item: %w", strings.ToLower(method), err)
 	}
 
-	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH")
+	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH" && (ep.PatchSparse == nil || *ep.PatchSparse))
 	if err != nil {
 		return nil, err
 	}

@@ -660,3 +660,18 @@ func TestCheckFunctions_SkipsDevOnlyAndExternal(t *testing.T) {
 		t.Fatalf("CheckFunctions() = %v, want nil (DevOnly/External skipped)", err)
 	}
 }
+
+func TestValidateEndpointConstraints_PatchSparseNeedsGetThenPatch(t *testing.T) {
+	off := false
+	for _, strategy := range []string{"", spec.UpdateStrategyGetThenPut} {
+		cs := &spec.CommandSpec{
+			Command:     "update widget",
+			HandlerType: spec.HandlerEndpoint,
+			VerbHandler: VerbUpdate,
+			Endpoint:    &spec.EndpointSpec{UpdateStrategy: strategy, PatchSparse: &off},
+		}
+		if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "patch_sparse") {
+			t.Errorf("update_strategy %q: got %v, want patch_sparse error", strategy, err)
+		}
+	}
+}
