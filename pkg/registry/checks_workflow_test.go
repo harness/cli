@@ -661,17 +661,16 @@ func TestCheckFunctions_SkipsDevOnlyAndExternal(t *testing.T) {
 	}
 }
 
-func TestValidateEndpointConstraints_PatchSparseNeedsGetThenPatch(t *testing.T) {
-	off := false
+func TestValidateEndpointConstraints_PatchAlwaysFieldsNeedsGetThenPatch(t *testing.T) {
 	for _, strategy := range []string{"", spec.UpdateStrategyGetThenPut} {
 		cs := &spec.CommandSpec{
 			Command:     "update widget",
 			HandlerType: spec.HandlerEndpoint,
 			VerbHandler: VerbUpdate,
-			Endpoint:    &spec.EndpointSpec{UpdateStrategy: strategy, PatchSparse: &off},
+			Endpoint:    &spec.EndpointSpec{UpdateStrategy: strategy, PatchAlwaysFields: []string{"title"}},
 		}
-		if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "patch_sparse") {
-			t.Errorf("update_strategy %q: got %v, want patch_sparse error", strategy, err)
+		if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "patch_always_fields") {
+			t.Errorf("update_strategy %q: got %v, want patch_always_fields error", strategy, err)
 		}
 	}
 }

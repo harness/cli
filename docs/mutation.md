@@ -58,7 +58,7 @@ For `create_strategy: set-fields`, mutations apply to the `create_body_init` see
 
 | Path | Body built from mutation flags |
 |---|---|
-| GET-then-PATCH | Starts as `{}`; adds only fields with `write=true`, at their `mutable_path`. Untouched fields, unknown GET fields, and no-op operations are omitted. With `patch_sparse: false` it instead starts from the picked object, as GET-then-PUT does. |
+| GET-then-PATCH | Starts as `{}`; adds only fields with `write=true`, at their `mutable_path`. Untouched fields, unknown GET fields, and no-op operations are omitted. Fields listed in `patch_always_fields` are seeded first with their current GET values. |
 | GET-then-PUT | Starts as a full copy of the picked object, including fields not targeted by flags; mutations replace their paths. Untouched fields with a normalizer are normalized, but **not encoded** in this implementation. Verify their write shape before relying on full PUT. |
 | `set-fields` create | Starts from `create_body_init` and applies targeted mutations; it does not GET a resource. |
 
@@ -77,7 +77,7 @@ The difference between **omitted** and **explicitly written** matters for merge-
 - If an endpoint accepts `-f`, supplying a file takes precedence over GET-then-update. The supplied body is sent as a write document (with the endpoint's file-body wrapping behavior); it is **not** run through the field handlers or the flag-built sparse PATCH path. `body_params` from the automatic mutation path are not merged into it. A full write-ready PATCH file is allowed, but inspect its shape before sending it.
 - When the API stores the resource as a YAML string inside a JSON response (for example `data.yaml` on triggers), pick it with `update_body_pick: yamlParse(it.data.yaml)` and set `content_type: application/yaml`. The mutated object is then re-encoded as the YAML request body, so comments are dropped and keys are written sorted.
 - `get --format yaml` still uses the **get command's separate `yaml_pick_expr` / `yaml_exclude`**, not `update_body_pick` or custom field handlers. FME's current YAML output is not automatically write-ready for tags/owners; do not promise a GET-YAML-to-`-f` round trip until its specs and conversion path are addressed.
-- PATCH does not copy unchanged picked fields by default. If the API clears omitted fields or requires some on every call, set `patch_sparse: false` and have `update_body_pick` select exactly the fields to send (for example `{"title": it.title, "description": it.description}`), so read-only GET fields stay out of the body. The write is still GET-then-PATCH, so a concurrent edit between the two calls is overwritten.
+- PATCH does not copy unchanged picked fields. If the API clears omitted fields or requires some on every call, list their noun field IDs in `patch_always_fields` (for example `[title, description]`); each is sent with its current value unless `--set`/`--del` changes it, and everything else stays sparse. IDs must be mutable noun fields. The write is still GET-then-PATCH, so a concurrent edit between the two calls is overwritten.
 - Core does not look up owner emails or reconstruct missing API identifiers. FME currently returns a group name without the identifier needed to write that group back; that requires a server-side round-trip fix before mixed-owner edits can be reliable.
 
 ## Testing a custom type
