@@ -974,6 +974,7 @@ commands:
       path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}
       update_strategy: get-then-patch
       update_body_pick: it
+      patch_always_fields: [title, description]
       no_fields: true
       text_header: "\nUpdated PR #{{ctx.idParts[1]}}\n"
 
