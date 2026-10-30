@@ -4,6 +4,12 @@
 package iacm
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/auth"
@@ -64,5 +70,55 @@ func TestIacmExecutionURL(t *testing.T) {
 				t.Errorf("iacmExecutionURL() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestZipSourceCodeSkipsHeavyAndStateFiles(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]bool{
+		"main.tf":                             true,
+		".terraform.lock.hcl":                 true,
+		"mod/vars.tf":                         true,
+		".terraform/providers/big.bin":        false,
+		"mod/.terraform/modules/modules.json": false,
+		".git/HEAD":                           false,
+		"terraform.tfstate":                   false,
+		"terraform.tfstate.backup":            false,
+	}
+	for name := range files {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	data, err := zipSourceCode(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gr)
+	got := map[string]bool{}
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		got[hdr.Name] = true
+	}
+
+	for name, want := range files {
+		if got[name] != want {
+			t.Errorf("%s: included=%v, want %v", name, got[name], want)
+		}
 	}
 }
