@@ -12,7 +12,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/klauspost/compress v1.19.2
-	github.com/oapi-codegen/runtime v1.7.0
+	github.com/oapi-codegen/runtime v1.8.0
 	github.com/pterm/pterm v0.12.84
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
