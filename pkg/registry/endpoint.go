@@ -795,7 +795,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, fmt.Errorf("get-then-%s: copying picked item: %w", strings.ToLower(method), err)
 	}
 
-	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH")
+	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH", ep.PatchAlwaysFields)
 	if err != nil {
 		return nil, err
 	}
@@ -955,7 +955,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		}
 	}
 
-	postBody, err := mutationBodyForCtx(ctx, base, ep.CreateBodyWrap, nil, false, false)
+	postBody, err := mutationBodyForCtx(ctx, base, ep.CreateBodyWrap, nil, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -964,7 +964,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 	return result, err
 }
 
-func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any, picked, sparsePatch bool) (map[string]any, error) {
+func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any, picked, sparsePatch bool, alwaysFields []string) (map[string]any, error) {
 	ops := effectiveMutations(ctx.SetArgs, ctx.DelArgs, ctx.MutationFlags)
 	if ctx.MutationOrderCaptured {
 		ops = ctx.MutationFlags
@@ -986,7 +986,7 @@ func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra
 	if !picked {
 		mutableFields = nil
 	}
-	return buildMutationBodyWithPick(base, mutableFields, fields, handlers, ops, wrap, extra, sparsePatch)
+	return buildMutationBodyWithPick(base, mutableFields, fields, handlers, ops, wrap, extra, sparsePatch, alwaysFields)
 }
 
 // getDotPathMap retrieves a map[string]any at a dot-separated path, or nil.

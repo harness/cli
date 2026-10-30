@@ -191,6 +191,21 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 				errs = append(errs, fmt.Sprintf("command %q: query_params_fn %q not registered", cs.Command, cs.Endpoint.QueryParamsFn))
 			}
 		}
+		if len(cs.Endpoint.PatchAlwaysFields) > 0 {
+			noun := cs.FullNoun()
+			if cs.FieldsNoun != "" {
+				noun = cs.FieldsNoun
+			}
+			mutable := map[string]bool{}
+			for _, f := range MutableFields(r.GetNoun(noun)) {
+				mutable[f.ID] = true
+			}
+			for _, id := range cs.Endpoint.PatchAlwaysFields {
+				if !mutable[id] {
+					errs = append(errs, fmt.Sprintf("command %q: patch_always_fields %q is not a mutable field of noun %q", cs.Command, id, noun))
+				}
+			}
+		}
 		if cs.Endpoint.ListTransformFn != "" {
 			if _, ok := r.listTransformFns[cs.Endpoint.ListTransformFn]; !ok {
 				errs = append(errs, fmt.Sprintf("command %q: list_transform_fn %q not registered", cs.Command, cs.Endpoint.ListTransformFn))
@@ -404,6 +419,9 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 		// valid
 	default:
 		return fmt.Errorf("command %q: invalid content_type %q (must be \"application/json\", \"application/merge-patch+json\", or \"application/yaml\")", cs.Command, ep.ContentType)
+	}
+	if len(ep.PatchAlwaysFields) > 0 && ep.UpdateStrategy != spec.UpdateStrategyGetThenPatch {
+		return fmt.Errorf("command %q: patch_always_fields requires update_strategy %q", cs.Command, spec.UpdateStrategyGetThenPatch)
 	}
 	if ep.ContentType != "" && ep.FileBody == spec.FileBodyNone && ep.UpdateStrategy == "" {
 		return fmt.Errorf("command %q: content_type requires file_body or update_strategy to be set", cs.Command)
