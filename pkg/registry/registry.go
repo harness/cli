@@ -61,6 +61,7 @@ type Registry struct {
 	textFormatters       map[string]cmdctx.TextFormatterFn
 	bodyFns              map[string]cmdctx.CreateBodyFn
 	queryParamsFns       map[string]cmdctx.QueryParamsFn
+	idResolveFns         map[string]cmdctx.IdResolveFn
 	followFns            map[string]cmdctx.FollowFn
 	fetchFns             map[string]cmdctx.FetchFn
 	listTransformFns     map[string]cmdctx.ListTransformFn
@@ -83,6 +84,7 @@ func New() *Registry {
 		textFormatters:       map[string]cmdctx.TextFormatterFn{},
 		bodyFns:              map[string]cmdctx.CreateBodyFn{},
 		queryParamsFns:       map[string]cmdctx.QueryParamsFn{},
+		idResolveFns:         map[string]cmdctx.IdResolveFn{},
 		followFns:            map[string]cmdctx.FollowFn{},
 		fetchFns:             map[string]cmdctx.FetchFn{},
 		listTransformFns:     map[string]cmdctx.ListTransformFn{},
@@ -363,6 +365,14 @@ func (r *Registry) ResolveBodyFn(id string) cmdctx.CreateBodyFn {
 // ResolveQueryParamsFn implements cmdctx.Resolver.
 func (r *Registry) ResolveQueryParamsFn(id string) cmdctx.QueryParamsFn {
 	return r.queryParamsFns[id]
+}
+
+// RegisterIdResolveFn registers a fully-qualified id resolve function ID.
+func (r *Registry) RegisterIdResolveFn(id string, fn cmdctx.IdResolveFn) {
+	if _, ok := r.idResolveFns[id]; ok {
+		panic(fmt.Sprintf("registry: duplicate id_resolve_fn %q", id))
+	}
+	r.idResolveFns[id] = fn
 }
 
 // RegisterQueryParamsFn registers a fully-qualified query params function ID.

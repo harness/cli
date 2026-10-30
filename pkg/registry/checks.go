@@ -175,6 +175,11 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 			errs = append(errs, fmt.Sprintf("command %q: item_fn %q not registered", cs.Command, cs.ItemFn))
 		}
 	}
+	if cs.IdResolveFn != "" {
+		if _, ok := r.idResolveFns[cs.IdResolveFn]; !ok {
+			errs = append(errs, fmt.Sprintf("command %q: id_resolve_fn %q not registered", cs.Command, cs.IdResolveFn))
+		}
+	}
 	if cs.Endpoint != nil {
 		if cs.Endpoint.TextFormatter != "" {
 			if _, ok := r.textFormatters[cs.Endpoint.TextFormatter]; !ok {
