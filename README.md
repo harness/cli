@@ -497,7 +497,6 @@ CD nouns are multi-level: pass `--level account|org|project` (with `--org` / `--
 | `pr:close`              |      |     |        |        |        |    ✓    |      |
 | `pr:reopen`             |      |     |        |        |        |    ✓    |      |
 | `pr:ready`              |      |     |        |        |        |    ✓    |      |
-| `pr:edit`               |      |     |        |        |        |    ✓    |      |
 | `pr:review`             |      |     |        |        |        |    ✓    |      |
 | `pr:label`              |      |     |        |        |        |    ✓    |      |
 | `pr:unlabel`            |      |     |        |        |        |    ✓    |      |
