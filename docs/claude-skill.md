@@ -99,9 +99,11 @@ Two different families:
 - **`json` / `yaml`**: both return the *full* underlying object, not just the
   columns — use these when you need fields that aren't in the default
   column set, or nested/complex data the table view flattens away.
-  - `json` includes the full **envelope**: metadata that doesn't round-trip
-    through create/update (e.g. create time, update time). Use this when
-    you need that metadata, not just the resource body.
+  - `json` is the resource with the HTTP envelope (`status`, `correlationId`,
+    `data`) already removed. It still includes metadata that doesn't
+    round-trip through create/update (e.g. create time, update time). Use this
+    when you need that metadata. Add `--raw` to get the full API response,
+    envelope included.
   - `yaml` (on `get`) is the object only, no envelope — this is the form to
     edit and pass back to `update -f`.
 - `--fields a,b,c`: tab-separated single line of specific field values, built
