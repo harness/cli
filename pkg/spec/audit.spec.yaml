@@ -40,7 +40,7 @@ commands:
   - command: list audit_event
     verb: list
     noun: audit_event
-    short: List audit trail events (last 7 days by default)
+    short: List audit trail events, optionally within a --from/--to window
     handler_type: endpoint
     flags:
       - name: resource_type
@@ -51,6 +51,10 @@ commands:
         completion_values: [CREATE, UPDATE, DELETE, RESTORE, UPSERT, INVITE, REVOKE_INVITE, LOGIN, ENABLED, DISABLED, RERUN]
       - name: module
         description: Filter by module (e.g. CD, CI, CF, CE)
+      - name: from
+        description: Start of the window — 24h, 2w, 2026-01-01 (local time), or unix millis
+      - name: to
+        description: End of the window — same formats as --from
     endpoint:
       method: POST
       path: /audit/api/audits/list
@@ -59,7 +63,8 @@ commands:
         size: flags.limit
       body_params:
         filterType: '"Audit"'
-        startTime: '0'
+        startTime: 'flags.from != "" ? int(parseDateMs(flags.from)) : 0'
+        endTime: 'flags.to != "" ? int(parseDateMs(flags.to)) : nil'
         resourceType: 'flags.resource_type != "" ? flags.resource_type : nil'
         actions: 'flags.action != "" ? [flags.action] : nil'
         modules: 'flags.module != "" ? [flags.module] : nil'
