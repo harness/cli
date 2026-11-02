@@ -29,6 +29,14 @@ func configureNuget(ctx *cmdctx.Ctx) error {
 	}
 	configPath := filepath.Join(nugetDir, "NuGet.Config")
 
+	backupPath, err := backupFile(configPath, "nuget-config")
+	if err != nil {
+		return fmt.Errorf("backing up NuGet.Config: %w", err)
+	}
+	if backupPath != "" {
+		fmt.Printf("Backed up existing NuGet.Config → %s\n", backupPath)
+	}
+
 	if err := writeNugetConfig(configPath, registryID, registryURL, a.PATToken); err != nil {
 		return fmt.Errorf("writing NuGet.Config: %w", err)
 	}
