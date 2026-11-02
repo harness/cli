@@ -253,11 +253,10 @@ commands:
     short: Push an npm package (.tgz) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-tgz>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_npm
     flags:
