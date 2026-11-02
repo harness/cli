@@ -739,6 +739,7 @@ commands:
     endpoint:
       path: /ng/api/user/aggregate/{{ctx.id}}
       item_expr: it.data
+      yaml_pick_expr: it.data.user
 
   - command: list user_group
     verb: list
@@ -781,6 +782,7 @@ commands:
     endpoint:
       path: /ng/api/user-groups/{{ctx.id}}
       item_expr: it.data
+      yaml_pick_expr: it.data
 
   - command: list service_account
     verb: list
@@ -808,6 +810,7 @@ commands:
     endpoint:
       path: /ng/api/serviceaccount/aggregate/{{ctx.id}}
       item_expr: it.data.serviceAccount
+      yaml_pick_expr: it.data.serviceAccount
 
   - command: list role
     verb: list
@@ -864,6 +867,7 @@ commands:
     endpoint:
       path: /authz/api/roles/{{ctx.id}}
       item_expr: it.data
+      yaml_pick_expr: it.data.role
 
   - command: list role_assignment
     verb: list
@@ -914,6 +918,7 @@ commands:
     endpoint:
       path: /authz/api/roleassignments/{{ctx.id}}
       item_expr: it.data
+      yaml_pick_expr: it.data.roleAssignment
 
   - command: list resource_group
     verb: list
@@ -952,6 +957,7 @@ commands:
     endpoint:
       path: /authz/api/v2/resourcegroup/{{ctx.id}}
       item_expr: it.data
+      yaml_pick_expr: it.data.resourceGroup
 
   - command: list permission
     verb: list
@@ -1022,6 +1028,7 @@ commands:
     endpoint:
       path: /ng/api/settings/{{ctx.id}}
       item_expr: it.data
+      yaml_pick_expr: it.data
 
   - command: list connector
     verb: list
@@ -1445,3 +1452,4 @@ commands:
     endpoint:
       path: /ng/api/accounts/{{auth.account}}
       item_expr: it.data
+      yaml_pick_expr: it.data

@@ -453,6 +453,7 @@ commands:
     endpoint:
       path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
       item_expr: it
+      yaml_pick_expr: yamlParse(it.pipeline_yaml)
       field_extract: pipeline_yaml
       text_formatter: pipeline_yaml
       query_params:
@@ -1132,6 +1133,7 @@ commands:
     endpoint:
       path: /pipeline/api/inputSets/{{lastPart(ctx.id)}}
       item_expr: it.data
+      yaml_pick_expr: yamlParse(it.data.inputSetYaml)
       query_params:
         pipelineIdentifier: ctx.idParts[0]
 
@@ -1549,6 +1551,7 @@ commands:
     endpoint:
       path: /ng/api/freeze/{{ctx.id}}
       item_expr: it.data
+      yaml_pick_expr: yamlParse(it.data.yaml)
 
   - command: get global_freeze
     verb: get
@@ -1559,3 +1562,4 @@ commands:
     endpoint:
       path: /ng/api/freeze/getGlobalFreeze
       item_expr: it.data
+      yaml_pick_expr: yamlParse(it.data.yaml)
