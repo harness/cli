@@ -552,6 +552,10 @@ type EndpointSpec struct {
 	// UpdateBodyWrap is the key name used to re-wrap the picked subtree in the PUT body.
 	// e.g. "project" → PUT body becomes {"project": <mutated subtree>}
 	UpdateBodyWrap string `yaml:"update_body_wrap,omitempty"`
+	// PatchAlwaysFields lists noun field IDs a get-then-patch body always carries, with their
+	// current values, for APIs that clear or reject a PATCH omitting them. --set/--del
+	// still override.
+	PatchAlwaysFields []string `yaml:"patch_always_fields,omitempty"`
 	// GetPath overrides path for the GET leg of get-then-put and get-then-put-kv.
 	// Use when the GET and PUT endpoints have different paths (e.g. PUT /connectors, GET /connectors/{id}).
 	// When absent, path is used for both legs.
