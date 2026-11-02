@@ -124,8 +124,9 @@ func parseRegistry(id string) (string, error) {
 	return registry, nil
 }
 
-// newHTTPClient returns a retry-enabled HTTP client with a 10-minute timeout,
-// suitable for large artifact uploads/downloads that may hit transient network errors.
+// newHTTPClient returns a retry-enabled HTTP client for large artifact
+// uploads/downloads that may hit transient network errors. It sets no overall
+// timeout, which would cut off transfers that are slow but still progressing.
 func newHTTPClient() *http.Client {
 	rc := retryablehttp.NewClient()
 	rc.RetryMax = 5
@@ -134,9 +135,7 @@ func newHTTPClient() *http.Client {
 	rc.Backoff = retryablehttp.RateLimitLinearJitterBackoff
 	rc.Logger = nil
 
-	client := rc.StandardClient() // returns *http.Client using a retrying RoundTripper
-	client.Timeout = 10 * time.Minute
-	return client
+	return rc.StandardClient() // returns *http.Client using a retrying RoundTripper
 }
 
 // setAuthHeader sets the appropriate auth header on req (Bearer for SSO, x-api-key for PAT).
