@@ -12,8 +12,8 @@ help_text: |
 
   ### Domain Model
 
-  A **local_annotation** is a note posted back to the pipeline execution.
-  `execute local_annotation` merges one into a local JSON file for
+  An **annotate** is a note posted back to the pipeline execution.
+  `execute annotate` merges one into a local JSON file for
   lite-engine to pick up; gated behind `CI_ENABLE_HARNESS_ANNOTATIONS`/
   `PIPE_HARNESS_ANNOTATIONS`, so it's always safe to run.
 
@@ -44,9 +44,9 @@ help_text: |
   {{nouns}}
 
 nouns:
-  - noun: local_annotation
+  - noun: annotate
     short_desc: "A pipeline-step annotation written to the local annotations file for lite-engine to post."
-    noun_aliases: [local_annotations]
+    noun_aliases: [local_annotation, local_annotations, annotations]
     fields:
       - id: context
         expr: it.context
@@ -100,9 +100,9 @@ nouns:
         expr: it.totalBytes
 
 commands:
-  - command: execute local_annotation
+  - command: execute annotate
     verb: execute
-    noun: local_annotation
+    noun: annotate
     short: "Write/merge a pipeline-step annotation into the local annotations file"
     long: |
       Write or merge a Harness pipeline-step annotation into a local JSON file
@@ -113,10 +113,10 @@ commands:
       or PIPE_HARNESS_ANNOTATIONS=true is set in the environment.
 
       Examples:
-        harness execute local_annotation --context build-status --style info --summary "Build completed"
-        harness execute local_annotation --context deployment --style success --summary-file ./deploy-notes.md
-        harness execute local_annotation --context test-results --style warning --summary "Some tests failed" --priority 5
-        harness execute local_annotation --context build-status --mode delete
+        harness execute annotate --context build-status --style info --summary "Build completed"
+        harness execute annotate --context deployment --style success --summary-file ./deploy-notes.md
+        harness execute annotate --context test-results --style warning --summary "Some tests failed" --priority 5
+        harness execute annotate --context build-status --mode delete
     no_id: true
     has_args: true
     no_auth: true
