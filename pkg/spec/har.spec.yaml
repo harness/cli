@@ -652,13 +652,14 @@ commands:
     short: Get artifact metadata by registry and name
     id_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
     flags_builtin:
     handler_type: endpoint
     endpoint:
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+/summary
+      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{join(ctx.idParts[1:], "/")}}/+/summary
       item_expr: it.data
 
   - command: get artifact_version
@@ -667,6 +668,7 @@ commands:
     short: Get artifact version metadata
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -675,7 +677,7 @@ commands:
       ui: true
     handler_type: endpoint
     endpoint:
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+/version/{{ctx.idParts[2]}}/summary
+      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{join(ctx.idParts[1:-1], "/")}}/+/version/{{ctx.idParts[-1]}}/summary
       item_expr: it.data
 
   - command: list artifact_file
@@ -685,6 +687,7 @@ commands:
     requires_parentid: true
     parentid_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -692,7 +695,7 @@ commands:
     flags_builtin:
     handler_type: endpoint
     endpoint:
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/artifact/{{ctx.parentIdParts[1]}}/+/version/{{ctx.parentIdParts[2]}}/files
+      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/artifact/{{join(ctx.parentIdParts[1:-1], "/")}}/+/version/{{ctx.parentIdParts[-1]}}/files
       items_expr: it.data.files
       get_id_expr: parentId + "/" + it.name
       columns: [name, size, created]
@@ -713,6 +716,7 @@ commands:
     requires_parentid: true
     parentid_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -722,7 +726,7 @@ commands:
       - name: search
         description: Filter versions by name
     endpoint:
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/artifact/{{ctx.parentIdParts[1]}}/+/versions
+      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/artifact/{{join(ctx.parentIdParts[1:], "/")}}/+/versions
       items_expr: it.data.artifactVersions
       get_id_expr: parentId + "/" + it.name
       completion:
@@ -937,6 +941,7 @@ commands:
     short: Get metadata for an artifact
     id_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -947,7 +952,7 @@ commands:
       query_params:
         account_identifier: auth.account
         registry_identifier: "ctx.idParts[0]"
-        package: "ctx.idParts[1]"
+        package: 'join(ctx.idParts[1:], "/")'
       item_expr: it.data.metadata
       text_formatter: core:metadata-text
 
@@ -957,6 +962,7 @@ commands:
     short: Update metadata on an artifact (--set key=value, --del key)
     id_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -971,12 +977,12 @@ commands:
       get_query_params:
         account_identifier: auth.account
         registry_identifier: "ctx.idParts[0]"
-        package: "ctx.idParts[1]"
+        package: 'join(ctx.idParts[1:], "/")'
       query_params:
         account_identifier: auth.account
       body_params:
         registryIdentifier: ctx.idParts[0]
-        package: ctx.idParts[1]
+        package: 'join(ctx.idParts[1:], "/")'
       update_body_wrap: metadata
       item_expr: it.data.metadata
       text_formatter: core:metadata-text
@@ -987,6 +993,7 @@ commands:
     short: Get metadata for an artifact version
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -998,8 +1005,8 @@ commands:
       query_params:
         account_identifier: auth.account
         registry_identifier: "ctx.idParts[0]"
-        package: "ctx.idParts[1]"
-        version: "ctx.idParts[2]"
+        package: 'join(ctx.idParts[1:-1], "/")'
+        version: "ctx.idParts[-1]"
       item_expr: it.data.metadata
       text_formatter: core:metadata-text
 
@@ -1009,6 +1016,7 @@ commands:
     short: Update metadata on an artifact version (--set key=value, --del key)
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -1024,14 +1032,14 @@ commands:
       get_query_params:
         account_identifier: auth.account
         registry_identifier: "ctx.idParts[0]"
-        package: "ctx.idParts[1]"
-        version: "ctx.idParts[2]"
+        package: 'join(ctx.idParts[1:-1], "/")'
+        version: "ctx.idParts[-1]"
       query_params:
         account_identifier: auth.account
       body_params:
         registryIdentifier: ctx.idParts[0]
-        package: ctx.idParts[1]
-        version: ctx.idParts[2]
+        package: 'join(ctx.idParts[1:-1], "/")'
+        version: ctx.idParts[-1]
       update_body_wrap: metadata
       item_expr: it.data.metadata
       text_formatter: core:metadata-text
@@ -1043,6 +1051,7 @@ commands:
     short: Copy a specific artifact version to another registry
     id_label: "<src-registry/artifact/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -1055,8 +1064,8 @@ commands:
       query_params:
         account_identifier: auth.account
         src_registry_identifier: ctx.idParts[0]
-        src_artifact: ctx.idParts[1]
-        src_version: ctx.idParts[2]
+        src_artifact: 'join(ctx.idParts[1:-1], "/")'
+        src_version: ctx.idParts[-1]
         target_registry_identifier: flags["dest-registry"]
         artifact_type: flags["artifact-type"]
       item_expr: it
@@ -1076,6 +1085,7 @@ commands:
     short: Evaluate firewall policy for a specific artifact version
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
