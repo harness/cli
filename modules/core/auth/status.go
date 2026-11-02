@@ -45,7 +45,8 @@ type statusChecks struct {
 type statusResult struct {
 	Source             string       `json:"Source"`
 	Profile            string       `json:"Profile"`
-	ProfileMissing     bool         `json:"-"` // profile has no entry in config at all; StatusHandler returns early on this
+	TokenEnvVar        string       `json:"TokenEnvVar,omitempty"` // env var the PAT/SAT came from (HARNESS_PROFILE_<NAME>_API_KEY); empty when from the credentials file
+	ProfileMissing     bool         `json:"-"`                     // profile has no entry in config at all; StatusHandler returns early on this
 	APIUrl             string       `json:"APIUrl"`
 	RegistryURL        string       `json:"RegistryURL,omitempty"`
 	AccountID          string       `json:"AccountID"`
@@ -155,6 +156,7 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 	}
 	r.Source = resolved.Source
 	r.Profile = profileName(resolved.Source)
+	r.TokenEnvVar = resolved.TokenEnvVar
 	r.APIUrl = resolved.APIUrl
 	r.RegistryURL = resolved.RegistryURL
 	r.AccountID = resolved.AccountID
@@ -511,6 +513,11 @@ func printStatus(r statusResult) {
 		add("Mode", sv(r.Status.Profile, "pipeline"))
 	default:
 		add("Profile", sv(r.Status.Profile, r.Profile+profileSuffix))
+	}
+	// When a profile's token was supplied via its HARNESS_PROFILE_<NAME>_API_KEY
+	// env var rather than the credentials file, make that explicit.
+	if r.TokenEnvVar != "" {
+		add("Token source", fmt.Sprintf("%s %s", console.GreenCheck(), r.TokenEnvVar))
 	}
 	if r.Source != auth.SourcePipeline {
 		add("APIUrl", sv(r.Status.API, r.APIUrl))

@@ -52,6 +52,27 @@ func EffectiveProfileSelector(profileFlag string) string {
 	return os.Getenv(hbase.EnvProfile)
 }
 
+// ProfileAPIKeyEnvVar returns the per-profile API key override environment
+// variable for a profile: HARNESS_PROFILE_<NAME>_API_KEY, where <NAME> is the
+// profile name uppercased with every non-alphanumeric ASCII character replaced
+// by "_" (e.g. "my-prod" -> "HARNESS_PROFILE_MY_PROD_API_KEY"). Only PAT/SAT
+// profiles consult it; SSO profiles ignore it. When set, it takes precedence
+// over the token stored in the credentials file, so a profile can keep its
+// non-secret settings in config.yaml while the token is supplied from the
+// environment — for shared machines, and for CI where credentials must not be
+// written to disk.
+func ProfileAPIKeyEnvVar(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(name) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return hbase.EnvProfile + "_" + b.String() + "_API_KEY"
+}
+
 // ResolvedAuth is the result of auth resolution — the active credentials for a command invocation.
 // Credential fields are never printed; callers that display auth context must omit them.
 type ResolvedAuth struct {
@@ -68,6 +89,7 @@ type ResolvedAuth struct {
 	UserType        string    // config.UserTypeUser or config.UserTypeServiceAccount; empty for env-var auth, legacy profiles, or SSO
 	UserID          string    // Harness user uuid from profile; empty for env-var auth, legacy profiles, or service accounts
 	TokenKind       TokenKind // pat, sat, jwt, or "" (unknown)
+	TokenEnvVar     string    // name of the HARNESS_PROFILE_<NAME>_API_KEY var the token came from; empty when it came from the credentials file
 
 	// Exactly one of these is set depending on AuthType.
 	PATToken     string // set when AuthType == AuthTypePAT
@@ -195,11 +217,17 @@ func Validate(r *ResolvedAuth) error {
 			if r.Source == SourceEnv {
 				return fmt.Errorf("%s is invalid: %w", hbase.EnvAPIKey, err)
 			}
+			if r.TokenEnvVar != "" {
+				return fmt.Errorf("%s is invalid: %w", r.TokenEnvVar, err)
+			}
 			return fmt.Errorf("stored token is invalid — run '%s' to re-authenticate: %w", r.LoginHint("login"), err)
 		}
 		if tokenAcct := AccountIDFromToken(r.PATToken); tokenAcct != "" && r.AccountID != tokenAcct {
 			if r.Source == SourceEnv {
 				return fmt.Errorf("%s %q does not match account in token %q", hbase.EnvAccount, r.AccountID, tokenAcct)
+			}
+			if r.TokenEnvVar != "" {
+				return fmt.Errorf("profile account %q does not match account in token from %s %q", r.AccountID, r.TokenEnvVar, tokenAcct)
 			}
 			return fmt.Errorf("stored account %q does not match token — run '%s' to re-authenticate", r.AccountID, r.LoginHint("login"))
 		}
@@ -345,10 +373,20 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 	}
 	profileCreds := creds[name]
 	activeToken := ""
-	if profileCreds != nil {
-		if authType == AuthTypeSSO {
+	tokenEnvVar := ""
+	if authType == AuthTypeSSO {
+		// SSO profiles have no env var equivalent — the token is always the
+		// stored short-lived JWT.
+		if profileCreds != nil {
 			activeToken = profileCreds.SSOToken
-		} else {
+		}
+	} else {
+		// A per-profile env var overrides the credentials file for PAT/SAT.
+		envVar := ProfileAPIKeyEnvVar(name)
+		if key := os.Getenv(envVar); key != "" {
+			activeToken = key
+			tokenEnvVar = envVar
+		} else if profileCreds != nil {
 			activeToken = profileCreds.Token
 		}
 	}
@@ -376,6 +414,7 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		UserType:    p.UserType,
 		UserID:      p.UserID,
 		TokenKind:   TokenType(activeToken),
+		TokenEnvVar: tokenEnvVar,
 	}
 	if authType == AuthTypeSSO {
 		r.SSOToken = activeToken

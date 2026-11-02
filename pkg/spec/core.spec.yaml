@@ -175,7 +175,10 @@ commands:
     no_auth: true
     handler_type: workflow
     workflow_id: logout
-    flags: []
+    flags:
+      - name: credentials-only
+        is_bool: true
+        description: Remove only the stored credentials, keeping the profile in config.yaml
 
   - command: auth profiles
     verb: auth

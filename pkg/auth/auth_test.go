@@ -405,3 +405,141 @@ func TestSetAuthHeader_HarnessAccount(t *testing.T) {
 		})
 	}
 }
+
+func TestProfileAPIKeyEnvVar(t *testing.T) {
+	cases := map[string]string{
+		"default":   "HARNESS_PROFILE_DEFAULT_API_KEY",
+		"my-prod":   "HARNESS_PROFILE_MY_PROD_API_KEY",
+		"My.Prod":   "HARNESS_PROFILE_MY_PROD_API_KEY",
+		"staging 2": "HARNESS_PROFILE_STAGING_2_API_KEY",
+	}
+	for in, want := range cases {
+		if got := ProfileAPIKeyEnvVar(in); got != want {
+			t.Errorf("ProfileAPIKeyEnvVar(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestResolveProfileTokenFromEnvVar(t *testing.T) {
+	const (
+		account = "acctx"
+		fileTok = "pat.acctx.filetok.filesecret"
+		envTok  = "pat.acctx.envtok.envsecret"
+		envVar  = "HARNESS_PROFILE_PROD_API_KEY"
+	)
+
+	// seedProfile isolates HARNESS_CLI_HOME and writes a "prod" PAT profile,
+	// optionally with a token in the credentials file.
+	seedProfile := func(t *testing.T, withFileToken bool) {
+		t.Helper()
+		t.Setenv(hbase.EnvCLIHome, t.TempDir())
+		t.Setenv(hbase.EnvProfile, "")
+		t.Setenv(hbase.EnvAPIKey, "")
+		cfg := &config.Config{Profiles: map[string]*config.Profile{
+			"prod": {AccountID: account, OrgID: "o", ProjectID: "p"},
+		}}
+		if err := config.SaveConfig(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if withFileToken {
+			if err := SetCredential("prod", fileTok); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	t.Run("env var overrides credentials file", func(t *testing.T) {
+		seedProfile(t, true)
+		t.Setenv(envVar, envTok)
+		r, err := Resolve("prod")
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if r.PATToken != envTok {
+			t.Errorf("PATToken = %q, want env token %q", r.PATToken, envTok)
+		}
+		if r.TokenEnvVar != envVar {
+			t.Errorf("TokenEnvVar = %q, want %q", r.TokenEnvVar, envVar)
+		}
+		if r.Source != "profile:prod" {
+			t.Errorf("Source = %q, want profile:prod (still a profile)", r.Source)
+		}
+	})
+
+	t.Run("env var works with no credentials file entry", func(t *testing.T) {
+		seedProfile(t, false)
+		t.Setenv(envVar, envTok)
+		r, err := Resolve("prod")
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if r.PATToken != envTok || r.TokenEnvVar != envVar {
+			t.Errorf("PATToken/TokenEnvVar = %q/%q, want %q/%q", r.PATToken, r.TokenEnvVar, envTok, envVar)
+		}
+	})
+
+	t.Run("falls back to credentials file when env var unset", func(t *testing.T) {
+		seedProfile(t, true)
+		t.Setenv(envVar, "")
+		r, err := Resolve("prod")
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if r.PATToken != fileTok {
+			t.Errorf("PATToken = %q, want file token %q", r.PATToken, fileTok)
+		}
+		if r.TokenEnvVar != "" {
+			t.Errorf("TokenEnvVar = %q, want empty (file source)", r.TokenEnvVar)
+		}
+	})
+
+	t.Run("errors when neither env var nor file has a token", func(t *testing.T) {
+		seedProfile(t, false)
+		t.Setenv(envVar, "")
+		if _, err := Load("prod"); err == nil || !strings.Contains(err.Error(), "no token found") {
+			t.Fatalf("Load error = %v, want 'no token found'", err)
+		}
+	})
+
+	t.Run("account mismatch names the env var", func(t *testing.T) {
+		seedProfile(t, false)
+		t.Setenv(envVar, "pat.otheracct.envtok.envsecret")
+		_, err := Resolve("prod")
+		if err == nil || !strings.Contains(err.Error(), envVar) {
+			t.Fatalf("Resolve error = %v, want error naming %q", err, envVar)
+		}
+	})
+}
+
+func TestResolveProfileSSOIgnoresEnvVar(t *testing.T) {
+	t.Setenv(hbase.EnvCLIHome, t.TempDir())
+	t.Setenv(hbase.EnvProfile, "")
+	t.Setenv(hbase.EnvAPIKey, "")
+	cfg := &config.Config{Profiles: map[string]*config.Profile{
+		"prod": {AuthType: config.AuthTypeSSO, AccountID: "acctx", OrgID: "o", ProjectID: "p"},
+	}}
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSSOCredentials("prod", "jwt.header.payload", "refresh-token"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_PROFILE_PROD_API_KEY", "pat.acctx.envtok.envsecret")
+
+	r, err := Load("prod")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if r.AuthType != AuthTypeSSO {
+		t.Fatalf("AuthType = %v, want SSO", r.AuthType)
+	}
+	if r.TokenEnvVar != "" {
+		t.Errorf("TokenEnvVar = %q, want empty for SSO", r.TokenEnvVar)
+	}
+	if r.PATToken != "" {
+		t.Errorf("PATToken = %q, want empty for SSO", r.PATToken)
+	}
+	if r.SSOToken == "" {
+		t.Error("SSOToken should be loaded from the credentials file")
+	}
+}

@@ -28,6 +28,17 @@ func LogoutHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("profile %q not found", profileName)
 	}
 
+	// --credentials-only wipes just the stored token, leaving the profile's
+	// settings in config.yaml so it can be re-used with a token supplied from
+	// the environment (HARNESS_PROFILE_<NAME>_API_KEY).
+	if cmdctx.GetBool(ctx.FlagValues, "credentials-only") {
+		if err := auth.DeleteCredential(profileName); err != nil {
+			return fmt.Errorf("removing credentials: %w", err)
+		}
+		fmt.Printf("Credentials for profile %q removed; profile kept in config.\n", profileName)
+		return nil
+	}
+
 	delete(cfg.Profiles, profileName)
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)

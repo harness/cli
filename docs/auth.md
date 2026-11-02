@@ -44,6 +44,13 @@ harness pipeline list --profile staging --project other-project
 
 Credentials are stored across two files in `~/.harness/`. Primary use case is interactive local development.
 
+**Supplying a profile's token from the environment.** For a PAT/SAT profile, the env var `HARNESS_PROFILE_<NAME>_API_KEY` takes precedence over the token in the credentials file. `<NAME>` is the profile name uppercased, with every non-alphanumeric character replaced by `_` — so profile `my-prod` reads `HARNESS_PROFILE_MY_PROD_API_KEY`. This keeps a profile's non-secret settings (URL, account, org, project) in `config.yaml` while the secret comes from the environment, which covers two cases the credentials file can't:
+
+- **Shared machines**, where each user brings their own PAT.
+- **CI and scripts**, where a config can be shipped but credentials must not be written to disk. Pair it with `harness auth logout --credentials-only` to strip a stored token while keeping the profile.
+
+`harness auth status` shows a `Token source` line naming the env var whenever a token is resolved this way. SSO profiles have no env var equivalent — they always use their stored token.
+
 ### Env Var Mode
 
 When `HARNESS_API_KEY` is set (and `--profile` is not), env var mode is active. No config file is read.
@@ -208,9 +215,10 @@ Removes a profile from both config files.
 ```
 harness auth logout
 harness auth logout --profile staging
+harness auth logout --credentials-only     # remove only the stored token, keep the profile in config.yaml
 ```
 
-Defaults to the `"default"` profile.
+Defaults to the `"default"` profile. `--credentials-only` deletes just the token from `~/.harness/credentials` and leaves the profile's settings in `config.yaml`, so the profile can keep working with a token supplied via `HARNESS_PROFILE_<NAME>_API_KEY` (see [Profile Mode](#profile-mode)).
 
 ### `harness auth status`
 
