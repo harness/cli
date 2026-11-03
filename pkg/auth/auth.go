@@ -351,32 +351,37 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		}
 		return nil, fmt.Errorf("profile %q not found", name)
 	}
-	creds, err := LoadCredentials()
-	if err != nil {
-		return nil, fmt.Errorf("loading credentials: %w", err)
-	}
 	authType := p.AuthType
 	if authType == "" {
 		authType = AuthTypePAT
 	}
-	profileCreds := creds[name]
 	activeToken := ""
 	tokenEnvVar := ""
-	if profileCreds != nil {
-		if authType == AuthTypeSSO {
-			activeToken = profileCreds.SSOToken
-		} else {
-			activeToken = profileCreds.Token
-		}
-	}
+	var profileCreds *ProfileCredentials
 	// PAT/SAT profiles may take their token from the environment instead of
 	// the credentials file. The env var wins so a shared machine's users can
-	// bring their own key. SSO profiles need a refresh token, so are excluded.
+	// bring their own key, and the file is not read at all in that case since
+	// those users may lack access to it. SSO profiles need a refresh token,
+	// so are excluded.
 	if authType != AuthTypeSSO {
 		envVar := ProfileAPIKeyEnvVar(name)
 		if v := os.Getenv(envVar); v != "" {
 			activeToken = v
 			tokenEnvVar = envVar
+		}
+	}
+	if tokenEnvVar == "" {
+		creds, err := LoadCredentials()
+		if err != nil {
+			return nil, fmt.Errorf("loading credentials: %w", err)
+		}
+		profileCreds = creds[name]
+		if profileCreds != nil {
+			if authType == AuthTypeSSO {
+				activeToken = profileCreds.SSOToken
+			} else {
+				activeToken = profileCreds.Token
+			}
 		}
 	}
 	if activeToken == "" {
@@ -407,6 +412,10 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		UserID:      p.UserID,
 		TokenKind:   TokenType(activeToken),
 		TokenEnvVar: tokenEnvVar,
+	}
+	if tokenEnvVar != "" {
+		// The stored identity belongs to whoever logged in, not the env key's owner.
+		r.Email, r.UserType, r.UserID = "", "", ""
 	}
 	if authType == AuthTypeSSO {
 		r.SSOToken = activeToken

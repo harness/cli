@@ -382,9 +382,10 @@ func envVarSetResult(envVar, value string) checkResult {
 
 // persistResolvedIdentity writes identity fields discovered during a status/login check
 // back to the profile on disk, if any of them are new or changed. No-op for env-var auth,
-// which has no profile to update.
+// which has no profile to update, and for tokens from a profile's API key env
+// var, whose owner may differ from the profile's stored identity.
 func persistResolvedIdentity(resolved *auth.ResolvedAuth, identity tokenIdentity) {
-	if identity.Email == "" || resolved.Source == auth.SourceEnv {
+	if identity.Email == "" || resolved.Source == auth.SourceEnv || resolved.TokenEnvVar != "" {
 		return
 	}
 	pName := profileName(resolved.Source)

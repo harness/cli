@@ -532,8 +532,23 @@ func TestSimilarProfiles(t *testing.T) {
 
 func TestConfirmSimilarProfiles_NonTTYWarnsButProceeds(t *testing.T) {
 	cfg := &config.Config{Profiles: map[string]*config.Profile{"my-prod": {}}}
-	if err := confirmSimilarProfiles(cfg, "my_prod"); err != nil {
-		t.Errorf("non-interactive run must not fail, got %v", err)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	callErr := confirmSimilarProfiles(cfg, "my_prod")
+	os.Stderr = orig
+	w.Close()
+	out, _ := io.ReadAll(r)
+
+	if callErr != nil {
+		t.Errorf("non-interactive run must not fail, got %v", callErr)
+	}
+	if !strings.Contains(string(out), `"my-prod"`) || !strings.Contains(string(out), "HARNESS_PROFILE_MY_PROD_API_KEY") {
+		t.Errorf("warning missing or incomplete: %q", out)
 	}
 	// Existing profile: no check at all.
 	if err := confirmSimilarProfiles(cfg, "my-prod"); err != nil {

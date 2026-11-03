@@ -5,6 +5,7 @@ package auth
 
 import (
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -476,6 +477,38 @@ func TestResolveProfileTokenFromEnv(t *testing.T) {
 		_, err := resolveProfile("my-prod")
 		if err == nil || !strings.Contains(err.Error(), "HARNESS_PROFILE_MY_PROD_API_KEY") {
 			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	t.Run("unreadable credentials file does not block the env var", func(t *testing.T) {
+		setup(t, false, "")
+		// A directory at the credentials path makes reading it fail.
+		if err := os.MkdirAll(hbase.GetCredentialsFilePath(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadCredentials(); err == nil {
+			t.Fatal("expected credentials read to fail")
+		}
+		t.Setenv("HARNESS_PROFILE_MY_PROD_API_KEY", envTok)
+		if _, err := resolveProfile("my-prod"); err != nil {
+			t.Errorf("env var should not need the credentials file: %v", err)
+		}
+	})
+	t.Run("stored identity is not attributed to the env key", func(t *testing.T) {
+		setup(t, true, "")
+		cfg, _ := config.LoadConfig()
+		cfg.Profiles["my-prod"].Email = "owner@example.com"
+		cfg.Profiles["my-prod"].UserID = "owner-uuid"
+		cfg.Profiles["my-prod"].UserType = config.UserTypeUser
+		if err := config.SaveConfig(cfg); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("HARNESS_PROFILE_MY_PROD_API_KEY", envTok)
+		r, err := resolveProfile("my-prod")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Email != "" || r.UserID != "" || r.UserType != "" {
+			t.Errorf("identity leaked: %q %q %q", r.Email, r.UserID, r.UserType)
 		}
 	})
 	t.Run("SSO profiles ignore the env var", func(t *testing.T) {
