@@ -1081,6 +1081,26 @@ commands:
       no_fields: true
       text_header: "\nMarked PR #{{ctx.idParts[1]}} as ready for review\n"
 
+  - command: execute pr:draft
+    verb: execute
+    noun: pr
+    noun_variant: draft
+    short: "Convert an open pull request back to a draft: harness execute pr:draft <repo_id>/<pr_number>"
+    handler_type: endpoint
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/state
+      body_params:
+        state: '"open"'
+        is_draft: "true"
+      no_fields: true
+      text_header: "\nConverted PR #{{ctx.idParts[1]}} to draft\n"
+
   - command: execute pr:review
     verb: execute
     noun: pr
