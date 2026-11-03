@@ -1,10 +1,10 @@
 # CI Module
 
-Commands under `harness ... local_annotation` / `... error` / `... coverage` / `... ci_artifact` are meant to run inside a Harness pipeline step (invoked by lite-engine or a Run step script), though most also work from a developer workstation. They split into two groups:
+Commands under `harness ... local_annotation` / `... error` / `... coverage` / `... managed_artifact` are meant to run inside a Harness pipeline step (invoked by lite-engine or a Run step script), though most also work from a developer workstation. They split into two groups:
 
 - **Local annotation, error categorization, and coverage analysis** are local-only — they read/write local files and make no Harness API call, so they need no auth.
 - **Coverage upload/wait-until** talk to a Harness service over HTTP and need auth — resolved automatically from pipeline env vars inside a step, or from the active CLI profile outside one.
-- **`ci_artifact` push/pull** also talk to a Harness service over HTTP, but only run inside a pipeline step — there is no profile fallback.
+- **`managed_artifact` push/pull** also talk to a Harness service over HTTP, but only run inside a pipeline step — there is no profile fallback.
 
 ---
 
@@ -192,9 +192,9 @@ harness execute coverage:wait-until --gt 70 --patch-gte 80
 
 ---
 
-## Artifacts (`ci_artifact`)
+## Artifacts (`managed_artifact`)
 
-`push ci_artifact` / `pull ci_artifact` move a generic build artifact in and out of Harness Artifact Registry (HAR) for the current pipeline's artifact version.
+`push managed_artifact` / `pull managed_artifact` move a generic build artifact in and out of Harness Artifact Registry (HAR) for the current pipeline's artifact version.
 
 ### Auth
 
@@ -212,12 +212,12 @@ Every push/pull targets `{name}/{version}` in a registry:
 
 `--name`/`--version`/`--registry` override the env-var defaults within a pipeline step; they don't make the command runnable outside one — see [Auth](#auth) above.
 
-### `harness push ci_artifact <source>...`
+### `harness push managed_artifact <source>...`
 
 ```
-harness push ci_artifact ./build/app.zip
-harness push ci_artifact ./cache-dir --destination cache
-harness push ci_artifact './dist/*.tar.gz,./reports/*.xml'
+harness push managed_artifact ./build/app.zip
+harness push managed_artifact ./cache-dir --destination cache
+harness push managed_artifact './dist/*.tar.gz,./reports/*.xml'
 ```
 
 Each `<source>` may be:
@@ -248,14 +248,14 @@ On full success, prints a summary and writes a merged JSON record to `$HARNESS_A
 }
 ```
 
-If `$HARNESS_ARTIFACT_FILE_PATH` already exists (a prior `push ci_artifact` call in the same step wrote it), entries are merged by `destination` — the newest upload for a given destination wins — so parallel matrix jobs or multiple pushes in one step accumulate into one unified record. An exclusive advisory lock on a companion `.lock` file serializes the merge across concurrent processes. If any file fails to upload, the whole command fails and the output file is **not** written for that invocation.
+If `$HARNESS_ARTIFACT_FILE_PATH` already exists (a prior `push managed_artifact` call in the same step wrote it), entries are merged by `destination` — the newest upload for a given destination wins — so parallel matrix jobs or multiple pushes in one step accumulate into one unified record. An exclusive advisory lock on a companion `.lock` file serializes the merge across concurrent processes. If any file fails to upload, the whole command fails and the output file is **not** written for that invocation.
 
-### `harness pull ci_artifact <path-in-version>`
+### `harness pull managed_artifact <path-in-version>`
 
 ```
-harness pull ci_artifact files/Dockerfile
-harness pull ci_artifact files/Dockerfile --destination ./downloads/
-harness pull ci_artifact reports/coverage.html --destination /tmp/coverage.html
+harness pull managed_artifact files/Dockerfile
+harness pull managed_artifact files/Dockerfile --destination ./downloads/
+harness pull managed_artifact reports/coverage.html --destination /tmp/coverage.html
 ```
 
 `<path-in-version>` is the path relative to the version root — the same value supplied as `--destination` (joined with the filename) during the corresponding push. `--destination` controls where the file lands locally:
