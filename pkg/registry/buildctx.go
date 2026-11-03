@@ -528,7 +528,16 @@ func validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) erro
 	if label == "" {
 		label = "<id>"
 	}
-	if val == "" || cs.IdAllowSlash {
+	if val == "" {
+		return nil
+	}
+	if cs.IdAllowSlash {
+		// Extra '/' are allowed (e.g. artifact names with slashes), but the id
+		// still needs at least id_parts segments; otherwise the request goes
+		// out with an empty path segment and fails with a 404.
+		if cs.IdParts > 1 && strings.Count(val, "/") < cs.IdParts-1 {
+			return fmt.Errorf("expected %s with at least %d parts separated by '/', got %q", label, cs.IdParts, val)
+		}
 		return nil
 	}
 	allowed := max(cs.IdParts-1, 0)

@@ -382,6 +382,57 @@ func TestBuildCtx_WorkflowIdSlashAllowed(t *testing.T) {
 	}
 }
 
+func TestBuildCtx_WorkflowIdSlashAllowedTooFewParts(t *testing.T) {
+	// IdAllowSlash=true with IdParts=3: extra slashes are fine, but fewer than
+	// 3 parts is rejected locally instead of sending a request with an empty
+	// path segment.
+	r := New()
+	registerWorkflowExecute(t, r, "slashparts", &spec.CommandSpec{
+		IdParts:      3,
+		IdAllowSlash: true,
+		IdLabel:      "<registry/name/version>",
+	})
+	cs := r.GetSpec(VerbExecute, "slashparts")
+
+	for _, id := range []string{"my-registry/my-pkg/1.0.0", "my-registry/@scope/pkg/1.0.0"} {
+		if _, err := buildCtx(buildWorkflowTestCmd(t, r, cs), cs, []string{id}, r); err != nil {
+			t.Fatalf("buildCtx(%q) = %v, want no error", id, err)
+		}
+	}
+
+	for _, id := range []string{"my-registry/my-pkg", "my-registry"} {
+		_, err := buildCtx(buildWorkflowTestCmd(t, r, cs), cs, []string{id}, r)
+		if err == nil {
+			t.Fatalf("buildCtx(%q) = nil, want error", id)
+		}
+		want := `expected <registry/name/version> with at least 3 parts separated by '/', got "` + id + `"`
+		if err.Error() != want {
+			t.Fatalf("buildCtx(%q) error = %q, want %q", id, err, want)
+		}
+	}
+}
+
+func TestValidateIdParts_ParentIdSlashAllowedTooFewParts(t *testing.T) {
+	r := New()
+	registerWorkflowList(t, r, "parentslashparts", &spec.CommandSpec{
+		IdParts:       3,
+		IdAllowSlash:  true,
+		ParentIdLabel: "registry/name/version",
+	})
+	cs := r.GetSpec(VerbList, "parentslashparts")
+	cmd := &cobra.Command{Use: cs.Command}
+	r.bindWorkflowCmd(cmd, cs, func(*cmdctx.Ctx) error { return nil })
+	cmd.Flags().Float64("timeout", 0, "timeout")
+
+	_, err := buildCtx(cmd, cs, []string{"my-registry/my-pkg"}, r)
+	if err == nil {
+		t.Fatal("expected error for parent id with too few parts")
+	}
+	if !strings.Contains(err.Error(), "expected <registry/name/version> with at least 3 parts") {
+		t.Fatalf("error = %q, want at least 3 parts", err)
+	}
+}
+
 func TestBuildCtx_WorkflowFieldsAndFormatMutuallyExclusive(t *testing.T) {
 	r := New()
 	registerWorkflowExecute(t, r, "fmtfields2", &spec.CommandSpec{})
