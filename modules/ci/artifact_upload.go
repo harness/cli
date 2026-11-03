@@ -200,19 +200,19 @@ func parallelUpload(ctx context.Context, entries []uploadEntry, a *auth.Resolved
 	return results
 }
 
-// pushCiArtifactHandler is the `push ci_artifact` workflow handler. It
+// pushCiArtifactHandler is the `push managed_artifact` workflow handler. It
 // uploads one or more local files/directories/globs to Harness Artifact
 // Registry under ctx.Auth's resolved registry — populated from pipeline_auth
 // — then writes a merged JSON summary to $HARNESS_ARTIFACT_FILE_PATH when set.
 func pushCiArtifactHandler(ctx *cmdctx.Ctx) error {
 	if ctx.Auth.Source != auth.SourcePipeline {
-		return fmt.Errorf("push ci_artifact only runs inside a Harness pipeline step (requires %s)", hbase.EnvPipelineID)
+		return fmt.Errorf("push managed_artifact only runs inside a Harness pipeline step (requires %s)", hbase.EnvPipelineID)
 	}
 	if ctx.Auth.RegistryURL == "" {
 		return fmt.Errorf("%s is required in a pipeline step", envHARURL)
 	}
 	if len(ctx.Args) == 0 {
-		return fmt.Errorf("push ci_artifact requires at least one <source> argument")
+		return fmt.Errorf("push managed_artifact requires at least one <source> argument")
 	}
 
 	name := strings.TrimSpace(cmdctx.GetString(ctx.FlagValues, "name"))

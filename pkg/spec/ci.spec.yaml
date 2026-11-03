@@ -28,10 +28,10 @@ help_text: |
   summary; `execute coverage:upload` sends it to the Harness coverage
   service; `execute coverage:wait-until` polls and gates on a threshold.
 
-  A **ci_artifact** is a generic build artifact pushed to or pulled from
-  Harness Artifact Registry (HAR). `push ci_artifact <source>...` uploads
+  A **managed_artifact** is a generic build artifact pushed to or pulled from
+  Harness Artifact Registry (HAR). `push managed_artifact <source>...` uploads
   file(s)/directories to the current pipeline's artifact version; `pull
-  ci_artifact <path-in-version>` downloads one back out. Both require
+  managed_artifact <path-in-version>` downloads one back out. Both require
   running inside a pipeline step — auth is resolved from CI-injected env
   vars only, with no profile fallback.
 
@@ -81,9 +81,9 @@ nouns:
         label: Coverage
         expr: it.overallpercentage
 
-  - noun: ci_artifact
+  - noun: managed_artifact
     short_desc: "A generic build artifact pushed to or pulled from Harness Artifact Registry (HAR) from a CI pipeline step."
-    noun_aliases: [ci_artifacts]
+    noun_aliases: [managed_artifacts]
     fields:
       - id: artifactName
         label: Artifact Name
@@ -364,9 +364,9 @@ commands:
         description: "Polling interval, e.g. 10s"
         default: "10s"
 
-  - command: push ci_artifact
+  - command: push managed_artifact
     verb: push
-    noun: ci_artifact
+    noun: managed_artifact
     short: "Push artifacts to Harness Artifact Registry"
     long: |
       Push one or more local files or directories to Harness Artifact
@@ -388,9 +388,9 @@ commands:
       record of everything pushed in the step.
 
       Examples:
-        harness push ci_artifact ./build/app.zip
-        harness push ci_artifact ./cache-dir --destination cache
-        harness push ci_artifact './dist/*.tar.gz,./reports/*.xml'
+        harness push managed_artifact ./build/app.zip
+        harness push managed_artifact ./cache-dir --destination cache
+        harness push managed_artifact './dist/*.tar.gz,./reports/*.xml'
     no_id: true
     has_args: true
     args_label: "<source>..."
@@ -411,9 +411,9 @@ commands:
       - name: registry
         description: "Target registry name (default: $CI_NATIVE_HAR_REGISTRY)"
 
-  - command: pull ci_artifact
+  - command: pull managed_artifact
     verb: pull
-    noun: ci_artifact
+    noun: managed_artifact
     short: "Pull a single artifact file from Harness Artifact Registry"
     long: |
       Pull a single file from the current pipeline's artifact version in
@@ -426,15 +426,15 @@ commands:
       during the corresponding push.
 
       For example, if pushed with:
-        harness push ci_artifact Dockerfile --destination files
+        harness push managed_artifact Dockerfile --destination files
 
       then pull with:
-        harness pull ci_artifact files/Dockerfile
+        harness pull managed_artifact files/Dockerfile
 
       Examples:
-        harness pull ci_artifact files/Dockerfile
-        harness pull ci_artifact files/Dockerfile --destination ./downloads/
-        harness pull ci_artifact reports/coverage.html --destination /tmp/coverage.html
+        harness pull managed_artifact files/Dockerfile
+        harness pull managed_artifact files/Dockerfile --destination ./downloads/
+        harness pull managed_artifact reports/coverage.html --destination /tmp/coverage.html
     no_id: true
     has_args: true
     args_label: "<path-in-version>"
