@@ -3,7 +3,7 @@
 Commands under `harness ... local_annotation` / `... error` / `... coverage` / `... managed_artifact` are meant to run inside a Harness pipeline step (invoked by lite-engine or a Run step script), though most also work from a developer workstation. They split into two groups:
 
 - **Local annotation, error categorization, and coverage analysis** are local-only — they read/write local files and make no Harness API call, so they need no auth.
-- **Coverage upload/wait-until** talk to a Harness service over HTTP and need auth — resolved automatically from pipeline env vars inside a step, or from the active CLI profile outside one.
+- **Coverage upload/wait_until** talk to a Harness service over HTTP and need auth — resolved automatically from pipeline env vars inside a step, or from the active CLI profile outside one.
 - **`managed_artifact` push/pull** also talk to a Harness service over HTTP, but only run inside a pipeline step — there is no profile fallback.
 
 ---
@@ -177,15 +177,15 @@ harness execute coverage:upload --file coverage.out --target-scope <account>/<or
 
 Auth: `pipeline_auth` resolves `HARNESS_COVERAGE_SERVICE_TOKEN` / `HARNESS_COVERAGE_SERVICE_ENDPOINT` inside a pipeline step.
 
-### `harness execute coverage:wait-until`
+### `harness execute coverage:wait_until`
 
 Polls the coverage service until all reports for the execution are processed, then evaluates coverage against the given thresholds — at least one of `--gt`/`--gte`/`--patch-gt`/`--patch-gte` is required, and the command exits non-zero if any threshold isn't met.
 
 ```
-harness execute coverage:wait-until --gt 70
-harness execute coverage:wait-until --gte 80 --wait-timeout 10m
-harness execute coverage:wait-until --patch-gt 80
-harness execute coverage:wait-until --gt 70 --patch-gte 80
+harness execute coverage:wait_until --gt 70
+harness execute coverage:wait_until --gte 80 --wait-timeout 10m
+harness execute coverage:wait_until --patch-gt 80
+harness execute coverage:wait_until --gt 70 --patch-gte 80
 ```
 
 `--wait-timeout` (default `5m`) is this command's own polling timeout, distinct from the global `--timeout` flag (which hard-kills the whole process). `--interval` (default `10s`) controls poll frequency. Account/execution auto-detect from the CI environment the same way as `coverage:upload`.
@@ -198,7 +198,7 @@ harness execute coverage:wait-until --gt 70 --patch-gte 80
 
 ### Auth
 
-Both commands require running inside a Harness pipeline step and reject any other auth source. Auth is resolved from `HARNESS_HAR_TOKEN` (token) and `HARNESS_HAR_URL` (registry base URL), sent as `Authorization: CIManager <token>`. Unlike `coverage:upload`/`coverage:wait-until`, there is deliberately **no fallback to the active CLI profile** — running either command outside a pipeline step (no `HARNESS_PIPELINE_ID`) fails fast with an error instead of silently authenticating with the profile's PAT.
+Both commands require running inside a Harness pipeline step and reject any other auth source. Auth is resolved from `HARNESS_HAR_TOKEN` (token) and `HARNESS_HAR_URL` (registry base URL), sent as `Authorization: CIManager <token>`. Unlike `coverage:upload`/`coverage:wait_until`, there is deliberately **no fallback to the active CLI profile** — running either command outside a pipeline step (no `HARNESS_PIPELINE_ID`) fails fast with an error instead of silently authenticating with the profile's PAT.
 
 ### Artifact identity
 

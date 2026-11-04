@@ -26,7 +26,7 @@ help_text: |
   A **coverage** report is parsed from local Go/LCOV/JaCoCo/Clover/
   Cobertura/Coveralls files. `execute coverage:analyze` prints a local
   summary; `execute coverage:upload` sends it to the Harness coverage
-  service; `execute coverage:wait-until` polls and gates on a threshold.
+  service; `execute coverage:wait_until` polls and gates on a threshold.
 
   A **managed_artifact** is a generic build artifact pushed to or pulled from
   Harness Artifact Registry (HAR). `push managed_artifact <source>...` uploads
@@ -35,7 +35,7 @@ help_text: |
   running inside a pipeline step — auth is resolved from CI-injected env
   vars only, with no profile fallback.
 
-  `coverage:upload`/`wait-until` need auth too, resolved from CI-injected
+  `coverage:upload`/`wait_until` need auth too, resolved from CI-injected
   env vars inside a pipeline step or the active CLI profile outside one;
   everything else needs none.
 
@@ -314,10 +314,10 @@ commands:
         description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'. Coverage repository settings replace this flag when exclude_text is set, including an empty value that clears exclusions."
         is_multi: true
 
-  - command: execute coverage:wait-until
+  - command: execute coverage:wait_until
     verb: execute
     noun: coverage
-    noun_variant: wait-until
+    noun_variant: wait_until
     short: "Wait for coverage processing and evaluate quality gate thresholds"
     long: |
       Polls the Harness coverage service until all reports for the execution
@@ -330,10 +330,10 @@ commands:
       from the global --timeout flag (which hard-kills the whole process).
 
       Examples:
-        harness execute coverage:wait-until --gt 70
-        harness execute coverage:wait-until --gte 80 --wait-timeout 10m
-        harness execute coverage:wait-until --patch-gt 80
-        harness execute coverage:wait-until --gt 70 --patch-gte 80
+        harness execute coverage:wait_until --gt 70
+        harness execute coverage:wait_until --gte 80 --wait-timeout 10m
+        harness execute coverage:wait_until --patch-gt 80
+        harness execute coverage:wait_until --gt 70 --patch-gte 80
     no_id: true
     has_args: true
     pipeline_auth:

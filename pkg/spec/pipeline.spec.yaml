@@ -1361,10 +1361,10 @@ commands:
       item_expr: it
       text_header: "\nDeleted template {{ctx.idParts[0]}} version {{lastPart(ctx.id)}}\n"
 
-  - command: update template_version:set-stable
+  - command: update template_version:set_stable
     verb: update
     noun: template_version
-    noun_variant: set-stable
+    noun_variant: set_stable
     short: Mark a template version as the stable version
     id_parts: 2
     id_label: "<template/version>"

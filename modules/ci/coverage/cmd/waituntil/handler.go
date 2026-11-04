@@ -12,7 +12,7 @@ import (
 
 const HandlerID = "execute_coverage_wait_until"
 
-// Handler is the `execute coverage:wait-until` workflow handler. It polls the
+// Handler is the `execute coverage:wait_until` workflow handler. It polls the
 // Harness coverage service until all reports for the execution are processed,
 // then evaluates the result against the given quality-gate thresholds.
 func Handler(ctx *cmdctx.Ctx) error {

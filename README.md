@@ -466,7 +466,7 @@ Legend used in the tables below:
 
 `get execution_log <pipeline>/<exec-id> --ui` opens a live log viewer with step navigation, graph, and save-to-file. `create template` / `update template_version` round-trip YAML bodies with `-f`.
 
-`execute approval_instance:approve` / `:reject` action a manual approval; `execute execution:abort` / `:retry` control a running execution; `update template_version:set-stable` promotes a template version.
+`execute approval_instance:approve` / `:reject` action a manual approval; `execute execution:abort` / `:retry` control a running execution; `update template_version:set_stable` promotes a template version.
 
 </details>
 
