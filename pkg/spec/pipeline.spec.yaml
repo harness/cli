@@ -554,12 +554,18 @@ commands:
   - command: update pipeline
     verb: update
     noun: pipeline
-    short: Update a pipeline's YAML definition (-f file.yaml or -f - for stdin)
+    short: "Update a pipeline: harness update pipeline <id> --set name=<name> | -f file.yaml (or -f - for stdin)"
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PUT
       path: /pipeline/api/pipelines/v2/{{ctx.id}}
-      file_body: required
+      get_path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.pipeline_yaml)
+      file_body: optional
       content_type: application/yaml
       no_fields: true
       text_header: "\nUpdated pipeline {{ctx.id}}\n"
