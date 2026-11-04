@@ -35,8 +35,10 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: pipeline.name
       - id: description
         expr: it.description
+        mutable_path: pipeline.description
       - id: modules
         expr: jsonArray(it.modules)
       - id: store_type
