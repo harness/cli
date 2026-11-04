@@ -13,7 +13,7 @@ import (
 // ResolveScope returns the coverage repository scope, matching
 // coverage-server upload targeting: Harness Code owner path, else
 // --target-scope, else the pipeline path. analyze is local-only and does not
-// call coverage-server, so this is only used by upload/wait-until.
+// call coverage-server, so this is only used by upload/wait_until.
 func ResolveScope(accountID, provider, owner, targetScope, pipelineID string) (Scope, error) {
 	if strings.EqualFold(provider, env.HarnessProvider) {
 		if targetScope != "" {

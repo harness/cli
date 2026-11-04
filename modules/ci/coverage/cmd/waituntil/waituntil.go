@@ -24,7 +24,7 @@ const (
 	defaultWaitInterval = 10 * time.Second
 )
 
-// waitUntilFlags holds the raw --flag values for `execute coverage:wait-until`.
+// waitUntilFlags holds the raw --flag values for `execute coverage:wait_until`.
 type waitUntilFlags struct {
 	accountID   string
 	executionID string
