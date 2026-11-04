@@ -39,6 +39,9 @@ nouns:
       - id: description
         expr: it.description
         mutable_path: pipeline.description
+      - id: allow_stage_executions
+        expr: it.allow_stage_executions
+        mutable_path: pipeline.allowStageExecutions
       - id: modules
         expr: jsonArray(it.modules)
       - id: store_type
