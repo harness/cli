@@ -122,8 +122,8 @@ func TestValidateLogFilters(t *testing.T) {
 		{name: "stage and step", stage: "Jira RCA", step: "output rca"},
 		{name: "stage and step by identifier", stage: "jira_rca", step: "print_rca"},
 		{name: "display stage, identifier step", stage: "Jira RCA", step: "print_rca"},
-		{name: "stage missing", stage: "nope", step: "Output RCA", wantErrSub: `stage "nope" not found`},
-		{name: "step missing", stage: "Jira RCA", step: "nope", wantErrSub: `step "nope" not found in stage "Jira RCA"`},
+		{name: "stage missing", stage: "nope", step: "Output RCA", wantErrSub: `stage "nope" logs not found`},
+		{name: "step missing", stage: "Jira RCA", step: "nope", wantErrSub: `step "nope" logs not found in stage "Jira RCA"`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -154,7 +154,7 @@ func validateLogFilters(entries []logstream.LogKeyEntry, stage, step string) err
 		}
 	}
 	if !stageFound {
-		return fmt.Errorf("stage %q not found", stage)
+		return fmt.Errorf("stage %q logs not found", stage)
 	}
 	if step == "" {
 		return nil
@@ -164,7 +164,7 @@ func validateLogFilters(entries []logstream.LogKeyEntry, stage, step string) err
 			return nil
 		}
 	}
-	return fmt.Errorf("step %q not found in stage %q", step, stage)
+	return fmt.Errorf("step %q logs not found in stage %q", step, stage)
 }
 
 func pipelineLogStageCompletion(ctx *cmdctx.Ctx, args []string, flags *pflag.FlagSet) ([]string, error) {
