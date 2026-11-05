@@ -1271,7 +1271,7 @@ commands:
     endpoint:
       path: /v1{{scopePath(auth)}}/templates/{{ctx.id}}
       item_expr: it.template
-      yaml_pick_expr: it.template
+      yaml_pick_expr: yamlParse(it.template.yaml)
 
   - command: create template
     verb: create
@@ -1329,7 +1329,7 @@ commands:
     endpoint:
       path: /v1{{scopePath(auth)}}/templates/{{ctx.idParts[0]}}/versions/{{lastPart(ctx.id)}}
       item_expr: it.template
-      yaml_pick_expr: it.template
+      yaml_pick_expr: yamlParse(it.template.yaml)
 
   - command: update template_version
     verb: update
@@ -1423,6 +1423,7 @@ commands:
     endpoint:
       path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
       item_expr: it
+      yaml_pick_expr: yamlParse(it.pipeline_yaml)
 
   - command: get pipeline:summary
     verb: get
