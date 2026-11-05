@@ -1329,7 +1329,7 @@ commands:
     endpoint:
       path: /v1{{scopePath(auth)}}/templates/{{ctx.idParts[0]}}/versions/{{lastPart(ctx.id)}}
       item_expr: it.template
-      yaml_pick_expr: it.template
+      yaml_pick_expr: yamlParse(it.template.yaml)
 
   - command: update template_version
     verb: update
