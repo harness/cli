@@ -450,6 +450,7 @@ Legend used in the tables below:
 | `execution`               |  ✓   |  ✓  |        |        |        |    ✓    |
 | `execution:abort`         |      |     |        |        |        |    ✓    |
 | `execution:retry`         |      |     |        |        |        |    ✓    |
+| `execution:inputs`        |      |  ✓  |        |        |        |         |
 | `execution:retry_history` |      |  ✓  |        |        |        |         |
 | `execution_step`          |  ✓   |     |        |        |        |         |
 | `execution_log`           |  ✓   |  ✓  |        |        |        |         |
