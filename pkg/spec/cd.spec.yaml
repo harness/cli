@@ -142,7 +142,7 @@ commands:
     endpoint:
       path: /ng/api/servicesV2/{{ctx.id}}
       item_expr: it.data
-      yaml_pick_expr: it.data.service
+      yaml_pick_expr: yamlParse(it.data.service.yaml)
 
   - command: create service
     verb: create
