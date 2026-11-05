@@ -1,7 +1,9 @@
 package types
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -194,7 +196,9 @@ func LoadConfig(path string) (*Config, error) {
 	expandedData := expandEnvInYaml(string(data))
 
 	var config Config
-	if err := yaml.Unmarshal([]byte(expandedData), &config); err != nil {
+	dec := yaml.NewDecoder(strings.NewReader(expandedData))
+	dec.KnownFields(true)
+	if err := dec.Decode(&config); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("error parsing config file: %w", err)
 	}
 
@@ -262,6 +266,15 @@ func validateConfig(config *Config) error {
 			log.Warn().Msg(msg)
 			pterm.Warning.Println(msg)
 		}
+		// CONDA discovers packages from repodata.json, which the date filter can drop;
+		// PYTHON and RPM keep their index files, so they are not affected.
+		if mapping.ArtifactType == CONDA && mapping.DateFilter != nil {
+			msg := fmt.Sprintf("mapping %d: date filter is enabled for %s — packages are found through "+
+				"repodata.json, so in-range packages listed only in an older repodata.json are skipped; "+
+				"a full run with overwrite:false is the completeness path", i, CONDA)
+			log.Warn().Msg(msg)
+			pterm.Warning.Println(msg)
+		}
 		// Scope controls must never be silent no-ops: include/exclude patterns
 		// only take effect for pattern-filterable types (file-level or
 		// package-level); for every other type they would be ignored entirely.
@@ -270,8 +283,7 @@ func validateConfig(config *Config) error {
 			return fmt.Errorf("mapping %d: includePatterns/excludePatterns are not supported for artifact type %s — "+
 				"patterns are applied at file level for %s and at package level for %s",
 				i, mapping.ArtifactType,
-				"GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, PUPPET",
-				"DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, DEBIAN")
+				joinArtifactTypes(fileLevelPatternTypes), joinArtifactTypes(packageLevelPatternTypes))
 		}
 		// includePatterns and excludePatterns are mutually exclusive: applying
 		// both would silently discard excludePatterns (FilterFilesByPatterns uses

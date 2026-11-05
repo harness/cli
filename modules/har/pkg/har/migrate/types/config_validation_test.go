@@ -123,6 +123,57 @@ mappings:
 	}
 }
 
+func writeConfig(t *testing.T, mapping string) string {
+	t.Helper()
+	cfg := `
+version: 1.0.0
+concurrency: 1
+source:
+  endpoint: https://src.example
+  type: JFROG
+  credentials: {username: u, password: p}
+destination:
+  endpoint: https://dst.example
+  type: HAR
+  credentials: {username: u, password: p}
+mappings:
+` + mapping
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadConfig_UnknownKeyRejected(t *testing.T) {
+	path := writeConfig(t, `
+  - artifactType: GENERIC
+    sourceRegistry: src
+    destinationRegistry: dst
+    includePattern: ["only/this/*"]
+`)
+	_, err := LoadConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "includePattern") {
+		t.Fatalf("expected misspelled includePattern to be rejected by name, got: %v", err)
+	}
+}
+
+func TestLoadConfig_AllSupportedKeysAccepted(t *testing.T) {
+	path := writeConfig(t, `
+  - artifactType: NUGET
+    sourceRegistry: src
+    destinationRegistry: dst
+    includePatterns: ["foo/*"]
+    sourcePackageHostname: pkg.src.example
+    dateFilter: {match: ANY, createdAfter: 2024-01-01T00:00:00Z, downloadedAfter: 2024-01-01T00:00:00Z}
+    packageFilters:
+      - {package: foo, versions: ["1.0.0"], files: ["foo.1.0.0.nupkg"]}
+`)
+	if _, err := LoadConfig(path); err != nil {
+		t.Fatalf("expected a config using every supported key to load, got: %v", err)
+	}
+}
+
 // TestKnownArtifactTypesSingleSource verifies the exported list and the lookup
 // map stay in sync.
 func TestKnownArtifactTypesSingleSource(t *testing.T) {

@@ -1254,10 +1254,8 @@ commands:
 
       Include/Exclude Patterns (includePatterns / excludePatterns, mutually exclusive):
         Glob patterns (* and ** wildcards) applied at a type-dependent granularity:
-          - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, TERRAFORM
-          - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, CRAN
-        Setting them for PUPPET or DEBIAN currently has no effect (silently ignored,
-        not rejected at config load).
+          - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, PUPPET, TERRAFORM
+          - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, DEBIAN, CRAN
 
       Output and automation flags:
         --summary      prints condensed per-status counts instead of the full per-file table.
