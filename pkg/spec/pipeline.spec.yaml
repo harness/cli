@@ -1271,7 +1271,7 @@ commands:
     endpoint:
       path: /v1{{scopePath(auth)}}/templates/{{ctx.id}}
       item_expr: it.template
-      yaml_pick_expr: it.template
+      yaml_pick_expr: yamlParse(it.template.yaml)
 
   - command: create template
     verb: create
