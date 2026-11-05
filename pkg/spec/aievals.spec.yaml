@@ -44,9 +44,12 @@ help_text: |
 
   ### Onboarding
 
-  TODO(onboarding-schema): `setup`, `run`, and `upload` on `eval_onboarding`
-  are provisional. Enable this hidden module with `harness install module aievals`.
-  `setup eval_onboarding` writes the onboarding skill and stages `.harness/evals`.
+  TODO(onboarding-schema): `setup`, `scan`, `stage`, `run`, and `upload` on
+  `eval_onboarding` are provisional. Enable this hidden module with
+  `harness install module aievals`.
+  `setup eval_onboarding` installs or prints the AI Evals skill and does not write eval files.
+  `scan eval_onboarding` prints candidate JSON and writes nothing.
+  `stage eval_onboarding` validates candidate values and writes `.harness/evals`.
   `run eval_onboarding` invokes `ai-evals onboard-run`.
   `upload eval_onboarding` imports a deterministic archive.
 
@@ -2238,32 +2241,81 @@ commands:
     noun: eval_onboarding
     no_id: true
     no_auth: true
-    short: "Write the onboarding skill and stage .harness/evals: harness setup eval_onboarding"
+    short: "Install or print the AI Evals skill: harness setup eval_onboarding"
     long: |
       TODO(onboarding-schema): provisional command.
-      Writes the versioned onboarding skill to an explicit or detected coding-agent
-      directory, or to stdout when neither is available. Parses Java, Python,
-      JavaScript, and TypeScript sources into syntax trees, stages a candidate
-      .harness/evals tree, and requires --route '<METHOD path>' when more than
-      one supported candidate is found. Append ' [<service root>]' when the same
-      route exists in more than one service. Unsupported or unparsable syntax is
-      reported and never staged; it cannot be selected with --route and requires
-      guided/manual configuration. --yes does not authorize it.
+      Writes the AI Evals skill to an explicit or detected coding-agent
+      directory, or to stdout when neither is available. Does not scan the
+      repository and does not write .harness/evals files.
     handler_type: workflow
     workflow_id: setup
     flags:
       - name: repo
-        description: Repository root to scan (default current directory)
-      - name: root
-        description: Path to the .harness/evals directory
-        default: .harness/evals
+        description: Repository root used to detect a coding-agent skills directory (default current directory)
       - name: skill-dir
-        description: Explicit file or directory for the onboarding skill
-      - name: yes
-        is_bool: true
-        description: Accept medium-confidence values for a selected supported route only
+        description: Explicit file or directory for the AI Evals skill
+
+  # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
+  - command: scan eval_onboarding
+    verb: scan
+    noun: eval_onboarding
+    no_id: true
+    no_auth: true
+    short: "Print onboarding candidates as JSON: harness scan eval_onboarding"
+    long: |
+      TODO(onboarding-schema): provisional command.
+      Optional hint for the coding agent. Prints candidate endpoint, method,
+      port, request field, response path, and auth header name as JSON.
+      Writes nothing. --route narrows the hint to one supported candidate.
+      A route that is not an exact supported hint is rejected.
+    handler_type: workflow
+    workflow_id: scan
+    flags:
+      - name: repo
+        description: Repository root to scan (default current directory)
       - name: route
-        description: Explicit method-qualified supported AST-detected route only, for example "POST /api/analyze" or "POST /api/analyze [services/billing]"; unsupported syntax requires guided/manual configuration
+        description: Optional method-qualified hint filter, for example "POST /api/analyze" or "POST /api/analyze [services/billing]"
+
+  # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
+  - command: stage eval_onboarding
+    verb: stage
+    noun: eval_onboarding
+    no_id: true
+    no_auth: true
+    short: "Validate candidate values and write .harness/evals: harness stage eval_onboarding"
+    long: |
+      TODO(onboarding-schema): provisional command.
+      Validates candidate values from --file and/or flags, then writes
+      .harness/evals through the pinned onboarding validator. Flags override
+      the same fields in the file. auth-header is a header name and auth-env
+      is an environment-variable name. Never pass a secret value.
+    handler_type: workflow
+    workflow_id: stage
+    flags:
+      - name: repo
+        description: Repository root that receives .harness/evals (default current directory)
+      - name: file
+        description: Temporary JSON file of candidate values
+      - name: agent
+        description: Stable agent identifier
+      - name: endpoint
+        description: Local endpoint URL, including port and path
+      - name: method
+        description: HTTP method
+      - name: request-field
+        description: Request body field that carries the eval input
+      - name: request-fields
+        description: Comma-separated request body fields
+      - name: response-path
+        description: Path to the reply text in the response
+      - name: auth-header
+        description: Auth header name only, never a secret value
+      - name: auth-env
+        description: Environment-variable name for the auth header, never a secret value
+      - name: input-text
+        description: Sample input text for the dataset row
+      - name: expected
+        description: Sample expected text for the dataset row
 
   # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
   - command: run eval_onboarding

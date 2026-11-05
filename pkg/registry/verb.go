@@ -16,6 +16,8 @@ const (
 // TODO(onboarding-schema): provisional names until the CLI owner approves them.
 const (
 	VerbSetup  = "setup"
+	VerbScan   = "scan"
+	VerbStage  = "stage"
 	VerbRun    = "run"
 	VerbUpload = "upload"
 )
@@ -81,7 +83,7 @@ type VerbSpec struct {
 var VerbOrder = []string{
 	VerbList, VerbGet, VerbCreate, VerbUpdate, VerbDelete, VerbExecute,
 	VerbInstall, VerbPush, VerbPull, VerbConfigure, VerbMigrate,
-	VerbSetup, VerbRun, VerbUpload,
+	VerbSetup, VerbScan, VerbStage, VerbRun, VerbUpload,
 }
 
 // verbRegistry is the authoritative table of every allowed verb.
@@ -106,6 +108,8 @@ var verbRegistry = map[string]VerbSpec{
 
 	// TODO(onboarding-schema): provisional until the CLI owner approves the names.
 	VerbSetup:  {Kind: VerbKindCore, Gerund: "setting up", ShortDesc: "Set up a local onboarding workflow"},
+	VerbScan:   {Kind: VerbKindCore, Gerund: "scanning", ShortDesc: "Print onboarding candidates without writing files"},
+	VerbStage:  {Kind: VerbKindCore, Gerund: "staging", ShortDesc: "Validate and write a local onboarding tree"},
 	VerbRun:    {Kind: VerbKindCore, Gerund: "running", ShortDesc: "Run a local onboarding workflow"},
 	VerbUpload: {Kind: VerbKindCore, Gerund: "uploading", ShortDesc: "Upload a local onboarding archive"},
 

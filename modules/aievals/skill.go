@@ -49,7 +49,7 @@ func detectSkillDir(repo string) (string, bool) {
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		return filepath.Join(repo, dir, "skills", "aievals-onboarding", skillFileName), true
+		return filepath.Join(repo, dir, "skills", "aievals", skillFileName), true
 	}
 	return "", false
 }

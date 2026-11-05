@@ -1,70 +1,80 @@
 ---
-name: aievals-onboarding
+name: aievals
+description: Conversational Harness AI Evals skill. The coding agent scans the repository and checks with the user before every write, run, or upload. The Harness CLI validates and writes the .harness/evals tree, runs the eval, and uploads it. This file can be served as an MCP prompt or resource.
 version: 1
 schema: provisional-onboarding-1
 ---
 
-# AI Evals onboarding
+# AI Evals
 
-TODO(onboarding-schema): this skill and the `setup`, `run`, and `upload` verbs on `eval_onboarding` are provisional until the CLI owner approves them.
+TODO(onboarding-schema): `setup`, `scan`, `stage`, `run`, and `upload` on `eval_onboarding` are provisional names.
 
-Enable the hidden module once with `harness install module aievals`. Then run:
+This file is the single AI Evals skill. The Harness CLI embeds it, the product copy-prompt includes it, and a Harness MCP server can serve this same file as a prompt or resource.
 
-- `harness setup eval_onboarding`
-- `harness run eval_onboarding --agent <identifier> [--environment local]`
-- `harness upload eval_onboarding`
-
-`local` is the default environment. The CLI invokes `ai-evals onboard-run --root .harness/evals --agent <identifier> --environment local`.
-
-Do not change profiles automatically. To use an existing profile such as `qa`, pass it explicitly to commands that need Harness credentials:
-
-- `harness run eval_onboarding --agent <identifier> --profile qa`
-- `harness upload eval_onboarding --profile qa`
-
-For automation, use the existing profile resolution with `HARNESS_PROFILE=qa` instead. An explicit `--profile <name>` takes precedence over `HARNESS_PROFILE`.
+The coding agent scans the repository. The slightest sign of an agent counts. Nothing is written, run, or uploaded without the user's yes. Infer secret names only, never values.
 
 Do not write a standalone Python runner.
 Do not create eval.yaml.
 
-## What to scan
+Use the Harness CLI command named for each step. A Harness MCP equivalent may be used for the same step when one is available. Do not invent MCP tool names.
 
-Discover routes only through supported, service-scoped Spring/JAX-RS/Micronaut, FastAPI, and confirmed Express adapters.
+When the prompt header includes a `harness auth login` command, use that command for this account, organization, and project. If no header was provided, ask for the account, organization, and project before authenticating. Do not change profiles automatically. To use an existing profile such as `qa`, pass `--profile <name>` on commands that need Harness credentials, or set `HARNESS_PROFILE`. An explicit `--profile` takes precedence over `HARNESS_PROFILE`.
 
-The scan parses every Java, Python, JavaScript, and TypeScript source into a syntax tree. Comments, string contents, and files that fail to parse never produce routes, DTOs, ports, or test evidence; skipped files and routes are reported.
+## Commands
 
-Java supports Spring, JAX-RS, and Micronaut route annotations whose names resolve through an import or a fully qualified reference. Python supports only decorators bound to an imported `FastAPI` instance, or to an `APIRouter` mounted with `include_router` on a `FastAPI` app in the same module. JavaScript and TypeScript support only methods on an `express()` app, or on an Express router mounted with `use()` on that app in the same module. Route paths, prefixes, and parameter names must be string literals or literal concatenations. Do not treat generic `app.get`, route literals, client calls, DTOs, ports, or configuration strings as routes.
+- `harness setup eval_onboarding` installs or prints this skill. It does not scan and it does not write eval files. Optional `--skill-dir` chooses the destination. With no coding-agent skills directory and no `--skill-dir`, it prints the skill to stdout.
+- `harness scan eval_onboarding` is an optional hint. It prints candidate JSON and writes nothing. `--route '<METHOD path>'` narrows the hint. The agent's own reading of the repository is the source of truth. If the hint and the agent disagree, show both and let the user choose.
+- Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`. Pass `--file <path>` pointing at a temporary JSON file, or pass flags. Flags override the same fields in the file.
+- `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>]` runs a staged agent. `local` is the default. The command checks the pinned runner and does not upgrade it. A PAT or SAT is passed to the runner. An SSO access token is not.
+- `harness upload eval_onboarding` validates locally, uploads `.harness/evals`, and prints Agent and Eval links. Git sync is not applied by the upload.
 
-JAX-RS routes combine `@Path` with `@POST`, `@GET`, `@PUT`, `@DELETE`, or `@PATCH`; Spring supports `@RequestMapping` and verb mapping annotations; Micronaut supports `@Controller` plus verb annotations.
+`stage` accepts `--agent`, `--endpoint`, `--method`, `--request-field`, `--request-fields`, `--response-path`, `--auth-header`, `--auth-env`, `--input-text`, and `--expected`. `--auth-header` is a header name. `--auth-env` is an environment-variable name. Never pass a secret value. A header name without an environment-variable name is omitted from the tree.
 
-Ignore documentation, tests, generated output, dependencies, caches, and operational endpoints whose final normalized segment is `health`, `metrics`, `ready`, or `docs`. Tests are evidence only, bound to the selected route and service: each request expression keeps only the headers, body, and assertions attached to it.
+Example candidate file:
 
-Any one supported adapter route is a signal:
+```json
+{
+  "agent_id": "support",
+  "endpoint_url": "http://127.0.0.1:8080/api/chat",
+  "method": "POST",
+  "request_field": "text",
+  "response_path": "output.text",
+  "auth_header": "Authorization",
+  "auth_env": "SUPPORT_TOKEN",
+  "input_text": "hello",
+  "expected": "ok"
+}
+```
 
-- a supported Java route annotation
-- a FastAPI/APIRouter verb decorator
-- a confirmed Express app/router verb method
+The tree the command writes is `.harness/evals/agents/<identifier>/agent.yaml`, `.harness/evals/datasets/<identifier>.jsonl`, and `.harness/evals/metric-sets/<identifier>.yaml`. The default metric is exact match. If `stage` reports that a destination differs and was left unchanged, show that message and ask how to proceed. Do not overwrite the file by hand.
 
-Unsupported syntax cannot be selected with --route; use guided/manual configuration. Ambiguous supported routes require --route; --yes never authorizes either. `--yes` accepts only medium-confidence values for an already selected supported route.
+## Harness CLI setup
 
-Fill method, path, port, request field, and response path from whatever was seen. Use plain defaults for the rest: POST if a body is evident, otherwise GET; localhost on port 8080 when no port was seen; response path `output.text` or the first response field; agent id from the directory or service name. Use a real test case when one exists. When the expected value was not evidenced, write a minimal dataset row and report that gap without invalidating JSONL. Do not write nothing.
+Show a step only when the next action needs it. Skip a step that is already done.
 
-## Confidence
+If `harness version` fails, install the CLI and run `harness version` again:
 
-Auto-stage high-confidence values. Batch medium-confidence confirmations into one confirmation. Require `--yes` before staging that batch. Ask one batched question for low-confidence gaps.
+```bash
+curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh
+```
 
-Stage an unambiguous route as soon as a signal exists. When multiple plausible routes are found in any supported language or framework, show the service/source-qualified candidates and require an explicit normalized `--route '<METHOD path>'` selection before staging. A method-qualified selection keeps `GET /path` distinct from `POST /path`; if it still matches more than one service, append the service root shown in the candidate list, for example `--route 'POST /reports [services/billing]'`. Do not pick a route by source-file ordering or by the longest path.
+Before the first `eval_onboarding` command, enable the module if it is not enabled:
 
-Auto-stage high-confidence values. For medium-confidence route evidence, show the batch and require `--yes` before staging; this is the noninteractive acknowledgement. Do not silently accept that batch.
+```bash
+harness install module aievals
+```
 
-Infer secret names only, never values. Auth is optional. Never render `source: harness_secret` without a non-empty `ref`. If an explicit header lacks an evidenced secret reference, omit the header. `@HarnessAuth` alone does not identify a header or secret mapping, so omit the header and tell the user to configure authentication safely. Never invent a HARNESS_API_KEY header mapping. Never block on a feature flag such as TR_RCA_EVALUATION_API.
+Before `run` or `upload`, authenticate with a Harness personal access token or API key. Give the token to the CLI when it asks. Do not paste the token into chat or write it into the repository.
 
-For Java records, infer the request and response DTO fields from the selected route only. Report required query parameters and path parameters, but configure their dynamic values manually before running: the pinned onboarding schema has an endpoint URL, headers, and request body template, not a separate parameter map.
+An LLM provider key is required only when the user chooses an LLM-judge metric. Set that key in the local environment. Heuristic metrics, including exact match, do not need one. Never put the key in chat or in the repository.
 
-`harness setup eval_onboarding` performs this scan. Follow its evidence list. Do not hand-write a second tree when the command staged one.
+## Stage 1. Discover
 
-## No signal
+Scan the repository yourself. Any framework counts. A route, a chat handler, an agent class, a prompt call, or a server that returns model output is enough to present a candidate. You may run `harness scan eval_onboarding` as a hint. Do not treat the hint as the only place an agent can be found, and do not write files in this stage.
 
-When there is no route, no port, and no client call, switch to a short step-by-step guide. Do not claim an agent was staged. Ask one question at a time, in this order, and stage a file as soon as the answer arrives:
+Present what you found: endpoint, method, port, request field, response path, and auth header name. Also mention a sample case when you saw one. If several candidates are plausible, list them and ask the user to pick. Do not pick one by file order.
+
+If nothing is found, say so, then ask one question at a time:
 
 1. What local URL should the eval call?
 2. Which HTTP method should the eval use?
@@ -72,18 +82,62 @@ When there is no route, no port, and no client call, switch to a short step-by-s
 4. Where is the reply text in the response?
 5. Is an auth header name required? Reply with the header name, or none. Do not send a secret value.
 
-After those answers, write the same `.harness/evals` tree the happy path writes and tell the user the exact local run command: `harness run eval_onboarding --agent <identifier> --environment local`.
+Restate the values you will use, including any the user just gave.
 
-## Staging
+Checkpoint: Use this endpoint, pick another candidate, or set one up?
 
-Stage candidate files in a temporary tree, invoke the D2 Python validator, compare destinations, and atomically write only missing or identical files.
+## Stage 2. Stage files
 
-The validator is `ai-evals` importing `ai_evals.onboarding.load.load_onboarding_tree` on a `.harness/evals` directory. A destination that already exists with different bytes is left unchanged, except when the separate `.onboard-guide-draft` sidecar marks a guided draft that a later guide answer may replace. An identical file is left in place. A missing file is written by renaming a temporary file in the same directory.
+After the user confirms an endpoint, show the proposed `.harness/evals` files and the sample cases before writing anything. Show the agent identifier, method, endpoint, request field, response path, auth header name or none, the dataset rows, and the metric. Use a real case when one exists. Otherwise show one minimal row and say that the expected value still needs a real answer.
 
-The tree is `agents/<identifier>/agent.yaml`, `datasets/<identifier>.jsonl`, and `metric-sets/<identifier>.yaml` under `.harness/evals`. Headers that need a secret use `source: harness_secret` with `ref` and `env` set to names when that name is already evidenced. The local environment maps that ref to the same environment variable name. A header with no evidenced secret reference is omitted.
+Checkpoint: Write these files?
 
-## Run and upload
+Only after yes, write them with `harness stage eval_onboarding`. Do not write the tree with a standalone script or by hand.
 
-`harness run eval_onboarding` checks the pinned `ai-evals-runner` 0.7.7 handshake (`provisional-onboarding-1`) and then runs `onboard-run`. It does not upgrade the pin. A PAT or SAT is exported to the runner as `HARNESS_API_KEY`. An SSO access token is not sent to the Python runner.
+## Stage 3. Local run
 
-`harness upload eval_onboarding` validates locally, zips `.harness/evals` with deterministic bytes, and uploads that zip through the active profile. The server returns Agent and Eval paths. Git sync is not applied by the upload.
+Checkpoint: Run this eval locally?
+
+Only after yes, run `harness run eval_onboarding --agent <identifier> --environment local`. Explain the result in plain language: what was called, what passed or failed, and any diagnostic the command printed. Do not hide a non-zero exit. Do not rewrite files unless the user asks.
+
+Checkpoint: What should we do next: run against a live agent, upload to Harness, run on the platform, view results, or add cases or metrics?
+
+## Later stages
+
+Do only the stage the user picks. Ask before each action. After it finishes, ask the next-step checkpoint again.
+
+### Run against a live agent
+
+Ask for the live environment name. Show the command you will run.
+
+Checkpoint: Run this eval against that live environment?
+
+Then run `harness run eval_onboarding --agent <identifier> --environment <live-name>`. Explain the result the same way as the local run.
+
+### Upload to Harness
+
+Say that this validates the tree and uploads it, and that the CLI will print Agent and Eval links.
+
+Checkpoint: Upload this eval to Harness?
+
+Then run `harness upload eval_onboarding`. Show the links it prints.
+
+### Run on the platform
+
+Use the Eval link from the upload. Do not invent a separate CLI command for a platform run.
+
+Checkpoint: Run it on the platform?
+
+### View results
+
+Use the Agent and Eval links the upload printed. Scores are on the eval's runs.
+
+Checkpoint: Open the result links?
+
+### Add cases or metrics
+
+Ask what to add. Show the updated cases or metric, then ask before writing.
+
+Checkpoint: Write these updated files?
+
+Then call `harness stage eval_onboarding` again. Keep exact match unless the user asks for another metric. Switch to an LLM-judge metric only when the user chooses one, and only then show the LLM provider key step.

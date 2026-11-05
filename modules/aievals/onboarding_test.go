@@ -6,6 +6,8 @@ package aievals
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,22 +31,32 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 	if !strings.Contains(text, "version: 1") || !strings.Contains(text, SchemaVersion) {
 		t.Fatalf("skill is missing its version handshake:\n%s", text)
 	}
+	if !strings.Contains(text, "name: aievals") {
+		t.Fatal("skill frontmatter is not the general AI Evals skill")
+	}
 	for _, rule := range SkillRules() {
 		if !strings.Contains(text, rule) {
 			t.Errorf("skill drifted from rule %q", rule)
 		}
 	}
-	if strings.Contains(strings.ToLower(text), "only spring") || strings.Contains(strings.ToLower(text), "spring-style java route annotations only") {
-		t.Fatal("skill says the scanner only supports Spring")
-	}
-	for _, need := range []string{"@Path", "@POST", "JAX-RS", "TR_RCA_EVALUATION_API"} {
-		if !strings.Contains(text, need) {
-			t.Errorf("skill missing %q", need)
-		}
-	}
-	for _, question := range GuideQuestions {
+	for _, question := range []string{
+		"What local URL should the eval call?",
+		"Which HTTP method should the eval use?",
+		"Where does the request text go in the body?",
+		"Where is the reply text in the response?",
+		"Is an auth header name required? Reply with the header name, or none. Do not send a secret value.",
+		"Checkpoint: Use this endpoint, pick another candidate, or set one up?",
+		"Checkpoint: Write these files?",
+		"Checkpoint: Run this eval locally?",
+		"Checkpoint: What should we do next: run against a live agent, upload to Harness, run on the platform, view results, or add cases or metrics?",
+		"Checkpoint: Run this eval against that live environment?",
+		"Checkpoint: Upload this eval to Harness?",
+		"Checkpoint: Run it on the platform?",
+		"Checkpoint: Open the result links?",
+		"Checkpoint: Write these updated files?",
+	} {
 		if !strings.Contains(text, question) {
-			t.Errorf("skill missing guide question %q", question)
+			t.Errorf("skill missing checkpoint %q", question)
 		}
 	}
 	for _, line := range strings.Split(text, "\n") {
@@ -57,26 +69,35 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 			t.Errorf("skill instructs a runner script or eval.yaml: %s", trimmed)
 		}
 	}
-	for _, required := range []string{"--route '<METHOD path>'", "--yes", "--profile <name>", "HARNESS_PROFILE", "omit the header", "required query parameters"} {
+	for _, required := range []string{
+		"harness setup eval_onboarding",
+		"harness scan eval_onboarding",
+		"harness stage eval_onboarding",
+		"harness run eval_onboarding",
+		"harness upload eval_onboarding",
+		"--profile <name>",
+		"HARNESS_PROFILE",
+		"TODO(onboarding-schema)",
+		"Do not invent MCP tool names.",
+	} {
 		if !strings.Contains(text, required) {
-			t.Errorf("skill missing safe onboarding guidance %q", required)
+			t.Errorf("skill missing %q", required)
 		}
 	}
-	if strings.Contains(text, "still staged, without a secret value") {
-		t.Fatal("skill claims that a header-only secret source is valid")
+}
+
+func TestSkillModuleRecordsSourceAndHash(t *testing.T) {
+	rendered := FormatSkillModule(SkillSourcePath, SkillText())
+	if !strings.Contains(rendered, "source: "+SkillSourcePath) {
+		t.Fatalf("generated module is missing the source path:\n%s", rendered)
 	}
-	for _, unsupported := range []string{"name that gap in a comment", "draft marked `onboard-guide-draft`"} {
-		if strings.Contains(text, unsupported) {
-			t.Fatalf("skill contains unsupported behavior claim %q", unsupported)
-		}
+	sum := sha256.Sum256([]byte(SkillText()))
+	want := hex.EncodeToString(sum[:])
+	if !strings.Contains(rendered, "sha256: "+want) || !strings.Contains(rendered, `AI_EVALS_SKILL_SHA256 = "`+want+`"`) {
+		t.Fatalf("generated module hash drifted from the skill bytes")
 	}
-	for _, unsupported := range []string{"Flask", "Django", "Nest", "@app.route", "`fetch`"} {
-		if strings.Contains(text, unsupported) {
-			t.Fatalf("skill claims unsupported route form %q", unsupported)
-		}
-	}
-	if strings.Contains(text, "README or config endpoint") {
-		t.Fatal("skill claims unsupported documentation/config discovery")
+	if !strings.Contains(rendered, "Do not edit by hand.") {
+		t.Fatal("generated module is missing the hand-edit warning")
 	}
 }
 
@@ -103,7 +124,7 @@ func TestPlaceSkillExplicitDetectedOrStdout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(dest, filepath.Join(".cursor", "skills", "aievals-onboarding", "SKILL.md")) {
+	if !strings.Contains(dest, filepath.Join(".cursor", "skills", "aievals", "SKILL.md")) {
 		t.Fatalf("detected dest = %s", dest)
 	}
 
@@ -265,24 +286,22 @@ func TestNonJavaSamePathDifferentMethodsRequireSelection(t *testing.T) {
 
 func TestNonJavaAmbiguityRefusesStaging(t *testing.T) {
 	repo := copyFixture(t, "python-multi-route")
-	var stderr bytes.Buffer
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		Python: "validator",
-		Run: func(string, []string, []string, string) (CommandResult, error) {
-			t.Fatal("ambiguous route invoked the validator")
-			return CommandResult{}, nil
-		},
-		Stdout: io.Discard,
-		Stderr: &stderr,
-	})
-	if code != 2 || err == nil || !strings.Contains(err.Error(), "GET /reports") || !strings.Contains(err.Error(), "POST /reports") {
-		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	report, code, err := Scan(repo, "")
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v", code, err)
 	}
-	matches, globErr := filepath.Glob(filepath.Join(repo, ".harness", "evals", "agents", "*", "agent.yaml"))
-	if globErr != nil || len(matches) != 0 {
-		t.Fatalf("ambiguous non-Java route staged files=%v err=%v", matches, globErr)
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
 	}
+	text := string(encoded)
+	if !strings.Contains(text, "GET /reports") || !strings.Contains(text, "POST /reports") {
+		t.Fatalf("scan JSON = %s", text)
+	}
+	if len(report.Candidates) < 2 {
+		t.Fatalf("candidates = %+v", report.Candidates)
+	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestNonJavaRouteSelectionDoesNotLeakProtectedEvidence(t *testing.T) {
@@ -1097,19 +1116,14 @@ def arbitrary():
 		t.Fatalf("unsupported syntax became stageable: %+v", inf)
 	}
 
-	code, err := Setup(SetupOptions{
-		Repo:         repo,
-		AcceptMedium: true,
-		Python:       "validator",
-		Run: func(string, []string, []string, string) (CommandResult, error) {
-			t.Fatal("unsupported syntax invoked validator")
-			return CommandResult{}, nil
-		},
-		Stdout: io.Discard,
-		Stderr: io.Discard,
-	})
-	if code != 2 || err == nil || !strings.Contains(err.Error(), GuideQuestions[0]) {
+	code, err := Setup(SetupOptions{Repo: repo, Stdout: io.Discard, Stderr: io.Discard})
+	if code != 0 || err != nil {
 		t.Fatalf("code=%d err=%v", code, err)
+	}
+	assertNoEvalFiles(t, repo)
+	report, code, err := Scan(repo, "")
+	if err != nil || code != 0 || report.HasSignal || len(report.Candidates) != 0 {
+		t.Fatalf("code=%d err=%v report=%+v", code, err, report)
 	}
 }
 
@@ -1326,20 +1340,11 @@ func TestDeprecatedSkipValidatorReturnsError(t *testing.T) {
 
 func TestExplicitRouteMustMatchSingleCandidate(t *testing.T) {
 	repo := copyFixture(t, "java-support")
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		Route:  "POST /wrong",
-		Python: "validator",
-		Run: func(string, []string, []string, string) (CommandResult, error) {
-			t.Fatal("invalid explicit route invoked validator")
-			return CommandResult{}, nil
-		},
-		Stdout: io.Discard,
-		Stderr: io.Discard,
-	})
+	_, code, err := Scan(repo, "POST /wrong")
 	if code != 2 || err == nil || !strings.Contains(err.Error(), "not a supported AST-detected route") {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestUnsupportedRouteSelectionRequiresGuidedManualConfiguration(t *testing.T) {
@@ -1347,22 +1352,12 @@ func TestUnsupportedRouteSelectionRequiresGuidedManualConfiguration(t *testing.T
 	writeFixtureFile(t, repo, "server.ts", `const app = { post() {} }
 app.post("/unsupported", handler)
 `)
-	var stderr bytes.Buffer
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		Route:  "POST /unsupported",
-		Python: "validator",
-		Run: func(string, []string, []string, string) (CommandResult, error) {
-			t.Fatal("unsupported route invoked validator")
-			return CommandResult{}, nil
-		},
-		Stdout: io.Discard,
-		Stderr: &stderr,
-	})
+	_, code, err := Scan(repo, "POST /unsupported")
 	if code != 2 || err == nil || !strings.Contains(err.Error(), "is not a supported AST-detected route") ||
 		!strings.Contains(err.Error(), "guided/manual configuration") {
-		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+		t.Fatalf("code=%d err=%v", code, err)
 	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestSpringRouteInfersQueryAndPathParameters(t *testing.T) {
@@ -1397,27 +1392,19 @@ func TestJaxRSRouteInfersQueryAndPathParameters(t *testing.T) {
 
 func TestAmbiguousJavaRoutesRequireExplicitSelectionBeforeStaging(t *testing.T) {
 	repo := copyFixture(t, "java-multi-route")
-	var stderr bytes.Buffer
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		IsPty:  false,
-		Python: "validator",
-		Run: func(string, []string, []string, string) (CommandResult, error) {
-			return CommandResult{}, nil
-		},
-		Stdout: &bytes.Buffer{},
-		Stderr: &stderr,
-	})
-	if code != 2 || err == nil {
-		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	report, code, err := Scan(repo, "")
+	if code != 0 || err != nil {
+		t.Fatalf("code=%d err=%v", code, err)
 	}
-	if !strings.Contains(err.Error(), "--route") || !strings.Contains(err.Error(), "/api/v1/incidents/analyze") || !strings.Contains(err.Error(), "/api/v1/summaries/summarize") {
-		t.Fatalf("ambiguity error = %v", err)
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
 	}
-	matches, globErr := filepath.Glob(filepath.Join(repo, ".harness", "evals", "agents", "*", "agent.yaml"))
-	if globErr != nil || len(matches) != 0 {
-		t.Fatalf("ambiguous route staged files=%v err=%v", matches, globErr)
+	text := string(encoded)
+	if !strings.Contains(text, "/api/v1/incidents/analyze") || !strings.Contains(text, "/api/v1/summaries/summarize") {
+		t.Fatalf("scan JSON = %s", text)
 	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestDeprecatedSkipValidatorCannotBypassValidation(t *testing.T) {
@@ -1425,20 +1412,13 @@ func TestDeprecatedSkipValidatorCannotBypassValidation(t *testing.T) {
 	code, err := Setup(SetupOptions{
 		Repo:          repo,
 		SkipValidator: true,
-		Python:        "validator",
-		Run: func(string, []string, []string, string) (CommandResult, error) {
-			return CommandResult{Stderr: "schema rejected", Code: 1}, nil
-		},
-		Stdout: io.Discard,
-		Stderr: io.Discard,
+		Stdout:        io.Discard,
+		Stderr:        io.Discard,
 	})
 	if code != 1 || err == nil || !strings.Contains(err.Error(), "deprecated") {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
-	matches, globErr := filepath.Glob(filepath.Join(repo, ".harness", "evals", "agents", "*", "agent.yaml"))
-	if globErr != nil || len(matches) != 0 {
-		t.Fatalf("deprecated validation bypass wrote files=%v err=%v", matches, globErr)
-	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestStageCollisionIdempotenceAndValidatorArgs(t *testing.T) {
@@ -1527,18 +1507,33 @@ func TestStageUsesPinnedSchemaBeforeWriting(t *testing.T) {
 	}
 }
 
-func TestSetupStagesUnambiguousFixtureWithPinnedRunner(t *testing.T) {
+func TestSetupDoesNotWriteEvalFiles(t *testing.T) {
+	repo := copyFixture(t, "java-support")
+	code, err := Setup(SetupOptions{Repo: repo, Stdout: io.Discard, Stderr: io.Discard})
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	assertNoEvalFiles(t, repo)
+}
+
+func TestWriteCandidateValidatesAndWrites(t *testing.T) {
 	t.Setenv(hbase.EnvCLIHome, "")
 	layout, err := VerifyRunner(RunnerHome(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	repo := copyFixture(t, "java-support")
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		Python: layout.Python,
-		Stdout: io.Discard,
-		Stderr: io.Discard,
+	report, code, err := Scan(repo, "")
+	if err != nil || code != 0 || len(report.Candidates) != 1 {
+		t.Fatalf("code=%d err=%v candidates=%d", code, err, len(report.Candidates))
+	}
+	assertNoEvalFiles(t, repo)
+	code, err = WriteCandidate(WriteOptions{
+		Repo:      repo,
+		Candidate: report.Candidates[0].AsCandidate(),
+		Python:    layout.Python,
+		Stdout:    io.Discard,
+		Stderr:    io.Discard,
 	})
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v", code, err)
@@ -1555,12 +1550,17 @@ func TestExplicitJavaRouteSelectionStagesPinnedSchemaTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := copyFixture(t, "java-multi-route")
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		Route:  "POST /api/v1/incidents/analyze",
-		Python: layout.Python,
-		Stdout: io.Discard,
-		Stderr: io.Discard,
+	report, code, err := Scan(repo, "POST /api/v1/incidents/analyze")
+	if err != nil || code != 0 || len(report.Candidates) != 1 {
+		t.Fatalf("code=%d err=%v candidates=%d", code, err, len(report.Candidates))
+	}
+	assertNoEvalFiles(t, repo)
+	code, err = WriteCandidate(WriteOptions{
+		Repo:      repo,
+		Candidate: report.Candidates[0].AsCandidate(),
+		Python:    layout.Python,
+		Stdout:    io.Discard,
+		Stderr:    io.Discard,
 	})
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v", code, err)
@@ -1573,20 +1573,11 @@ func TestExplicitJavaRouteSelectionStagesPinnedSchemaTree(t *testing.T) {
 
 func TestMethodQualifiedRouteSelectionIsRequired(t *testing.T) {
 	repo := copyFixture(t, "java-multi-route")
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		Route:  "/api/v1/incidents/analyze",
-		Python: "validator",
-		Run: func(string, []string, []string, string) (CommandResult, error) {
-			t.Fatal("path-only route selection invoked the validator")
-			return CommandResult{}, nil
-		},
-		Stdout: io.Discard,
-		Stderr: io.Discard,
-	})
+	_, code, err := Scan(repo, "/api/v1/incidents/analyze")
 	if code != 2 || err == nil || !strings.Contains(err.Error(), "POST /api/v1/incidents/analyze") {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestSpringAndMicronautFixturesStageWithPinnedRunner(t *testing.T) {
@@ -1598,11 +1589,16 @@ func TestSpringAndMicronautFixturesStageWithPinnedRunner(t *testing.T) {
 	for _, fixture := range []string{"java-spring-params", "java-micronaut-params"} {
 		t.Run(fixture, func(t *testing.T) {
 			repo := copyFixture(t, fixture)
-			code, err := Setup(SetupOptions{
-				Repo:   repo,
-				Python: layout.Python,
-				Stdout: io.Discard,
-				Stderr: io.Discard,
+			report, code, err := Scan(repo, "")
+			if err != nil || code != 0 || len(report.Candidates) != 1 {
+				t.Fatalf("code=%d err=%v candidates=%d", code, err, len(report.Candidates))
+			}
+			code, err = WriteCandidate(WriteOptions{
+				Repo:      repo,
+				Candidate: report.Candidates[0].AsCandidate(),
+				Python:    layout.Python,
+				Stdout:    io.Discard,
+				Stderr:    io.Discard,
 			})
 			if code != 0 || err != nil {
 				t.Fatalf("code=%d err=%v", code, err)
@@ -1611,68 +1607,100 @@ func TestSpringAndMicronautFixturesStageWithPinnedRunner(t *testing.T) {
 	}
 }
 
-func TestGuideDraftKeepsSchemaDocumentsValid(t *testing.T) {
+func TestWriteCandidateKeepsDatasetJSONValid(t *testing.T) {
 	t.Setenv(hbase.EnvCLIHome, "")
 	layout, err := VerifyRunner(RunnerHome(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
-	err = stageGuideAnswers(SetupOptions{
-		Repo:   repo,
+	code, err := WriteCandidate(WriteOptions{
+		Repo: repo,
+		Candidate: Candidate{
+			AgentID:      "guide",
+			EndpointURL:  "http://127.0.0.1:8080/analyze",
+			Method:       "POST",
+			RequestField: "query",
+			ResponsePath: "reasoning",
+			Cases: []SampleCase{{
+				ID:       "case-1",
+				Input:    json.RawMessage(`{"query":"hello"}`),
+				Expected: "ok",
+			}},
+		},
 		Python: layout.Python,
-	}, map[string]string{"endpoint_url": "http://127.0.0.1:8080/analyze"}, false)
-	if err != nil {
-		t.Fatal(err)
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v", code, err)
 	}
-	marker := filepath.Join(repo, ".harness", "evals", ".onboard-guide-draft")
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(repo, ".harness", "evals", ".onboard-guide-draft")); !os.IsNotExist(err) {
+		t.Fatalf("draft marker stat err=%v", err)
 	}
-	dataset, err := os.ReadFile(filepath.Join(repo, ".harness", "evals", "datasets", filepath.Base(repo)+".jsonl"))
+	dataset, err := os.ReadFile(filepath.Join(repo, ".harness", "evals", "datasets", "guide.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(dataset)), "\n") {
 		if !json.Valid([]byte(line)) {
-			t.Fatalf("guide dataset line is not valid JSON: %q", line)
+			t.Fatalf("dataset line is not valid JSON: %q", line)
 		}
 	}
+	if !strings.Contains(string(dataset), `"query":"hello"`) {
+		t.Fatalf("dataset = %s", dataset)
+	}
+}
+
+func TestWriteCandidateRejectsIncompleteAndSecretValues(t *testing.T) {
+	repo := t.TempDir()
+	code, err := WriteCandidate(WriteOptions{
+		Repo:      repo,
+		Candidate: Candidate{EndpointURL: "http://127.0.0.1:9091/v1/analyze"},
+		Python:    "validator",
+		Run: func(string, []string, []string, string) (CommandResult, error) {
+			t.Fatal("incomplete candidate invoked the validator")
+			return CommandResult{}, nil
+		},
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if code != 2 || err == nil || !strings.Contains(err.Error(), "response_path") {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	assertNoEvalFiles(t, repo)
+
+	secret := filepath.Join(t.TempDir(), "candidate.json")
+	if err := os.WriteFile(secret, []byte(`{"endpoint_url":"http://127.0.0.1:8080/chat","method":"POST","request_field":"text","response_path":"output.text","token":"pat.secret"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCandidateFile(secret); err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("secret file err = %v", err)
+	}
+	code, err = WriteCandidate(WriteOptions{
+		Repo:      repo,
+		Candidate: Candidate{EndpointURL: "http://127.0.0.1:8080/chat", Method: "POST", RequestField: "text", ResponsePath: "output.text", AuthHeader: "Bearer pat.secret"},
+		Python:    "validator",
+		Run: func(string, []string, []string, string) (CommandResult, error) {
+			t.Fatal("secret header invoked the validator")
+			return CommandResult{}, nil
+		},
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	if code != 2 || err == nil || !strings.Contains(err.Error(), "auth_header") {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestNonTTYDoesNotReadStdin(t *testing.T) {
 	repo := copyFixture(t, "no-agent")
-	var stderr bytes.Buffer
-	code, err := Setup(SetupOptions{
-		Repo:         repo,
-		AcceptMedium: true,
-		IsPty:        false,
-		Stdout:       &bytes.Buffer{},
-		Stderr:       &stderr,
-		ReadLine: func() (string, error) {
-			t.Fatal("non-TTY setup read stdin")
-			return "", nil
-		},
-	})
-	if code != 2 {
+	code, err := Setup(SetupOptions{Repo: repo, Stdout: io.Discard, Stderr: io.Discard})
+	if code != 0 || err != nil {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
-	if !strings.Contains(stderr.String(), GuideQuestions[0]) {
-		t.Fatalf("stderr = %s", stderr.String())
-	}
-	if strings.Contains(stderr.String(), GuideQuestions[1]) {
-		t.Fatal("guide asked a second question before the first answer")
-	}
-	if err == nil || !strings.Contains(err.Error(), "No agent was staged") {
-		t.Fatalf("err = %v", err)
-	}
-	matches, globErr := filepath.Glob(filepath.Join(repo, ".harness", "evals", "agents", "*", "agent.yaml"))
-	if globErr != nil {
-		t.Fatal(globErr)
-	}
-	if len(matches) != 0 {
-		t.Fatalf("no-signal setup staged %#v", matches)
-	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestJaxRSStagesWithoutEndToEndFixture(t *testing.T) {
@@ -1717,22 +1745,11 @@ func TestJaxRSStagesWithoutEndToEndFixture(t *testing.T) {
 	}
 
 	repo := copyFixture(t, "java-jaxrs")
-	var stderr bytes.Buffer
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		IsPty:  false,
-		Stdout: &bytes.Buffer{},
-		Stderr: &stderr,
-	})
+	code, err := Setup(SetupOptions{Repo: repo, Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil || code != 0 {
-		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+		t.Fatalf("code=%d err=%v", code, err)
 	}
-	if _, err := os.Stat(filepath.Join(repo, ".harness", "evals", "agents", "rca", "agent.yaml")); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(stderr.String(), "TR_RCA_EVALUATION_API") || strings.Contains(stderr.String(), "which auth header") {
-		t.Fatalf("stderr = %s", stderr.String())
-	}
+	assertNoEvalFiles(t, repo)
 }
 
 func TestPortAndPathStringsRequireGuide(t *testing.T) {
@@ -1747,44 +1764,33 @@ func TestPortAndPathStringsRequireGuide(t *testing.T) {
 }
 
 func TestNoSignalGuideThenStage(t *testing.T) {
+	t.Setenv(hbase.EnvCLIHome, "")
+	layout, err := VerifyRunner(RunnerHome(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	repo := copyFixture(t, "no-agent")
+	report, code, err := Scan(repo, "")
+	if err != nil || code != 0 || report.HasSignal {
+		t.Fatalf("code=%d err=%v report=%+v", code, err, report)
+	}
+	assertNoEvalFiles(t, repo)
 	var stderr bytes.Buffer
-	var reads int
-	code, err := Setup(SetupOptions{
-		Repo:   repo,
-		IsPty:  true,
-		Stdout: &bytes.Buffer{},
-		Stderr: &stderr,
-		ReadLine: func() (string, error) {
-			reads++
-			switch reads {
-			case 1:
-				if !strings.Contains(stderr.String(), GuideQuestions[0]) || strings.Contains(stderr.String(), GuideQuestions[1]) {
-					t.Fatalf("first prompt = %s", stderr.String())
-				}
-				return "http://localhost:8080/api/chat", nil
-			case 2:
-				return "POST", nil
-			case 3:
-				return "query", nil
-			case 4:
-				return "reasoning", nil
-			case 5:
-				return "none", nil
-			default:
-				t.Fatal("extra question")
-				return "", nil
-			}
+	code, err = WriteCandidate(WriteOptions{
+		Repo: repo,
+		Candidate: Candidate{
+			EndpointURL:  "http://localhost:8080/api/chat",
+			Method:       "POST",
+			RequestField: "query",
+			ResponsePath: "reasoning",
+			AuthHeader:   "none",
 		},
+		Python: layout.Python,
+		Stdout: io.Discard,
+		Stderr: &stderr,
 	})
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
-	}
-	if reads != len(GuideQuestions) {
-		t.Fatalf("reads = %d", reads)
-	}
-	if !strings.Contains(stderr.String(), LocalRunCommand(filepath.Base(repo))) {
-		t.Fatalf("run command missing:\n%s", stderr.String())
 	}
 	matches, globErr := filepath.Glob(filepath.Join(repo, ".harness", "evals", "agents", "*", "agent.yaml"))
 	if globErr != nil || len(matches) != 1 {
@@ -1800,26 +1806,6 @@ func TestNoSignalGuideThenStage(t *testing.T) {
 	}
 	if strings.Contains(text, "Authorization:") {
 		t.Fatalf("none still staged a header:\n%s", text)
-	}
-
-	partial := copyFixture(t, "no-agent")
-	var partialErr bytes.Buffer
-	code, err = Setup(SetupOptions{
-		Repo:    partial,
-		IsPty:   false,
-		Stdout:  &bytes.Buffer{},
-		Stderr:  &partialErr,
-		Answers: map[string]string{"endpoint_url": "http://127.0.0.1:9091/v1/analyze"},
-	})
-	if err != nil || code != 0 {
-		t.Fatalf("partial code=%d err=%v stderr=%s", code, err, partialErr.String())
-	}
-	if !strings.Contains(partialErr.String(), GuideQuestions[1]) || strings.Contains(partialErr.String(), GuideQuestions[2]) {
-		t.Fatalf("partial stderr = %s", partialErr.String())
-	}
-	partialMatches, globErr := filepath.Glob(filepath.Join(partial, ".harness", "evals", "agents", "*", "agent.yaml"))
-	if globErr != nil || len(partialMatches) != 1 {
-		t.Fatalf("partial matches=%v err=%v", partialMatches, globErr)
 	}
 }
 
@@ -2086,7 +2072,7 @@ func TestProvisionalCommandsRegister(t *testing.T) {
 		t.Fatal(err)
 	}
 	ModuleInit(reg.Module("aievals"))
-	for _, verb := range []string{"setup", "run", "upload"} {
+	for _, verb := range []string{"setup", "scan", "stage", "run", "upload"} {
 		cs := reg.GetSpec(verb, "eval_onboarding")
 		if cs == nil {
 			t.Fatalf("missing %s eval_onboarding", verb)
@@ -2097,6 +2083,17 @@ func TestProvisionalCommandsRegister(t *testing.T) {
 		if !strings.Contains(cs.Long, "TODO(onboarding-schema)") {
 			t.Fatalf("%s is missing the provisional marker", verb)
 		}
+	}
+}
+
+func assertNoEvalFiles(t *testing.T, repo string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(repo, ".harness", "evals", "agents", "*", "agent.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("eval files were written: %v", matches)
 	}
 }
 
