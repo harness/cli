@@ -174,6 +174,63 @@ func TestLoadConfig_AllSupportedKeysAccepted(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_TopLevelExtensionKeys(t *testing.T) {
+	const rest = `
+concurrency: 1
+destination:
+  endpoint: https://dst.example
+  type: HAR
+  credentials: *cred
+mappings:
+  - {artifactType: GENERIC, sourceRegistry: src, destinationRegistry: dst}
+`
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "x- key holding an anchor is accepted",
+			yaml: `x-creds: &cred {username: u, password: p}
+source: {endpoint: https://src.example, type: JFROG, credentials: *cred}` + rest,
+		},
+		{
+			name: "misspelled top-level key is rejected with its line",
+			yaml: `x-creds: &cred {username: u, password: p}
+dryrun: true
+source: {endpoint: https://src.example, type: JFROG, credentials: *cred}` + rest,
+			wantErr: `line 2: unknown top-level key "dryrun"`,
+		},
+		{
+			name: "x- key below the top level is still rejected",
+			yaml: `x-creds: &cred {username: u, password: p}
+source: {endpoint: https://src.example, type: JFROG, credentials: *cred, x-note: hi}` + rest,
+			wantErr: "field x-note not found",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(tc.yaml), 0644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadConfig(path)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("expected config to load, got: %v", err)
+				}
+				if cfg.Source.Credentials.Username != "u" || cfg.Dest.Credentials.Username != "u" {
+					t.Fatalf("anchor not resolved: source=%+v dest=%+v", cfg.Source.Credentials, cfg.Dest.Credentials)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected error containing %q, got: %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
 // TestKnownArtifactTypesSingleSource verifies the exported list and the lookup
 // map stay in sync.
 func TestKnownArtifactTypesSingleSource(t *testing.T) {

@@ -1263,6 +1263,8 @@ commands:
                        reason, error) for scripts/CI to consume, even when the run fails.
 
       Environment variables can be used in the config file using ${VAR_NAME} syntax.
+      Unknown config keys are rejected. Top-level keys starting with x- are allowed,
+      e.g. to hold a YAML anchor: x-creds: &creds {username: ..., password: ...}
 
       Usage example:
         harness execute registry:migrate --config config.yaml

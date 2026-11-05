@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -132,6 +133,9 @@ type Config struct {
 	Source      RegistryConfig    `yaml:"source"`
 	Dest        RegistryConfig    `yaml:"destination"`
 	Mappings    []RegistryMapping `yaml:"mappings"`
+	// Extensions collects unknown top-level keys; only x- prefixed keys
+	// (YAML anchor holders) are accepted.
+	Extensions map[string]yaml.Node `yaml:",inline"`
 }
 
 // RegistryConfig defines the source ar configuration
@@ -201,6 +205,9 @@ func LoadConfig(path string) (*Config, error) {
 	if err := dec.Decode(&config); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("error parsing config file: %w", err)
 	}
+	if err := validateExtensionKeys(config.Extensions); err != nil {
+		return nil, fmt.Errorf("error parsing config file: %w", err)
+	}
 
 	// Validate the configuration
 	if err := validateConfig(&config); err != nil {
@@ -208,6 +215,25 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func validateExtensionKeys(extensions map[string]yaml.Node) error {
+	keys := make([]string, 0, len(extensions))
+	for key := range extensions {
+		if !strings.HasPrefix(key, "x-") {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	slices.Sort(keys)
+	msgs := make([]string, len(keys))
+	for i, key := range keys {
+		msgs[i] = fmt.Sprintf("line %d: unknown top-level key %q", extensions[key].Line, key)
+	}
+	return fmt.Errorf("%s (only keys starting with x- are allowed, e.g. to hold YAML anchors)",
+		strings.Join(msgs, "; "))
 }
 
 // expandEnvInYaml expands environment variables in YAML content
