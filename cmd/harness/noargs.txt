@@ -9,6 +9,11 @@ Grammar:
   harness list <noun> [scope] [flags]             scope narrows results to a parent resource
   harness <verb> <noun>:<qualifier> [id] [flags]  qualified variant (e.g. get pipeline:summary, execute pipeline:input_set)
 
+IDs: multi-part ids are separated by "/" (e.g. <repo>/<branch>). A part shown as
+<name...> may itself contain "/". If more than one part contains "/", pass a JSON
+array instead: '["my-reg","@scope/pkg","1.0/beta"]'. Ids printed by list commands
+can always be passed back as-is.
+
 Auth:
   harness auth status          show resolved account, org, and project
   harness auth login           interactive setup

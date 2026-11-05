@@ -328,7 +328,7 @@ func validateNounPairConstraints(cs *spec.CommandSpec, vs VerbSpec) error {
 	return nil
 }
 
-// validateVerbNounShape checks command naming, verb kind / noun presence, and id_parts.
+// validateVerbNounShape checks command naming, verb kind / noun presence, id_parts, and id_formats.
 func validateVerbNounShape(cs *spec.CommandSpec, vs VerbSpec) error {
 	wantCommand := strings.TrimSpace(cs.Verb + " " + cs.FullNoun())
 	if cs.Command != wantCommand {
@@ -345,6 +345,14 @@ func validateVerbNounShape(cs *spec.CommandSpec, vs VerbSpec) error {
 	}
 	if cs.IdParts < 0 || cs.IdParts > 3 {
 		return fmt.Errorf("command %q: id_parts must be between 1 and 3, got %d", cs.Command, cs.IdParts)
+	}
+	if len(cs.IdFormats) > 0 {
+		if cs.IdParts != 0 || cs.IdAllowSlash {
+			return fmt.Errorf("command %q: id_formats cannot be combined with id_parts or id_allow_slash", cs.Command)
+		}
+		if _, err := spec.ParseIdFormats(cs.IdFormats); err != nil {
+			return fmt.Errorf("command %q: id_formats: %w", cs.Command, err)
+		}
 	}
 	return nil
 }

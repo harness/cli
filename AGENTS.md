@@ -171,6 +171,8 @@ Available variables: `ctx.id`, `ctx.idParts[N]`, `ctx.parentId`, `auth.account`,
 - `id_parts: 2` → user passes `<a>/<b>`; available as `ctx.idParts[0]` and `ctx.idParts[1]`. Works for `get`/`update`/`execute`/`delete`.
 - `requires_parentid: true` → user passes the parent as a positional arg; available as `ctx.parentId`. Used for `list`/`create` where the sub-resource doesn't have its own id yet.
 - For a `list`/`create` with a composite parent (e.g. `<repo_id>/<pr_number>`), combine them: `requires_parentid: true` + `id_parts: N`; the parent is split into `ctx.parentIdParts[0..N-1]` (see `list pr_reviewer` in `code.spec.yaml`).
+- `id_formats: ["<repo>/<branch...>"]` names the parts of whichever positional the verb takes (the id, or the list/create scope); read them as `ctx.ids.<name>` (Go: `ctx.Ids`). `<name...>` may contain `/` (at most one per format); list several formats for optional leading parts (`["<pipeline>/<execution>", "<execution>"]`). Users can pass a JSON array (`'["a","b/c"]'`) to give parts exactly. Usage text is generated from the formats unless `id_label`/`parentid_label` is set. Don't combine with `id_parts`/`id_allow_slash`.
+- Build ids for output with `idjoin(a, b, ...)` (Go: `spec.IdJoin`), which falls back to the JSON form when the plain form wouldn't parse back. Use `pathEscape(...)` for APIs that expect `%2F` instead of a raw `/`.
 
 ### expr-lang tips
 
