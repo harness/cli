@@ -45,6 +45,7 @@ func NewMockClient() jfrog.Client {
 	c.loadCatalogs()
 	c.loadContent()
 	c.loadBinaryContent()
+	c.loadSearchedFiles()
 	return c
 }
 
@@ -184,6 +185,38 @@ func (c *mockClient) loadContent() {
 		[]byte(`<html><body><a href="requests/">requests</a><br/></body></html>`)
 	c.fileContent["python-local/.pypi/requests/requests.html"] =
 		[]byte(`<html><body><a href="../requests-2.28.0.tar.gz#sha256=abc123">requests-2.28.0.tar.gz</a><br/><a href="../requests-2.29.0.tar.gz#sha256=def456">requests-2.29.0.tar.gz</a><br/></body></html>`)
+	c.fileContent["conda-local/linux-64/repodata.json"] = []byte(condaRepodata)
+}
+
+const condaRepodata = `{
+  "packages": {
+    "demo-pkg-1.0.0-0.tar.bz2": { "name": "demo-pkg", "version": "1.0.0", "subdir": "linux-64" }
+  },
+  "packages.conda": {
+    "demo-pkg-2.0.0-0.conda": { "name": "demo-pkg", "version": "2.0.0", "subdir": "linux-64" }
+  }
+}`
+
+func (c *mockClient) loadSearchedFiles() {
+	entries, err := testdataFS.ReadDir("testdata/search")
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		data, err := testdataFS.ReadFile("testdata/search/" + name)
+		if err != nil {
+			continue
+		}
+		var files []types.SearchedFile
+		if err := json.Unmarshal(data, &files); err != nil {
+			continue
+		}
+		c.searchedFiles[strings.TrimSuffix(name, ".json")] = files
+	}
 }
 
 func (c *mockClient) loadBinaryContent() {
@@ -242,6 +275,9 @@ func (c *mockClient) loadBinaryContent() {
 	}
 	c.binaryContent["nuget-local/foo/company.grpc.pkg/2.0.0/company.grpc.pkg.2.0.0.snupkg"] =
 		createNugetPackageNupkg("company.grpc.pkg", "2.0.0")
+
+	c.binaryContent["conda-local/linux-64/demo-pkg-1.0.0-0.tar.bz2"] = []byte("mock conda package demo-pkg 1.0.0")
+	c.binaryContent["conda-local/linux-64/demo-pkg-2.0.0-0.conda"] = []byte("mock conda package demo-pkg 2.0.0")
 
 	// Terraform modules: <registry>/<ns>/<name>/<provider>/<ver>/<name>-<ver>.tar.gz
 	tfModules := []struct{ ns, name, provider, version string }{

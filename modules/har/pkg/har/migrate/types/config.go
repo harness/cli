@@ -292,15 +292,6 @@ func validateConfig(config *Config) error {
 			log.Warn().Msg(msg)
 			pterm.Warning.Println(msg)
 		}
-		// CONDA discovers packages from repodata.json, which the date filter can drop;
-		// PYTHON and RPM keep their index files, so they are not affected.
-		if mapping.ArtifactType == CONDA && mapping.DateFilter != nil {
-			msg := fmt.Sprintf("mapping %d: date filter is enabled for %s — packages are found through "+
-				"repodata.json, so in-range packages listed only in an older repodata.json are skipped; "+
-				"a full run with overwrite:false is the completeness path", i, CONDA)
-			log.Warn().Msg(msg)
-			pterm.Warning.Println(msg)
-		}
 		// Scope controls must never be silent no-ops: include/exclude patterns
 		// only take effect for pattern-filterable types (file-level or
 		// package-level); for every other type they would be ignored entirely.
