@@ -423,6 +423,13 @@ nouns:
       - id: status
         expr: it.status
 
+  - noun: execution_inputs
+    short_desc: Resolved runtime inputs a pipeline execution was started with.
+    fields:
+      - id: yaml
+        expr: it.inputSetYaml
+        field_type: yaml
+
   - noun: retry_history
     short_desc: Retry lineage for a pipeline execution, including which stages are retryable.
     fields:
@@ -772,6 +779,23 @@ commands:
         notes: flags.notes
         retry_stages: 'flags["retry-stages"] == nil ? "" : join(flags["retry-stages"], ",")'
         run_all_stages: 'flags["only-failed-stages"] ? "false" : ""'
+
+  - command: get execution:inputs
+    verb: get
+    noun: execution
+    noun_variant: inputs
+    fields_noun: execution_inputs
+    short: Show the resolved runtime inputs a pipeline execution ran with
+    id_allow_slash: true
+    id_label: "<[pipeline/]execution-id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      path: /pipeline/api/pipelines/execution/{{lastPart(ctx.id)}}/inputsetV2
+      item_expr: it.data
 
   - command: get execution:retry_history
     verb: get
