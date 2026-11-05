@@ -16,7 +16,7 @@ The coding agent scans the repository. The slightest sign of an agent counts. No
 Do not write a standalone Python runner.
 Do not create eval.yaml.
 
-Use the Harness CLI command named for each step. A Harness MCP equivalent may be used for the same step when one is available. Do not invent MCP tool names.
+The hosted Harness MCP server (https://mcp.harness.io/mcp) cannot read this repository, call localhost, build the upload zip, or call import-archive. Discover, Stage files, Local run, a live run against an endpoint that is not public, and Upload stay on the coding agent and the Harness CLI. Use the Harness CLI command named for each of those steps.
 
 When the prompt header includes a `harness auth login` command, use that command for this account, organization, and project. If no header was provided, ask for the account, organization, and project before authenticating. Do not change profiles automatically. To use an existing profile such as `qa`, pass `--profile <name>` on commands that need Harness credentials, or set `HARNESS_PROFILE`. An explicit `--profile` takes precedence over `HARNESS_PROFILE`.
 
@@ -108,6 +108,8 @@ Do only the stage the user picks. Ask before each action. After it finishes, ask
 
 ### Run against a live agent
 
+This stage stays on the Harness CLI. The hosted MCP server cannot call localhost or an endpoint that is not public.
+
 Ask for the live environment name. Show the command you will run.
 
 Checkpoint: Run this eval against that live environment?
@@ -115,6 +117,8 @@ Checkpoint: Run this eval against that live environment?
 Then run `harness run eval_onboarding --agent <identifier> --environment <live-name>`. Explain the result the same way as the local run.
 
 ### Upload to Harness
+
+This stage stays on the Harness CLI. The hosted MCP server cannot build the zip or call import-archive.
 
 Say that this validates the tree and uploads it, and that the CLI will print Agent and Eval links.
 
@@ -124,13 +128,25 @@ Then run `harness upload eval_onboarding`. Show the links it prints.
 
 ### Run on the platform
 
-Use the Eval link from the upload. Do not invent a separate CLI command for a platform run.
+Check once whether the Harness MCP server is connected, and reuse that choice for the platform stages. Do not invent MCP tool names.
+
+This stage applies only after the eval exists in the project. If MCP is connected, find the eval with `harness_list` or `harness_get` and `resource_type` `evaluation` (GET `/gateway/ai-evals/api/v1/orgs/{org}/projects/{project}/evals` and `.../evals/{id}`). Run it with `harness_execute`, `resource_type` `evaluation`, and action `run` (POST `.../evals/{id}/run`).
+
+If MCP is not connected, use `harness list evaluation`, `harness get evaluation <id>`, and `harness execute evaluation:run <eval_id>`. MCP and the CLI call the same `/gateway/ai-evals/api/v1/orgs/{org}/projects/{project}/...` API, so the results are identical.
 
 Checkpoint: Run it on the platform?
 
 ### View results
 
-Use the Agent and Eval links the upload printed. Scores are on the eval's runs.
+Reuse the MCP choice from the platform run. Scores are on the eval's runs. The Agent and Eval links from the upload open the same records.
+
+If MCP is connected, use `harness_list` or `harness_get` with these resource types:
+
+- `eval_run` for project runs and one run (`.../runs`, `.../runs/{id}`)
+- `eval_run_by_eval` for runs of one eval (`.../evals/{id}/runs`)
+- `eval_run_item` for items in a run (`.../runs/{id}/items`)
+
+If MCP is not connected, use `harness list eval_run:all`, `harness get eval_run <run_id>`, `harness list eval_run <eval_id>`, and `harness list eval_run:items <run_id>`.
 
 Checkpoint: Open the result links?
 

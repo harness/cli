@@ -12,7 +12,7 @@ const (
 	SkillRuleNoScript   = "Do not write a standalone Python runner."
 	SkillRuleNoEvalYAML = "Do not create eval.yaml."
 	SkillRuleStage      = "Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`."
-	SkillRuleMCP        = "A Harness MCP equivalent may be used for the same step when one is available. Do not invent MCP tool names."
+	SkillRuleMCP        = "Check once whether the Harness MCP server is connected, and reuse that choice for the platform stages. Do not invent MCP tool names."
 
 	// RunnerPackage is the distribution selected for this phase: an isolated
 	// pinned uv or pipx environment. A signed artifact and a runner bundled
