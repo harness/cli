@@ -329,7 +329,7 @@ commands:
       query_params:
         environmentIdentifier: flags.env
       item_expr: it.data
-      yaml_pick_expr: it.data.infrastructure
+      yaml_pick_expr: yamlParse(it.data.infrastructure.yaml)
 
   - command: create infrastructure
     verb: create
