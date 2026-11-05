@@ -142,7 +142,7 @@ commands:
     endpoint:
       path: /ng/api/servicesV2/{{ctx.id}}
       item_expr: it.data
-      yaml_pick_expr: it.data.service
+      yaml_pick_expr: yamlParse(it.data.service.yaml)
 
   - command: create service
     verb: create
@@ -231,7 +231,7 @@ commands:
     endpoint:
       path: /ng/api/environmentsV2/{{ctx.id}}
       item_expr: it.data
-      yaml_pick_expr: it.data.environment
+      yaml_pick_expr: yamlParse(it.data.environment.yaml)
 
   - command: create environment
     verb: create
@@ -329,7 +329,7 @@ commands:
       query_params:
         environmentIdentifier: flags.env
       item_expr: it.data
-      yaml_pick_expr: it.data.infrastructure
+      yaml_pick_expr: yamlParse(it.data.infrastructure.yaml)
 
   - command: create infrastructure
     verb: create
