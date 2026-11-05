@@ -1423,6 +1423,7 @@ commands:
     endpoint:
       path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
       item_expr: it
+      yaml_pick_expr: yamlParse(it.pipeline_yaml)
 
   - command: get pipeline:summary
     verb: get
