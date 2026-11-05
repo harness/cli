@@ -231,7 +231,7 @@ commands:
     endpoint:
       path: /ng/api/environmentsV2/{{ctx.id}}
       item_expr: it.data
-      yaml_pick_expr: it.data.environment
+      yaml_pick_expr: yamlParse(it.data.environment.yaml)
 
   - command: create environment
     verb: create
