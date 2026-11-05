@@ -317,6 +317,7 @@ func (r *Package) Migrate(ctx context.Context) error {
 		err = eng.Execute(ctx)
 		if err != nil {
 			logger.Error().Err(err).Msg("Engine execution saw following errors")
+			return fmt.Errorf("package %s: version migration errors: %w", r.pkg.Name, err)
 		}
 	}
 

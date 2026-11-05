@@ -252,6 +252,21 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		return fmt.Errorf("get packages failed: %w", err)
 	}
 
+	// Filters may legitimately leave nothing to migrate, but content that survived
+	// them and still resolved to zero packages means artifactType does not match the
+	// repository; fail instead of reporting an empty success.
+	if len(pkgs) == 0 {
+		if contentFiles := countContentFiles(files, r.artifactType); contentFiles > 0 {
+			err := fmt.Errorf(
+				"registry %s: pulled %d file(s) from source (%d after filters) but resolved 0 packages for "+
+					"artifactType %s — verify the registry contains %s artifacts and the artifactType is correct",
+				r.srcRegistry, len(originalFiles), contentFiles, r.artifactType, r.artifactType)
+			logger.Error().Err(err).Msg("No packages resolved")
+			util.AddRegistryErrorToStat(r.stats, r.srcRegistry, err)
+			return err
+		}
+	}
+
 	// For metadata-driven types, re-apply date filter at the package level.
 	if dateFilterActive && util.IsMetadataDrivenArtifact(currArtifactType) {
 		originalPkgCount := len(pkgs)
@@ -380,4 +395,16 @@ func (r *Registry) Post(ctx context.Context) error {
 		Dur("duration", time.Since(startTime)).
 		Msg("Completed registry post-migration step")
 	return nil
+}
+
+// countContentFiles excludes folders and index files kept by the date filter, so a
+// date window with no new packages is not mistaken for an artifactType mismatch.
+func countContentFiles(files []types.File, artifactType types.ArtifactType) int {
+	n := 0
+	for _, f := range files {
+		if !f.Folder && !util.IsPackageIndexFile(artifactType, f.Uri) {
+			n++
+		}
+	}
+	return n
 }

@@ -308,6 +308,7 @@ func (r *Version) Migrate(ctx context.Context) error {
 			downloadFile, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, file.Uri)
 			if err != nil {
 				logger.Error().Err(err).Msgf("Failed to download file %s", file.Name)
+				util.AddFileErrorToStat(r.stats, file, r.srcRegistry, err)
 				return fmt.Errorf("download file %s failed: %w", file.Name, err)
 			}
 			downloadedFiles = append(downloadedFiles, &types.PackageFiles{
@@ -336,6 +337,7 @@ func (r *Version) Migrate(ctx context.Context) error {
 	err := eng.Execute(ctx)
 	if err != nil {
 		logger.Error().Err(err).Msg("Engine execution saw following errors")
+		return fmt.Errorf("version %s/%s: file migration errors: %w", r.pkg.Name, r.version.Name, err)
 	}
 
 	logger.Info().
