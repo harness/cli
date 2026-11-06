@@ -1,0 +1,29 @@
+[
+  {
+    "Registry": "conda-local",
+    "Name": "repodata.json",
+    "Uri": "/linux-64/repodata.json",
+    "Folder": false,
+    "Size": 512,
+    "LastModified": "2023-01-01T00:00:00.000Z",
+    "SHA1": "da39a3ee5e6b4b0d3255bfef95601890afd80750"
+  },
+  {
+    "Registry": "conda-local",
+    "Name": "demo-pkg-1.0.0-0.tar.bz2",
+    "Uri": "/linux-64/demo-pkg-1.0.0-0.tar.bz2",
+    "Folder": false,
+    "Size": 2048,
+    "LastModified": "2023-01-01T00:00:00.000Z",
+    "SHA1": "da39a3ee5e6b4b0d3255bfef95601890afd80751"
+  },
+  {
+    "Registry": "conda-local",
+    "Name": "demo-pkg-2.0.0-0.conda",
+    "Uri": "/linux-64/demo-pkg-2.0.0-0.conda",
+    "Folder": false,
+    "Size": 2048,
+    "LastModified": "2024-06-01T00:00:00.000Z",
+    "SHA1": "da39a3ee5e6b4b0d3255bfef95601890afd80752"
+  }
+]

@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -127,6 +128,8 @@ func IsPackageIndexFile(artifactType types.ArtifactType, uri string) bool {
 	switch artifactType {
 	case types.PYTHON:
 		return strings.HasPrefix(normalized, ".pypi/")
+	case types.CONDA:
+		return path.Base(normalized) == "repodata.json"
 	default:
 		return false
 	}

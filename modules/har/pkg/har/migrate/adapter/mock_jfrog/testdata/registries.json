@@ -89,5 +89,12 @@
     "url": "http://localhost:8081/artifactory/terraform-local",
     "description": "Mock Terraform Local Repository",
     "packageType": "terraform"
+  },
+  "conda-local": {
+    "key": "conda-local",
+    "type": "LOCAL",
+    "url": "http://localhost:8081/artifactory/conda-local",
+    "description": "Mock Conda Local Repository",
+    "packageType": "conda"
   }
 }
