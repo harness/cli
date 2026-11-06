@@ -37,6 +37,11 @@ const (
 	contentTypeXML    = "text/xml"
 )
 
+// logSampleLimit caps how many entries of a source listing are logged. Listings are
+// never logged per entry: they run before filters, so per-entry output would scale
+// with the source registry rather than with the files selected for migration.
+const logSampleLimit = 20
+
 func init() {
 	adapterType := types.JFROG
 	if err := adp.RegisterFactory(adapterType, new(factory)); err != nil {
@@ -157,7 +162,8 @@ func (a *adapter) GetPackages(registry string, artifactType types.ArtifactType, 
 			return nil, fmt.Errorf("get catalog: %w", err)
 		}
 
-		log.Info().Msgf("OCI catalog: %v", catalog)
+		log.Info().Msgf("OCI catalog returned %d repositories; first %d: %v",
+			len(catalog), min(len(catalog), logSampleLimit), sampleStrings(catalog, logSampleLimit))
 		for _, repo := range catalog {
 			packages = append(packages, types.Package{
 				Registry: registry,
@@ -1376,13 +1382,42 @@ func (a *adapter) GetVersions(
 	return []types.Version{}, errors.New("unknown artifact type")
 }
 
+// sampleStrings returns the first n items of s (all of s when shorter), so
+// info-level logs stay bounded on large source registries.
+func sampleStrings(s []string, n int) []string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+// fileURIs extracts the URIs of the first n files for a bounded log sample.
+func fileURIs(files []types.File, n int) []string {
+	uris := make([]string, 0, min(len(files), n))
+	for i := 0; i < len(files) && i < n; i++ {
+		uris = append(uris, files[i].Uri)
+	}
+	return uris
+}
+
+// searchedFilePaths renders the first n searched files as repo-relative
+// path/name strings for a bounded log sample.
+func searchedFilePaths(files []types.SearchedFile, n int) []string {
+	paths := make([]string, 0, min(len(files), n))
+	for i := 0; i < len(files) && i < n; i++ {
+		paths = append(paths, path.Join(files[i].Path, files[i].Name))
+	}
+	return paths
+}
+
 func (a *adapter) GetFiles(registry string) ([]types.File, error) {
 	files, err := a.client.GetFiles(registry)
 	if err != nil {
 		log.Error().Msgf("Failed to get files from registry: %v", err)
 		return nil, fmt.Errorf("failed to get files from registry: %w", err)
 	}
-	log.Info().Msgf("Get files from registry: %v", files)
+	log.Info().Msgf("GetFiles returned %d file(s) from registry %s; first %d: %v",
+		len(files), registry, min(len(files), logSampleLimit), fileURIs(files, logSampleLimit))
 	return files, nil
 }
 
@@ -1491,6 +1526,8 @@ func (a *adapter) SearchFiles(registry string) ([]types.SearchedFile, error) {
 		log.Error().Msgf("Failed to search files from registry: %v", err)
 		return nil, fmt.Errorf("failed to search files from registry: %w", err)
 	}
+	log.Info().Msgf("SearchFiles returned %d file(s) from registry %s; first %d: %v",
+		len(files), registry, min(len(files), logSampleLimit), searchedFilePaths(files, logSampleLimit))
 	return files, nil
 }
 func (a *adapter) BuildExistingIndex(_ context.Context, _ string, _ int) (*types.ExistingIndex, error) {
