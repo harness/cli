@@ -17,7 +17,7 @@ help_text: |
     harness auth status             # validate the active profile
     harness auth setscope           # set default org/project on a profile
     harness auth profiles           # list all saved profiles
-    harness auth logout             # remove a profile
+    harness auth logout             # remove a profile (--credentials-only keeps it)
 
   ### CLI Management
 
@@ -175,7 +175,10 @@ commands:
     no_auth: true
     handler_type: workflow
     workflow_id: logout
-    flags: []
+    flags:
+      - name: credentials-only
+        is_bool: true
+        description: Remove only the stored credentials and keep the profile (use with HARNESS_PROFILE_<NAME>_API_KEY)
 
   - command: auth profiles
     verb: auth
