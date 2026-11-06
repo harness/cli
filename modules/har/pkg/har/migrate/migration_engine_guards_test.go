@@ -5,7 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/jfrog"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter/mock_jfrog"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 )
 
@@ -27,6 +30,23 @@ func TestRunZeroPackageGuard(t *testing.T) {
 	uploads, err := run(filteredOut)
 	if err != nil || len(uploads) != 0 {
 		t.Fatalf("filters leaving no files should be an empty success, got uploads=%v err=%v", uploads, err)
+	}
+
+	client := mock_jfrog.NewMockClient()
+	client.(interface {
+		SetSearchedFiles(string, []types.SearchedFile)
+	}).SetSearchedFiles("cran-local", []types.SearchedFile{
+		{Path: "src/contrib", Name: "PACKAGES", Created: "2025-01-01T00:00:00Z"},
+		{Path: "src/contrib", Name: "PACKAGES.gz", Created: "2025-01-01T00:00:00Z"},
+	})
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	indexOnlyWindow := baseMapping(types.CRAN, "cran-local")
+	indexOnlyWindow.DateFilter = &types.DateFilter{Match: types.DateFilterMatchAny, CreatedAfter: &after}
+	cfg := &types.Config{Concurrency: 1, Overwrite: true, Mappings: []types.RegistryMapping{indexOnlyWindow}}
+	src := jfrog.NewAdapterWithClient(types.RegistryConfig{Type: types.MOCK_JFROG, Endpoint: "http://mock"}, client)
+	svc := &MigrationService{config: cfg, source: src, destination: &fakeDestAdapter{}}
+	if err := svc.Run(context.Background()); err != nil {
+		t.Fatalf("a date window holding only index files should be an empty success, got: %v", err)
 	}
 }
 

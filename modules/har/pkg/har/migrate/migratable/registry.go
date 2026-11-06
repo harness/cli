@@ -254,8 +254,10 @@ func (r *Registry) Migrate(ctx context.Context) error {
 
 	// Filters may legitimately leave nothing to migrate, but content that survived
 	// them and still resolved to zero packages means artifactType does not match the
-	// repository; fail instead of reporting an empty success.
-	if len(pkgs) == 0 {
+	// repository; fail instead of reporting an empty success. Skipped under a date
+	// filter: the window can hold only index files (e.g. CRAN PACKAGES, RUBY specs)
+	// that resolve to no package even when artifactType is correct.
+	if len(pkgs) == 0 && !dateFilterActive {
 		if contentFiles := countContentFiles(files, r.artifactType); contentFiles > 0 {
 			err := fmt.Errorf(
 				"registry %s: pulled %d file(s) from source (%d after filters) but resolved 0 packages for "+
@@ -397,8 +399,8 @@ func (r *Registry) Post(ctx context.Context) error {
 	return nil
 }
 
-// countContentFiles excludes folders and index files kept by the date filter, so a
-// date window with no new packages is not mistaken for an artifactType mismatch.
+// countContentFiles excludes folders and package index files, which resolve to no
+// package on their own.
 func countContentFiles(files []types.File, artifactType types.ArtifactType) int {
 	n := 0
 	for _, f := range files {
