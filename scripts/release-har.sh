@@ -9,8 +9,8 @@
 # can be inspected — kept out of goreleaser's own dist/ so the two builds
 # never mix. Publishing is opt-in: without --publish the script stops after
 # building, so a bare/mistyped invocation can never create a GitHub release.
-# --publish creates the release as a draft — install/resolve code already
-# ignores drafts — so a human still reviews and publishes it from GitHub.
+# --publish creates a published release, marked not-latest so it never takes
+# over the repo's "latest" release from core's own releases.
 #
 # --publish also requires HEAD to actually be the given tag, with no local
 # changes on top of it — so the released binaries always match the tagged
@@ -90,11 +90,10 @@ if [ -z "$PUBLISH" ]; then
     exit 0
 fi
 
-info "creating draft release ${TAG}"
+info "creating release ${TAG}"
 gh release create "$TAG" \
     --repo "$REPO" \
     --title "harness-har ${VERSION}" \
     --notes "harness-har ${VERSION}" \
     --latest=false \
-    --draft \
     "$DIST_DIR"/*
