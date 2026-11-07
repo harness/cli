@@ -306,7 +306,8 @@ type FieldDef struct {
 	MutablePath string `yaml:"mutable_path,omitempty"`
 	// FieldType optionally changes how the value is rendered or updated.
 	// Supported: "multiline_text" (renders raw block below other fields), "yaml" (alias for multiline_text, use for actual YAML content),
-	// "tags" (tag-map handling), "set" (string-set handling), "ts" (epoch-ms timestamp).
+	// "tags" (tag-map handling), "set" (string-set handling), "ts" (epoch-ms timestamp),
+	// "bool" and "int" (--set value is parsed and written as a typed, unquoted value).
 	FieldType string `yaml:"field_type,omitempty"`
 	// Align controls horizontal alignment in the table renderer.
 	// Supported: "right". Empty means left (default).

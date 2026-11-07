@@ -5,6 +5,7 @@ package registry
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
@@ -16,6 +17,8 @@ func (r *Registry) registerCoreFieldTypes() {
 	for _, name := range []string{"", "scalar", "multiline_text", "yaml", "ts"} {
 		r.fieldTypes[name] = scalar
 	}
+	r.fieldTypes["bool"] = cmdctx.FieldTypeHandler{Mutate: mutateBool}
+	r.fieldTypes["int"] = cmdctx.FieldTypeHandler{Mutate: mutateInt}
 	r.fieldTypes["tags"] = cmdctx.FieldTypeHandler{Mutate: mutateTags}
 	r.fieldTypes["set"] = cmdctx.FieldTypeHandler{Mutate: mutateStringSet}
 }
@@ -50,6 +53,30 @@ func mutateScalar(_ spec.FieldDef, _ any, op cmdctx.FieldMutation) (any, bool, e
 	default:
 		return nil, false, fmt.Errorf("unknown mutation operation %q", op.Kind)
 	}
+}
+
+func mutateBool(f spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
+	if op.Kind != cmdctx.MutationSet {
+		return mutateScalar(f, current, op)
+	}
+	switch op.Value {
+	case "true":
+		return true, true, nil
+	case "false":
+		return false, true, nil
+	}
+	return nil, false, fmt.Errorf("--set %s: expected true or false, got %q", op.Key, op.Value)
+}
+
+func mutateInt(f spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
+	if op.Kind != cmdctx.MutationSet {
+		return mutateScalar(f, current, op)
+	}
+	n, err := strconv.ParseInt(op.Value, 10, 64)
+	if err != nil {
+		return nil, false, fmt.Errorf("--set %s: expected an integer, got %q", op.Key, op.Value)
+	}
+	return n, true, nil
 }
 
 func mutateTags(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
