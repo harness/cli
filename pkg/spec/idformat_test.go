@@ -48,6 +48,7 @@ func TestParseId(t *testing.T) {
 		{name: "json surrounding whitespace", formats: exec, input: "  [\"e\"]\n", want: []string{"e"}},
 		{name: "json wrong length", formats: exec, input: `["a","b","c"]`, wantErr: "has 3 parts"},
 		{name: "json malformed never falls back", formats: branch, input: `[r/main]`, wantErr: "invalid JSON id"},
+		{name: "json trailing delimiter", formats: har, input: `["reg","pkg","1.0"]]`, wantErr: "invalid JSON id"},
 		{name: "json non-scalar element", formats: exec, input: `[["e"]]`, wantErr: "element 0"},
 	}
 	for _, tt := range tests {

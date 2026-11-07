@@ -91,7 +91,7 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 		}
 	}
 
-	return &cmdctx.Ctx{
+	cctx := &cmdctx.Ctx{
 		Context:      ctx,
 		CancelFn:     cancel,
 		Verb:         verb,
@@ -101,7 +101,12 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 		Auth:         resolved,
 		Resolver:     r,
 		IsCompletion: true,
-	}, nil
+	}
+	// parentId may be a partial word being completed, so a format mismatch leaves Ids unset.
+	if cs := r.GetSpec(verb, noun); cs != nil && len(cs.IdFormats) > 0 && parentId != "" {
+		_ = applyIdFormats(cs, cctx, parentId)
+	}
+	return cctx, nil
 }
 
 func toPipelineAuthConfig(s *spec.PipelineAuthSpec) *auth.PipelineAuthConfig {
@@ -293,8 +298,11 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 			ctx.Level = levelFlag
 		}
 	}
-	if err := validateIdParts(cs, vspec, ctx); err != nil {
-		return nil, err
+	// --ui accepts a partial "a/" prefix that runSeqPicker completes before the id is parsed.
+	if !(uiFlag && len(cs.IdFormats) > 0 && strings.HasSuffix(ctx.Id, "/")) {
+		if err := validateIdParts(cs, vspec, ctx); err != nil {
+			return nil, err
+		}
 	}
 	if !cs.NoAuth {
 		profileFlag, _ := cmd.Flags().GetString("profile")

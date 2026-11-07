@@ -1159,3 +1159,54 @@ func TestWithIdHint(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildCtx_IdFormatsUIPartialPrefix(t *testing.T) {
+	r := New()
+	cs := &spec.CommandSpec{IdFormats: []string{"<registry>/<name...>/<version>"}}
+	registerWorkflowExecute(t, r, "uiartifact", cs)
+	cmd := buildWorkflowTestCmd(t, r, cs)
+	if _, err := buildCtx(cmd, cs, []string{"reg/"}, r); err == nil {
+		t.Fatal("partial id without --ui: want format mismatch error")
+	}
+	cmd.Flags().Bool("ui", false, "ui")
+	if err := cmd.ParseFlags([]string{"--ui"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := buildCtx(cmd, cs, []string{"reg/"}, r)
+	if err != nil {
+		t.Fatalf("partial id with --ui: %v", err)
+	}
+	if ctx.Id != "reg/" {
+		t.Fatalf("Id = %q, want %q", ctx.Id, "reg/")
+	}
+}
+
+func TestExprEnv_IdJoinUsesNounGetFormats(t *testing.T) {
+	r := New()
+	registerWorkflowNoun(t, r, "branch")
+	registerWorkflowNoun(t, r, "listing")
+	wf := func(*cmdctx.Ctx) error { return nil }
+	r.RegisterWorkflow("test:get:branch", wf)
+	if err := r.Register(&spec.CommandSpec{Command: "get branch", Verb: VerbGet, VerbHandler: VerbGet, Noun: "branch", Module: "test",
+		HandlerType: spec.HandlerWorkflow, WorkflowID: "test:get:branch", NoAuth: true, IdFormats: []string{"<repo>/<branch...>"}}); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		ctx  *cmdctx.Ctx
+		want string
+	}{
+		{"noun get formats", &cmdctx.Ctx{Noun: "branch", Resolver: r}, `r/feature/x|["r/x","main"]|r/7`},
+		{"fields_noun get formats", &cmdctx.Ctx{Noun: "listing", FieldsNoun: "branch", Resolver: r}, `r/feature/x|["r/x","main"]|r/7`},
+		{"no formats", &cmdctx.Ctx{Noun: "listing", Resolver: r}, `["r","feature/x"]|["r/x","main"]|r/7`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := exprenv.Make(tt.ctx)
+			got := exprenv.EvalExpr(env, `idjoin("r", "feature/x") + "|" + idjoin("r/x", "main") + "|" + idjoin("r", 7)`)
+			if got != tt.want {
+				t.Fatalf("idjoin = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

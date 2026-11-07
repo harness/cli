@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"slices"
 	"strings"
@@ -164,7 +165,7 @@ func parseJSONId(formats []IdFormat, input string) (*ParsedId, error) {
 	dec := json.NewDecoder(strings.NewReader(input))
 	dec.UseNumber()
 	var raw []any
-	if err := dec.Decode(&raw); err != nil || dec.More() {
+	if err := dec.Decode(&raw); err != nil || !atEOF(dec) {
 		return nil, fmt.Errorf("invalid JSON id %q: must be a JSON array of strings, e.g. '[\"a\",\"b/c\"]'", input)
 	}
 	values := make([]string, len(raw))
@@ -185,6 +186,11 @@ func parseJSONId(formats []IdFormat, input string) (*ParsedId, error) {
 		}
 	}
 	return nil, fmt.Errorf("JSON id %q has %d parts, which does not match %s", input, len(values), FormatsLabel(formats))
+}
+
+func atEOF(dec *json.Decoder) bool {
+	_, err := dec.Token()
+	return err == io.EOF
 }
 
 func idsMap(formats []IdFormat, matched *IdFormat, values []string) map[string]string {
