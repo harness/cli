@@ -143,6 +143,7 @@ nouns:
       - id: enabled
         expr: it.enabled
         mutable_path: trigger.enabled
+        field_type: bool
       - id: description
         expr: it.description
         mutable_path: trigger.description
