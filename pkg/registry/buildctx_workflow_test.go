@@ -999,7 +999,10 @@ func TestBuildDetailCtx(t *testing.T) {
 	detailCS := &spec.CommandSpec{
 		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun", Flags: []spec.Flag{{Name: "filter"}},
 	}
-	detail, _ := buildDetailCtx(parent, detailCS, "child-id")
+	detail, err := buildDetailCtx(parent, detailCS, "child-id")
+	if err != nil {
+		t.Fatalf("buildDetailCtx: %v", err)
+	}
 
 	if detail.Id != "child-id" {
 		t.Fatalf("detail.Id = %q, want %q", detail.Id, "child-id")
@@ -1157,6 +1160,32 @@ func TestWithIdHint(t *testing.T) {
 				t.Fatalf("withIdHint = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBuildDetailCtx_IdFormats(t *testing.T) {
+	r := New()
+	registerWorkflowExecute(t, r, "fmtdetail", &spec.CommandSpec{})
+	cs := r.GetSpec(VerbExecute, "fmtdetail")
+	parent, err := buildCtx(buildWorkflowTestCmd(t, r, cs), cs, []string{"parent-id"}, r)
+	if err != nil {
+		t.Fatalf("setup buildCtx: %v", err)
+	}
+	detailCS := &spec.CommandSpec{Verb: VerbGet, VerbHandler: VerbGet, Noun: "fmtdetail",
+		IdFormats: []string{"<registry>/<name...>/<version>"}}
+
+	detail, err := buildDetailCtx(parent, detailCS, "reg/a/b/v1")
+	if err != nil {
+		t.Fatalf("buildDetailCtx: %v", err)
+	}
+	if want := map[string]string{"registry": "reg", "name": "a/b", "version": "v1"}; !reflect.DeepEqual(detail.Ids, want) {
+		t.Fatalf("Ids = %v, want %v", detail.Ids, want)
+	}
+	if want := []string{"reg", "a/b", "v1"}; !reflect.DeepEqual(detail.IdParts, want) {
+		t.Fatalf("IdParts = %v, want %v", detail.IdParts, want)
+	}
+	if _, err := buildDetailCtx(parent, detailCS, "reg"); err == nil {
+		t.Fatal("id matching no format: want error")
 	}
 }
 
