@@ -250,7 +250,7 @@ type Ctx struct {
 	Args                  []string          // extra positional args beyond [id] (when HasArgs set on spec)
 	IdParts               []string          // id split on "/" when id_parts > 1 on spec; length equals the number of actual parts. With id_formats, the matched format's part values
 	Ids                   map[string]string // id_formats part name → value for the positional id/scope; nil when the spec has no id_formats
-	IdHint                string            // appended to 4xx errors when an id_formats <name...> part absorbed more than one segment
+	IdHint                string            // appended to 4xx errors when the id matched an id_formats format with a <name...> part
 	Level                 string            // scope level: "account", "org", or "project" (empty when flag not present)
 	IsPty                 bool              // true when stdout is an interactive terminal
 	IsCompletion          bool              // true when this ctx was built for a shell completion request

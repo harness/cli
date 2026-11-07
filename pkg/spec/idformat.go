@@ -200,17 +200,20 @@ func idsMap(formats []IdFormat, matched *IdFormat, values []string) map[string]s
 	return ids
 }
 
-// AmbiguityHint describes how a plain-form id was split when its Rest part
-// absorbed more than one segment, or returns "" when the split was unambiguous.
+// AmbiguityHint describes how a plain-form id was split when its format has a
+// Rest part, since a Rest part that absorbed extra segments and a missing part
+// that shifted a segment into a fixed part both look valid. It returns "" for
+// JSON-form ids and formats without a Rest part.
 func (p *ParsedId) AmbiguityHint(input string) string {
-	if p == nil || p.RestSegments < 2 {
+	if p == nil || p.RestSegments == 0 {
 		return ""
 	}
 	var parts []string
 	for i, fp := range p.Format.Parts {
 		parts = append(parts, fmt.Sprintf("%s=%q", fp.Name, p.Values[i]))
 	}
-	return fmt.Sprintf("hint: id %q was read as %s; to pass the parts exactly, use '%s'", input, strings.Join(parts, " "), idJSON(p.Values))
+	return fmt.Sprintf("hint: id %q was read as %s (format %s); if that is wrong, check that no part is missing, or pass the parts exactly as a JSON array, e.g. '%s'",
+		input, strings.Join(parts, " "), p.Format.Raw, idJSON(p.Values))
 }
 
 // IdJoin builds an id from part values in format order. It emits the plain

@@ -903,7 +903,7 @@ func (r *Registry) execPluginRunE(binaryPath, moduleName, version string) func(*
 }
 
 // withIdHint appends ctx.IdHint to a 4xx API error, since a wrongly split
-// <name...> part typically surfaces as a not-found or bad-request response.
+// id typically surfaces as a not-found or bad-request response.
 func withIdHint(ctx *cmdctx.Ctx, err error) error {
 	if ctx == nil || ctx.IdHint == "" {
 		return err

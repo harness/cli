@@ -145,13 +145,26 @@ func TestIdJoinWithoutFormats(t *testing.T) {
 
 func TestAmbiguityHint(t *testing.T) {
 	formats := mustFormats(t, "<registry>/<name...>/<version>")
-	p, _ := ParseId(formats, "reg/somepath/name/1.0")
-	want := `hint: id "reg/somepath/name/1.0" was read as registry="reg" name="somepath/name" version="1.0"; to pass the parts exactly, use '["reg","somepath/name","1.0"]'`
-	if got := p.AmbiguityHint("reg/somepath/name/1.0"); got != want {
-		t.Errorf("AmbiguityHint = %q\nwant %q", got, want)
+	tests := []struct{ name, input, want string }{
+		{"rest absorbed extra segments", "reg/somepath/name/1.0",
+			`hint: id "reg/somepath/name/1.0" was read as registry="reg" name="somepath/name" version="1.0" (format <registry>/<name...>/<version>); if that is wrong, check that no part is missing, or pass the parts exactly as a JSON array, e.g. '["reg","somepath/name","1.0"]'`},
+		{"missing version shifts a rest segment", "reg/@scope/pkg",
+			`hint: id "reg/@scope/pkg" was read as registry="reg" name="@scope" version="pkg" (format <registry>/<name...>/<version>); if that is wrong, check that no part is missing, or pass the parts exactly as a JSON array, e.g. '["reg","@scope","pkg"]'`},
+		{"json form", `["reg","a/b","1.0"]`, ""},
 	}
-	p, _ = ParseId(formats, "reg/name/1.0")
-	if got := p.AmbiguityHint("reg/name/1.0"); got != "" {
-		t.Errorf("single-segment rest hint = %q, want empty", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := ParseId(formats, tt.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := p.AmbiguityHint(tt.input); got != tt.want {
+				t.Errorf("AmbiguityHint = %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+	p, _ := ParseId(mustFormats(t, "<pipeline>/<execution>"), "p/e")
+	if got := p.AmbiguityHint("p/e"); got != "" {
+		t.Errorf("fixed-format hint = %q, want empty", got)
 	}
 }
