@@ -299,7 +299,8 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 	}
 	// --ui accepts a partial "a/" prefix that runSeqPicker completes; ensureIds parses afterwards.
-	if !(uiFlag && cs.VerbHandler == VerbGet && len(cs.IdFormats) > 0) {
+	deferIdFormats := uiFlag && cs.VerbHandler == VerbGet && len(cs.IdFormats) > 0
+	if !deferIdFormats {
 		if err := validateIdParts(cs, vspec, ctx); err != nil {
 			return nil, err
 		}
