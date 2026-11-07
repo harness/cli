@@ -299,7 +299,8 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 	}
 	// --ui accepts a partial "a/" prefix that runSeqPicker completes before the id is parsed.
-	if !(uiFlag && len(cs.IdFormats) > 0 && strings.HasSuffix(ctx.Id, "/")) {
+	uiPartialId := uiFlag && len(cs.IdFormats) > 0 && strings.HasSuffix(ctx.Id, "/")
+	if !uiPartialId {
 		if err := validateIdParts(cs, vspec, ctx); err != nil {
 			return nil, err
 		}
