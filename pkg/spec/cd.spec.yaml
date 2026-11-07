@@ -55,11 +55,18 @@ nouns:
         expr: it.environment.identifier
       - id: name
         expr: it.environment.name
+        mutable_path: name
       - id: type
         expr: it.environment.type
+        mutable_path: type
       - id: description
         expr: it.environment.description
         width_max: 60
+        mutable_path: description
+      - id: tags
+        expr: formatTagDisplay(it.environment.tags)
+        field_type: tags
+        mutable_path: tags
       - id: updated
         expr: epochMs(it.lastModifiedAt ?? it.environment.lastModifiedAt)
       - id: created
@@ -267,7 +274,7 @@ commands:
       path: /ng/api/environmentsV2
       get_path: /ng/api/environmentsV2/{{ctx.id}}
       update_strategy: get-then-put
-      update_body_pick: it.data.environment
+      update_body_pick: yamlParse(it.data.environment.yaml).environment
       update_body_wrap: ""
       item_expr: it.data
       text_header: "\nUpdated environment {{ctx.id}}\n"
