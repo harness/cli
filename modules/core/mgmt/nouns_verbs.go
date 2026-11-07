@@ -150,10 +150,14 @@ func GetNounHandler(ctx *cmdctx.Ctx) error {
 		switch {
 		case cs.NounTo != "":
 			usage += cs.MigrateFrom.UsageFragment("from") + cs.MigrateTo.UsageFragment("to")
-		case cs.RequiresParentId && cs.ParentIdLabel != "":
-			usage += " " + cs.ParentIdLabel
+		case cs.RequiresParentId && cs.EffectiveParentIdLabel() != "":
+			usage += " " + cs.EffectiveParentIdLabel()
 		case cs.IdLabel != "":
 			usage += " " + cs.IdLabel
+		case len(cs.IdFormats) > 0 && cs.Verb == "list":
+			usage += " [" + cs.EffectiveParentIdLabel() + "]"
+		case len(cs.IdFormats) > 0:
+			usage += " " + cs.EffectiveIdLabel()
 		case cs.Verb != "list":
 			usage += " <id>"
 		}

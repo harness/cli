@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/spec"
@@ -2223,5 +2224,51 @@ func TestCallEndpointFull_RequestHeadersPropagate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEndpoint_IdFormatsPathPreview(t *testing.T) {
+	r := New()
+	if err := r.RegisterNoun(spec.NounDef{Noun: "artifact", NounAliases: []string{"artifacts"}}); err != nil {
+		t.Fatal(err)
+	}
+	cs := &spec.CommandSpec{
+		Command:     "delete artifact",
+		Verb:        VerbDelete,
+		Noun:        "artifact",
+		Module:      "test",
+		NoAuth:      true,
+		IdFormats:   []string{"<registry>/<name...>/<version>"},
+		HandlerType: spec.HandlerEndpoint,
+		Endpoint: &spec.EndpointSpec{
+			Method: "DELETE",
+			Path:   "/reg/{{ctx.ids.registry}}/+/{{pathEscape(ctx.ids.name)}}/+/{{ctx.ids.version}}",
+		},
+	}
+	if err := r.Register(cs); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	cmd := r.buildCmd(cs)
+	cmd.Flags().Float64("timeout", 0, "timeout")
+	for _, tt := range []struct{ id, want string }{
+		{"reg/@scope/pkg/1.0", "DELETE https://h.example/reg/reg/+/@scope%2Fpkg/+/1.0"},
+		{`["reg","pkg","1.0/beta"]`, "DELETE https://h.example/reg/reg/+/pkg/+/1.0/beta"},
+	} {
+		if err := cmd.ParseFlags([]string{"--preview-request"}); err != nil {
+			t.Fatal(err)
+		}
+		ctx, err := buildCtx(cmd, cs, []string{tt.id}, r)
+		if err != nil {
+			t.Fatalf("buildCtx(%q): %v", tt.id, err)
+		}
+		var preview strings.Builder
+		ctx.RequestPreview = &preview
+		ctx.Auth = testAuth("https://h.example")
+		if _, err := RunEndpoint(ctx, cs.Endpoint); !errors.Is(err, client.ErrRequestPreviewed) {
+			t.Fatalf("RunEndpoint(%q) err = %v, want ErrRequestPreviewed", tt.id, err)
+		}
+		if got, _, _ := strings.Cut(preview.String(), "?"); got != tt.want {
+			t.Errorf("preview for %q = %q, want %q", tt.id, got, tt.want)
+		}
 	}
 }

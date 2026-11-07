@@ -11,7 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/exprenv"
 	"github.com/harness/cli/v3/pkg/spec"
 )
 
@@ -1075,5 +1077,85 @@ func TestValidateIdParts_IdPartsPopulated(t *testing.T) {
 	}
 	if len(ctx.IdParts) != 2 || ctx.IdParts[0] != "agentA" || ctx.IdParts[1] != "clusterB" {
 		t.Fatalf("ctx.IdParts = %v, want [agentA clusterB]", ctx.IdParts)
+	}
+}
+
+func TestBuildCtx_LegacyIdTakesLeadingBracketLiterally(t *testing.T) {
+	r := New()
+	registerWorkflowExecute(t, r, "legacytwo", &spec.CommandSpec{IdParts: 2})
+	cs := r.GetSpec(VerbExecute, "legacytwo")
+	ctx, err := buildCtx(buildWorkflowTestCmd(t, r, cs), cs, []string{`["a/b"]`}, r)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{`["a`, `b"]`}; !reflect.DeepEqual(ctx.IdParts, want) || ctx.Ids != nil {
+		t.Fatalf("IdParts = %q, Ids = %v; want %q and nil Ids", ctx.IdParts, ctx.Ids, want)
+	}
+}
+
+func TestBuildCtx_IdFormats(t *testing.T) {
+	r := New()
+	registerWorkflowExecute(t, r, "artifact", &spec.CommandSpec{IdFormats: []string{"<registry>/<name...>/<version>"}})
+	registerWorkflowList(t, r, "execution", &spec.CommandSpec{IdFormats: []string{"<pipeline>/<stage>", "<pipeline>"}})
+	exec, list := r.GetSpec(VerbExecute, "artifact"), r.GetSpec(VerbList, "execution")
+
+	ctx, err := buildCtx(buildWorkflowTestCmd(t, r, exec), exec, []string{"reg/@scope/pkg/1.0"}, r)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if want := map[string]string{"registry": "reg", "name": "@scope/pkg", "version": "1.0"}; !reflect.DeepEqual(ctx.Ids, want) {
+		t.Fatalf("Ids = %v, want %v", ctx.Ids, want)
+	}
+	if ctx.IdHint == "" {
+		t.Fatal("IdHint empty, want hint for a multi-segment <name...>")
+	}
+	if _, err := buildCtx(buildWorkflowTestCmd(t, r, exec), exec, []string{"reg/pkg"}, r); err == nil ||
+		!strings.Contains(err.Error(), "<registry>/<name...>/<version>") {
+		t.Fatalf("no-match err = %v, want accepted formats listed", err)
+	}
+
+	cmd := &cobra.Command{Use: list.Command}
+	r.bindWorkflowCmd(cmd, list, func(*cmdctx.Ctx) error { return nil })
+	cmd.Flags().Float64("timeout", 0, "timeout")
+	ctx, err = buildCtx(cmd, list, []string{`["p/1"]`}, r)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	env := exprenv.Make(ctx)
+	if got := exprenv.EvalExpr(env, `ctx.ids.pipeline + "|" + ctx.ids.stage + "|" + ctx.parentIdParts[0]`); got != "p/1||p/1" {
+		t.Fatalf("list scope env = %q, want %q", got, "p/1||p/1")
+	}
+}
+
+func TestBuildUseString_IdFormats(t *testing.T) {
+	cs := &spec.CommandSpec{Verb: VerbGet, Noun: "execution", IdFormats: []string{"<pipeline>/<execution>", "<execution>"}}
+	if got, want := buildUseString(cs, verbRegistry[VerbGet]), "execution <pipeline>/<execution> | <execution>"; got != want {
+		t.Fatalf("Use = %q, want %q", got, want)
+	}
+	cs.IdLabel = "<execution_id>"
+	if got, want := buildUseString(cs, verbRegistry[VerbGet]), "execution <execution_id>"; got != want {
+		t.Fatalf("Use with id_label = %q, want %q", got, want)
+	}
+}
+
+func TestWithIdHint(t *testing.T) {
+	hinted := &cmdctx.Ctx{IdHint: "hint: x"}
+	tests := []struct {
+		name string
+		ctx  *cmdctx.Ctx
+		err  error
+		want string
+	}{
+		{"4xx gets hint", hinted, &client.APIError{Status: 404, Msg: "not found"}, "API error 404: not found\nhint: x"},
+		{"5xx unchanged", hinted, &client.APIError{Status: 500, Msg: "boom"}, "API error 500: boom"},
+		{"non-API unchanged", hinted, fmt.Errorf("other"), "other"},
+		{"no hint unchanged", &cmdctx.Ctx{}, &client.APIError{Status: 404, Msg: "not found"}, "API error 404: not found"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := withIdHint(tt.ctx, tt.err); got.Error() != tt.want {
+				t.Fatalf("withIdHint = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

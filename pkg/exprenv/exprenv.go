@@ -7,6 +7,7 @@ package exprenv
 import (
 	"fmt"
 	"maps"
+	"net/url"
 	"strings"
 
 	"github.com/expr-lang/expr"
@@ -64,6 +65,22 @@ func BaseFuncs(ptyEnabled bool) map[string]any {
 		"env":                   exprfuncs.Env,
 		"yamlParse":             exprfuncs.YamlParse,
 		"b64decode":             exprfuncs.Base64Decode,
+		"idjoin":                newIdJoin(nil),
+		"pathEscape":            url.PathEscape,
+	}
+}
+
+// newIdJoin returns the expr idjoin(parts...) helper, checking the plain-form
+// round trip against formats (see spec.IdJoin).
+func newIdJoin(formats []spec.IdFormat) func(parts ...any) string {
+	return func(parts ...any) string {
+		values := make([]string, len(parts))
+		for i, p := range parts {
+			if p != nil {
+				values[i] = strutil.Stringify(p)
+			}
+		}
+		return spec.IdJoin(formats, values...)
 	}
 }
 
@@ -83,6 +100,16 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 
 	idParts := strings.Split(ctx.Id, "/")
 	parentIdParts := strings.Split(ctx.ParentId, "/")
+	ids := ctx.Ids
+	if ids != nil {
+		if ctx.Id != "" {
+			idParts = ctx.IdParts
+		} else if ctx.ParentId != "" {
+			parentIdParts = ctx.IdParts
+		}
+	} else {
+		ids = map[string]string{}
+	}
 
 	flags := ctx.FlagValues
 	if flags == nil {
@@ -99,6 +126,7 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 			"parentId":      ctx.ParentId,
 			"idParts":       idParts,
 			"parentIdParts": parentIdParts,
+			"ids":           ids,
 			"level":         ctx.Level,
 			"args":          ctx.Args,
 			"setArgs":       ctx.SetArgs,
@@ -136,6 +164,9 @@ func Make(ctx *cmdctx.Ctx) map[string]any {
 			noun = ctx.FieldsNoun
 		}
 		injectUrlFn(env, ctx, ctx.Resolver.GetNoun(noun))
+		if getCs := ctx.Resolver.GetSpec("get", noun); getCs != nil && len(getCs.IdFormats) > 0 {
+			env["idjoin"] = newIdJoin(getCs.IdFormatList())
+		}
 	}
 	return env
 }

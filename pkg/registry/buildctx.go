@@ -212,7 +212,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 	uiFlag, _ := cmd.Flags().GetBool("ui")
 	skipIdCheck := listFields || listColumns || uiFlag
 
-	idLabel := cs.IdLabel
+	idLabel := cs.EffectiveIdLabel()
 	if idLabel == "" {
 		idLabel = "<id>"
 	}
@@ -263,7 +263,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		if len(args) > 0 {
 			ctx.ParentId = args[0]
 		} else if cs.RequiresParentId && !skipIdCheck {
-			label := cs.ParentIdLabel
+			label := cs.EffectiveParentIdLabel()
 			if label == "" {
 				label = "<parentid>"
 			}
@@ -422,7 +422,9 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
 	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
 	// id_parts target resolved via item_fn) need it populated here too.
-	if cs.IdParts > 1 {
+	if len(cs.IdFormats) > 0 {
+		_ = applyIdFormats(cs, ctx, id)
+	} else if cs.IdParts > 1 {
 		ctx.IdParts = strings.SplitN(id, "/", cs.IdParts)
 	}
 	return ctx
@@ -481,6 +483,11 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 		newCtx.ParentId = link.Id
 		newCtx.RestoreOffset = link.Offset
 	}
+	if len(targetCs.IdFormats) > 0 && link.Id != "" {
+		if err := applyIdFormats(targetCs, newCtx, link.Id); err != nil {
+			return nil, err
+		}
+	}
 	return newCtx, nil
 }
 
@@ -528,6 +535,9 @@ func validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) erro
 	if label == "" {
 		label = "<id>"
 	}
+	if len(cs.IdFormats) > 0 && val != "" {
+		return applyIdFormats(cs, ctx, val)
+	}
 	if val == "" || cs.IdAllowSlash {
 		return nil
 	}
@@ -541,5 +551,18 @@ func validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) erro
 	if cs.IdParts > 1 {
 		ctx.IdParts = strings.SplitN(val, "/", cs.IdParts)
 	}
+	return nil
+}
+
+// applyIdFormats parses val (the positional id or list/create scope) against
+// cs.IdFormats and fills ctx.Ids, ctx.IdParts, and ctx.IdHint from the match.
+func applyIdFormats(cs *spec.CommandSpec, ctx *cmdctx.Ctx, val string) error {
+	p, err := spec.ParseId(cs.IdFormatList(), val)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", cs.Verb, cs.FullNoun(), err)
+	}
+	ctx.Ids = p.Ids
+	ctx.IdParts = p.Values
+	ctx.IdHint = p.AmbiguityHint(val)
 	return nil
 }
