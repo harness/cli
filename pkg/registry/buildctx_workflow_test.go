@@ -1162,13 +1162,22 @@ func TestWithIdHint(t *testing.T) {
 
 func TestBuildCtx_IdFormatsUIPartialPrefix(t *testing.T) {
 	r := New()
-	cs := &spec.CommandSpec{IdFormats: []string{"<registry>/<name...>/<version>"}}
-	registerWorkflowExecute(t, r, "uiartifact", cs)
+	registerWorkflowNoun(t, r, "uiartifact")
+	r.RegisterWorkflow("test:get:uiartifact", func(*cmdctx.Ctx) error { return nil })
+	cs := &spec.CommandSpec{Command: "get uiartifact", Verb: VerbGet, VerbHandler: VerbGet, Noun: "uiartifact", Module: "test",
+		HandlerType: spec.HandlerWorkflow, WorkflowID: "test:get:uiartifact", NoAuth: true,
+		IdFormats:     []string{"<registry>/<name...>/<version>"},
+		CompletionSeq: []spec.CompletionSeqStep{{CompletionNoun: "a"}, {CompletionNoun: "b"}, {CompletionNoun: "c"}}}
+	if err := r.Register(cs); err != nil {
+		t.Fatal(err)
+	}
 	cmd := buildWorkflowTestCmd(t, r, cs)
 	if _, err := buildCtx(cmd, cs, []string{"reg/"}, r); err == nil {
 		t.Fatal("partial id without --ui: want format mismatch error")
 	}
-	cmd.Flags().Bool("ui", false, "ui")
+	if cmd.Flags().Lookup("ui") == nil {
+		cmd.Flags().Bool("ui", false, "ui")
+	}
 	if err := cmd.ParseFlags([]string{"--ui"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1176,8 +1185,20 @@ func TestBuildCtx_IdFormatsUIPartialPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("partial id with --ui: %v", err)
 	}
-	if ctx.Id != "reg/" {
-		t.Fatalf("Id = %q, want %q", ctx.Id, "reg/")
+	if ctx.Id != "reg/" || ctx.Ids != nil {
+		t.Fatalf("Id = %q, Ids = %v; want unparsed %q", ctx.Id, ctx.Ids, "reg/")
+	}
+	for id, want := range map[string]map[string]string{
+		"reg/a/b/v1":  {"registry": "reg", "name": "a/b", "version": "v1"},
+		"reg/pkg/v1/": {"registry": "reg", "name": "pkg/v1", "version": ""},
+	} {
+		ctx, err = buildCtx(cmd, cs, []string{id}, r)
+		if err != nil {
+			t.Fatalf("%q with --ui: %v", id, err)
+		}
+		if !reflect.DeepEqual(ctx.Ids, want) {
+			t.Fatalf("%q: Ids = %v, want %v", id, ctx.Ids, want)
+		}
 	}
 }
 

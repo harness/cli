@@ -299,8 +299,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 	}
 	// --ui accepts a partial "a/" prefix that runSeqPicker completes before the id is parsed.
-	uiPartialId := uiFlag && len(cs.IdFormats) > 0 && strings.HasSuffix(ctx.Id, "/")
-	if !uiPartialId {
+	if !uiSeqPickerPending(r, cs, ctx, uiFlag) {
 		if err := validateIdParts(cs, vspec, ctx); err != nil {
 			return nil, err
 		}
@@ -561,6 +560,17 @@ func validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) erro
 		ctx.IdParts = strings.SplitN(val, "/", cs.IdParts)
 	}
 	return nil
+}
+
+func uiSeqPickerPending(r *Registry, cs *spec.CommandSpec, ctx *cmdctx.Ctx, uiFlag bool) bool {
+	if !uiFlag || cs.VerbHandler != VerbGet || len(cs.IdFormats) == 0 || len(cs.CompletionSeq) == 0 {
+		return false
+	}
+	if r != nil && r.nounViewHandlerFn(cs.Noun) != "" {
+		return false
+	}
+	_, allDone := parseProvidedId(ctx.Id, len(cs.CompletionSeq))
+	return !allDone
 }
 
 // applyIdFormats parses val (the positional id or list/create scope) against
