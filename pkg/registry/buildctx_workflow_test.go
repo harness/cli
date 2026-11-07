@@ -999,7 +999,7 @@ func TestBuildDetailCtx(t *testing.T) {
 	detailCS := &spec.CommandSpec{
 		Verb: VerbGet, VerbHandler: VerbGet, Noun: "detailnoun", Flags: []spec.Flag{{Name: "filter"}},
 	}
-	detail := buildDetailCtx(parent, detailCS, "child-id")
+	detail, _ := buildDetailCtx(parent, detailCS, "child-id")
 
 	if detail.Id != "child-id" {
 		t.Fatalf("detail.Id = %q, want %q", detail.Id, "child-id")
@@ -1188,17 +1188,19 @@ func TestBuildCtx_IdFormatsUIPartialPrefix(t *testing.T) {
 	if ctx.Id != "reg/" || ctx.Ids != nil {
 		t.Fatalf("Id = %q, Ids = %v; want unparsed %q", ctx.Id, ctx.Ids, "reg/")
 	}
-	for id, want := range map[string]map[string]string{
-		"reg/a/b/v1":  {"registry": "reg", "name": "a/b", "version": "v1"},
-		"reg/pkg/v1/": {"registry": "reg", "name": "pkg/v1", "version": ""},
-	} {
-		ctx, err = buildCtx(cmd, cs, []string{id}, r)
-		if err != nil {
-			t.Fatalf("%q with --ui: %v", id, err)
-		}
-		if !reflect.DeepEqual(ctx.Ids, want) {
-			t.Fatalf("%q: Ids = %v, want %v", id, ctx.Ids, want)
-		}
+	if err := ensureIds(cs, ctx); err == nil {
+		t.Fatal("ensureIds on a partial id the picker did not complete: want format mismatch error")
+	}
+	ctx, err = buildCtx(cmd, cs, []string{"reg/a/b/v1"}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureIds(cs, ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"registry": "reg", "name": "a/b", "version": "v1"}
+	if !reflect.DeepEqual(ctx.Ids, want) {
+		t.Fatalf("Ids = %v, want %v", ctx.Ids, want)
 	}
 }
 

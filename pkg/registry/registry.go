@@ -1038,6 +1038,9 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 		if err != nil {
 			return err
 		}
+		if err := ensureIds(cs, ctx); err != nil {
+			return err
+		}
 		r.emitIntent(cmd, cs, ctx)
 		start := time.Now()
 		if err := fn(ctx); err != nil {
@@ -1168,6 +1171,9 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
 		if ctx.Id != "" {
 			if fnID := r.nounViewHandlerFn(cs.Noun); fnID != "" {
+				if err := ensureIds(cs, ctx); err != nil {
+					return err
+				}
 				return r.RunUIHandler(ctx, fnID)
 			}
 		}
@@ -1177,6 +1183,9 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 		}
 		if handled {
 			return nil
+		}
+		if err := ensureIds(cs, ctx); err != nil {
+			return err
 		}
 		if ctx.Id != "" && r.nounHasUICommands(cs.Noun) {
 			return RunUIDetailForGet(ctx, cs)
