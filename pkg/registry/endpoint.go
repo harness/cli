@@ -800,6 +800,16 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, err
 	}
 
+	if ep.FileBodyYamlEnvelope != "" {
+		raw, err := yaml.Marshal(integralFloatsToInts(map[string]any{ep.FileBodyYamlEnvelope: body}))
+		if err != nil {
+			return nil, fmt.Errorf("get-then-%s: encoding embedded YAML: %w", strings.ToLower(method), err)
+		}
+		if body, err = buildYamlEnvelope(ctx, ep.FileBodyYamlEnvelope, string(raw)); err != nil {
+			return nil, err
+		}
+	}
+
 	contentType := resolveContentType(ep, method)
 	var updateBody any = body
 	if contentType == "application/yaml" {
