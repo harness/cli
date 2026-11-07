@@ -757,11 +757,12 @@ func TestCallEndpointFull_GetThenPutYamlEnvelope(t *testing.T) {
 			wantEmbedded: "service:\n    description: d\n    identifier: s1\n    name: new\n    pollInterval: 1000000\n",
 		},
 		{
-			name:         "del_nulls_top_level_and_embedded_yaml",
+			name:         "del_removes_from_top_level_and_embedded_yaml",
 			envelope:     "service",
 			delArgs:      []string{"description"},
-			wantTop:      map[string]any{"name": "old", "identifier": "s1", "description": nil},
-			wantEmbedded: "service:\n    description: null\n    identifier: s1\n    name: old\n    pollInterval: 1000000\n",
+			wantTop:      map[string]any{"name": "old", "identifier": "s1"},
+			wantAbsent:   []string{"description"},
+			wantEmbedded: "service:\n    identifier: s1\n    name: old\n    pollInterval: 1000000\n",
 		},
 		{
 			name:       "without_envelope_key_body_stays_unwrapped",

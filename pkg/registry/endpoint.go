@@ -801,7 +801,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 	}
 
 	if ep.FileBodyYamlEnvelope != "" {
-		raw, err := yaml.Marshal(integralFloatsToInts(map[string]any{ep.FileBodyYamlEnvelope: body}))
+		raw, err := yaml.Marshal(integralFloatsToInts(map[string]any{ep.FileBodyYamlEnvelope: dropNullKeys(body)}))
 		if err != nil {
 			return nil, fmt.Errorf("get-then-%s: encoding embedded YAML: %w", strings.ToLower(method), err)
 		}
@@ -829,6 +829,22 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		Headers:         extraHeaders,
 	})
 	return result, err
+}
+
+// dropNullKeys removes nil-valued map keys recursively: --del leaves null behind, which
+// embedded resource YAML rejects.
+func dropNullKeys(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		switch t := v.(type) {
+		case nil:
+		case map[string]any:
+			out[k] = dropNullKeys(t)
+		default:
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // integralFloatsToInts undoes the float64 widening from the JSON round trip so whole
