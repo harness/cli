@@ -14,7 +14,7 @@ import (
 
 func TestFieldTypeRegistration(t *testing.T) {
 	r := New()
-	for _, name := range []string{"", "scalar", "tags", "set", "yaml", "ts", "multiline_text"} {
+	for _, name := range []string{"", "scalar", "tags", "set", "yaml", "ts", "multiline_text", "bool", "int"} {
 		h, ok := r.ResolveFieldType(name)
 		if !ok || h.Mutate == nil {
 			t.Fatalf("builtin field type %q has no mutator", name)
@@ -148,5 +148,43 @@ func TestLegacyMutationsStillSetBeforeDeleting(t *testing.T) {
 	}
 	if got["name"] != nil {
 		t.Fatalf("old delete-after-set precedence changed: %v", got)
+	}
+}
+
+func TestMutateBoolAndInt(t *testing.T) {
+	set := func(v string) cmdctx.FieldMutation {
+		return cmdctx.FieldMutation{Kind: cmdctx.MutationSet, Key: "f", Value: v, HasValue: true}
+	}
+	cases := []struct {
+		name    string
+		mutate  func(spec.FieldDef, any, cmdctx.FieldMutation) (any, bool, error)
+		op      cmdctx.FieldMutation
+		want    any
+		wantErr string
+	}{
+		{"bool true", mutateBool, set("true"), true, ""},
+		{"bool false", mutateBool, set("false"), false, ""},
+		{"bool yes", mutateBool, set("yes"), nil, "expected true or false"},
+		{"bool 1", mutateBool, set("1"), nil, "expected true or false"},
+		{"bool empty", mutateBool, set(""), nil, "expected true or false"},
+		{"int", mutateInt, set("-42"), int64(-42), ""},
+		{"int float", mutateInt, set("1.5"), nil, "expected an integer"},
+		{"int empty", mutateInt, set(""), nil, "expected an integer"},
+		{"bool del", mutateBool, cmdctx.FieldMutation{Kind: cmdctx.MutationDelete, Key: "f"}, nil, ""},
+		{"int add", mutateInt, cmdctx.FieldMutation{Kind: cmdctx.MutationAdd, Key: "f", Value: "1", HasValue: true}, nil, "do not support addition"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, write, err := tc.mutate(spec.FieldDef{}, nil, tc.op)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) || write {
+					t.Fatalf("got err = %v, write = %t, want error containing %q", err, write, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("got %#v, err = %v, want %#v", got, err, tc.want)
+			}
+		})
 	}
 }
