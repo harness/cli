@@ -813,6 +813,9 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 	contentType := resolveContentType(ep, method)
 	var updateBody any = body
 	if contentType == "application/yaml" {
+		if hasDeleteOp(ctx) {
+			body = dropNullKeys(body)
+		}
 		out, err := yaml.Marshal(integralFloatsToInts(body))
 		if err != nil {
 			return nil, fmt.Errorf("get-then-%s: encoding YAML body: %w", strings.ToLower(method), err)
@@ -829,6 +832,19 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		Headers:         extraHeaders,
 	})
 	return result, err
+}
+
+// hasDeleteOp reports whether the command carries any --del operand.
+func hasDeleteOp(ctx *cmdctx.Ctx) bool {
+	if len(ctx.DelArgs) > 0 {
+		return true
+	}
+	for _, op := range ctx.MutationFlags {
+		if op.Kind == cmdctx.MutationDelete {
+			return true
+		}
+	}
+	return false
 }
 
 // dropNullKeys removes nil-valued map keys recursively: --del leaves null behind, which

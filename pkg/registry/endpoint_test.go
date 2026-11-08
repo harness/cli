@@ -693,6 +693,51 @@ func TestCallEndpointFull_GetThenPutYAMLString(t *testing.T) {
 	}
 }
 
+func TestCallEndpointFull_GetThenPutYAMLString_DelOmitsKey(t *testing.T) {
+	getResp := `{"data":{"yaml":"trigger:\n  name: old\n  description: keep\n  extra: null\n"}}`
+	reg := New()
+	if err := reg.RegisterNoun(spec.NounDef{
+		Noun: "widget",
+		Fields: []spec.FieldDef{
+			{ID: "name", Expr: "it.name", MutablePath: "trigger.name"},
+			{ID: "description", Expr: "it.description", MutablePath: "trigger.description"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		set  map[string]string
+		del  []string
+		want string
+	}{
+		{"del drops the key", nil, []string{"description"}, "trigger:\n    name: old\n"},
+		{"no del keeps existing nulls", map[string]string{"name": "new"}, nil, "trigger:\n    description: keep\n    extra: null\n    name: new\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, caps := sequenceServer(t, []string{getResp, `{}`})
+			ctx := testCtx(srv.URL, nil)
+			ctx.Noun = "widget"
+			ctx.Id = "w1"
+			ctx.SetArgs = tc.set
+			ctx.DelArgs = tc.del
+			ctx.Resolver = reg
+			ep := &spec.EndpointSpec{
+				Path: "/widgets/w1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut,
+				UpdateBodyPick: "yamlParse(it.data.yaml)", ContentType: "application/yaml", FileBody: spec.FileBodyOptional,
+			}
+			if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := string((*caps)[1].body); got != tc.want {
+				t.Fatalf("PUT body = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCallEndpointFull_GetThenPutYAMLString_UnparseableYAMLSendsNoPut(t *testing.T) {
 	reg := New()
 	if err := reg.RegisterNoun(spec.NounDef{
