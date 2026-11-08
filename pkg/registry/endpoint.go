@@ -795,13 +795,15 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		return nil, fmt.Errorf("get-then-%s: copying picked item: %w", strings.ToLower(method), err)
 	}
 
-	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH", ep.PatchAlwaysFields)
+	contentType := resolveContentType(ep, method)
+	omitDeleted := contentType == "application/yaml" || ep.FileBodyYamlEnvelope != ""
+	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH", omitDeleted, ep.PatchAlwaysFields)
 	if err != nil {
 		return nil, err
 	}
 
 	if ep.FileBodyYamlEnvelope != "" {
-		raw, err := yaml.Marshal(integralFloatsToInts(map[string]any{ep.FileBodyYamlEnvelope: dropNullKeys(body)}))
+		raw, err := yaml.Marshal(integralFloatsToInts(map[string]any{ep.FileBodyYamlEnvelope: body}))
 		if err != nil {
 			return nil, fmt.Errorf("get-then-%s: encoding embedded YAML: %w", strings.ToLower(method), err)
 		}
@@ -810,7 +812,6 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		}
 	}
 
-	contentType := resolveContentType(ep, method)
 	var updateBody any = body
 	if contentType == "application/yaml" {
 		out, err := yaml.Marshal(integralFloatsToInts(body))
@@ -829,22 +830,6 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 		Headers:         extraHeaders,
 	})
 	return result, err
-}
-
-// dropNullKeys removes nil-valued map keys recursively: --del leaves null behind, which
-// embedded resource YAML rejects.
-func dropNullKeys(m map[string]any) map[string]any {
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		switch t := v.(type) {
-		case nil:
-		case map[string]any:
-			out[k] = dropNullKeys(t)
-		default:
-			out[k] = v
-		}
-	}
-	return out
 }
 
 // integralFloatsToInts undoes the float64 widening from the JSON round trip so whole
@@ -981,7 +966,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		}
 	}
 
-	postBody, err := mutationBodyForCtx(ctx, base, ep.CreateBodyWrap, nil, false, false, nil)
+	postBody, err := mutationBodyForCtx(ctx, base, ep.CreateBodyWrap, nil, false, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -990,7 +975,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 	return result, err
 }
 
-func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any, picked, sparsePatch bool, alwaysFields []string) (map[string]any, error) {
+func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any, picked, sparsePatch, omitDeleted bool, alwaysFields []string) (map[string]any, error) {
 	ops := effectiveMutations(ctx.SetArgs, ctx.DelArgs, ctx.MutationFlags)
 	if ctx.MutationOrderCaptured {
 		ops = ctx.MutationFlags
@@ -1012,7 +997,7 @@ func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra
 	if !picked {
 		mutableFields = nil
 	}
-	return buildMutationBodyWithPick(base, mutableFields, fields, handlers, ops, wrap, extra, sparsePatch, alwaysFields)
+	return buildMutationBodyWithPick(base, mutableFields, fields, handlers, ops, wrap, extra, sparsePatch, omitDeleted, alwaysFields)
 }
 
 // getDotPathMap retrieves a map[string]any at a dot-separated path, or nil.

@@ -176,6 +176,14 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: inputSet.name
+      - id: description
+        expr: it.description
+        mutable_path: inputSet.description
+      - id: tags
+        expr: formatTagDisplay(it.tags)
+        field_type: tags
+        mutable_path: inputSet.tags
       - id: pipeline
         expr: it.pipelineIdentifier
       - id: store_type
@@ -1206,7 +1214,7 @@ commands:
   - command: update input_set
     verb: update
     noun: input_set
-    short: Update an input set's YAML definition (-f input-set.yaml)
+    short: "Update an inline input set: harness update input_set <pipeline>/<id> --set name=<name> | -f input-set.yaml"
     id_parts: 2
     id_label: "<pipeline/id>"
     completion_seq:
@@ -1214,10 +1222,15 @@ commands:
       - completion_noun: input_set
         keep_order: true
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PUT
       path: /pipeline/api/inputSets/{{lastPart(ctx.id)}}
-      file_body: required
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.inputSetYaml)
+      file_body: optional
       content_type: application/yaml
       no_fields: true
       text_header: "\nUpdated input set {{lastPart(ctx.id)}}\n"
