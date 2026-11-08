@@ -629,6 +629,17 @@ func TestCallEndpointFull_Priority2_UpdateStrategies(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "get_then_patch_del_sends_null",
+			ep:      &spec.EndpointSpec{Path: "/widgets/w1", Method: "PATCH", UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it"},
+			delArgs: []string{"name"},
+			resps:   []string{getResp, `{}`}, checkCall: 1, wantMethod: "PATCH",
+			checkBody: func(t *testing.T, body []byte) {
+				if got := bodyMap(t, body); !reflect.DeepEqual(got, map[string]any{"name": nil}) {
+					t.Fatalf("PATCH body = %#v, want name: null", got)
+				}
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -712,7 +723,7 @@ func TestCallEndpointFull_GetThenPutYAMLString_DelOmitsKey(t *testing.T) {
 		del  []string
 		want string
 	}{
-		{"del drops the key", nil, []string{"description"}, "trigger:\n    name: old\n"},
+		{"del removes only the deleted key", nil, []string{"description"}, "trigger:\n    extra: null\n    name: old\n"},
 		{"no del keeps existing nulls", map[string]string{"name": "new"}, nil, "trigger:\n    description: keep\n    extra: null\n    name: new\n"},
 	}
 	for _, tc := range tests {
@@ -787,6 +798,7 @@ func TestCallEndpointFull_GetThenPutYamlEnvelope(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		getResp      string
 		envelope     string
 		setArgs      map[string]string
 		delArgs      []string
@@ -810,6 +822,14 @@ func TestCallEndpointFull_GetThenPutYamlEnvelope(t *testing.T) {
 			wantEmbedded: "service:\n    identifier: s1\n    name: old\n    pollInterval: 1000000\n",
 		},
 		{
+			name:         "del_keeps_untouched_nulls_in_embedded_yaml",
+			getResp:      `{"data":{"yaml":"service:\n  name: old\n  identifier: s1\n  description: d\n  extra: null\n"}}`,
+			envelope:     "service",
+			delArgs:      []string{"description"},
+			wantAbsent:   []string{"description"},
+			wantEmbedded: "service:\n    extra: null\n    identifier: s1\n    name: old\n",
+		},
+		{
 			name:       "without_envelope_key_body_stays_unwrapped",
 			setArgs:    map[string]string{"name": "new"},
 			wantTop:    map[string]any{"name": "new", "identifier": "s1", "description": "d"},
@@ -818,7 +838,11 @@ func TestCallEndpointFull_GetThenPutYamlEnvelope(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv, caps := sequenceServer(t, []string{getResp, `{}`})
+			resp := getResp
+			if tt.getResp != "" {
+				resp = tt.getResp
+			}
+			srv, caps := sequenceServer(t, []string{resp, `{}`})
 			ctx := testCtx(srv.URL, nil)
 			ctx.Noun = "widget"
 			ctx.Id = "s1"
