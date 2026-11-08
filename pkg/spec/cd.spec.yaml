@@ -31,9 +31,15 @@ nouns:
         expr: it.service.identifier
       - id: name
         expr: it.service.name
+        mutable_path: name
       - id: description
         expr: it.service.description
         width_max: 60
+        mutable_path: description
+      - id: tags
+        expr: formatTagDisplay(it.service.tags)
+        field_type: tags
+        mutable_path: tags
       - id: updated
         expr: epochMs(it.lastModifiedAt ?? it.service.lastModifiedAt)
       - id: created
@@ -49,11 +55,18 @@ nouns:
         expr: it.environment.identifier
       - id: name
         expr: it.environment.name
+        mutable_path: name
       - id: type
         expr: it.environment.type
+        mutable_path: type
       - id: description
         expr: it.environment.description
         width_max: 60
+        mutable_path: description
+      - id: tags
+        expr: formatTagDisplay(it.environment.tags)
+        field_type: tags
+        mutable_path: tags
       - id: updated
         expr: epochMs(it.lastModifiedAt ?? it.environment.lastModifiedAt)
       - id: created
@@ -68,6 +81,15 @@ nouns:
         expr: it.infrastructure.identifier
       - id: name
         expr: it.infrastructure.name
+        mutable_path: name
+      - id: description
+        expr: it.infrastructure.description
+        width_max: 60
+        mutable_path: description
+      - id: tags
+        expr: formatTagDisplay(it.infrastructure.tags)
+        field_type: tags
+        mutable_path: tags
       - id: type
         expr: it.infrastructure.type
       - id: environment
@@ -172,7 +194,7 @@ commands:
       path: /ng/api/servicesV2
       get_path: /ng/api/servicesV2/{{ctx.id}}
       update_strategy: get-then-put
-      update_body_pick: it.data.service
+      update_body_pick: yamlParse(it.data.service.yaml).service
       update_body_wrap: ""
       item_expr: it.data
       text_header: "\nUpdated service {{ctx.id}}\n"
@@ -261,7 +283,7 @@ commands:
       path: /ng/api/environmentsV2
       get_path: /ng/api/environmentsV2/{{ctx.id}}
       update_strategy: get-then-put
-      update_body_pick: it.data.environment
+      update_body_pick: yamlParse(it.data.environment.yaml).environment
       update_body_wrap: ""
       item_expr: it.data
       text_header: "\nUpdated environment {{ctx.id}}\n"
@@ -352,14 +374,19 @@ commands:
     flags_builtin:
       set: true
       del: true
+    flags:
+      - name: env
+        description: Environment identifier (required unless -f is given)
     endpoint:
       method: PUT
       file_body: optional
       file_body_yaml_envelope: infrastructureDefinition
       path: /ng/api/infrastructures
       get_path: /ng/api/infrastructures/{{ctx.id}}
+      get_query_params:
+        environmentIdentifier: flags.env
       update_strategy: get-then-put
-      update_body_pick: it.data.infrastructure
+      update_body_pick: yamlParse(it.data.infrastructure.yaml).infrastructureDefinition
       update_body_wrap: ""
       item_expr: it.data
       text_header: "\nUpdated infrastructure {{ctx.id}}\n"

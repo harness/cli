@@ -727,6 +727,88 @@ func TestCallEndpointFull_GetThenPutYAMLString_UnparseableYAMLSendsNoPut(t *test
 	}
 }
 
+func TestCallEndpointFull_GetThenPutYamlEnvelope(t *testing.T) {
+	getResp := `{"data":{"yaml":"service:\n  name: old\n  identifier: s1\n  description: d\n  pollInterval: 1000000\n"}}`
+	reg := New()
+	if err := reg.RegisterNoun(spec.NounDef{
+		Noun: "widget",
+		Fields: []spec.FieldDef{
+			{ID: "name", Expr: "it.name", MutablePath: "name"},
+			{ID: "description", Expr: "it.description", MutablePath: "description"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name         string
+		envelope     string
+		setArgs      map[string]string
+		delArgs      []string
+		wantTop      map[string]any
+		wantAbsent   []string
+		wantEmbedded string
+	}{
+		{
+			name:         "set_updates_top_level_and_embedded_yaml",
+			envelope:     "service",
+			setArgs:      map[string]string{"name": "new"},
+			wantTop:      map[string]any{"name": "new", "identifier": "s1", "description": "d"},
+			wantEmbedded: "service:\n    description: d\n    identifier: s1\n    name: new\n    pollInterval: 1000000\n",
+		},
+		{
+			name:         "del_removes_from_top_level_and_embedded_yaml",
+			envelope:     "service",
+			delArgs:      []string{"description"},
+			wantTop:      map[string]any{"name": "old", "identifier": "s1"},
+			wantAbsent:   []string{"description"},
+			wantEmbedded: "service:\n    identifier: s1\n    name: old\n    pollInterval: 1000000\n",
+		},
+		{
+			name:       "without_envelope_key_body_stays_unwrapped",
+			setArgs:    map[string]string{"name": "new"},
+			wantTop:    map[string]any{"name": "new", "identifier": "s1", "description": "d"},
+			wantAbsent: []string{"yaml"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, caps := sequenceServer(t, []string{getResp, `{}`})
+			ctx := testCtx(srv.URL, nil)
+			ctx.Noun = "widget"
+			ctx.Id = "s1"
+			ctx.SetArgs = tt.setArgs
+			ctx.DelArgs = tt.delArgs
+			ctx.Resolver = reg
+			ep := &spec.EndpointSpec{
+				Path: "/widgets", GetPath: "/widgets/s1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut,
+				UpdateBodyPick: "yamlParse(it.data.yaml).service", FileBody: spec.FileBodyOptional,
+				FileBodyYamlEnvelope: tt.envelope,
+			}
+			if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal((*caps)[1].body, &got); err != nil {
+				t.Fatalf("PUT body not JSON: %v", err)
+			}
+			for k, want := range tt.wantTop {
+				if got[k] != want {
+					t.Errorf("PUT body[%q] = %v, want %v", k, got[k], want)
+				}
+			}
+			for _, k := range tt.wantAbsent {
+				if _, ok := got[k]; ok {
+					t.Errorf("PUT body has unexpected key %q", k)
+				}
+			}
+			if tt.wantEmbedded != "" && got["yaml"] != tt.wantEmbedded {
+				t.Errorf("embedded yaml = %q, want %q", got["yaml"], tt.wantEmbedded)
+			}
+		})
+	}
+}
+
 func TestCallEndpointFull_Priority2_GetThenPutKV(t *testing.T) {
 	getResp := `[{"key":"env","value":"prod"},{"key":"team","value":"ops"}]`
 
