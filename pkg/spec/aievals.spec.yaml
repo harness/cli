@@ -497,10 +497,13 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: name
       - id: description
         expr: it.description
+        mutable_path: description
       - id: category
         expr: it.category
+        mutable_path: category
       - id: labels
         expr: it.labels
       - id: version
@@ -2011,19 +2014,28 @@ commands:
   - command: update eval_prompt
     verb: update
     noun: eval_prompt
-    short: "Update a project prompt by UUID: harness update eval_prompt <prompt-id> -f prompt.json"
+    short: "Update a project prompt by UUID: harness update eval_prompt <prompt-id> --set name=... [--set description=...], or -f prompt.json (use -f for config)"
     id_label: "<prompt-id>"
     long: |
       Update a project prompt by the UUID returned from list eval_prompt.
       Supplying config creates a new prompt version; prompt-level name,
       description, category, and labels do not change prior versions.
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PATCH
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/registry/prompts/{{ctx.id}}
       request_headers:
         Harness-Account: auth.account
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated prompt {{ctx.id}}\n"
 
   - command: delete eval_prompt
     verb: delete
