@@ -37,6 +37,7 @@ nouns:
       - id: description
         expr: it.description
         field_type: multiline_text
+        mutable_path: description
       - id: default_branch
         expr: it.default_branch
       - id: is_public
@@ -733,8 +734,10 @@ commands:
   - command: create repository
     verb: create
     noun: repository
-    short: "Create a new repository: --set identifier=<name> [default_branch=main] [description=...] [is_public=true]"
+    short: "Create a new repository: harness create repository <id> --set description=..."
     handler_type: endpoint
+    flags_builtin:
+      set: true
     endpoint:
       method: POST
       path: /code/api/v1/repos
@@ -749,7 +752,7 @@ commands:
   - command: update repository
     verb: update
     noun: repository
-    short: Update a repository (description, default_branch, is_public)
+    short: "Update a repository description: harness update repository <id> --set description=..."
     handler_type: endpoint
     flags_builtin:
       set: true
