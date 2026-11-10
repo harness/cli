@@ -29,8 +29,12 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: name
       - id: type
         expr: it.type
+      - id: rego
+        expr: it.rego
+        mutable_path: rego
       - id: updated
         expr: epochMs(it.updated)
       - id: created
@@ -44,12 +48,20 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: name
+      - id: description
+        expr: it.description
+        mutable_path: description
       - id: type
         expr: it.type
+        mutable_path: type
       - id: action
         expr: it.action
+        mutable_path: action
       - id: enabled
         expr: it.enabled
+        mutable_path: enabled
+        field_type: bool
       - id: updated
         expr: epochMs(it.updated)
       - id: created
@@ -138,6 +150,7 @@ commands:
       del: true
     endpoint:
       method: PATCH
+      content_type: application/json
       file_body: optional
       path: /pm/api/v1/policies/{{ctx.id}}
       update_strategy: get-then-patch
@@ -225,6 +238,7 @@ commands:
       del: true
     endpoint:
       method: PATCH
+      content_type: application/json
       file_body: optional
       path: /pm/api/v1/policysets/{{ctx.id}}
       update_strategy: get-then-patch
