@@ -26,6 +26,21 @@ help_text: |
   {{nouns}}
 
 nouns:
+  - noun: repository_create
+    short_desc: Writable fields when creating a repository.
+    fields:
+      - id: description
+        expr: it.description
+        field_type: multiline_text
+        mutable_path: description
+      - id: default_branch
+        expr: it.default_branch
+        mutable_path: default_branch
+      - id: is_public
+        expr: it.is_public
+        mutable_path: is_public
+        field_type: bool
+
   - noun: repository
     short_desc: A Harness Code source repository.
     noun_aliases: [repo, repos, repositories]
@@ -37,6 +52,7 @@ nouns:
       - id: description
         expr: it.description
         field_type: multiline_text
+        mutable_path: description
       - id: default_branch
         expr: it.default_branch
       - id: is_public
@@ -733,8 +749,11 @@ commands:
   - command: create repository
     verb: create
     noun: repository
-    short: "Create a new repository: --set identifier=<name> [default_branch=main] [description=...] [is_public=true]"
+    fields_noun: repository_create
+    short: "Create a new repository: harness create repository <id> --set [default_branch=main] [description=...] [is_public=true]"
     handler_type: endpoint
+    flags_builtin:
+      set: true
     endpoint:
       method: POST
       path: /code/api/v1/repos
@@ -749,7 +768,7 @@ commands:
   - command: update repository
     verb: update
     noun: repository
-    short: Update a repository (description, default_branch, is_public)
+    short: "Update a repository description: harness update repository <id> --set description=..."
     handler_type: endpoint
     flags_builtin:
       set: true
