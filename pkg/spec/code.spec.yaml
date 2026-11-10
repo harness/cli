@@ -1174,6 +1174,8 @@ commands:
     fields_noun: repo_settings_aicr
     short: "Create AI Code Review settings for a repo (first-time setup): harness create repo_settings:aicr <repo_id> -f settings.yaml"
     handler_type: endpoint
+    flags_builtin:
+      set: true
     completion_seq:
       - completion_noun: repository
     endpoint:
@@ -1182,7 +1184,8 @@ commands:
       query_params:
         repo_path: auth.scope + "/" + ctx.id
         recursive: '"true"'
-      file_body: required
+      create_strategy: set-fields
+      file_body: optional
       item_expr: it
       text_header: "\nCreated AICR settings for {{ctx.id}}\n"
 
