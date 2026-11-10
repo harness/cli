@@ -600,23 +600,14 @@ commands:
   - command: update eval_dataset
     verb: update
     noun: eval_dataset
-    short: "Update an AI Evals dataset: harness update eval_dataset <id> --set name=... [--del field], or -f body.json"
+    short: "Update an AI Evals dataset with a JSON body: harness update eval_dataset <dataset-id> -f dataset.json"
     handler_type: endpoint
-    flags_builtin:
-      set: true
-      del: true
     endpoint:
       method: PATCH
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}
-      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/dataset/{{ctx.id}}
       request_headers:
         Harness-Account: auth.account
-      file_body: optional
-      update_strategy: get-then-patch
-      update_body_pick: it
-      update_body_wrap: ""
-      item_expr: it
-      text_header: "\nUpdated dataset {{ctx.id}}\n"
+      file_body: required
 
   - command: delete eval_dataset
     verb: delete
@@ -1426,23 +1417,14 @@ commands:
   - command: update eval_target
     verb: update
     noun: eval_target
-    short: "Update an AI Evals target: harness update eval_target <id> --set name=... [--del field], or -f body.json"
+    short: "Update an AI Evals target with a JSON body: harness update eval_target <target-id> -f target.json"
     handler_type: endpoint
-    flags_builtin:
-      set: true
-      del: true
     endpoint:
       method: PATCH
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}
-      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/targets/{{ctx.id}}
       request_headers:
         Harness-Account: auth.account
-      file_body: optional
-      update_strategy: get-then-patch
-      update_body_pick: it
-      update_body_wrap: ""
-      item_expr: it
-      text_header: "\nUpdated target {{ctx.id}}\n"
+      file_body: required
 
   - command: delete eval_target
     verb: delete
