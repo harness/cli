@@ -2040,6 +2040,21 @@ commands:
     verb: create
     noun: pr_comment
     short: "Post a comment on a pull request: harness create pr_comment <repo_id>/<pr_number> -f <file>"
+    long: |
+      Post a general comment, reply to an existing thread with --reply-to, or
+      start an inline thread with --path and --line. -f supplies the comment
+      text file (or - for stdin); --path is the repository-relative code path.
+      Inline comments use the current PR source and merge-base commits. --side
+      selects new (default) or old line numbers; ranges stay on that side.
+      Location flags cannot be combined with --reply-to.
+
+      Examples:
+        harness create pr_comment <repo_id>/<pr_number> -f comment.md --path src/main.go --line 42
+        harness create pr_comment <repo_id>/<pr_number> -f comment.md --path src/main.go --line 42 --end-line 45
+        harness create pr_comment <repo_id>/<pr_number> -f - --path src/main.go --line 42 --side old
+
+      Use --preview-request to inspect the request without posting a comment.
+      Previewing an inline comment still fetches the PR to resolve commit SHAs.
     handler_type: endpoint
     requires_id: true
     id_parts: 2
@@ -2055,6 +2070,14 @@ commands:
         required: true
       - name: reply-to
         description: Comment ID to reply to (creates a threaded reply)
+      - name: path
+        description: Repository-relative code file path for an inline comment (requires --line)
+      - name: line
+        description: Positive line number on the selected diff side (requires --path)
+      - name: end-line
+        description: Inclusive end of the line range (defaults to --line)
+      - name: side
+        description: "Diff side for inline line numbers: new or old (default: new)"
     endpoint:
       method: POST
       path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/comments
