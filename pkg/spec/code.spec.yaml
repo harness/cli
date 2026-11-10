@@ -26,21 +26,6 @@ help_text: |
   {{nouns}}
 
 nouns:
-  - noun: repository_create
-    short_desc: Writable fields when creating a repository.
-    fields:
-      - id: description
-        expr: it.description
-        field_type: multiline_text
-        mutable_path: description
-      - id: default_branch
-        expr: it.default_branch
-        mutable_path: default_branch
-      - id: is_public
-        expr: it.is_public
-        mutable_path: is_public
-        field_type: bool
-
   - noun: repository
     short_desc: A Harness Code source repository.
     noun_aliases: [repo, repos, repositories]
@@ -749,8 +734,7 @@ commands:
   - command: create repository
     verb: create
     noun: repository
-    fields_noun: repository_create
-    short: "Create a new repository: harness create repository <id> --set [default_branch=main] [description=...] [is_public=true]"
+    short: "Create a new repository: harness create repository <id> --set description=..."
     handler_type: endpoint
     flags_builtin:
       set: true
