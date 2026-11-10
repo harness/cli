@@ -1119,14 +1119,23 @@ commands:
   - command: update eval_metric
     verb: update
     noun: eval_metric
-    short: "Update an AI Evals metric: provide a PATCH body with -f"
+    short: "Update an AI Evals metric: harness update eval_metric <id> --set name=... [--del field], or -f body.json"
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PATCH
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metrics/{{ctx.id}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metrics/{{ctx.id}}
       request_headers:
         Harness-Account: auth.account
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated metric {{ctx.id}}\n"
 
   - command: delete eval_metric
     verb: delete
@@ -1228,14 +1237,23 @@ commands:
   - command: update eval_metric_set
     verb: update
     noun: eval_metric_set
-    short: "Update an AI Evals metric set with a JSON body: harness update eval_metric_set <set-id> -f metric-set.json"
+    short: "Update an AI Evals metric set: harness update eval_metric_set <id> --set name=... [--del field], or -f body.json"
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PATCH
       path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.id}}
+      get_path: /gateway/ai-evals/api/v1/orgs/{{auth.org}}/projects/{{auth.project}}/metric-sets/{{ctx.id}}
       request_headers:
         Harness-Account: auth.account
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-patch
+      update_body_pick: it
+      update_body_wrap: ""
+      item_expr: it
+      text_header: "\nUpdated metric set {{ctx.id}}\n"
 
   - command: delete eval_metric_set
     verb: delete
