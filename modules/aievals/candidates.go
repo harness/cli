@@ -308,8 +308,8 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 	candidate.RequestFields = strings.TrimSpace(candidate.RequestFields)
 	candidate.ResponsePath = strings.TrimSpace(candidate.ResponsePath)
 	candidate.AgentID = strings.TrimSpace(candidate.AgentID)
-	candidate.InputText = candidate.InputText
-	candidate.Expected = candidate.Expected
+	// Input text and expected stay verbatim. They are sample case content,
+	// and trimming them would change the staged dataset.
 	header := strings.TrimSpace(candidate.AuthHeader)
 	if strings.EqualFold(header, "none") || strings.EqualFold(header, "no") {
 		header = ""
