@@ -411,6 +411,7 @@ nouns:
         expr: it.id
       - id: name
         expr: it.name
+        mutable_path: name
       - id: role
         expr: it.role
       - id: status
@@ -419,6 +420,7 @@ nouns:
         expr: it.version
       - id: description
         expr: it.description
+        mutable_path: description
       - id: created_at
         label: Created
         expr: it.created_at
@@ -1431,10 +1433,14 @@ commands:
       string under the "spec" key inside the wrapper. Use 'harness get agent <id> -o yaml' to
       produce a valid wrapper file to edit and re-apply.
     completion_noun: agent
+    flags_builtin:
+      set: true
     handler_type: endpoint
     endpoint:
       method: PUT
-      file_body: required
+      file_body: optional
+      update_strategy: get-then-put
+      update_body_pick: "{name: it.name, description: it.description, spec: it.spec}"
       path: /gateway/agents/api/v1/agents/{{ctx.id}}
       item_expr: it
       text_header: "\nUpdated agent {{ctx.id}}\n"
