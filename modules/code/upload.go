@@ -6,7 +6,6 @@ package code
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -18,8 +17,6 @@ import (
 )
 
 const uploadRepoWorkflowID = "execute_repo_upload"
-
-const progressMinBytes = 1 << 20
 
 var (
 	imageExts = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".svg": true}
@@ -95,23 +92,6 @@ func repoFileSizeLimit(cc *cmdctx.Ctx, c *client.Client, repo string) int64 {
 	return int64(limit)
 }
 
-type progressReader struct {
-	r     io.Reader
-	total int64
-	read  int64
-	name  string
-}
-
-func (p *progressReader) Read(b []byte) (int, error) {
-	n, err := p.r.Read(b)
-	p.read += int64(n)
-	fmt.Fprintf(os.Stderr, "\rUploading %s: %d%%", p.name, p.read*100/p.total)
-	if err == io.EOF {
-		fmt.Fprintln(os.Stderr)
-	}
-	return n, err
-}
-
 // uploadRepoWorkflow implements "execute repo:upload <repo_id> -f <file>".
 func uploadRepoWorkflow(ctx *cmdctx.Ctx) error {
 	path := cmdctx.GetString(ctx.FlagValues, "file")
@@ -136,16 +116,11 @@ func uploadRepoWorkflow(ctx *cmdctx.Ctx) error {
 	}
 	defer f.Close()
 
-	var body io.Reader = f
-	if ctx.IsPty && info.Size() >= progressMinBytes {
-		body = &progressReader{r: f, total: info.Size(), name: filepath.Base(path)}
-	}
-
 	res, _, err := c.DoRequest(client.Request{
 		Method:          "POST",
 		Path:            "/code/api/v1/repos/" + url.PathEscape(ctx.Id) + "/uploads",
 		QueryParams:     scopeQueryParams(ctx),
-		BodyStream:      body,
+		BodyStream:      f,
 		BodyLength:      info.Size(),
 		BodyContentType: "application/octet-stream",
 	})
