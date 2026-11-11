@@ -145,3 +145,75 @@ func TestExtractCorrelationIDs(t *testing.T) {
 		})
 	}
 }
+
+type failingReader struct{ t *testing.T }
+
+func (r failingReader) Read([]byte) (int, error) {
+	r.t.Helper()
+	r.t.Fatal("stream body must not be read")
+	return 0, nil
+}
+
+func TestBuildRequest_BodyStreamSetsLengthAndContentType(t *testing.T) {
+	c := testClient("https://example.test")
+	req, _, err := c.buildRequest(Request{
+		Method:          "POST",
+		Path:            "/upload",
+		BodyStream:      strings.NewReader("hello"),
+		BodyLength:      5,
+		BodyContentType: "application/octet-stream",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.ContentLength != 5 {
+		t.Fatalf("ContentLength = %d, want 5", req.ContentLength)
+	}
+	if got := req.Header.Get("Content-Type"); got != "application/octet-stream" {
+		t.Fatalf("Content-Type = %q, want application/octet-stream", got)
+	}
+}
+
+func TestPreviewRequest_BodyStreamNotRead(t *testing.T) {
+	var out strings.Builder
+	c := testClient("https://example.test")
+	c.previewOut = &out
+	_, _, err := c.DoRequest(Request{
+		Method:          "POST",
+		Path:            "/upload",
+		BodyStream:      failingReader{t},
+		BodyLength:      3,
+		BodyContentType: "application/octet-stream",
+	})
+	if !errors.Is(err, ErrRequestPreviewed) {
+		t.Fatalf("err = %v, want ErrRequestPreviewed", err)
+	}
+	if !strings.Contains(out.String(), "<binary 3 bytes>") {
+		t.Fatalf("preview = %q, want <binary 3 bytes>", out.String())
+	}
+}
+
+func TestDoRequest_EmptyBodyStreamSendsZeroLengthNotChunked(t *testing.T) {
+	var gotLen int64
+	var chunked bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLen = r.ContentLength
+		chunked = len(r.TransferEncoding) > 0
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+	_, _, err := testClient(srv.URL).DoRequest(Request{
+		Method:          "POST",
+		Path:            "/upload",
+		BodyStream:      strings.NewReader(""),
+		BodyLength:      0,
+		BodyContentType: "application/octet-stream",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotLen != 0 || chunked {
+		t.Fatalf("ContentLength = %d chunked = %v, want 0 and not chunked", gotLen, chunked)
+	}
+}
