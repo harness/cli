@@ -5,10 +5,13 @@ package har
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
@@ -22,6 +25,7 @@ func TestWithPackageHost(t *testing.T) {
 		apiURL      string // "" means the fake server
 		registryURL string
 		source      string
+		sso         bool
 		status      int
 		body        string
 		wantLookup  bool
@@ -59,6 +63,11 @@ func TestWithPackageHost(t *testing.T) {
 			wantErr: "harness auth login --overwrite",
 		},
 		{
+			name: "failed lookup for an SSO profile has no login hint", registryURL: hbase.DefaultRegistryURL,
+			source: "profile:default", sso: true, status: http.StatusInternalServerError, body: `{}`, wantLookup: true,
+			wantErr: "could not get the package registry URL from http://127.0.0.1",
+		},
+		{
 			name: "response without registryUrl stops the command", registryURL: hbase.DefaultRegistryURL,
 			status: http.StatusOK, body: `{"data":{}}`, wantLookup: true, wantErr: "no registryUrl",
 		},
@@ -82,15 +91,20 @@ func TestWithPackageHost(t *testing.T) {
 			if apiURL == "" {
 				apiURL = srv.URL
 			}
-			ctx := &cmdctx.Ctx{
-				Context: context.Background(),
-				Auth: &auth.ResolvedAuth{
-					Source: tc.source, AuthType: auth.AuthTypePAT, APIUrl: apiURL,
-					AccountID: "acct", PATToken: "test-token", RegistryURL: tc.registryURL,
-				},
+			a := &auth.ResolvedAuth{
+				Source: tc.source, AuthType: auth.AuthTypePAT, APIUrl: apiURL,
+				AccountID: "acct", PATToken: "test-token", RegistryURL: tc.registryURL,
 			}
+			if tc.sso {
+				claims := base64.RawURLEncoding.EncodeToString([]byte(`{"exp":4102444800}`))
+				a.AuthType, a.PATToken, a.SSOToken = auth.AuthTypeSSO, "", "e30."+claims+".sig"
+			}
+			ctx := &cmdctx.Ctx{Context: context.Background(), Auth: a}
 			ran := false
 			err := withPackageHost(func(*cmdctx.Ctx) error { ran = true; return nil })(ctx)
+			if tc.sso && err != nil && strings.Contains(err.Error(), "auth login") {
+				t.Errorf("SSO error points at a login command: %v", err)
+			}
 
 			if (lookups > 0) != tc.wantLookup {
 				t.Fatalf("lookups = %d, want lookup %v", lookups, tc.wantLookup)
@@ -106,6 +120,55 @@ func TestWithPackageHost(t *testing.T) {
 			}
 			if err != nil || !ran || ctx.Auth.RegistryURL != tc.wantURL {
 				t.Fatalf("error = %v, handler ran = %v, RegistryURL = %q; want %q", err, ran, ctx.Auth.RegistryURL, tc.wantURL)
+			}
+		})
+	}
+}
+
+func TestResolveMigrateDestEndpoint(t *testing.T) {
+	cases := []struct {
+		name         string
+		pkgURLFlag   string
+		cfgEndpoint  string
+		wantLookup   bool
+		wantEndpoint string
+	}{
+		{name: "--pkg-url skips the lookup", pkgURLFlag: "https://pkg.flag.example.com",
+			cfgEndpoint: "https://pkg.cfg.example.com", wantEndpoint: "https://pkg.flag.example.com"},
+		{name: "destination.endpoint skips the lookup", cfgEndpoint: "https://pkg.cfg.example.com",
+			wantEndpoint: "https://pkg.cfg.example.com"},
+		{name: "no override looks up the host", wantLookup: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var lookups int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				lookups++
+				w.WriteHeader(http.StatusForbidden)
+			}))
+			t.Cleanup(srv.Close)
+
+			ctx := &cmdctx.Ctx{
+				Context: context.Background(),
+				Auth: &auth.ResolvedAuth{
+					AuthType: auth.AuthTypePAT, APIUrl: srv.URL, AccountID: "acct",
+					PATToken: "test-token", RegistryURL: hbase.DefaultRegistryURL,
+				},
+			}
+			cfg := &types.Config{Dest: types.RegistryConfig{Endpoint: tc.cfgEndpoint}}
+			err := resolveMigrateDestEndpoint(ctx, cfg, tc.pkgURLFlag)
+
+			if (lookups > 0) != tc.wantLookup {
+				t.Fatalf("lookups = %d, want lookup %v", lookups, tc.wantLookup)
+			}
+			if tc.wantLookup {
+				if err == nil {
+					t.Fatal("expected the failed lookup to stop the migration")
+				}
+				return
+			}
+			if err != nil || cfg.Dest.Endpoint != tc.wantEndpoint {
+				t.Fatalf("error = %v, endpoint = %q; want %q", err, cfg.Dest.Endpoint, tc.wantEndpoint)
 			}
 		})
 	}

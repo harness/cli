@@ -44,14 +44,23 @@ func resolvePackageHost(ctx *cmdctx.Ctx) error {
 		}
 		err = errors.New("response has no registryUrl")
 	}
-	return fmt.Errorf("could not get the package registry URL from %s (%s): %w", a.APIUrl, packageHostHint(a), err)
+	if hint := packageHostHint(a); hint != "" {
+		return fmt.Errorf("could not get the package registry URL from %s (%s): %w", a.APIUrl, hint, err)
+	}
+	return fmt.Errorf("could not get the package registry URL from %s: %w", a.APIUrl, err)
 }
 
+// packageHostHint is empty for SSO profiles: SSO login does not save a package
+// host and profile mode ignores the env override, so no command would fix it.
 func packageHostHint(a *auth.ResolvedAuth) string {
-	if a.Source == auth.SourceEnv {
+	switch {
+	case a.Source == auth.SourceEnv:
 		return "set " + hbase.EnvRegistryURL + " to override"
+	case a.AuthType == auth.AuthTypeSSO:
+		return ""
+	default:
+		return "run '" + a.LoginHint("login") + " --overwrite' to save it in the profile"
 	}
-	return "run '" + a.LoginHint("login") + " --overwrite' to save it in the profile"
 }
 
 func packageHostIsDefaulted(a *auth.ResolvedAuth) bool {

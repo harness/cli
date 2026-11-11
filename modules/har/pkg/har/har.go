@@ -29,7 +29,7 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(pullArtifactHandlerID, withPackageHost(pullArtifactHandler))
 	reg.RegisterWorkflow(executeArtifactFirewallScanHandlerID, executeArtifactFirewallScanHandler)
 	reg.RegisterWorkflow(executeRegistryFirewallScanHandlerID, executeRegistryFirewallScanHandler)
-	reg.RegisterWorkflow(executeRegistryMigrateHandlerID, withPackageHost(executeRegistryMigrateHandler))
+	reg.RegisterWorkflow(executeRegistryMigrateHandlerID, executeRegistryMigrateHandler)
 	reg.RegisterWorkflow(configureRegistryNpmHandlerID, withPackageHost(configureNpm))
 	reg.RegisterWorkflow(configureRegistryMavenHandlerID, withPackageHost(configureMaven))
 	reg.RegisterWorkflow(configureRegistryPipHandlerID, withPackageHost(configurePip))
