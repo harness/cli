@@ -25,6 +25,17 @@ func TestRunZeroPackageGuard(t *testing.T) {
 		t.Fatalf("expected zero-package error for PUPPET on a raw repository, got: %v", err)
 	}
 
+	if _, err := run(baseMapping(types.RUBY, "raw-local")); err == nil ||
+		!strings.Contains(err.Error(), "resolved 0 packages for artifactType RUBY") {
+		t.Fatalf("expected zero-package error for RUBY on a raw repository, got: %v", err)
+	}
+
+	patternNarrowed := baseMapping(types.RUBY, "raw-local")
+	patternNarrowed.IncludePatterns = []string{"/docs/*"}
+	if _, err := run(patternNarrowed); err != nil {
+		t.Fatalf("file patterns may leave only index files, so the guard must not fire, got: %v", err)
+	}
+
 	filteredOut := baseMapping(types.RAW, "raw-local")
 	filteredOut.IncludePatterns = []string{"/nothing-matches/*"}
 	uploads, err := run(filteredOut)

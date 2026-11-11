@@ -3,6 +3,8 @@ package migratable
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
@@ -254,10 +256,12 @@ func (r *Registry) Migrate(ctx context.Context) error {
 
 	// Filters may legitimately leave nothing to migrate, but content that survived
 	// them and still resolved to zero packages means artifactType does not match the
-	// repository; fail instead of reporting an empty success. Skipped under a date
-	// filter: the window can hold only index files (e.g. CRAN PACKAGES, RUBY specs)
-	// that resolve to no package even when artifactType is correct.
-	if len(pkgs) == 0 && !dateFilterActive {
+	// repository; fail instead of reporting an empty success. Skipped when a date
+	// filter or file patterns narrowed the files: what survives can be index files
+	// only, which resolve to no package even when artifactType is correct.
+	filePatternsApplied := util.IsFileLevelFilterableArtifact(currArtifactType) &&
+		(len(r.mapping.IncludePatterns) > 0 || len(r.mapping.ExcludePatterns) > 0)
+	if len(pkgs) == 0 && !dateFilterActive && !filePatternsApplied {
 		if contentFiles := countContentFiles(files, r.artifactType); contentFiles > 0 {
 			err := fmt.Errorf(
 				"registry %s: pulled %d file(s) from source (%d after filters) but resolved 0 packages for "+
@@ -404,9 +408,24 @@ func (r *Registry) Post(ctx context.Context) error {
 func countContentFiles(files []types.File, artifactType types.ArtifactType) int {
 	n := 0
 	for _, f := range files {
-		if !f.Folder && !util.IsPackageIndexFile(artifactType, f.Uri) {
+		if !f.Folder && !isIndexOnlyFile(artifactType, f.Uri) {
 			n++
 		}
 	}
 	return n
+}
+
+// isIndexOnlyFile reports whether uri is repository metadata that the source
+// generates alongside packages (e.g. RUBY specs.4.8.gz, CRAN PACKAGES).
+func isIndexOnlyFile(artifactType types.ArtifactType, uri string) bool {
+	switch artifactType {
+	case types.RUBY:
+		name := path.Base(uri)
+		return strings.HasPrefix(name, "specs.") || strings.HasPrefix(name, "latest_specs.") ||
+			strings.HasPrefix(name, "prerelease_specs.") || strings.HasSuffix(name, ".gemspec.rz")
+	case types.CRAN:
+		return util.IsCranIndexFile(uri)
+	default:
+		return util.IsPackageIndexFile(artifactType, uri)
+	}
 }
