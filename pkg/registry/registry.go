@@ -725,8 +725,8 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 	}
 	if vspec.RequiresId && !cs.NoId {
 		idLabel := "<id>"
-		if cs.IdLabel != "" {
-			idLabel = cs.IdLabel
+		if l := cs.EffectiveIdLabel(); l != "" {
+			idLabel = l
 		}
 		use += " " + idLabel
 		if cs.HasArgs && cs.ArgsLabel != "" {
@@ -734,21 +734,21 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 		}
 	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
-		if cs.IdLabel != "" {
-			idLabel = cs.IdLabel
+		if l := cs.EffectiveIdLabel(); l != "" {
+			idLabel = l
 		}
 		use += " [" + idLabel + "]"
 	} else if vspec.AllowsParentId {
 		if cs.RequiresParentId {
 			parentIdLabel := "<parentid>"
-			if cs.ParentIdLabel != "" {
-				parentIdLabel = cs.ParentIdLabel
+			if l := cs.EffectiveParentIdLabel(); l != "" {
+				parentIdLabel = l
 			}
 			use += " " + parentIdLabel
 		} else {
 			parentIdLabel := "[parentid]"
-			if cs.ParentIdLabel != "" {
-				parentIdLabel = "[" + cs.ParentIdLabel + "]"
+			if l := cs.EffectiveParentIdLabel(); l != "" {
+				parentIdLabel = "[" + l + "]"
 			}
 			use += " " + parentIdLabel
 		}
@@ -809,8 +809,8 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string
 	}
 	if vspec.RequiresId && !cs.NoId {
 		idLabel := "<id>"
-		if cs.IdLabel != "" {
-			idLabel = cs.IdLabel
+		if l := cs.EffectiveIdLabel(); l != "" {
+			idLabel = l
 		}
 		use += " " + idLabel
 		if cs.HasArgs && cs.ArgsLabel != "" {
@@ -818,21 +818,21 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string
 		}
 	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
-		if cs.IdLabel != "" {
-			idLabel = cs.IdLabel
+		if l := cs.EffectiveIdLabel(); l != "" {
+			idLabel = l
 		}
 		use += " [" + idLabel + "]"
 	} else if vspec.AllowsParentId {
 		if cs.RequiresParentId {
 			parentIdLabel := "<parentid>"
-			if cs.ParentIdLabel != "" {
-				parentIdLabel = cs.ParentIdLabel
+			if l := cs.EffectiveParentIdLabel(); l != "" {
+				parentIdLabel = l
 			}
 			use += " " + parentIdLabel
 		} else {
 			parentIdLabel := "[parentid]"
-			if cs.ParentIdLabel != "" {
-				parentIdLabel = "[" + cs.ParentIdLabel + "]"
+			if l := cs.EffectiveParentIdLabel(); l != "" {
+				parentIdLabel = "[" + l + "]"
 			}
 			use += " " + parentIdLabel
 		}
@@ -900,6 +900,19 @@ func (r *Registry) execPluginRunE(binaryPath, moduleName, version string) func(*
 		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", pluginArgs)
 		return plugin.Exec(binPath, pluginArgs)
 	}
+}
+
+// withIdHint appends ctx.IdHint to a 4xx API error, since a wrongly split
+// id typically surfaces as a not-found or bad-request response.
+func withIdHint(ctx *cmdctx.Ctx, err error) error {
+	if ctx == nil || ctx.IdHint == "" {
+		return err
+	}
+	var apiErr *client.APIError
+	if !errors.As(err, &apiErr) || apiErr.Status < 400 || apiErr.Status >= 500 {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, ctx.IdHint)
 }
 
 func misconfiguredCmd(cmd *cobra.Command, cs *spec.CommandSpec, fmtStr string, args ...any) {
@@ -1025,11 +1038,14 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 		if err != nil {
 			return err
 		}
+		if err := ensureIds(cs, ctx); err != nil {
+			return err
+		}
 		r.emitIntent(cmd, cs, ctx)
 		start := time.Now()
 		if err := fn(ctx); err != nil {
 			r.emitError(cs, ctx, err, start)
-			return err
+			return withIdHint(ctx, err)
 		}
 		return nil
 	}
@@ -1155,6 +1171,9 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
 		if ctx.Id != "" {
 			if fnID := r.nounViewHandlerFn(cs.Noun); fnID != "" {
+				if err := ensureIds(cs, ctx); err != nil {
+					return err
+				}
 				return r.RunUIHandler(ctx, fnID)
 			}
 		}
@@ -1164,6 +1183,9 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 		}
 		if handled {
 			return nil
+		}
+		if err := ensureIds(cs, ctx); err != nil {
+			return err
 		}
 		if ctx.Id != "" && r.nounHasUICommands(cs.Noun) {
 			return RunUIDetailForGet(ctx, cs)
@@ -1181,7 +1203,7 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	}
 	if err != nil {
 		r.emitError(cs, ctx, err, start)
-		return err
+		return withIdHint(ctx, err)
 	}
 	if cs.FollowFn != "" && cmdctx.GetBool(ctx.FlagValues, "follow") {
 		if fn, ok := r.followFns[cs.FollowFn]; ok {
@@ -1220,7 +1242,7 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 			return fmt.Errorf("--ui requires an interactive terminal (TTY)")
 		}
 		if cs.RequiresParentId && ctx.ParentId == "" {
-			label := cs.ParentIdLabel
+			label := cs.EffectiveParentIdLabel()
 			if label == "" {
 				label = "<parentid>"
 			}
@@ -1230,7 +1252,7 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	}
 	if err := RunListEndpoint(ctx, ep); err != nil {
 		r.emitError(cs, ctx, err, start)
-		return err
+		return withIdHint(ctx, err)
 	}
 	return nil
 }

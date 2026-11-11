@@ -611,6 +611,7 @@ type CommandSpec struct {
 	ArgsLabel        string              `yaml:"args_label,omitempty"`        // appended to Usage after the id label (e.g. "<local-file>"); only used when has_args is true
 	IdParts          int                 `yaml:"id_parts,omitempty"`          // when > 1, id must contain exactly (id_parts-1) "/" separators; parts available as {ctx:id_part:0}, {ctx:id_part:1}, ...
 	IdAllowSlash     bool                `yaml:"id_allow_slash,omitempty"`    // skip the slash-count validation on id (use when the id format has variable segments)
+	IdFormats        []string            `yaml:"id_formats,omitempty"`        // named accepted shapes of the positional id/scope (e.g. "<repo>/<branch...>"); exclusive with id_parts/id_allow_slash
 	RequiresParentId bool                `yaml:"requires_parentid,omitempty"` // list commands only: makes the [parentid] arg mandatory
 	ParentIdLabel    string              `yaml:"parentid_label,omitempty"`    // overrides "[parentid]" in the Usage line for list commands (e.g. "<registry/name>")
 	Hidden           bool                `yaml:"hidden,omitempty"`
@@ -634,6 +635,8 @@ type CommandSpec struct {
 	Module           string              `yaml:"-"`                          // set at registration time by ModuleRegistrar; drives workflow/formatter namespacing
 	SpecFile         string              `yaml:"-"`                          // spec filename, set at load time; used in error messages
 	External         bool                `yaml:"-"`                          // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
+
+	parsedIdFormats []IdFormat // cached by CompileIdFormats
 }
 
 // FullNoun returns "noun:variant" when NounVariant is set, "noun:noun_to" when NounTo is
@@ -647,6 +650,45 @@ func (cs *CommandSpec) FullNoun() string {
 		return cs.Noun + ":" + cs.NounTo
 	}
 	return cs.Noun
+}
+
+// CompileIdFormats parses and validates id_formats and caches the result for IdFormatList.
+func (cs *CommandSpec) CompileIdFormats() error {
+	formats, err := ParseIdFormats(cs.IdFormats)
+	if err != nil {
+		return err
+	}
+	cs.parsedIdFormats = formats
+	return nil
+}
+
+// IdFormatList returns the parsed id_formats, using the CompileIdFormats cache when set.
+// Formats are validated at registration, so a parse error here yields nil.
+func (cs *CommandSpec) IdFormatList() []IdFormat {
+	if len(cs.IdFormats) == 0 {
+		return nil
+	}
+	if cs.parsedIdFormats != nil {
+		return cs.parsedIdFormats
+	}
+	formats, _ := ParseIdFormats(cs.IdFormats)
+	return formats
+}
+
+// EffectiveIdLabel returns id_label, falling back to the id_formats usage label.
+func (cs *CommandSpec) EffectiveIdLabel() string {
+	if cs.IdLabel != "" {
+		return cs.IdLabel
+	}
+	return strings.Join(cs.IdFormats, " | ")
+}
+
+// EffectiveParentIdLabel returns parentid_label, falling back to the id_formats usage label.
+func (cs *CommandSpec) EffectiveParentIdLabel() string {
+	if cs.ParentIdLabel != "" {
+		return cs.ParentIdLabel
+	}
+	return strings.Join(cs.IdFormats, " | ")
 }
 
 // UsageLine returns the grammar portion of Short (after the first ": "), prefixed with "\nusage: ".

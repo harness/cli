@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -178,5 +179,28 @@ func TestBuildCtx_PipelineAuthOrgProjectFlagsError(t *testing.T) {
 	_, err := buildCtx(cmd, cs, nil, r)
 	if err == nil || !strings.Contains(err.Error(), "not allowed in pipeline mode") {
 		t.Fatalf("error = %v, want an --org/--project-not-allowed error (pipeline scope is fixed)", err)
+	}
+}
+
+func TestBuildCompletionCtx_IdFormatsScope(t *testing.T) {
+	clearPipelineAuthTestEnv(t)
+	setPipelineScopeEnv(t)
+	t.Setenv("TEST_PIPELINE_TOKEN", "tok123")
+
+	r := New()
+	cs := registerPipelineAuthTestList(t, r, "fmtscope", &spec.PipelineAuthSpec{TokenEnvVar: "TEST_PIPELINE_TOKEN", APIURLEnvVar: "TEST_PIPELINE_API_URL"})
+	cs.IdFormats = []string{"<repo>/<branch...>"}
+	cmd := pipelineAuthTestCmd(t, r, cs)
+
+	ctx, err := r.buildCompletionCtx(cmd, VerbList, "fmtscope", "r/feature/x")
+	if err != nil {
+		t.Fatalf("buildCompletionCtx: %v", err)
+	}
+	if want := map[string]string{"repo": "r", "branch": "feature/x"}; !reflect.DeepEqual(ctx.Ids, want) {
+		t.Fatalf("Ids = %v, want %v", ctx.Ids, want)
+	}
+	ctx, err = r.buildCompletionCtx(cmd, VerbList, "fmtscope", "r")
+	if err != nil || ctx.Ids != nil {
+		t.Fatalf("partial word: Ids = %v, err = %v; want nil Ids and no error", ctx.Ids, err)
 	}
 }
