@@ -350,7 +350,7 @@ func validateVerbNounShape(cs *spec.CommandSpec, vs VerbSpec) error {
 		if cs.IdParts != 0 || cs.IdAllowSlash {
 			return fmt.Errorf("command %q: id_formats cannot be combined with id_parts or id_allow_slash", cs.Command)
 		}
-		if _, err := spec.ParseIdFormats(cs.IdFormats); err != nil {
+		if err := cs.CompileIdFormats(); err != nil {
 			return fmt.Errorf("command %q: id_formats: %w", cs.Command, err)
 		}
 	}

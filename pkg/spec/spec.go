@@ -634,6 +634,8 @@ type CommandSpec struct {
 	Module           string              `yaml:"-"`                          // set at registration time by ModuleRegistrar; drives workflow/formatter namespacing
 	SpecFile         string              `yaml:"-"`                          // spec filename, set at load time; used in error messages
 	External         bool                `yaml:"-"`                          // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
+
+	parsedIdFormats []IdFormat // cached by CompileIdFormats
 }
 
 // FullNoun returns "noun:variant" when NounVariant is set, "noun:noun_to" when NounTo is
@@ -649,11 +651,24 @@ func (cs *CommandSpec) FullNoun() string {
 	return cs.Noun
 }
 
-// IdFormatList returns the parsed id_formats. Formats are validated at registration,
-// so a parse error here yields nil.
+// CompileIdFormats parses and validates id_formats and caches the result for IdFormatList.
+func (cs *CommandSpec) CompileIdFormats() error {
+	formats, err := ParseIdFormats(cs.IdFormats)
+	if err != nil {
+		return err
+	}
+	cs.parsedIdFormats = formats
+	return nil
+}
+
+// IdFormatList returns the parsed id_formats, using the CompileIdFormats cache when set.
+// Formats are validated at registration, so a parse error here yields nil.
 func (cs *CommandSpec) IdFormatList() []IdFormat {
 	if len(cs.IdFormats) == 0 {
 		return nil
+	}
+	if cs.parsedIdFormats != nil {
+		return cs.parsedIdFormats
 	}
 	formats, _ := ParseIdFormats(cs.IdFormats)
 	return formats
