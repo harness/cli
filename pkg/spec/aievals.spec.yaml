@@ -2268,6 +2268,9 @@ commands:
       port, request field, response path, and auth header name as JSON.
       Writes nothing. --route narrows the hint to one supported candidate.
       A route that is not an exact supported hint is rejected.
+      --metrics prints the complete installed SDK metric catalog instead,
+      including options, thresholds, provider needs, and onboarding support.
+      This checks the pinned runner without installing or upgrading it.
     handler_type: workflow
     workflow_id: scan
     flags:
@@ -2275,6 +2278,9 @@ commands:
         description: Repository root to scan (default current directory)
       - name: route
         description: Optional method-qualified hint filter, for example "POST /api/analyze" or "POST /api/analyze [services/billing]"
+      - name: metrics
+        is_bool: true
+        description: Read the full metric catalog from the pinned runner's Harness Evals SDK (no repository scan)
 
   # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
   - command: stage eval_onboarding
@@ -2289,6 +2295,10 @@ commands:
       .harness/evals through the pinned onboarding validator. Flags override
       the same fields in the file. auth-header is a header name and auth-env
       is an environment-variable name. Never pass a secret value.
+      Candidate files may include metrics (kind, threshold, score_name, options,
+      config) and cases with structured expected values, context, expected_tools,
+      expected_tool_calls, tags, and metadata. Metric kinds and defaults come
+      from the installed SDK catalog. Omitted metrics retain legacy exact match.
     handler_type: workflow
     workflow_id: stage
     flags:

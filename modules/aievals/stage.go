@@ -4,6 +4,7 @@
 package aievals
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,11 +13,14 @@ import (
 )
 
 // ValidatorSnippet is the D2 loader invocation. sys.argv[1] is a .harness/evals directory.
-const ValidatorSnippet = "import sys\nfrom ai_evals.onboarding.load import load_onboarding_tree\nload_onboarding_tree(sys.argv[1])\n"
+var ValidatorSnippet = "import sys\nfrom ai_evals.onboarding.load import load_onboarding_tree\ntree = load_onboarding_tree(sys.argv[1])\n" + metricCatalogSnippet + "\n" + metricValidationSnippet
+
+//go:embed metric_validate.py
+var metricValidationSnippet string
 
 // ValidatorArgs is the subprocess the staging step runs.
 func ValidatorArgs(python, evalsRoot string) []string {
-	return []string{python, "-c", ValidatorSnippet, evalsRoot}
+	return []string{python, "-I", "-c", ValidatorSnippet, evalsRoot}
 }
 
 // OnboardArgs is the D2 local/live command.

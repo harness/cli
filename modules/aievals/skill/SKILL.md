@@ -24,13 +24,18 @@ When the prompt header includes a `harness auth login` command, use that command
 
 - `harness setup eval_onboarding` installs or prints this skill. It does not scan and it does not write eval files. Optional `--skill-dir` chooses the destination. With no coding-agent skills directory and no `--skill-dir`, it prints the skill to stdout.
 - `harness scan eval_onboarding` is an optional hint. It prints candidate JSON and writes nothing. `--route '<METHOD path>'` narrows the hint. The agent's own reading of the repository is the source of truth. If the hint and the agent disagree, show both and let the user choose.
+- `harness scan eval_onboarding --metrics` reads the full metric catalog from the Harness Evals SDK in the pinned runner. It prints every catalog entry, including descriptions, constructor options and required options, default thresholds, LLM/embedding requirements, execution scope, and onboarding support. It does not scan the repository, install packages, call an agent or judge, or write files. Do not combine it with `--route`.
 - Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`. Pass `--file <path>` pointing at a temporary JSON file, or pass flags. Flags override the same fields in the file.
 - `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>]` runs a staged agent. `local` is the default. The command checks the pinned runner and does not upgrade it. A PAT or SAT is passed to the runner. An SSO access token is not.
 - `harness upload eval_onboarding` validates locally, uploads `.harness/evals`, and prints Agent and Eval links. Git sync is not applied by the upload.
 
 `stage` accepts `--agent`, `--endpoint`, `--method`, `--request-field`, `--request-fields`, `--response-path`, `--auth-header`, `--auth-env`, `--input-text`, and `--expected`. `--auth-header` is a header name. `--auth-env` is an environment-variable name. Never pass a secret value. A header name without an environment-variable name is omitted from the tree.
 
-Example candidate file:
+Metric selections go in the candidate file's `metrics` list. Each selection has an SDK `kind`, optional numeric `threshold`, optional unique `score_name`, constructor `options`, and optional `config`. Use `config.metadata` for non-secret provider/model settings and `config.criteria` for judge criteria. Never put keys or credentials in metric options or config. The stager derives metric type and dimension from the SDK catalog and checks construction without calling providers. This does not verify credentials, provider connectivity, or dataset suitability.
+
+Cases can carry structured `expected` values, `context`, `expected_tools`, `expected_tool_calls`, `tags`, and `metadata`; these are preserved in JSONL. Use `cases` instead of `input_text`/`expected` when a metric needs these fields or there is more than one case. A dataset field is useful only if the runner maps it to the SDK field the metric reads; check that mapping before recommending trace, conversation, or telemetry metrics.
+
+Example candidate file, illustrating a substring check only (not a default agent, endpoint, case, or metric recommendation):
 
 ```json
 {
@@ -42,11 +47,14 @@ Example candidate file:
   "auth_header": "Authorization",
   "auth_env": "SUPPORT_TOKEN",
   "input_text": "hello",
-  "expected": "ok"
+  "expected": "ok",
+  "metrics": [
+    {"kind": "contains", "threshold": 1.0, "options": {"case_sensitive": false}}
+  ]
 }
 ```
 
-The tree the command writes is `.harness/evals/agents/<identifier>/agent.yaml`, `.harness/evals/datasets/<identifier>.jsonl`, and `.harness/evals/metric-sets/<identifier>.yaml`. The default metric is exact match. If `stage` reports that a destination differs and was left unchanged, show that message and ask how to proceed. Do not overwrite the file by hand.
+The tree the command writes is `.harness/evals/agents/<identifier>/agent.yaml`, `.harness/evals/datasets/<identifier>.jsonl`, and `.harness/evals/metric-sets/<identifier>.yaml`. The agent file references that dataset and metric set and declares the suite. Include every user-selected metric, its options, threshold, and score name in the candidate. Never omit `metrics` in this workflow: omission retains a legacy exact-match fallback, not an intelligent recommendation. An empty list is rejected. If `stage` reports that a destination differs and was left unchanged, show that message and ask how to proceed. Do not overwrite the file by hand, delete existing files, or promise that re-staging will replace a non-identical tree.
 
 ## Harness CLI setup
 
@@ -66,13 +74,15 @@ harness install module aievals
 
 Before `run` or `upload`, authenticate with a Harness personal access token or API key. Give the token to the CLI when it asks. Do not paste the token into chat or write it into the repository.
 
-An LLM provider key is required only when the user chooses an LLM-judge metric. Set that key in the local environment. Heuristic metrics, including exact match, do not need one. Never put the key in chat or in the repository.
+Metric discovery requires the pinned runner but not Harness authentication or provider credentials. If it is missing or mismatched, show the CLI's exact remediation and ask before installing the pinned runner; do not silently upgrade or install a second SDK. Repeat catalog discovery after installation. If discovery fails, stop metric selection and explain the error instead of inventing a catalog or falling back to exact match.
+
+Show provider setup only for the metrics the user chooses. LLM metrics require a configured judge; embedding metrics require an embedding backend; some metrics require both. Explain that these may make paid external calls and send case data to the selected provider. Agree on non-secret provider/model settings and credentials supplied through the provider's supported local environment variables. Heuristic metrics do not need a provider key. Never put a key in chat, command arguments, candidate files, or the repository, and never print environment-variable values.
 
 ## Stage 1. Discover
 
 Scan the repository yourself. Any framework counts. A route, a chat handler, an agent class, a prompt call, or a server that returns model output is enough to present a candidate. You may run `harness scan eval_onboarding` as a hint. Do not treat the hint as the only place an agent can be found, and do not write files in this stage.
 
-Present what you found: endpoint, method, port, request field, response path, and auth header name. Also mention a sample case when you saw one. If several candidates are plausible, list them and ask the user to pick. Do not pick one by file order.
+Present what you found: agent purpose, endpoint, method, port, request field, response path, and auth header name. Cite source paths for the contract, prompts, tools, tests, and sample cases. Identify output shape, whether wording varies, available reference answers, retrieval context, tool traces, conversation history, and telemetry. Mark missing information explicitly. If several agents or routes are plausible, list them and ask the user to pick. Do not pick one by file order, use a fixed agent identifier, or fabricate reference answers.
 
 If nothing is found, say so, then ask one question at a time:
 
@@ -86,13 +96,35 @@ Restate the values you will use, including any the user just gave.
 
 Checkpoint: Use this endpoint, pick another candidate, or set one up?
 
+### Choose metrics for the confirmed agent
+
+Before proposing files, run `harness scan eval_onboarding --metrics`. Inspect the complete returned catalog, not just the first entries or a remembered shortlist. Summarize available categories and how many entries are supported by onboarding. Entries marked unsupported remain visible, but explain their limitation rather than recommending them as runnable.
+
+Match catalog descriptions and options against the confirmed agent's purpose and observed data. Where a description is insufficient, read the selected metric's SDK implementation identified by `implementation` using the pinned runner's installed SDK; do not import repository code or install another SDK. Check required case fields and whether this runner actually supplies them. Check `execution_scope`: dataset-level and repeated-run metrics need the appropriate dataset or run grouping, not a single ordinary sample. Do not confuse constructor options with dataset fields or assume `metadata` populates arbitrary runtime fields.
+
+Recommend a small, complementary set, with a table containing the exact SDK kind, why it fits this agent (with repository evidence), required case fields, required options, proposed threshold and rationale, and LLM/embedding cost/setup needs. Use SDK thresholds as starting points, not calibrated promises; preserve an explicit user threshold, including zero. Offer other relevant alternatives and let the user choose metrics not on the shortlist.
+
+Use these as reasoning examples, not a fixed mapping or metric list; recommend a named kind only if it exists in the returned catalog:
+
+- Stable labels or exact protocol responses: equality checks may fit. Open-ended reasoning or incident analysis: consider task-specific judge criteria, answer relevance, or reference-based similarity; exact wording usually does not measure correctness.
+- Structured output: consider schema validation or structural comparison. Supply the actual schema or a user-confirmed structured reference, not a placeholder.
+- Retrieval-grounded answers: consider faithfulness and context quality only when real retrieved context and any required reference answer can be supplied. Do not invent context or grade empty context.
+- Tool-using or conversational agents: consider tool correctness, argument matching, or conversation quality only after verifying the available trace/history format reaches the fields the metric reads. Otherwise explain the instrumentation gap and offer output-level alternatives.
+- Security, safety, latency, cost, repeated-run, or calibration checks: recommend only when appropriate to the use case and supported by real evidence/data. A catalog entry being constructible does not mean the HTTP target supplies its measurements or that this runner supports its execution scope.
+
+Ask focused questions for missing prerequisites, such as reference answers, judge criteria, schema, or willingness to use a paid judge. If a metric cannot be meaningfully run yet, label it as blocked with the missing prerequisite and offer another metric. Do not silently drop a chosen metric, substitute exact match, fabricate instrumentation, or claim that syntactic validation proves meaningful scores.
+
+Checkpoint: Which metrics and thresholds should we use, and are you comfortable with any listed provider requirements?
+
+After the user chooses, resolve every required constructor option from the catalog's `options_schema`. Put constructor parameters under `options` (for example a schema or matching mode); use `config` only for supported judge fields and non-secret provider metadata. Use unique `score_name` values when choosing the same kind with different configurations. Confirm judge criteria and provider/model settings before staging or running. Re-run discovery if the installed SDK changes.
+
 ## Stage 2. Stage files
 
-After the user confirms an endpoint, show the proposed `.harness/evals` files and the sample cases before writing anything. Show the agent identifier, method, endpoint, request field, response path, auth header name or none, the dataset rows, and the metric. Use a real case when one exists. Otherwise show one minimal row and say that the expected value still needs a real answer.
+After the user confirms the agent and metrics, show the proposed `.harness/evals` files and sample cases before writing anything. Show the chosen agent identifier, method, full endpoint, request fields, response path, auth header name or none, dataset rows with the fields the metrics need, and every selected metric's kind, options, threshold, score name, and provider/model settings. Explain what each score measures. Reuse real cases from the repository where suitable, with source paths. Otherwise propose realistic cases for user review and identify missing references; do not present an invented expected answer as ground truth. Only metrics that do not require a reference can run meaningfully without one.
 
 Checkpoint: Write these files?
 
-Only after yes, write them with `harness stage eval_onboarding`. Do not write the tree with a standalone script or by hand.
+Only after yes, create the temporary candidate JSON with the confirmed `metrics` and cases and call `harness stage eval_onboarding --file <path> --repo <repository>`. Do not write the tree with a standalone script or by hand. If catalog lookup, options validation, or schema validation fails, show the failure and correct the candidate with user approval; never silently retry without the selected metrics. After success, read back the three generated files and verify the chosen agent, case fields, metric kinds, options, thresholds, and references were preserved. Report the directory paths.
 
 ## Stage 3. Local run
 
@@ -152,8 +184,8 @@ Checkpoint: Open the result links?
 
 ### Add cases or metrics
 
-Ask what to add. Show the updated cases or metric, then ask before writing.
+Read the existing agent, dataset, and metric-set files first and preserve the user's existing choices. Refresh the SDK catalog, repeat the recommendation/prerequisite check for the requested change, and show the updated cases or metrics before writing.
 
 Checkpoint: Write these updated files?
 
-Then call `harness stage eval_onboarding` again. Keep exact match unless the user asks for another metric. Switch to an LLM-judge metric only when the user chooses one, and only then show the LLM provider key step.
+Then call `harness stage eval_onboarding` with the full confirmed candidate, including existing and new metrics. The stager does not overwrite non-identical files: if it reports a collision, stop and ask the user how to handle it; do not bypass that protection. Preserve chosen metrics rather than resetting to exact match. Show LLM or embedding provider setup only when those metrics were chosen, and ask again before any subsequent run or upload.

@@ -109,6 +109,18 @@ func setupWorkflow(ctx *cmdctx.Ctx) error {
 }
 
 func scanWorkflow(ctx *cmdctx.Ctx) error {
+	if cmdctx.GetBool(ctx.FlagValues, "metrics") {
+		if cmdctx.GetString(ctx.FlagValues, "route") != "" {
+			return fmt.Errorf("--metrics cannot be combined with --route")
+		}
+		report, err := MetricCatalog(RunnerHome(), nil)
+		if err != nil {
+			return err
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(report)
+	}
 	repo, err := workflowRepo(ctx)
 	if err != nil {
 		return err

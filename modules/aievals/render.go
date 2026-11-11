@@ -60,6 +60,9 @@ func materialize(inf Inference, highOnly bool, answers map[string]string) map[st
 	}
 	name := displayName(agent)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%s%s", usable["port"].Value, ensureSlash(usable["endpoint_path"].Value))
+	if ev, ok := usable["endpoint_url"]; ok {
+		endpoint = ev.Value
+	}
 	var header strings.Builder
 	headerName := usable["auth_header"].Value
 	envName := usable["auth_env"].Value

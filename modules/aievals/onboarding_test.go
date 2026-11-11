@@ -46,6 +46,7 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 		"Where is the reply text in the response?",
 		"Is an auth header name required? Reply with the header name, or none. Do not send a secret value.",
 		"Checkpoint: Use this endpoint, pick another candidate, or set one up?",
+		"Checkpoint: Which metrics and thresholds should we use, and are you comfortable with any listed provider requirements?",
 		"Checkpoint: Write these files?",
 		"Checkpoint: Run this eval locally?",
 		"Checkpoint: What should we do next: run against a live agent, upload to Harness, run on the platform, view results, or add cases or metrics?",
@@ -72,6 +73,9 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 	for _, required := range []string{
 		"harness setup eval_onboarding",
 		"harness scan eval_onboarding",
+		"harness scan eval_onboarding --metrics",
+		"options_schema",
+		"Never omit `metrics` in this workflow",
 		"harness stage eval_onboarding",
 		"harness run eval_onboarding",
 		"harness upload eval_onboarding",
@@ -1437,7 +1441,7 @@ func TestStageCollisionIdempotenceAndValidatorArgs(t *testing.T) {
 		t.Fatalf("wrote=%v calls=%v", first.Wrote, calls)
 	}
 	got := calls[0]
-	if got[0] != "python-test" || got[1] != "-c" || got[2] != ValidatorSnippet || !strings.HasSuffix(got[3], filepath.Join("repo", ".harness", "evals")) {
+	if len(got) != 5 || got[0] != "python-test" || got[1] != "-I" || got[2] != "-c" || got[3] != ValidatorSnippet || !strings.HasSuffix(got[4], filepath.Join("repo", ".harness", "evals")) {
 		t.Fatalf("validator args = %#v", got)
 	}
 	agent := filepath.Join(repo, ".harness", "evals", "agents", "support", "agent.yaml")

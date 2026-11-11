@@ -47,24 +47,30 @@ type ScanReport struct {
 
 // SampleCase is one dataset row the agent already confirmed with the user.
 type SampleCase struct {
-	ID       string          `json:"id"`
-	Input    json.RawMessage `json:"input"`
-	Expected string          `json:"expected,omitempty"`
+	ID                string           `json:"id"`
+	Input             json.RawMessage  `json:"input"`
+	Expected          any              `json:"expected,omitempty"`
+	Context           any              `json:"context,omitempty"`
+	ExpectedTools     []string         `json:"expected_tools,omitempty"`
+	ExpectedToolCalls []map[string]any `json:"expected_tool_calls,omitempty"`
+	Tags              []string         `json:"tags,omitempty"`
+	Metadata          map[string]any   `json:"metadata,omitempty"`
 }
 
 // Candidate is the validate-and-write input. Flags and a JSON file use the same fields.
 type Candidate struct {
-	AgentID       string       `json:"agent_id,omitempty"`
-	EndpointURL   string       `json:"endpoint_url,omitempty"`
-	Method        string       `json:"method,omitempty"`
-	RequestField  string       `json:"request_field,omitempty"`
-	RequestFields string       `json:"request_fields,omitempty"`
-	ResponsePath  string       `json:"response_path,omitempty"`
-	AuthHeader    string       `json:"auth_header,omitempty"`
-	AuthEnv       string       `json:"auth_env,omitempty"`
-	InputText     string       `json:"input_text,omitempty"`
-	Expected      string       `json:"expected,omitempty"`
-	Cases         []SampleCase `json:"cases,omitempty"`
+	AgentID       string            `json:"agent_id,omitempty"`
+	EndpointURL   string            `json:"endpoint_url,omitempty"`
+	Method        string            `json:"method,omitempty"`
+	RequestField  string            `json:"request_field,omitempty"`
+	RequestFields string            `json:"request_fields,omitempty"`
+	ResponsePath  string            `json:"response_path,omitempty"`
+	AuthHeader    string            `json:"auth_header,omitempty"`
+	AuthEnv       string            `json:"auth_env,omitempty"`
+	InputText     string            `json:"input_text,omitempty"`
+	Expected      string            `json:"expected,omitempty"`
+	Cases         []SampleCase      `json:"cases,omitempty"`
+	Metrics       []MetricSelection `json:"metrics,omitempty"`
 }
 
 // WriteOptions validates a candidate and writes the .harness/evals tree.
@@ -78,6 +84,7 @@ type WriteOptions struct {
 }
 
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 var forbiddenCandidateKeys = map[string]bool{
 	"secret": true, "token": true, "api_key": true, "apikey": true,
@@ -210,8 +217,19 @@ func LoadCandidateFile(path string) (Candidate, error) {
 		}
 	}
 	var candidate Candidate
-	if err := json.Unmarshal(data, &candidate); err != nil {
-		return Candidate{}, fmt.Errorf("candidate file: %w", err)
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.UseNumber()
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&candidate); err != nil {
+		return Candidate{}, fmt.Errorf("candidate file does not match the onboarding candidate schema")
+	}
+	if metrics, ok := raw["metrics"]; ok {
+		if string(metrics) == "null" {
+			return Candidate{}, fmt.Errorf("metrics must be a non-empty list when provided")
+		}
+		if err := rejectMetricSecrets(metrics); err != nil {
+			return Candidate{}, err
+		}
 	}
 	return candidate, nil
 }
@@ -251,6 +269,9 @@ func (c Candidate) WithOverrides(override Candidate) Candidate {
 	if len(override.Cases) > 0 {
 		c.Cases = override.Cases
 	}
+	if override.Metrics != nil {
+		c.Metrics = override.Metrics
+	}
 	return c
 }
 
@@ -288,6 +309,15 @@ func WriteCandidate(opts WriteOptions) (int, error) {
 		}
 		python = layout.Python
 	}
+	if len(candidate.Metrics) > 0 {
+		catalog, err := ReadMetricCatalog(python, opts.Run)
+		if err != nil {
+			return 1, err
+		}
+		if err := applySelectedMetrics(files, inf.AgentID, candidate.Metrics, catalog); err != nil {
+			return 2, err
+		}
+	}
 	result, err := Stage(opts.Repo, files, python, opts.Run)
 	if err != nil {
 		return 1, err
@@ -308,6 +338,21 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 	candidate.RequestFields = strings.TrimSpace(candidate.RequestFields)
 	candidate.ResponsePath = strings.TrimSpace(candidate.ResponsePath)
 	candidate.AgentID = strings.TrimSpace(candidate.AgentID)
+	if candidate.AgentID != "" && !identifierPattern.MatchString(candidate.AgentID) {
+		return Candidate{}, fmt.Errorf("agent_id must be a stable identifier")
+	}
+	if candidate.Metrics != nil && len(candidate.Metrics) == 0 {
+		return Candidate{}, fmt.Errorf("metrics must be a non-empty list when provided")
+	}
+	if len(candidate.Metrics) > 0 {
+		encoded, err := json.Marshal(candidate.Metrics)
+		if err != nil {
+			return Candidate{}, fmt.Errorf("metrics must be JSON-serializable")
+		}
+		if err := rejectMetricSecrets(encoded); err != nil {
+			return Candidate{}, err
+		}
+	}
 	// Input text and expected stay verbatim. They are sample case content,
 	// and trimming them would change the staged dataset.
 	header := strings.TrimSpace(candidate.AuthHeader)
@@ -338,7 +383,8 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 		if strings.TrimSpace(item.ID) == "" {
 			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("case %d id is required", i+1)}
 		}
-		if len(item.Input) == 0 || !json.Valid(item.Input) || item.Input[0] != '{' {
+		input := strings.TrimSpace(string(item.Input))
+		if len(input) == 0 || !json.Valid(item.Input) || input[0] != '{' {
 			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("case %s input must be a JSON object", item.ID)}
 		}
 	}
@@ -355,6 +401,7 @@ func candidateInference(repo string, candidate Candidate) Inference {
 		port = "8080"
 	}
 	add(&ev, "endpoint_path", path, "candidate", ConfidenceHigh)
+	add(&ev, "endpoint_url", candidate.EndpointURL, "candidate", ConfidenceHigh)
 	add(&ev, "port", port, "candidate", ConfidenceHigh)
 	add(&ev, "method", candidate.Method, "candidate", ConfidenceHigh)
 	add(&ev, "request_field", candidate.RequestField, "candidate", ConfidenceHigh)
@@ -391,11 +438,7 @@ func applySampleCases(files map[string]string, agent string, cases []SampleCase)
 	}
 	var body strings.Builder
 	for _, item := range cases {
-		row, err := json.Marshal(struct {
-			ID       string          `json:"id"`
-			Input    json.RawMessage `json:"input"`
-			Expected string          `json:"expected,omitempty"`
-		}{ID: item.ID, Input: item.Input, Expected: item.Expected})
+		row, err := json.Marshal(item)
 		if err != nil {
 			return err
 		}
