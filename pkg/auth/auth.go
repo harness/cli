@@ -458,6 +458,7 @@ type TokenKind string
 const (
 	TokenKindPAT     TokenKind = "pat"
 	TokenKindSAT     TokenKind = "sat"
+	TokenKindST      TokenKind = "st"
 	TokenKindJWT     TokenKind = "jwt"
 	TokenKindUnknown TokenKind = ""
 )
@@ -473,6 +474,8 @@ func TokenType(token string) TokenKind {
 		return TokenKindPAT
 	case strings.HasPrefix(token, "sat."):
 		return TokenKindSAT
+	case strings.HasPrefix(token, "st."):
+		return TokenKindST
 	default:
 		parts := strings.Split(token, ".")
 		if len(parts) == 3 {
@@ -493,16 +496,16 @@ func TokenType(token string) TokenKind {
 
 var patSegment = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// ValidatePATFormat returns an error if token does not match pat.<accountId>.<tokenId>.<secret>
-// or sat.<accountId>.<tokenId>.<secret>.
+// ValidatePATFormat returns an error if token does not match pat.<accountId>.<tokenId>.<secret>,
+// sat.<accountId>.<tokenId>.<secret> or st.<accountId>.<tokenId>.<secret>.
 func ValidatePATFormat(token string) error {
 	parts := strings.SplitN(token, ".", 4)
-	if len(parts) != 4 || (parts[0] != "pat" && parts[0] != "sat") {
-		return fmt.Errorf("invalid PAT/SAT format — expected pat.<accountId>.<tokenId>.<secret> or sat.<accountId>.<tokenId>.<secret>")
+	if len(parts) != 4 || (parts[0] != "pat" && parts[0] != "sat" && parts[0] != "st") {
+		return fmt.Errorf("invalid PAT/SAT/ST format — expected pat.<accountId>.<tokenId>.<secret>, sat.<accountId>.<tokenId>.<secret> or st.<accountId>.<tokenId>.<secret>")
 	}
 	for _, p := range parts[1:] {
 		if !patSegment.MatchString(p) {
-			return fmt.Errorf("invalid PAT/SAT format — segments must match [A-Za-z0-9_-]+")
+			return fmt.Errorf("invalid PAT/SAT/ST format — segments must match [A-Za-z0-9_-]+")
 		}
 	}
 	return nil
@@ -526,7 +529,7 @@ func AccountIDFromToken(token string) string {
 // For anything else it falls back to Masked.
 func MaskedToken(s string) string {
 	kind := TokenType(s)
-	if kind != TokenKindPAT && kind != TokenKindSAT {
+	if kind != TokenKindPAT && kind != TokenKindSAT && kind != TokenKindST {
 		return Masked(s)
 	}
 	parts := strings.SplitN(s, ".", 4)
