@@ -100,6 +100,30 @@ func TestResolveWithOverridesValidatesCredentials(t *testing.T) {
 	}
 }
 
+func TestScopedTokenInEnvMode(t *testing.T) {
+	const token = "st.test-account.test-token.not-a-secret"
+	t.Setenv(hbase.EnvCLIHome, t.TempDir())
+	t.Setenv(hbase.EnvAPIKey, token)
+	t.Setenv(hbase.EnvAccount, "")
+	t.Setenv(hbase.EnvOrg, "org")
+	t.Setenv(hbase.EnvProject, "project")
+
+	r, err := ResolveWithOverrides(ProfileSentinelEnv, "", "")
+	if err != nil {
+		t.Fatalf("ResolveWithOverrides rejected an st. token: %v", err)
+	}
+	if r.PATToken != token || r.TokenKind != TokenKindST || r.AccountID != "test-account" {
+		t.Errorf("resolved = {token %q, kind %q, account %q}, want the st. token, kind %q, account test-account",
+			r.PATToken, r.TokenKind, r.AccountID, TokenKindST)
+	}
+	if got := MaskedToken(token); strings.Contains(got, "not-a-secret") || !strings.HasPrefix(got, "st.test-account.") {
+		t.Errorf("MaskedToken = %q, want st.test-account. prefix with the rest masked", got)
+	}
+	if err := ValidatePATFormat("st.only-three.parts"); err == nil {
+		t.Error("ValidatePATFormat accepted an st. token with three segments")
+	}
+}
+
 func TestLoadWithOverrides(t *testing.T) {
 	setup := func(t *testing.T, org, project string) {
 		t.Helper()
