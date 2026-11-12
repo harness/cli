@@ -335,6 +335,10 @@ func installPluginFromRelease(repo, prefix, pkgName, version, githubToken string
 		return fmt.Errorf("%s %s not available for platform %s: %w", repo, resolvedVersion, platform, err)
 	}
 
+	if err := checkNotEmbedded(name); err != nil {
+		return err
+	}
+
 	installed := installedPluginVersion(name)
 	// A spec whose binary is gone is not an install, whatever version it
 	// records — treat it as absent so the up-to-date gate below doesn't refuse

@@ -468,3 +468,67 @@ var _ error = (*specErr)(nil)
 // Ensure specFile is accessible (it's defined in specloader.go, same package).
 var _ = specFile{}
 var _ = spec.NounDef{}
+
+// An embedded module is loaded before LoadHomeSpecs, so a same-named plugin spec
+// left in ~/.harness/spec (with a binary_path) must be skipped and the module's
+// commands must stay in-process.
+func TestEmbeddedModuleWinsOverHomeSpec(t *testing.T) {
+	const embedded = `
+spec_version: 1
+module_type: plugin
+module_desc: embedded demo
+nouns:
+  - noun: demo
+    fields:
+      - id: identifier
+        expr: it.id
+commands:
+  - command: list demo
+    verb: list
+    noun: demo
+    short: List demos
+    handler_type: endpoint
+    endpoint:
+      path: /api/demos
+      items_expr: it
+      paging:
+        paging_strategy: flat_list
+`
+	home := t.TempDir()
+	t.Setenv(hbase.EnvCLIHome, home)
+	if err := os.MkdirAll(HomeSpecDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	installed := "version: 9.9.9\nbinary_path: /nonexistent/harness-demo\n" + embedded
+	if err := os.WriteFile(HomeSpecDir()+"/demo.spec.yaml", []byte(installed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := registry.New()
+	reg.IsMainBinary = true
+	if _, err := LoadSpecBytes(reg, "demo.spec.yaml", []byte(embedded), true); err != nil {
+		t.Fatal(err)
+	}
+	reg.MarkEmbedded("demo", "1.2.3")
+	if err := LoadHomeSpecs(reg, &config.Config{}, false); err != nil {
+		t.Fatal(err)
+	}
+
+	var metas []spec.ModuleMeta
+	for _, m := range reg.GetModuleMetas() {
+		if m.Name == "demo" {
+			metas = append(metas, m)
+		}
+	}
+	if len(metas) != 1 {
+		t.Fatalf("want one demo module, got %d", len(metas))
+	}
+	m := metas[0]
+	if m.IsPlugin() || !m.Embedded || m.Version != "1.2.3" || m.DisplayType() != spec.ModuleTypeEmbedded {
+		t.Errorf("home spec leaked into embedded module: %+v", m)
+	}
+	cs := reg.GetSpec("list", "demo")
+	if cs == nil || cs.External {
+		t.Errorf("embedded command must run in-process: %+v", cs)
+	}
+}
