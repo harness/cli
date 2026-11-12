@@ -235,7 +235,7 @@ func (r *Registry) GetVerbInfos() []spec.VerbInfo {
 // RegisterNoun registers a noun definition. Returns an error on duplicate or invalid fields.
 func (r *Registry) RegisterNoun(nd spec.NounDef) error {
 	if _, exists := r.nouns[nd.Noun]; exists {
-		return fmt.Errorf("duplicate noun %q", nd.Noun)
+		return fmt.Errorf("duplicate noun %q (already registered by module %q)", nd.Noun, r.moduleForNoun(nd.Noun))
 	}
 	for _, f := range nd.Fields {
 		if err := f.Validate(); err != nil {
