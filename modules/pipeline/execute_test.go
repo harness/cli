@@ -9,6 +9,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+const ph = "<+input>"
+
 const inputTemplate = `
 pipeline:
   identifier: p
@@ -61,6 +63,8 @@ func TestMergeIntoTemplate(t *testing.T) {
 		want   [3]string
 	}{
 		{"unscoped key replaces every occurrence", map[string]string{"image_tag": "v2"}, [3]string{"v2", "v2", "v2"}},
+		{"scoped key replaces one stage only", map[string]string{"build.image_tag": "v2"}, [3]string{ph, "v2", ph}},
+		{"scoped key wins over unscoped", map[string]string{"image_tag": "v1", "deploy.image_tag": "v2"}, [3]string{"v1", "v1", "v2"}},
 		{"key match is case-insensitive", map[string]string{"IMAGE_TAG": "v2"}, [3]string{"v2", "v2", "v2"}},
 	}
 	for _, tc := range tests {
@@ -84,6 +88,9 @@ func TestMergeIntoTemplate_UnmatchedKeys(t *testing.T) {
 	}{
 		{"typo in key", map[string]string{"image_tga": "v2"}, `--input "image_tga" matched no runtime input`},
 		{"key is a fixed value", map[string]string{"region": "us"}, `--input "region" is not a runtime input in this pipeline`},
+		{"unknown stage", map[string]string{"bild.image_tag": "v2"}, `--input "bild.image_tag": unknown stage "bild"`},
+		{"key not in that stage", map[string]string{"deploy.region": "us"}, `--input "deploy.region" matched no runtime input`},
+		{"scoped fixed value", map[string]string{"build.region": "us"}, `--input "build.region" is not a runtime input in this pipeline`},
 		{"one bad key among good ones", map[string]string{"image_tag": "v2", "nope": "x"}, `--input "nope" matched no runtime input`},
 	}
 	for _, tc := range tests {
