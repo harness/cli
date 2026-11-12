@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -206,7 +207,7 @@ func TestDoRequest_EmptyBodyStreamSendsZeroLengthNotChunked(t *testing.T) {
 	_, _, err := testClient(srv.URL).DoRequest(Request{
 		Method:          "POST",
 		Path:            "/upload",
-		BodyStream:      strings.NewReader(""),
+		BodyStream:      io.NopCloser(strings.NewReader("")),
 		BodyLength:      0,
 		BodyContentType: "application/octet-stream",
 	})
