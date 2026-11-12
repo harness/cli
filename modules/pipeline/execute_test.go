@@ -75,3 +75,23 @@ func TestMergeIntoTemplate(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeIntoTemplate_UnmatchedKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		inputs  map[string]string
+		wantErr string
+	}{
+		{"typo in key", map[string]string{"image_tga": "v2"}, `--input "image_tga" matched no runtime input`},
+		{"key is a fixed value", map[string]string{"region": "us"}, `--input "region" is not a runtime input in this pipeline`},
+		{"one bad key among good ones", map[string]string{"image_tag": "v2", "nope": "x"}, `--input "nope" matched no runtime input`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := mergeIntoTemplate(inputTemplate, tc.inputs)
+			if err == nil || err.Error() != tc.wantErr {
+				t.Errorf("error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
