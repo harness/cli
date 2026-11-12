@@ -5,6 +5,7 @@ package auth
 
 import (
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -404,4 +405,117 @@ func TestSetAuthHeader_HarnessAccount(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProfileAPIKeyEnvVar(t *testing.T) {
+	for name, want := range map[string]string{
+		"default":  "HARNESS_PROFILE_DEFAULT_API_KEY",
+		"my-prod":  "HARNESS_PROFILE_MY_PROD_API_KEY",
+		"acme.dev": "HARNESS_PROFILE_ACME_DEV_API_KEY",
+		"Team 2":   "HARNESS_PROFILE_TEAM_2_API_KEY",
+	} {
+		if got := ProfileAPIKeyEnvVar(name); got != want {
+			t.Errorf("ProfileAPIKeyEnvVar(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestResolveProfileTokenFromEnv(t *testing.T) {
+	const fileTok = "pat.test-account.file-token.not-a-secret"
+	const envTok = "pat.test-account.env-token.not-a-secret"
+	setup := func(t *testing.T, withFileCred bool, authType AuthType) {
+		t.Helper()
+		clearAuthEnv(t)
+		t.Setenv(hbase.EnvCLIHome, t.TempDir())
+		cfg := &config.Config{Profiles: map[string]*config.Profile{
+			"my-prod": {AccountID: "test-account", AuthType: authType},
+		}}
+		if err := config.SaveConfig(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if withFileCred {
+			if err := SetCredential("my-prod", fileTok); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	t.Run("env var wins over credentials file", func(t *testing.T) {
+		setup(t, true, "")
+		t.Setenv("HARNESS_PROFILE_MY_PROD_API_KEY", envTok)
+		r, err := resolveProfile("my-prod")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.PATToken != envTok || r.TokenEnvVar != "HARNESS_PROFILE_MY_PROD_API_KEY" {
+			t.Errorf("got token %q, env var %q", r.PATToken, r.TokenEnvVar)
+		}
+	})
+	t.Run("env var works with no credentials file entry", func(t *testing.T) {
+		setup(t, false, "")
+		t.Setenv("HARNESS_PROFILE_MY_PROD_API_KEY", envTok)
+		r, err := resolveProfile("my-prod")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.PATToken != envTok {
+			t.Errorf("got token %q", r.PATToken)
+		}
+	})
+	t.Run("falls back to credentials file", func(t *testing.T) {
+		setup(t, true, "")
+		r, err := resolveProfile("my-prod")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.PATToken != fileTok || r.TokenEnvVar != "" {
+			t.Errorf("got token %q, env var %q", r.PATToken, r.TokenEnvVar)
+		}
+	})
+	t.Run("missing token error names the env var", func(t *testing.T) {
+		setup(t, false, "")
+		_, err := resolveProfile("my-prod")
+		if err == nil || !strings.Contains(err.Error(), "HARNESS_PROFILE_MY_PROD_API_KEY") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	t.Run("unreadable credentials file does not block the env var", func(t *testing.T) {
+		setup(t, false, "")
+		// A directory at the credentials path makes reading it fail.
+		if err := os.MkdirAll(hbase.GetCredentialsFilePath(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadCredentials(); err == nil {
+			t.Fatal("expected credentials read to fail")
+		}
+		t.Setenv("HARNESS_PROFILE_MY_PROD_API_KEY", envTok)
+		if _, err := resolveProfile("my-prod"); err != nil {
+			t.Errorf("env var should not need the credentials file: %v", err)
+		}
+	})
+	t.Run("stored identity is not attributed to the env key", func(t *testing.T) {
+		setup(t, true, "")
+		cfg, _ := config.LoadConfig()
+		cfg.Profiles["my-prod"].Email = "owner@example.com"
+		cfg.Profiles["my-prod"].UserID = "owner-uuid"
+		cfg.Profiles["my-prod"].UserType = config.UserTypeUser
+		if err := config.SaveConfig(cfg); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("HARNESS_PROFILE_MY_PROD_API_KEY", envTok)
+		r, err := resolveProfile("my-prod")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Email != "" || r.UserID != "" || r.UserType != "" {
+			t.Errorf("identity leaked: %q %q %q", r.Email, r.UserID, r.UserType)
+		}
+	})
+	t.Run("SSO profiles ignore the env var", func(t *testing.T) {
+		setup(t, false, AuthTypeSSO)
+		t.Setenv("HARNESS_PROFILE_MY_PROD_API_KEY", envTok)
+		if _, err := resolveProfile("my-prod"); err == nil {
+			t.Error("expected error: SSO profile must not use the env var")
+		}
+	})
 }

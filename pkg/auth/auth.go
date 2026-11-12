@@ -68,6 +68,7 @@ type ResolvedAuth struct {
 	UserType        string    // config.UserTypeUser or config.UserTypeServiceAccount; empty for env-var auth, legacy profiles, or SSO
 	UserID          string    // Harness user uuid from profile; empty for env-var auth, legacy profiles, or service accounts
 	TokenKind       TokenKind // pat, sat, jwt, or "" (unknown)
+	TokenEnvVar     string    // name of the env var the token came from; empty when it came from the credentials file
 
 	// Exactly one of these is set depending on AuthType.
 	PATToken     string // set when AuthType == AuthTypePAT
@@ -323,6 +324,21 @@ func ResolvePipelineAuth(cfg *PipelineAuthConfig, forced bool, evalHeaders func(
 	}, true, nil
 }
 
+// ProfileAPIKeyEnvVar returns the env var that can supply the API key for the
+// named profile: HARNESS_PROFILE_<NAME>_API_KEY, where <NAME> is the profile
+// name uppercased with every non-alphanumeric character replaced by "_".
+func ProfileAPIKeyEnvVar(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(name) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return "HARNESS_PROFILE_" + b.String() + "_API_KEY"
+}
+
 func resolveProfile(name string) (*ResolvedAuth, error) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -335,24 +351,43 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		}
 		return nil, fmt.Errorf("profile %q not found", name)
 	}
-	creds, err := LoadCredentials()
-	if err != nil {
-		return nil, fmt.Errorf("loading credentials: %w", err)
-	}
 	authType := p.AuthType
 	if authType == "" {
 		authType = AuthTypePAT
 	}
-	profileCreds := creds[name]
 	activeToken := ""
-	if profileCreds != nil {
-		if authType == AuthTypeSSO {
-			activeToken = profileCreds.SSOToken
-		} else {
-			activeToken = profileCreds.Token
+	tokenEnvVar := ""
+	var profileCreds *ProfileCredentials
+	// PAT/SAT profiles may take their token from the environment instead of
+	// the credentials file. The env var wins so a shared machine's users can
+	// bring their own key, and the file is not read at all in that case since
+	// those users may lack access to it. SSO profiles need a refresh token,
+	// so are excluded.
+	if authType != AuthTypeSSO {
+		envVar := ProfileAPIKeyEnvVar(name)
+		if v := os.Getenv(envVar); v != "" {
+			activeToken = v
+			tokenEnvVar = envVar
+		}
+	}
+	if tokenEnvVar == "" {
+		creds, err := LoadCredentials()
+		if err != nil {
+			return nil, fmt.Errorf("loading credentials: %w", err)
+		}
+		profileCreds = creds[name]
+		if profileCreds != nil {
+			if authType == AuthTypeSSO {
+				activeToken = profileCreds.SSOToken
+			} else {
+				activeToken = profileCreds.Token
+			}
 		}
 	}
 	if activeToken == "" {
+		if authType != AuthTypeSSO {
+			return nil, fmt.Errorf("no token found for profile %q — run 'harness auth login' to re-authenticate, or set %s", name, ProfileAPIKeyEnvVar(name))
+		}
 		return nil, fmt.Errorf("no token found for profile %q — run 'harness auth login' to re-authenticate", name)
 	}
 	apiURL := p.APIUrl
@@ -376,6 +411,11 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		UserType:    p.UserType,
 		UserID:      p.UserID,
 		TokenKind:   TokenType(activeToken),
+		TokenEnvVar: tokenEnvVar,
+	}
+	if tokenEnvVar != "" {
+		// The stored identity belongs to whoever logged in, not the env key's owner.
+		r.Email, r.UserType, r.UserID = "", "", ""
 	}
 	if authType == AuthTypeSSO {
 		r.SSOToken = activeToken

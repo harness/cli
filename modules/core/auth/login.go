@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -60,6 +61,12 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return err
+	}
+
+	if !sso {
+		if err := confirmSimilarProfiles(cfg, profileName); err != nil {
+			return err
+		}
 	}
 
 	if sso {
@@ -226,6 +233,54 @@ func profileArgSuffix(profileName string) string {
 		return ""
 	}
 	return " --profile " + profileName
+}
+
+// similarProfiles returns the names of existing PAT/SAT profiles, other than
+// profileName, that share its HARNESS_PROFILE_<NAME>_API_KEY env var (e.g.
+// "my-prod", "my_prod" and "My_Prod"). SSO profiles never read that env var,
+// so they cannot be confused with it. Result is sorted.
+func similarProfiles(cfg *config.Config, profileName string) []string {
+	envVar := auth.ProfileAPIKeyEnvVar(profileName)
+	var out []string
+	for name, p := range cfg.Profiles {
+		if name == profileName || (p != nil && p.AuthType == config.AuthTypeSSO) {
+			continue
+		}
+		if auth.ProfileAPIKeyEnvVar(name) == envVar {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// confirmSimilarProfiles warns when a new profile name would share an API key
+// env var with an existing profile, since one variable would then supply the
+// token for both. On a terminal it asks before continuing; without one it only
+// warns, so scripts keep working. Re-logging into an existing profile is not
+// checked.
+func confirmSimilarProfiles(cfg *config.Config, profileName string) error {
+	if _, exists := cfg.Profiles[profileName]; exists {
+		return nil
+	}
+	similar := similarProfiles(cfg, profileName)
+	if len(similar) == 0 {
+		return nil
+	}
+	quoted := make([]string, len(similar))
+	for i, n := range similar {
+		quoted[i] = fmt.Sprintf("%q", n)
+	}
+	fmt.Fprintf(os.Stderr, "WARNING: profile %q has a similar name to existing profile(s) %s.\n", profileName, strings.Join(quoted, ", "))
+	fmt.Fprintf(os.Stderr, "They would share the API key env var %s.\n\n", auth.ProfileAPIKeyEnvVar(profileName))
+	if !console.IsBothTTY() {
+		return nil
+	}
+	if !console.PromptYesNo("Continue with this profile name?") {
+		return fmt.Errorf("canceled by user — config not written")
+	}
+	fmt.Fprintln(os.Stderr)
+	return nil
 }
 
 // confirmOverwrite resolves what to do when profileName already exists: honor
