@@ -148,6 +148,7 @@ func mergeIntoTemplate(templateYaml string, inputs map[string]string) (string, e
 		inputs: make(map[string]string, len(inputs)),
 		used:   map[string]bool{},
 		fixed:  map[string]bool{},
+		stages: map[string]bool{},
 	}
 	for k, v := range inputs {
 		m.inputs[strings.ToLower(k)] = v
@@ -169,11 +170,14 @@ func mergeIntoTemplate(templateYaml string, inputs map[string]string) (string, e
 }
 
 // inputMerger substitutes <+input> placeholders and records which user keys were used.
-// fixed holds keys and variable names whose value is not a placeholder.
+// fixed holds keys and variable names whose value is not a placeholder. Inside a stage
+// both maps also carry the "<stage>.<key>" form, which is how scoped --input keys are matched.
 type inputMerger struct {
 	inputs map[string]string
 	used   map[string]bool
 	fixed  map[string]bool
+	stages map[string]bool
+	stage  string
 }
 
 // walk replaces <+input> scalar values. For mapping nodes it checks both the key name
@@ -204,12 +208,10 @@ func (m *inputMerger) walk(node *yaml.Node) {
 			}
 			if !isInputPlaceholder(valNode) {
 				if valNode.Kind == yaml.ScalarNode {
-					m.fixed[leafKey] = true
-					if siblingName != "" {
-						m.fixed[siblingName] = true
-					}
+					m.markFixed(leafKey)
+					m.markFixed(siblingName)
 				}
-				m.walk(valNode)
+				m.walkChild(keyNode, valNode)
 				continue
 			}
 			if m.replace(valNode, siblingName) || m.replace(valNode, leafKey) {
@@ -220,16 +222,52 @@ func (m *inputMerger) walk(node *yaml.Node) {
 	}
 }
 
+// walkChild walks val, scoping everything under a "stage:" mapping to its identifier.
+func (m *inputMerger) walkChild(key, val *yaml.Node) {
+	if key.Value != "stage" || val.Kind != yaml.MappingNode {
+		m.walk(val)
+		return
+	}
+	prev := m.stage
+	for i := 0; i+1 < len(val.Content); i += 2 {
+		if val.Content[i].Value == "identifier" {
+			m.stage = strings.ToLower(val.Content[i+1].Value)
+			m.stages[m.stage] = true
+		}
+	}
+	m.walk(val)
+	m.stage = prev
+}
+
+func (m *inputMerger) markFixed(key string) {
+	if key == "" {
+		return
+	}
+	m.fixed[key] = true
+	if m.stage != "" {
+		m.fixed[m.stage+"."+key] = true
+	}
+}
+
 // replace sets node to the user value for key and reports whether one was found.
+// Inside a stage the scoped "<stage>.<key>" form is tried first.
 func (m *inputMerger) replace(node *yaml.Node, key string) bool {
-	v, ok := m.inputs[key]
-	if !ok || key == "" {
+	if key == "" {
 		return false
 	}
-	node.Value = v
-	node.Tag = "!!str"
-	m.used[key] = true
-	return true
+	candidates := []string{key}
+	if m.stage != "" {
+		candidates = []string{m.stage + "." + key, key}
+	}
+	for _, c := range candidates {
+		if v, ok := m.inputs[c]; ok {
+			node.Value = v
+			node.Tag = "!!str"
+			m.used[c] = true
+			return true
+		}
+	}
+	return false
 }
 
 // unmatchedError reports user keys that replaced nothing, in the order given by sorted key.
@@ -242,6 +280,10 @@ func (m *inputMerger) unmatchedError(inputs map[string]string) error {
 		case m.fixed[lk]:
 			errs = append(errs, fmt.Errorf("--input %q is not a runtime input in this pipeline", k))
 		default:
+			if stage, _, scoped := strings.Cut(lk, "."); scoped && !m.stages[stage] {
+				errs = append(errs, fmt.Errorf("--input %q: unknown stage %q", k, stage))
+				continue
+			}
 			errs = append(errs, fmt.Errorf("--input %q matched no runtime input", k))
 		}
 	}
