@@ -6,11 +6,13 @@ package har
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/registry"
 )
@@ -26,8 +28,7 @@ func withPackageHost(fn registry.WorkflowFn) registry.WorkflowFn {
 	}
 }
 
-// Core auth falls back to the production package host when none is configured, so
-// off production that value is a default, not a choice, and must be looked up.
+// Off production, a package host the user did not configure must be looked up.
 func resolvePackageHost(ctx *cmdctx.Ctx) error {
 	a := ctx.Auth
 	if a == nil || a.Source == auth.SourcePipeline || !packageHostIsDefaulted(a) {
@@ -64,7 +65,31 @@ func packageHostHint(a *auth.ResolvedAuth) string {
 }
 
 func packageHostIsDefaulted(a *auth.ResolvedAuth) bool {
+	return strings.TrimRight(a.APIUrl, "/") != hbase.DefaultAPIURL && !packageHostConfigured(a)
+}
+
+// packageHostConfigured reports whether the user chose a.RegistryURL. Core auth
+// fills in the production host when none is configured, so that value counts as
+// chosen only if the env var or the saved profile actually sets it.
+func packageHostConfigured(a *auth.ResolvedAuth) bool {
 	registryURL := strings.TrimRight(a.RegistryURL, "/")
-	return (registryURL == "" || registryURL == hbase.DefaultRegistryURL) &&
-		strings.TrimRight(a.APIUrl, "/") != hbase.DefaultAPIURL
+	if registryURL == "" {
+		return false
+	}
+	if registryURL != hbase.DefaultRegistryURL {
+		return true
+	}
+	if a.Source == auth.SourceEnv {
+		return os.Getenv(hbase.EnvRegistryURL) != ""
+	}
+	name, ok := strings.CutPrefix(a.Source, "profile:")
+	if !ok {
+		return false
+	}
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return false
+	}
+	p := cfg.Profiles[name]
+	return p != nil && p.RegistryURL != ""
 }

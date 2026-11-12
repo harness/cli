@@ -15,6 +15,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
 	"github.com/harness/cli/v3/pkg/hbase"
 )
 
@@ -26,6 +27,8 @@ func TestWithPackageHost(t *testing.T) {
 		registryURL string
 		source      string
 		sso         bool
+		envRegURL   string // HARNESS_REGISTRY_URL
+		profRegURL  string // registry_url saved in profile "default"
 		status      int
 		body        string
 		wantLookup  bool
@@ -63,6 +66,19 @@ func TestWithPackageHost(t *testing.T) {
 			wantErr: "harness auth login --overwrite",
 		},
 		{
+			name: "production host set on purpose via env is kept", registryURL: hbase.DefaultRegistryURL,
+			source: auth.SourceEnv, envRegURL: hbase.DefaultRegistryURL, wantURL: hbase.DefaultRegistryURL,
+		},
+		{
+			name: "production host saved in the profile is kept", registryURL: hbase.DefaultRegistryURL,
+			source: "profile:default", profRegURL: hbase.DefaultRegistryURL, wantURL: hbase.DefaultRegistryURL,
+		},
+		{
+			name: "profile without a saved host is looked up", registryURL: hbase.DefaultRegistryURL,
+			source: "profile:default", status: http.StatusOK, body: `{"data":{"registryUrl":"` + derived + `"}}`,
+			wantLookup: true, wantURL: derived,
+		},
+		{
 			name: "failed lookup for an SSO profile has no login hint", registryURL: hbase.DefaultRegistryURL,
 			source: "profile:default", sso: true, status: http.StatusInternalServerError, body: `{}`, wantLookup: true,
 			wantErr: "could not get the package registry URL from http://127.0.0.1",
@@ -74,6 +90,13 @@ func TestWithPackageHost(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(hbase.EnvCLIHome, t.TempDir())
+			t.Setenv(hbase.EnvRegistryURL, tc.envRegURL)
+			if err := config.SaveConfig(&config.Config{Profiles: map[string]*config.Profile{
+				"default": {RegistryURL: tc.profRegURL},
+			}}); err != nil {
+				t.Fatal(err)
+			}
 			var lookups int
 			var gotAccount string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
