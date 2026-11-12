@@ -612,7 +612,7 @@ commands:
         description: Input set identifier to apply when executing
         is_multi: true
       - name: input
-        description: "Runtime input as key=value (repeatable); e.g. --input loop_count=5"
+        description: "Runtime input as key=value (repeatable); e.g. --input loop_count=5. Use <stage>.<key>=value to set one stage only"
         is_multi: true
       - name: input-file
         description: "Path to a runtimeInputYaml file (use - for stdin)"
@@ -689,7 +689,7 @@ commands:
         description: Input set identifier(s) to merge (repeatable)
         is_multi: true
       - name: input
-        description: "Runtime input as key=value (repeatable); e.g. --input loop_count=5"
+        description: "Runtime input as key=value (repeatable); e.g. --input loop_count=5. Use <stage>.<key>=value to set one stage only"
         is_multi: true
       - name: input-file
         description: "Path to a runtimeInputYaml file (use - for stdin)"
@@ -765,7 +765,7 @@ commands:
       - name: notes
         description: Notes for this execution
       - name: input
-        description: "Runtime input as key=value (repeatable)"
+        description: "Runtime input as key=value (repeatable); use <stage>.<key>=value to set one stage only"
         is_multi: true
       - name: input-file
         description: "Path to a runtimeInputYaml file (use - for stdin)"
