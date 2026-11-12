@@ -1116,7 +1116,15 @@ func sendRawFileBody(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, m
 		if err != nil {
 			return nil, nil, fmt.Errorf("opening -f: %w", err)
 		}
-		body, size = f, info.Size()
+		if info.Mode().IsRegular() {
+			body, size = f, info.Size()
+		} else {
+			b, err := io.ReadAll(f)
+			if err != nil {
+				return nil, nil, fmt.Errorf("reading input: %w", err)
+			}
+			body, size = bytes.NewReader(b), int64(len(b))
+		}
 	}
 	if size == 0 {
 		return nil, nil, fmt.Errorf("-f file is empty")
