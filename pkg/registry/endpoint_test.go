@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -2461,6 +2463,56 @@ func TestCallEndpointFull_OctetStreamFileBody(t *testing.T) {
 		}
 		if cap.method != "" {
 			t.Fatal("server received a request for an empty file")
+		}
+	})
+
+	t.Run("pipe input is buffered and sent in full", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("no /dev/fd on windows")
+		}
+		for name, data := range map[string][]byte{
+			"small": []byte("abc"),
+			"large": bytes.Repeat([]byte{0xab}, 1<<20),
+		} {
+			t.Run(name, func(t *testing.T) {
+				srv, cap := captureServer(t, `{}`)
+				pr, pw, err := os.Pipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer pr.Close()
+				go func() {
+					_, _ = pw.Write(data)
+					pw.Close()
+				}()
+				ctx := testCtx(srv.URL, map[string]any{"file": fmt.Sprintf("/dev/fd/%d", pr.Fd())})
+				if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if !bytes.Equal(cap.body, data) {
+					t.Fatalf("got %d bytes, want %d", len(cap.body), len(data))
+				}
+			})
+		}
+	})
+
+	t.Run("empty pipe is rejected", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("no /dev/fd on windows")
+		}
+		srv, cap := captureServer(t, `{}`)
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pr.Close()
+		pw.Close()
+		ctx := testCtx(srv.URL, map[string]any{"file": fmt.Sprintf("/dev/fd/%d", pr.Fd())})
+		if _, _, err := callEndpointFull(ctx, ep, nil); err == nil || !strings.Contains(err.Error(), "empty") {
+			t.Fatalf("err = %v, want empty-file error", err)
+		}
+		if cap.method != "" {
+			t.Fatal("server received a request for an empty pipe")
 		}
 	})
 
