@@ -103,6 +103,15 @@ func (r *Registry) SetModuleMeta(m spec.ModuleMeta) {
 	r.moduleMetas = append(r.moduleMetas, m)
 }
 
+// MarkEmbedded flags an already-registered module as compiled into this binary
+// rather than dispatched to a plugin, and records its version.
+func (r *Registry) MarkEmbedded(module, version string) {
+	if m := r.moduleMeta(module); m != nil {
+		m.Embedded = true
+		m.Version = version
+	}
+}
+
 // RecordHiddenModule records a module declared module_type: hidden, regardless
 // of whether it is currently enabled. This is the only place `install module`
 // can recognize a hidden-but-disabled module by name — such a module is
@@ -226,7 +235,7 @@ func (r *Registry) GetVerbInfos() []spec.VerbInfo {
 // RegisterNoun registers a noun definition. Returns an error on duplicate or invalid fields.
 func (r *Registry) RegisterNoun(nd spec.NounDef) error {
 	if _, exists := r.nouns[nd.Noun]; exists {
-		return fmt.Errorf("duplicate noun %q", nd.Noun)
+		return fmt.Errorf("duplicate noun %q (already registered by module %q)", nd.Noun, r.moduleForNoun(nd.Noun))
 	}
 	for _, f := range nd.Fields {
 		if err := f.Validate(); err != nil {

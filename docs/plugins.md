@@ -89,7 +89,7 @@ If the plugin binary is not on `PATH`, `harness` prints a clear error with insta
 
 1. Create `modules/<name>/` with a `<name>.go` that exports `ModuleInit(reg registry.ModuleRegistrar)`.
 2. Add `pkg/spec/<name>.spec.yaml` with `module_type: builtin`.
-3. Call `<name>.ModuleInit(reg.Module("<name>"))` in `cmd/harness/main-harness.go`.
+3. Call `<name>.ModuleInit(reg.Module("<name>"))` in `cmd/harness/harnessapp/harnessapp.go`.
 4. Run `task check:specs` to validate.
 
 ---
@@ -112,7 +112,7 @@ If the plugin binary is not on `PATH`, `harness` prints a clear error with insta
    replace github.com/harness/cli/v3 => ../../
    ```
 7. Run `task check:specs` to validate.
-8. No change to `cmd/harness/main-harness.go` is needed — plugin dispatch is driven by the spec.
+8. No change to `cmd/harness/harnessapp/harnessapp.go` is needed — plugin dispatch is driven by the spec.
 
 ---
 

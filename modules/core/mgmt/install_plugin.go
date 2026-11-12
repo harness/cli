@@ -82,6 +82,15 @@ func UninstalledRegistryPlugins(seen map[string]bool) []spec.ModuleMeta {
 	return metas
 }
 
+// checkNotEmbedded rejects installing a plugin whose module is already compiled
+// into this binary; the embedded copy always wins, so an install would be inert.
+func checkNotEmbedded(name string) error {
+	if _, ok := hbase.EmbeddedPlugins[name]; ok {
+		return fmt.Errorf("plugin %q is built into this harness binary and cannot be installed separately", name)
+	}
+	return nil
+}
+
 func registryNames() string {
 	names := make([]string, 0, len(pluginRegistry))
 	for k := range pluginRegistry {
@@ -188,6 +197,9 @@ func InstallPluginHandler(ctx *cmdctx.Ctx) error {
 		}
 		return nil
 	case parsed.PluginName != "":
+		if err := checkNotEmbedded(parsed.PluginName); err != nil {
+			return err
+		}
 		// A registry entry's asset is already pinned, so --plugin-name has
 		// nothing to disambiguate.
 		if pluginName != "" {
@@ -239,6 +251,9 @@ func withLocalPathHint(ref string, err error) error {
 // owner/repo[/prefix] ref form where the repo is user-supplied and pkgName may
 // have to be discovered from the release's own assets.
 func installRegistryPlugin(name, version, githubToken string, allowDrafts, force, check bool) error {
+	if err := checkNotEmbedded(name); err != nil {
+		return err
+	}
 	entry, ok := pluginRegistry[name]
 	if !ok {
 		return fmt.Errorf("unknown plugin %q — supported: %s\n\nTo install an unregistered plugin, pass its tarball URL, path, or owner/repo ref", name, registryNames())
@@ -555,6 +570,9 @@ func installPluginBinary(srcPath, source, expectName string) (*installedPlugin, 
 	if !ok {
 		return nil, fmt.Errorf("%s: plugin binary %q must be named %s<name> (lowercase alphanumeric, single dashes as separators)",
 			source, filepath.Base(srcPath), plugin.BinaryPrefix)
+	}
+	if err := checkNotEmbedded(fileName); err != nil {
+		return nil, err
 	}
 	id, err := plugin.QueryIdentity(srcPath)
 	if err != nil {

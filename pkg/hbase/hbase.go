@@ -21,6 +21,14 @@ var RunID = uuid.New().String()
 // overridden at build time via ldflags: -X github.com/harness/cli/v3/pkg/hbase.Version=x.y.z
 var Version = "0.1.0-dev"
 
+// Distribution is non-empty in a custom build of the CLI (see harnessapp.Options).
+// Such a build cannot update itself from the stock release.
+var Distribution string
+
+// EmbeddedPlugins maps the name of each plugin-style module compiled into this
+// binary to its version.
+var EmbeddedPlugins map[string]string
+
 // overridden at build time via ldflags: -X github.com/harness/cli/v3/pkg/hbase.BuildTime=yyyymmddhhmmZ
 var BuildTime = ""
 
