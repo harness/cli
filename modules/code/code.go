@@ -26,7 +26,6 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(getPRWorkflowID, GetPRWorkflow)
 	reg.RegisterWorkflow(pullRepositoryWorkflowID, pullRepositoryWorkflow)
 	reg.RegisterWorkflow(pullPRWorkflowID, pullPRWorkflow)
-	reg.RegisterWorkflow(uploadRepoWorkflowID, uploadRepoWorkflow)
 	reg.RegisterWorkflow(getPRCheckLogWorkflowID, getPRCheckLogHandler)
 	reg.RegisterWorkflow(getPRCheckWorkflowID, getPRCheckHandler)
 	reg.RegisterItemFn(getPRCheckItemFnID, getPRCheckItemFn)

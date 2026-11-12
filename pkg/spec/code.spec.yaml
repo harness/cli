@@ -1264,20 +1264,21 @@ commands:
     long: |
       Uploads a file to the repository and prints its link plus a Markdown snippet to
       paste into a PR description (--set description=... or -f on create/update pr).
-      Supported types: png, jpg, jpeg, gif, webp, svg, mp4, mov, webm.
-    handler_type: workflow
-    workflow_id: execute_repo_upload
+      Images (png, jpg, gif, webp, svg) print an inline ![image] snippet; videos
+      (mp4, mov, webm) print a [video] link. The server decides which files it accepts.
+    handler_type: endpoint
     completion_seq:
       - completion_noun: repository
-    flags:
-      - name: file
-        short: f
-        description: "Image or video file to upload"
-        required: true
-      - name: preview-request
-        description: "Print the upload request without sending it"
-        is_bool: true
-        hidden: true
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.id}}/uploads
+      file_body: required
+      content_type: application/octet-stream
+      no_fields: true
+      text_header: |
+        file_path: {{it.file_path}}
+        url: {{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}&orgIdentifier={{auth.org}}&projectIdentifier={{auth.project}}
+        snippet: {{flags.file matches '(?i)[.](mp4|mov|webm)$' ? '[' : '!['}}{{lastPart(flags.file)}}]({{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}&orgIdentifier={{auth.org}}&projectIdentifier={{auth.project}})
 
   # ── pr conversation (threaded activity timeline as prose) ──────────────────────
 
