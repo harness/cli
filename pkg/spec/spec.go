@@ -199,12 +199,28 @@ type ModuleMeta struct {
 	// inferred from dispatch fields.
 	FromSpecDir bool
 
+	// Embedded is true for a plugin-style module compiled into a custom build of
+	// the binary. It runs in-process and reports Version from the build.
+	Embedded bool
+
 	// Provenance fields — host-owned, populated only for plugins installed to
 	// ~/.harness/spec. Empty for builtin (embedded) modules.
 	Version     string // plugin --version captured at install/update time (no "v" prefix)
 	BinaryPath  string // path to the plugin binary to dispatch to (may contain ~)
 	Source      string // url-or-origin the tarball was installed from
 	InstalledAt string // when this plugin was installed (RFC3339)
+}
+
+// ModuleTypeEmbedded is how `list module` reports a module with ModuleMeta.Embedded
+// set. It is display-only: a spec file may not declare it.
+const ModuleTypeEmbedded = "embedded"
+
+// DisplayType is the module type shown to users.
+func (m ModuleMeta) DisplayType() string {
+	if m.Embedded {
+		return ModuleTypeEmbedded
+	}
+	return m.Type
 }
 
 // IsPlugin reports whether commands in this module dispatch to a separately

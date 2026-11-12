@@ -100,11 +100,11 @@ modules/har/          # External HAR module (separate go.mod)
 
 ## PR scope: core vs module
 
-- **Module files:** `modules/<module>/**` and `pkg/spec/<module>.spec.yaml`. **Core files:** everything else, including `modules/core/`, `pkg/spec/core.spec.yaml`, `pkg/spec/spec.go`, and `cmd/harness/main-harness.go`. `.github/CODEOWNERS` encodes this split.
+- **Module files:** `modules/<module>/**` and `pkg/spec/<module>.spec.yaml`. **Core files:** everything else, including `modules/core/`, `pkg/spec/core.spec.yaml`, `pkg/spec/spec.go`, and `cmd/harness/harnessapp/harnessapp.go`. `.github/CODEOWNERS` encodes this split.
 - A PR is either a module PR (module files only) or a core PR. Core PRs get a stricter review and need core CLI team approval.
 - Don't bundle a new core feature with module changes that adopt it — land the core PR first, then adopt it in a module PR.
 - Exception: a core PR may edit module files when required for compatibility (e.g. renaming a spec YAML key across all specs).
-- Adding a new module is a core change (it wires into `main-harness.go`).
+- Adding a new module is a core change (it wires into `harnessapp.go`).
 - Module tests cover module-owned logic only; never test that the spec framework honors a declaration (e.g. a `body_params` entry reaches the request).
 
 See [docs/contributing.md](docs/contributing.md) for details.
@@ -220,7 +220,7 @@ An empty `body_params` still sends `{}` (required by gRPC-gateway for POST/PATCH
 
 ## Adding a new spec file
 
-Adding a module is a core change (step 7 edits `main-harness.go`); see [PR scope](#pr-scope-core-vs-module).
+Adding a module is a core change (step 7 edits `harnessapp.go`); see [PR scope](#pr-scope-core-vs-module).
 
 1. Create `pkg/spec/<module>.spec.yaml`.
 2. It is automatically embedded via `//go:embed *.spec.yaml` in `spec.go`.
@@ -228,7 +228,7 @@ Adding a module is a core change (step 7 edits `main-harness.go`); see [PR scope
 4. Add `noun_aliases` (at minimum the plural form) to every noun in the spec.
 5. Create `modules/<module>/<module>.help.txt` — see `modules/platform/platform.help.txt` for the format. Include a domain-model section and a `{{nouns}}` placeholder.
 6. Create `modules/<module>/<module>.go` — embed the help.txt and call `reg.SetHelpText(helpText)` in `ModuleInit`. See `modules/kg/kg.go` for the minimal pattern.
-7. Wire it into `cmd/harness/main-harness.go`: add the import and call `<module>.ModuleInit(reg.Module("<module>"))`.
+7. Wire it into `cmd/harness/harnessapp/harnessapp.go`: add the import and call `<module>.ModuleInit(reg.Module("<module>"))`.
 8. Run `task build && cp $(go env GOPATH)/bin/harness ~/.local/bin/harness` to test.
 
 ## Testing commands

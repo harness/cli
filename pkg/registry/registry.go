@@ -103,6 +103,15 @@ func (r *Registry) SetModuleMeta(m spec.ModuleMeta) {
 	r.moduleMetas = append(r.moduleMetas, m)
 }
 
+// MarkEmbedded flags an already-registered module as compiled into this binary
+// rather than dispatched to a plugin, and records its version.
+func (r *Registry) MarkEmbedded(module, version string) {
+	if m := r.moduleMeta(module); m != nil {
+		m.Embedded = true
+		m.Version = version
+	}
+}
+
 // RecordHiddenModule records a module declared module_type: hidden, regardless
 // of whether it is currently enabled. This is the only place `install module`
 // can recognize a hidden-but-disabled module by name — such a module is

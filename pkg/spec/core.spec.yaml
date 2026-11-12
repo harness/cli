@@ -417,7 +417,7 @@ commands:
     flags:
       - name: module-type
         description: Filter by module type
-        completion_values: [builtin, plugin]
+        completion_values: [builtin, plugin, embedded]
     endpoint:
       fetch_fn: list_modules_fetch
       items_expr: it

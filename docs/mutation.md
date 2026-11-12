@@ -39,7 +39,7 @@ reg.RegisterFieldType("owners", cmdctx.FieldTypeHandler{
 })
 ```
 
-`ModuleRegistrar.RegisterFieldType("owners", ...)` registers the type as `fme:owners` for the `fme` module. There is currently no `modules/fme` package: create its module initialization and wire it in `cmd/harness/main-harness.go` before referring to `fme:owners` in a spec. Writable fields must resolve to a handler with a `Mutate` function; `Normalize` and `Encode` are optional. Built-in types include scalar (the default), `bool` and `int` (`--set` is parsed and written unquoted; invalid values are rejected), `tags` (key/value map), and `set` (string members).
+`ModuleRegistrar.RegisterFieldType("owners", ...)` registers the type as `fme:owners` for the `fme` module. There is currently no `modules/fme` package: create its module initialization and wire it in `cmd/harness/harnessapp/harnessapp.go` before referring to `fme:owners` in a spec. Writable fields must resolve to a handler with a `Mutate` function; `Normalize` and `Encode` are optional. Built-in types include scalar (the default), `bool` and `int` (`--set` is parsed and written unquoted; invalid values are rejected), `tags` (key/value map), and `set` (string members).
 
 There is no generic object-set field type or bracketed literal-member syntax. The built-in `tags` handler is a string-keyed map, **not** a handler for FME's named tag objects. If FME needs those semantics, register an API-specific type such as `fme:tags` and define its member identity, accepted operands, duplicate handling, clear behavior, and wire encoding there. Core dispatches the operations; it does not decide the shape of FME owners or tags.
 
