@@ -1277,8 +1277,8 @@ commands:
       no_fields: true
       text_header: |
         file_path: {{it.file_path}}
-        url: {{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}&orgIdentifier={{auth.org}}&projectIdentifier={{auth.project}}
-        snippet: {{it.file_path matches '(?i)[.](mp4|mov|webm)$' ? '[video]' : '![image]'}}({{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}&orgIdentifier={{auth.org}}&projectIdentifier={{auth.project}})
+        url: {{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}{{ctx.level != 'account' && auth.org != '' ? '&orgIdentifier=' + auth.org : ''}}{{ctx.level not in ['account', 'org'] && auth.project != '' ? '&projectIdentifier=' + auth.project : ''}}
+        snippet: {{it.file_path matches '(?i)[.](mp4|mov|webm)$' ? '[video]' : '![image]'}}({{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}{{ctx.level != 'account' && auth.org != '' ? '&orgIdentifier=' + auth.org : ''}}{{ctx.level not in ['account', 'org'] && auth.project != '' ? '&projectIdentifier=' + auth.project : ''}})
 
   # ── pr conversation (threaded activity timeline as prose) ──────────────────────
 
