@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -2422,4 +2424,113 @@ func TestEndpoint_IdFormatsPathPreview(t *testing.T) {
 			t.Errorf("preview for %q = %q, want %q", tt.id, got, tt.want)
 		}
 	}
+}
+
+func TestCallEndpointFull_OctetStreamFileBody(t *testing.T) {
+	ep := &spec.EndpointSpec{
+		Path: "/up", Method: "POST", FileBody: spec.FileBodyRequired,
+		ContentType: "application/octet-stream",
+	}
+	newFile := func(t *testing.T, data []byte) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "a.png")
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	t.Run("sends non-text bytes unchanged", func(t *testing.T) {
+		srv, cap := captureServer(t, `{}`)
+		data := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, '\r', '\n'}
+		ctx := testCtx(srv.URL, map[string]any{"file": newFile(t, data)})
+		if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(cap.body) != string(data) {
+			t.Fatalf("body = %v, want %v", cap.body, data)
+		}
+		if cap.contentType != "application/octet-stream" {
+			t.Fatalf("content-type = %q", cap.contentType)
+		}
+	})
+
+	t.Run("empty file is rejected before any request", func(t *testing.T) {
+		srv, cap := captureServer(t, `{}`)
+		ctx := testCtx(srv.URL, map[string]any{"file": newFile(t, nil)})
+		if _, _, err := callEndpointFull(ctx, ep, nil); err == nil || !strings.Contains(err.Error(), "empty") {
+			t.Fatalf("err = %v, want empty-file error", err)
+		}
+		if cap.method != "" {
+			t.Fatal("server received a request for an empty file")
+		}
+	})
+
+	t.Run("pipe input is buffered and sent in full", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("no /dev/fd on windows")
+		}
+		for name, data := range map[string][]byte{
+			"small": []byte("abc"),
+			"large": bytes.Repeat([]byte{0xab}, 1<<20),
+		} {
+			t.Run(name, func(t *testing.T) {
+				srv, cap := captureServer(t, `{}`)
+				pr, pw, err := os.Pipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer pr.Close()
+				go func() {
+					_, _ = pw.Write(data)
+					pw.Close()
+				}()
+				ctx := testCtx(srv.URL, map[string]any{"file": fmt.Sprintf("/dev/fd/%d", pr.Fd())})
+				if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if !bytes.Equal(cap.body, data) {
+					t.Fatalf("got %d bytes, want %d", len(cap.body), len(data))
+				}
+			})
+		}
+	})
+
+	t.Run("empty pipe is rejected", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("no /dev/fd on windows")
+		}
+		srv, cap := captureServer(t, `{}`)
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pr.Close()
+		pw.Close()
+		ctx := testCtx(srv.URL, map[string]any{"file": fmt.Sprintf("/dev/fd/%d", pr.Fd())})
+		if _, _, err := callEndpointFull(ctx, ep, nil); err == nil || !strings.Contains(err.Error(), "empty") {
+			t.Fatalf("err = %v, want empty-file error", err)
+		}
+		if cap.method != "" {
+			t.Fatal("server received a request for an empty pipe")
+		}
+	})
+
+	t.Run("validator sees the flag and can abort before the file is read", func(t *testing.T) {
+		srv, cap := captureServer(t, `{}`)
+		r := New()
+		r.RegisterEndpointValidatorFn("test:abort", func(_ *cmdctx.Ctx, _ cmdctx.EndpointRequest) error {
+			return errors.New("validator rejected")
+		})
+		withValidator := *ep
+		withValidator.ValidatorsEndpoint = []string{"test:abort"}
+		ctx := testCtx(srv.URL, map[string]any{"file": filepath.Join(t.TempDir(), "missing.png")})
+		ctx.Resolver = r
+		if _, _, err := callEndpointFull(ctx, &withValidator, nil); err == nil || !strings.Contains(err.Error(), "validator rejected") {
+			t.Fatalf("err = %v, want validator rejected", err)
+		}
+		if cap.method != "" {
+			t.Fatal("server received a request after validator abort")
+		}
+	})
 }

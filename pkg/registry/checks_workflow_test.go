@@ -705,3 +705,36 @@ func TestValidateEndpointConstraints_PatchAlwaysFieldsNeedsGetThenPatch(t *testi
 		}
 	}
 }
+
+func TestValidateEndpointConstraints_OctetStream(t *testing.T) {
+	mk := func(ep *spec.EndpointSpec) *spec.CommandSpec {
+		return &spec.CommandSpec{
+			Command: "execute repository:upload", Verb: VerbExecute, VerbHandler: VerbExecute, Noun: "repository", Module: "test",
+			HandlerType: spec.HandlerEndpoint, Endpoint: ep,
+		}
+	}
+	base := func() *spec.EndpointSpec {
+		return &spec.EndpointSpec{Method: "POST", FileBody: spec.FileBodyRequired, ContentType: "application/octet-stream"}
+	}
+	if err := validateEndpointConstraints(mk(base())); err != nil {
+		t.Fatalf("valid octet-stream endpoint rejected: %v", err)
+	}
+	cases := map[string]func(*spec.EndpointSpec){
+		"file_body optional":       func(e *spec.EndpointSpec) { e.FileBody = spec.FileBodyOptional },
+		"file_body_content_type":   func(e *spec.EndpointSpec) { e.FileBodyContentType = "application/yaml" },
+		"file_body_wrap_as_string": func(e *spec.EndpointSpec) { e.FileBodyWrapAsString = "k"; e.FileBodyContentType = "application/yaml" },
+		"file_body_yaml_envelope":  func(e *spec.EndpointSpec) { e.FileBodyYamlEnvelope = "service" },
+		"update_body_wrap":         func(e *spec.EndpointSpec) { e.UpdateBodyWrap = "k" },
+		"create_body_wrap":         func(e *spec.EndpointSpec) { e.CreateBodyWrap = "k" },
+		"GET method":               func(e *spec.EndpointSpec) { e.Method = "GET" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			ep := base()
+			mutate(ep)
+			if err := validateEndpointConstraints(mk(ep)); err == nil || !strings.Contains(err.Error(), "octet-stream") {
+				t.Fatalf("expected octet-stream error, got: %v", err)
+			}
+		})
+	}
+}

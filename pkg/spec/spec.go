@@ -498,6 +498,7 @@ type EndpointSpec struct {
 	// ContentType overrides the default wire Content-Type header for the request.
 	// Only used when FileBody is set; defaults to "application/json". Does NOT
 	// describe the format of the -f file itself — see FileBodyContentType for that.
+	// "application/octet-stream" sends the -f file's bytes unparsed (requires file_body: required).
 	ContentType string `yaml:"content_type,omitempty"`
 	// FileBodyContentType overrides the format the -f file is validated/normalized
 	// against (independent of the wire ContentType). Only used when FileBody is set.

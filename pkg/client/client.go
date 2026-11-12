@@ -142,7 +142,12 @@ type Request struct {
 	// any other type → JSON-marshaled, BodyContentType defaults to "application/json".
 	Body            any
 	BodyContentType string
-	Headers         map[string]string
+	// BodyStream, when non-nil, is sent as the raw body instead of Body. It is read at
+	// most once, so a request with a stream body is not retried or replayed.
+	BodyStream io.Reader
+	// BodyLength is the byte length of BodyStream, sent as Content-Length.
+	BodyLength int64
+	Headers    map[string]string
 	// NoAccountID, when true, omits the accountIdentifier query param for this request.
 	NoAccountID bool
 }
@@ -347,7 +352,9 @@ func (c *Client) previewRequest(req *http.Request) error {
 	}
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "%s %s\n", req.Method, req.URL.String())
-	if req.Body != nil && req.GetBody != nil {
+	if req.Body != nil && req.GetBody == nil {
+		fmt.Fprintf(&out, "<binary %d bytes>\n", req.ContentLength)
+	} else if req.Body != nil {
 		body, err := req.GetBody()
 		if err != nil {
 			return fmt.Errorf("reading request preview: %w", err)
@@ -398,7 +405,10 @@ func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 
 	var bodyReader io.Reader
 	contentType := r.BodyContentType
-	if r.Body != nil {
+	if r.BodyStream != nil {
+		bodyReader = r.BodyStream
+		hlog.Debug(r.Method+" "+u.Path, "body_stream_bytes", r.BodyLength)
+	} else if r.Body != nil {
 		if s, ok := r.Body.(string); ok {
 			bodyReader = strings.NewReader(s)
 			hlog.Debug(r.Method + " " + u.Path)
@@ -425,6 +435,13 @@ func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 	req.Header.Set("X-Harness-CLI-Run-ID", hbase.RunID)
 	if c.cliCommand != "" {
 		req.Header.Set("X-CLI-Command", c.cliCommand)
+	}
+	if r.BodyStream != nil {
+		req.ContentLength = r.BodyLength
+		req.GetBody = nil
+		if r.BodyLength == 0 {
+			req.Body = http.NoBody
+		}
 	}
 	c.resolved.SetAuthHeader(req)
 	if contentType != "" {
