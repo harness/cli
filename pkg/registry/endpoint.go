@@ -4,11 +4,14 @@
 package registry
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -66,6 +69,10 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 
 	// Priority 1: file body — wins over strategies when -f is provided.
 	if ep.FileBody != spec.FileBodyNone && cmdctx.GetString(ctx.FlagValues, "file") != "" {
+		if ep.ContentType == contentTypeOctetStream {
+			qp := evalQueryParams(ctx, ep.QueryParams, true, extraQueryParams)
+			return sendRawFileBody(ctx, ep, c, method, path, qp, evalRequestHeaders(ep, exprEnv))
+		}
 		rawBody, err := cmdctx.SlurpInputFile(ctx.FlagValues)
 		if err != nil {
 			return nil, nil, err
@@ -1075,4 +1082,52 @@ func sliceRemove(s []any, v string) []any {
 		}
 	}
 	return out
+}
+
+const contentTypeOctetStream = "application/octet-stream"
+
+// sendRawFileBody sends the -f file's bytes unparsed. A file is streamed; stdin is
+// buffered because the request needs a Content-Length.
+func sendRawFileBody(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, method, path string, qp, headers map[string]string) (any, http.Header, error) {
+	if err := runEndpointValidators(ctx, ep, cmdctx.EndpointRequest{
+		Method:      method,
+		Path:        path,
+		QueryParams: qp,
+		ContentType: contentTypeOctetStream,
+	}); err != nil {
+		return nil, nil, err
+	}
+
+	var body io.Reader
+	var size int64
+	if name := cmdctx.GetString(ctx.FlagValues, "file"); name == "-" {
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reading input: %w", err)
+		}
+		body, size = bytes.NewReader(b), int64(len(b))
+	} else {
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, nil, fmt.Errorf("opening -f: %w", err)
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil {
+			return nil, nil, fmt.Errorf("opening -f: %w", err)
+		}
+		body, size = f, info.Size()
+	}
+	if size == 0 {
+		return nil, nil, fmt.Errorf("-f file is empty")
+	}
+	return c.DoRequest(client.Request{
+		Method:          method,
+		Path:            path,
+		QueryParams:     qp,
+		BodyStream:      body,
+		BodyLength:      size,
+		BodyContentType: contentTypeOctetStream,
+		Headers:         headers,
+	})
 }

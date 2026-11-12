@@ -423,10 +423,15 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 		return fmt.Errorf("command %q: invalid file_body %q (must be \"optional\" or \"required\")", cs.Command, ep.FileBody)
 	}
 	switch ep.ContentType {
-	case "", "application/json", "application/merge-patch+json", "application/yaml":
+	case "", "application/json", "application/merge-patch+json", "application/yaml", contentTypeOctetStream:
 		// valid
 	default:
-		return fmt.Errorf("command %q: invalid content_type %q (must be \"application/json\", \"application/merge-patch+json\", or \"application/yaml\")", cs.Command, ep.ContentType)
+		return fmt.Errorf("command %q: invalid content_type %q (must be \"application/json\", \"application/merge-patch+json\", \"application/yaml\", or \"application/octet-stream\")", cs.Command, ep.ContentType)
+	}
+	if ep.ContentType == contentTypeOctetStream {
+		if err := validateOctetStreamEndpoint(cs.Command, ep); err != nil {
+			return err
+		}
 	}
 	if len(ep.PatchAlwaysFields) > 0 && ep.UpdateStrategy != spec.UpdateStrategyGetThenPatch {
 		return fmt.Errorf("command %q: patch_always_fields requires update_strategy %q", cs.Command, spec.UpdateStrategyGetThenPatch)
@@ -494,6 +499,21 @@ func validatePaging(command string, pg *spec.PagingSpec) error {
 	}
 	if pg.PagingStrategy == spec.PagingStrategyPageIndex && pg.TotalExpr == "" {
 		return fmt.Errorf("command %q: page_index paging requires total_expr", command)
+	}
+	return nil
+}
+
+// validateOctetStreamEndpoint rejects content_type: application/octet-stream combined with
+// options that parse or rewrite the -f file, which a raw upload never does.
+func validateOctetStreamEndpoint(command string, ep *spec.EndpointSpec) error {
+	switch {
+	case ep.FileBody != spec.FileBodyRequired:
+		return fmt.Errorf("command %q: content_type application/octet-stream requires file_body: required", command)
+	case ep.Method != "POST" && ep.Method != "PUT" && ep.Method != "PATCH":
+		return fmt.Errorf("command %q: content_type application/octet-stream requires a POST, PUT or PATCH method", command)
+	case ep.FileBodyContentType != "" || ep.FileBodyWrapAsString != "" || ep.FileBodyYamlEnvelope != "" ||
+		ep.UpdateBodyWrap != "" || ep.CreateBodyWrap != "" || len(ep.CreateBodyInit) > 0:
+		return fmt.Errorf("command %q: content_type application/octet-stream sends the -f file raw and cannot be combined with file_body_content_type, file_body_wrap_as_string, file_body_yaml_envelope, update_body_wrap, create_body_wrap, or create_body_init", command)
 	}
 	return nil
 }
