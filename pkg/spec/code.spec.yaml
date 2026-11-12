@@ -21,6 +21,17 @@ help_text: |
 
       harness get module migrate
 
+  ### Images and videos in PR descriptions
+
+  Upload the file first, then paste the printed snippet into the description:
+
+      harness execute repo:upload <repo_id> -f shot.png
+      harness update pr <repo_id>/<pr_number> --set description="Fix.
+
+      ![shot.png](<url from the upload>)"
+
+  Supported: png, jpg, jpeg, gif, webp, svg (inline images); mp4, mov, webm (links).
+
   ### Nouns
 
   {{nouns}}
@@ -1244,6 +1255,30 @@ commands:
     endpoint:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.id}}/+/settings/general
       item_expr: it
+
+  - command: execute repository:upload
+    verb: execute
+    noun: repository
+    noun_variant: upload
+    short: "Upload an image or video for use in PR descriptions: harness execute repo:upload <repo_id> -f <file>"
+    long: |
+      Uploads a file to the repository and prints its link plus a Markdown snippet to
+      paste into a PR description (--set description=... or -f on create/update pr).
+      Images (png, jpg, gif, webp, svg) print an inline ![image] snippet; videos
+      (mp4, mov, webm) print a [video] link. The server decides which files it accepts.
+    handler_type: endpoint
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.id}}/uploads
+      file_body: required
+      content_type: application/octet-stream
+      no_fields: true
+      text_header: |
+        file_path: {{it.file_path}}
+        url: {{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}{{ctx.level != 'account' && auth.org != '' ? '&orgIdentifier=' + auth.org : ''}}{{ctx.level not in ['account', 'org'] && auth.project != '' ? '&projectIdentifier=' + auth.project : ''}}
+        snippet: {{it.file_path matches '(?i)[.](mp4|mov|webm)$' ? '[video]' : '![image]'}}({{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}{{ctx.level != 'account' && auth.org != '' ? '&orgIdentifier=' + auth.org : ''}}{{ctx.level not in ['account', 'org'] && auth.project != '' ? '&projectIdentifier=' + auth.project : ''}})
 
   # ── pr conversation (threaded activity timeline as prose) ──────────────────────
 
