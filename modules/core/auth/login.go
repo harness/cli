@@ -383,17 +383,17 @@ func fetchRegistryURL(apiURL, token, accountID string) (string, error) {
 }
 
 // validateToken verifies the token against the API. PATs are checked by reading the account
-// resource; SATs use the token introspection endpoint instead, since service accounts are
+// resource; SATs and scoped tokens use the token introspection endpoint instead, since they are
 // rarely granted account-view permission and would otherwise fail with a 403.
 func validateToken(apiURL, token, accountID string) error {
 	c := &http.Client{Timeout: 10 * time.Second}
-	isSAT := auth.TokenType(token) == auth.TokenKindSAT
+	kind := auth.TokenType(token)
 
 	var req *http.Request
 	var err error
-	if isSAT {
+	if kind.UsesTokenValidate() {
 		url := fmt.Sprintf("%s/ng/api/token/validate?accountIdentifier=%s", apiURL, accountID)
-		hlog.Debug("validating token", "kind", "SAT", "method", "POST", "url", url)
+		hlog.Debug("validating token", "kind", string(kind), "method", "POST", "url", url)
 		req, err = http.NewRequest("POST", url, strings.NewReader(token))
 		if err == nil {
 			req.Header.Set("Content-Type", "text/plain")
@@ -422,8 +422,11 @@ func validateToken(apiURL, token, accountID string) error {
 	case 401:
 		return fmt.Errorf("token rejected (401) — check that your API token is valid\n\nTip: run 'harness auth profiles' to see available profiles, then retry with --profile <name>")
 	case 403:
-		if isSAT {
+		switch kind {
+		case auth.TokenKindSAT:
 			return fmt.Errorf("service account token rejected (403) — the service account may be disabled or lack access to this account\n\nTip: pass --no-validate to write the profile anyway, then run 'harness auth status' to see which scopes are reachable")
+		case auth.TokenKindST:
+			return fmt.Errorf("scoped token rejected (403) — its parent principal may be disabled or lack access to this account\n\nTip: pass --no-validate to write the profile anyway, then run 'harness auth status' to see which scopes are reachable")
 		}
 		return fmt.Errorf("token valid but access denied (403) — check account ID or RBAC permissions")
 	default:

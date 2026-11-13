@@ -495,9 +495,9 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancelReason = msg.err
 				return m, tea.Quit
 			}
-			// SAT/PAT tokens may lack org-list permissions — treat as partial success.
+			// API-key tokens may lack org-list permissions — treat as partial success.
 			tokenKind := pkgauth.TokenType(m.token)
-			if (tokenKind == pkgauth.TokenKindSAT || tokenKind == pkgauth.TokenKindPAT) && strings.Contains(msg.err.Error(), "403") {
+			if tokenKind.IsAPIKey() && strings.Contains(msg.err.Error(), "403") {
 				m.canceled = true
 				m.cancelReason = errNoEnumPerms
 				return m, tea.Quit
@@ -508,9 +508,9 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err.Error()
 			return m, textinput.Blink
 		}
-		// SAT/PAT token with no visible orgs — same treatment as 403.
+		// API-key token with no visible orgs — same treatment as 403.
 		tokenKind := pkgauth.TokenType(m.token)
-		if len(msg.orgs) == 0 && (tokenKind == pkgauth.TokenKindSAT || tokenKind == pkgauth.TokenKindPAT) {
+		if len(msg.orgs) == 0 && tokenKind.IsAPIKey() {
 			m.canceled = true
 			m.cancelReason = errNoEnumPerms
 			return m, tea.Quit
@@ -539,9 +539,9 @@ func (m wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case projectsDoneMsg:
 		if msg.err != nil {
-			// SAT/PAT tokens may lack project-list permissions — treat as partial success.
+			// API-key tokens may lack project-list permissions — treat as partial success.
 			tokenKind := pkgauth.TokenType(m.token)
-			if (tokenKind == pkgauth.TokenKindSAT || tokenKind == pkgauth.TokenKindPAT) && strings.Contains(msg.err.Error(), "403") {
+			if tokenKind.IsAPIKey() && strings.Contains(msg.err.Error(), "403") {
 				m.canceled = true
 				m.cancelReason = errNoEnumPerms
 				return m, tea.Quit
@@ -968,7 +968,7 @@ func validateAndFetch(apiURL, token string) (accountID, regURL string, err error
 		PATToken:  token,
 		AccountID: accountID,
 	})
-	if pkgauth.TokenType(token) == pkgauth.TokenKindSAT {
+	if pkgauth.TokenType(token).UsesTokenValidate() {
 		if _, _, err := c.PostRaw("/ng/api/token/validate", map[string]string{"accountIdentifier": accountID}, token, "text/plain"); err != nil {
 			return "", "", err
 		}

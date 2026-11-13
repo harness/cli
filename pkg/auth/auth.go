@@ -464,6 +464,17 @@ const (
 )
 
 // jwtSegment matches a single base64url-encoded JWT segment (header, payload, or signature).
+// IsAPIKey reports whether the kind is a Harness API key (PAT, SAT or scoped token).
+func (k TokenKind) IsAPIKey() bool {
+	return k == TokenKindPAT || k == TokenKindSAT || k == TokenKindST
+}
+
+// UsesTokenValidate reports whether tokens of this kind are checked with token/validate
+// instead of an account lookup: their principal rarely holds account-view permission.
+func (k TokenKind) UsesTokenValidate() bool {
+	return k == TokenKindSAT || k == TokenKindST
+}
+
 var jwtSegment = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // TokenType returns the kind of token (PAT, SAT, JWT, or unknown) by inspecting its structure.

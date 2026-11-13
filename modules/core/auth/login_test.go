@@ -344,6 +344,9 @@ func TestValidateToken(t *testing.T) {
 // satToken is a syntactically valid SAT whose account segment is "acctid".
 const satToken = "sat.acctid.tokenid.secret123"
 
+// stToken is a syntactically valid scoped token whose account segment is "acctid".
+const stToken = "st.acctid.tokenid.secret123"
+
 func TestValidateToken_endpointByTokenKind(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -358,6 +361,13 @@ func TestValidateToken_endpointByTokenKind(t *testing.T) {
 			wantMethod: "POST",
 			wantPath:   "/ng/api/token/validate",
 			wantBody:   satToken,
+		},
+		{
+			name:       "scoped token uses token introspection",
+			token:      stToken,
+			wantMethod: "POST",
+			wantPath:   "/ng/api/token/validate",
+			wantBody:   stToken,
 		},
 		{
 			name:       "PAT uses account lookup",
