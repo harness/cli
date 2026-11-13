@@ -299,3 +299,15 @@ harness auth token --profile staging
 ```
 
 Does not require org/project to be configured. Prints PAT/SAT tokens only, never SSO JWTs (use `auth env` for an SSO token).
+
+### `harness auth fields`
+
+Prints the active profile's fields for scripting: `token`, `email`, `user_id`, `user_type`, `api_url`, `account`, `org`, `project`.
+
+```
+harness auth fields            # name=value lines; unset fields are omitted
+harness auth fields email      # raw value of one field
+git config user.email "$(harness auth fields email)"
+```
+
+`token` is the PAT/SAT only, same as `auth token`, and is not set for SSO profiles. A single unset or unknown field is an error.
