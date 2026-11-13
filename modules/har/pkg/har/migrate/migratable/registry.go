@@ -3,6 +3,8 @@ package migratable
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
@@ -252,6 +254,25 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		return fmt.Errorf("get packages failed: %w", err)
 	}
 
+	// Filters may legitimately leave nothing to migrate, but content that survived
+	// them and still resolved to zero packages means artifactType does not match the
+	// repository; fail instead of reporting an empty success. Skipped when a date
+	// filter or file patterns narrowed the files: what survives can be index files
+	// only, which resolve to no package even when artifactType is correct.
+	filePatternsApplied := util.IsFileLevelFilterableArtifact(currArtifactType) &&
+		(len(r.mapping.IncludePatterns) > 0 || len(r.mapping.ExcludePatterns) > 0)
+	if len(pkgs) == 0 && !dateFilterActive && !filePatternsApplied {
+		if contentFiles := countContentFiles(files, r.artifactType); contentFiles > 0 {
+			err := fmt.Errorf(
+				"registry %s: pulled %d file(s) from source (%d after filters) but resolved 0 packages for "+
+					"artifactType %s — verify the registry contains %s artifacts and the artifactType is correct",
+				r.srcRegistry, len(originalFiles), contentFiles, r.artifactType, r.artifactType)
+			logger.Error().Err(err).Msg("No packages resolved")
+			util.AddRegistryErrorToStat(r.stats, r.srcRegistry, err)
+			return err
+		}
+	}
+
 	// For metadata-driven types, re-apply date filter at the package level.
 	if dateFilterActive && util.IsMetadataDrivenArtifact(currArtifactType) {
 		originalPkgCount := len(pkgs)
@@ -380,4 +401,31 @@ func (r *Registry) Post(ctx context.Context) error {
 		Dur("duration", time.Since(startTime)).
 		Msg("Completed registry post-migration step")
 	return nil
+}
+
+// countContentFiles excludes folders and package index files, which resolve to no
+// package on their own.
+func countContentFiles(files []types.File, artifactType types.ArtifactType) int {
+	n := 0
+	for _, f := range files {
+		if !f.Folder && !isIndexOnlyFile(artifactType, f.Uri) {
+			n++
+		}
+	}
+	return n
+}
+
+// isIndexOnlyFile reports whether uri is repository metadata that the source
+// generates alongside packages (e.g. RUBY specs.4.8.gz, CRAN PACKAGES).
+func isIndexOnlyFile(artifactType types.ArtifactType, uri string) bool {
+	switch artifactType {
+	case types.RUBY:
+		name := path.Base(uri)
+		return strings.HasPrefix(name, "specs.") || strings.HasPrefix(name, "latest_specs.") ||
+			strings.HasPrefix(name, "prerelease_specs.") || strings.HasSuffix(name, ".gemspec.rz")
+	case types.CRAN:
+		return util.IsCranIndexFile(uri)
+	default:
+		return util.IsPackageIndexFile(artifactType, uri)
+	}
 }

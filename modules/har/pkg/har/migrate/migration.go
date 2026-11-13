@@ -143,17 +143,35 @@ func printFileStats(stats []types.FileStat) {
 	tw.Render()
 }
 
-func printSummary(stats []types.FileStat) {
-	counts := make(map[types.Status]int)
-	for _, s := range stats {
-		counts[s.Status]++
-	}
+type summaryCounts struct {
+	uploaded, alreadyPresent, skippedOther, failed int
+}
 
+func countSummary(stats []types.FileStat) summaryCounts {
+	var c summaryCounts
+	for _, s := range stats {
+		switch {
+		case s.Status == types.StatusSuccess:
+			c.uploaded++
+		case s.Status == types.StatusSkip && s.Reason == types.SkipReasonAlreadyExists:
+			c.alreadyPresent++
+		case s.Status == types.StatusSkip:
+			c.skippedOther++
+		case s.Status == types.StatusFail:
+			c.failed++
+		}
+	}
+	return c
+}
+
+func printSummary(stats []types.FileStat) {
+	c := countSummary(stats)
 	fmt.Println("\nMigration Summary of total files finalized for upload :")
-	fmt.Printf("  %-10s %d\n", "Success :", counts[types.StatusSuccess])
-	fmt.Printf("  %-10s %d\n", "Skipped :", counts[types.StatusSkip])
-	fmt.Printf("  %-10s %d\n", "Failed  :", counts[types.StatusFail])
-	fmt.Printf("  %-10s %d\n", "Total   :", len(stats))
+	fmt.Printf("  %-17s %d\n", "Uploaded        :", c.uploaded)
+	fmt.Printf("  %-17s %d\n", "Already present :", c.alreadyPresent)
+	fmt.Printf("  %-17s %d\n", "Skipped (other) :", c.skippedOther)
+	fmt.Printf("  %-17s %d\n", "Failed          :", c.failed)
+	fmt.Printf("  %-17s %d\n", "Total           :", len(stats))
 }
 
 // writeResultFile writes one JSON object per FileStat (JSON-lines) to path,

@@ -25,6 +25,7 @@ import (
 	"github.com/harness/cli/modules/har/pkg/har/migrate/migratable/sizeutil"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types/npm"
+	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
 	"github.com/google/uuid"
 	"github.com/pterm/pterm"
@@ -145,7 +146,17 @@ func (r *File) Pre(ctx context.Context) error {
 	return nil
 }
 
+// Migrate records a StatusFail stat for any error returned by migrate; every branch
+// of migrate that adds its own stat must return nil, or the file is counted twice.
 func (r *File) Migrate(ctx context.Context) error {
+	err := r.migrate(ctx)
+	if err != nil && r.file != nil {
+		util.AddFileErrorToStat(r.stats, r.file, r.srcRegistry, err)
+	}
+	return err
+}
+
+func (r *File) migrate(ctx context.Context) error {
 	traceID, _ := ctx.Value("trace_id").(string)
 	logger := r.logger.With().
 		Str("step", "migrate").
@@ -252,6 +263,11 @@ func (r *File) Migrate(ctx context.Context) error {
 
 	if r.artifactType == types.PYTHON {
 		downloadFile, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, r.file.Uri)
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to download Python package file")
+			return fmt.Errorf("failed to download Python package file: %w", err)
+		}
+		defer downloadFile.Close()
 		tempFile, err := os.CreateTemp("", fmt.Sprintf("python-pkg-%s-*", r.file.Name))
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to create temporary file")

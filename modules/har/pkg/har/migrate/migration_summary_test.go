@@ -45,45 +45,24 @@ func TestRunSummaryModeSucceeds(t *testing.T) {
 	if !strings.Contains(out, "Migration Summary") {
 		t.Errorf("stdout %q does not contain summary header", out)
 	}
-	if !strings.Contains(out, "Success :") || !strings.Contains(out, "Total   :") {
+	if !strings.Contains(out, "Uploaded        : 3") || !strings.Contains(out, "Total           : 3") {
 		t.Errorf("stdout %q missing expected summary lines", out)
 	}
 }
 
-// TestPrintSummaryCounts verifies printSummary tallies each status correctly.
-func TestPrintSummaryCounts(t *testing.T) {
+func TestCountSummarySplitsSkipsByReason(t *testing.T) {
 	stats := []types.FileStat{
 		{Status: types.StatusSuccess},
 		{Status: types.StatusSuccess},
+		{Status: types.StatusSkip, Reason: types.SkipReasonAlreadyExists},
+		{Status: types.StatusSkip, Reason: types.SkipReasonAlreadyExists},
+		{Status: types.StatusSkip, Reason: types.SkipReasonAlreadyExists},
+		{Status: types.StatusSkip, Reason: types.SkipReasonNoContent},
 		{Status: types.StatusSkip},
 		{Status: types.StatusFail},
 	}
-
-	stdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe() error: %v", err)
-	}
-	os.Stdout = w
-
-	printSummary(stats)
-
-	w.Close()
-	os.Stdout = stdout
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-
-	if !strings.Contains(out, "Success :  2") {
-		t.Errorf("stdout %q missing success count of 2", out)
-	}
-	if !strings.Contains(out, "Skipped :  1") {
-		t.Errorf("stdout %q missing skipped count of 1", out)
-	}
-	if !strings.Contains(out, "Failed  :  1") {
-		t.Errorf("stdout %q missing failed count of 1", out)
-	}
-	if !strings.Contains(out, "Total   :  4") {
-		t.Errorf("stdout %q missing total count of 4", out)
+	want := summaryCounts{uploaded: 2, alreadyPresent: 3, skippedOther: 2, failed: 1}
+	if got := countSummary(stats); got != want {
+		t.Fatalf("countSummary = %+v, want %+v", got, want)
 	}
 }
