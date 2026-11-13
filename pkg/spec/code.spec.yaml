@@ -34,17 +34,17 @@ help_text: |
 
   ### Clone, commit and raise a PR
 
+  For agents and scripts (macOS keychain; PAT/SAT profile, not SSO):
+
       harness pull repository <repo_id> && cd <repo_id>
-
-  If git isn't already set up (agents, CI), configure just this clone. The token is
-  stored in this clone's .git/config; needs a PAT/SAT profile, not SSO:
-
       EMAIL=$(harness auth fields email)
+      HOST=$(git remote get-url origin | sed 's#https://\([^/]*\)/.*#\1#')
       git config user.email "$EMAIL"
       git config user.name "${EMAIL%@*}"
-      git config http.extraheader "Authorization: Basic $(printf '%s:%s' "$EMAIL" "$(harness auth fields token)" | base64 | tr -d '\n')"
+      git config credential.helper osxkeychain
+      printf 'protocol=https\nhost=%s\nusername=%s\npassword=%s\n\n' "$HOST" "$EMAIL" "$(harness auth fields token)" | git credential approve
 
-  Then commit and push on a branch, open the PR, and comment on it:
+  Then push a branch, open the PR and comment on it:
 
       git switch -c my-change   # edit, then git commit -am "..."
       git push -u origin my-change
