@@ -319,6 +319,11 @@ nouns:
         expr: it.error_message
         width_max: 60
     ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: approval_instance
+        default: true
       - ui_command_type: view
         key: a
         label: approve
