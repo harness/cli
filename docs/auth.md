@@ -142,13 +142,14 @@ Both files live in `~/.harness/` which is created with `0700` permissions. No "a
 
 ## Token Format
 
-Three token types are supported:
+Four token types are supported:
 
 - **PAT** (Personal Access Token) — `pat.{AccountID}.{tokenID}.{secret}`
 - **SAT** (Service Account Token) — `sat.{AccountID}.{tokenID}.{secret}`
+- **ST** (Scoped Token) — `st.{AccountID}.{tokenID}.{secret}`. A PAT or SAT narrowed to an explicit set of permissions; its effective access is the intersection of those permissions and its parent's.
 - **SSO token** — a JWT (JSON Web Token) issued when you log in with `harness auth login --sso`. It is short-lived and refreshed automatically (see [SSO Mode](#sso-mode)).
 
-PATs and SATs follow the same 4-segment dot-separated format. The account ID is extracted from the token at login and stored explicitly in `config.yaml` — it is not re-parsed at runtime.
+PATs, SATs and STs follow the same 4-segment dot-separated format. The account ID is extracted from the token at login and stored explicitly in `config.yaml` — it is not re-parsed at runtime.
 
 ### SAT tokens and scope
 
@@ -162,6 +163,10 @@ harness auth setscope --org myorg --project myproject
 `auth status` handles SATs differently: instead of calling `GET /ng/api/user/currentUser`, it calls `POST /ng/api/token/validate` and shows the service account identity. 403 responses on the Account/Org/Project checks are shown as warnings (not errors) since the SA may have resource-level access without enumeration permissions.
 
 `auth login` validates SATs the same way. PATs are verified with `GET /ng/api/accounts/{accountID}`, but that endpoint needs account-view permission, which service accounts are rarely granted — so for SATs login calls `POST /ng/api/token/validate` instead. A 403 from that endpoint means the service account is disabled or has no access to the account at all; `--no-validate` writes the profile without the check.
+
+### Scoped tokens
+
+Scoped tokens (`st.`) hold only the permissions listed when they were created, so account, org and project lookups usually return 403 or an empty list even though the token works for the resources it was granted. The CLI treats them like SATs for validation: `auth login` calls `POST /ng/api/token/validate`, and 403s on the `auth status` Account/Org/Project checks show as warnings. `auth status` reports the token type as `ST`. Set the default scope with `harness auth setscope` if the wizard's org/project picker is empty. Requests the token isn't permitted to make fail with the API's own permission error.
 
 ---
 
@@ -186,7 +191,7 @@ harness auth login --sso
 |---|---|
 | `--profile` | Global flag — selects which profile to write (default: `"default"`). Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`. |
 | `--api-url` | Harness API base URL (default: `https://app.harness.io`) |
-| `--api-token` | PAT token. Required in non-interactive mode. |
+| `--api-token` | PAT, SAT or scoped token. Required in non-interactive mode. |
 | `--account` | Account ID. Inferred from token if not provided; must match token if provided. |
 | `--org` | Default org ID to store in profile |
 | `--project` | Default project ID to store in profile |
@@ -201,7 +206,7 @@ Runs a bubbletea TUI wizard. If the profile already exists and `--overwrite` is 
 
 **Non-interactive flow** (all required values provided via flags, or not a TTY):
 
-If the profile already exists, `--overwrite` is required (errors otherwise). Validates the PAT format, then calls `GET /ng/api/accounts/{accountID}` to verify the token (skipped with `--no-validate`). Attempts to fetch `registry_url` from `GET /gateway/har/api/v3/system/info` — stored if successful, silently skipped if not.
+If the profile already exists, `--overwrite` is required (errors otherwise). Validates the PAT format, then verifies the token (skipped with `--no-validate`): `GET /ng/api/accounts/{accountID}` for PATs, `POST /ng/api/token/validate` for SATs and scoped tokens. Attempts to fetch `registry_url` from `GET /gateway/har/api/v3/system/info` — stored if successful, silently skipped if not.
 
 After writing, runs `auth status` to display the result.
 

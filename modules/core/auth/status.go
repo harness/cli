@@ -171,6 +171,8 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 		}
 	case auth.TokenType(resolved.PATToken) == auth.TokenKindSAT:
 		r.TokenType = "SAT"
+	case auth.TokenType(resolved.PATToken) == auth.TokenKindST:
+		r.TokenType = "ST"
 	default:
 		r.TokenType = "PAT"
 	}
@@ -309,7 +311,7 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 		if cr.Warn {
 			orgWarn := cr
 			r.Status.Org = &orgWarn
-			projWarn := checkResult{Warn: true, Error: "access denied (403) — SA may lack enumeration permissions"}
+			projWarn := cr
 			r.Status.Project = &projWarn
 			return r
 		}

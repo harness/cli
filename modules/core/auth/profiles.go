@@ -37,9 +37,12 @@ func ProfilesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) (*c
 		authType := "PAT"
 		if p.AuthType == "sso" {
 			authType = "SSO"
-		} else if creds != nil {
-			if c, ok := creds[name]; ok && auth.TokenType(c.Token) == auth.TokenKindSAT {
+		} else if c, ok := creds[name]; ok {
+			switch auth.TokenType(c.Token) {
+			case auth.TokenKindSAT:
 				authType = "SAT"
+			case auth.TokenKindST:
+				authType = "ST"
 			}
 		}
 		items = append(items, map[string]any{

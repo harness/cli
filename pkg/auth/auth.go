@@ -67,7 +67,7 @@ type ResolvedAuth struct {
 	Email           string    // user email from profile; empty for env-var auth or legacy profiles
 	UserType        string    // config.UserTypeUser or config.UserTypeServiceAccount; empty for env-var auth, legacy profiles, or SSO
 	UserID          string    // Harness user uuid from profile; empty for env-var auth, legacy profiles, or service accounts
-	TokenKind       TokenKind // pat, sat, jwt, or "" (unknown)
+	TokenKind       TokenKind // pat, sat, st, jwt, or "" (unknown)
 	TokenEnvVar     string    // name of the env var the token came from; empty when it came from the credentials file
 
 	// Exactly one of these is set depending on AuthType.
@@ -477,7 +477,7 @@ func (k TokenKind) UsesTokenValidate() bool {
 
 var jwtSegment = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// TokenType returns the kind of token (PAT, SAT, JWT, or unknown) by inspecting its structure.
+// TokenType returns the kind of token (PAT, SAT, ST, JWT, or unknown) by inspecting its structure.
 // JWT detection is structural only: exactly 3 non-empty base64url segments separated by dots.
 func TokenType(token string) TokenKind {
 	switch {
@@ -522,8 +522,8 @@ func ValidatePATFormat(token string) error {
 	return nil
 }
 
-// AccountIDFromToken extracts the account ID from a valid PAT/SAT of the form pat.{AccountID}.x.y
-// or sat.{AccountID}.x.y. Callers must validate the token with ValidatePATFormat before calling this.
+// AccountIDFromToken extracts the account ID from a valid PAT/SAT/ST of the form pat.{AccountID}.x.y,
+// sat.{AccountID}.x.y or st.{AccountID}.x.y. Callers must validate the token with ValidatePATFormat before calling this.
 func AccountIDFromToken(token string) string {
 	if TokenType(token) == TokenKindUnknown {
 		return ""
@@ -536,7 +536,7 @@ func AccountIDFromToken(token string) string {
 }
 
 // MaskedToken returns a display-safe representation of a token.
-// For PAT/SAT tokens it reveals <prefix>.<accountID> and masks the remaining segments.
+// For PAT/SAT/ST tokens it reveals <prefix>.<accountID> and masks the remaining segments.
 // For anything else it falls back to Masked.
 func MaskedToken(s string) string {
 	kind := TokenType(s)

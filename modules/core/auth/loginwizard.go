@@ -960,7 +960,7 @@ func deepGet(m map[string]any, path string) string {
 func validateAndFetch(apiURL, token string) (accountID, regURL string, err error) {
 	accountID = pkgauth.AccountIDFromToken(token)
 	if accountID == "" {
-		return "", "", fmt.Errorf("token does not look like a Harness PAT/SAT (expected pat.<accountID>.<...> or sat.<accountID>.<...>)")
+		return "", "", fmt.Errorf("token does not look like a Harness PAT/SAT/ST (expected pat.<accountID>.<...>, sat.<accountID>.<...> or st.<accountID>.<...>)")
 	}
 	c := hclient.NewWithAuth(context.Background(), &pkgauth.ResolvedAuth{
 		APIUrl:    apiURL,
