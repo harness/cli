@@ -65,6 +65,7 @@ func TestMergeIntoTemplate(t *testing.T) {
 		{"unscoped key replaces every occurrence", map[string]string{"image_tag": "v2"}, [3]string{"v2", "v2", "v2"}},
 		{"scoped key replaces one stage only", map[string]string{"build.image_tag": "v2"}, [3]string{ph, "v2", ph}},
 		{"scoped key wins over unscoped", map[string]string{"image_tag": "v1", "deploy.image_tag": "v2"}, [3]string{"v1", "v1", "v2"}},
+		{"scoped leaf key wins over unscoped variable name", map[string]string{"image_tag": "v1", "build.value": "v2"}, [3]string{"v1", "v2", "v1"}},
 		{"key match is case-insensitive", map[string]string{"IMAGE_TAG": "v2"}, [3]string{"v2", "v2", "v2"}},
 	}
 	for _, tc := range tests {

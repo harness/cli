@@ -214,7 +214,7 @@ func (m *inputMerger) walk(node *yaml.Node) {
 				m.walkChild(keyNode, valNode)
 				continue
 			}
-			if m.replace(valNode, siblingName) || m.replace(valNode, leafKey) {
+			if m.replace(valNode, siblingName, leafKey) {
 				continue
 			}
 			m.walk(valNode)
@@ -249,15 +249,20 @@ func (m *inputMerger) markFixed(key string) {
 	}
 }
 
-// replace sets node to the user value for key and reports whether one was found.
-// Inside a stage the scoped "<stage>.<key>" form is tried first.
-func (m *inputMerger) replace(node *yaml.Node, key string) bool {
-	if key == "" {
-		return false
+// replace sets node to the user value for the first of keys that has one and reports
+// whether one was found. Inside a stage every scoped "<stage>.<key>" form is tried
+// before any unscoped key.
+func (m *inputMerger) replace(node *yaml.Node, keys ...string) bool {
+	var candidates []string
+	for _, k := range keys {
+		if k != "" && m.stage != "" {
+			candidates = append(candidates, m.stage+"."+k)
+		}
 	}
-	candidates := []string{key}
-	if m.stage != "" {
-		candidates = []string{m.stage + "." + key, key}
+	for _, k := range keys {
+		if k != "" {
+			candidates = append(candidates, k)
+		}
 	}
 	for _, c := range candidates {
 		if v, ok := m.inputs[c]; ok {
