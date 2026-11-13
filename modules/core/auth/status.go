@@ -171,6 +171,8 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 		}
 	case auth.TokenType(resolved.PATToken) == auth.TokenKindSAT:
 		r.TokenType = "SAT"
+	case auth.TokenType(resolved.PATToken) == auth.TokenKindST:
+		r.TokenType = "ST"
 	default:
 		r.TokenType = "PAT"
 	}
@@ -264,11 +266,16 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 
 	persistResolvedIdentity(resolved, resolvedIdentity)
 
-	// softErr wraps a 403 as a warning for SAT tokens — the SA may lack enumeration
+	// softErr wraps a 403 as a warning for SAT and scoped tokens — they may lack enumeration
 	// permissions but still have resource-level access.
 	softErr := func(err error) checkResult {
-		if isSAT && err != nil && strings.Contains(err.Error(), "403") {
-			return checkResult{Warn: true, Error: "access denied (403) — SA may lack enumeration permissions"}
+		if err != nil && strings.Contains(err.Error(), "403") {
+			switch auth.TokenType(resolved.PATToken) {
+			case auth.TokenKindSAT:
+				return checkResult{Warn: true, Error: "access denied (403) — SA may lack enumeration permissions"}
+			case auth.TokenKindST:
+				return checkResult{Warn: true, Error: "access denied (403) — token scope may not allow enumeration"}
+			}
 		}
 		if err != nil {
 			return checkResult{OK: false, Error: err.Error()}
@@ -304,7 +311,7 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 		if cr.Warn {
 			orgWarn := cr
 			r.Status.Org = &orgWarn
-			projWarn := checkResult{Warn: true, Error: "access denied (403) — SA may lack enumeration permissions"}
+			projWarn := cr
 			r.Status.Project = &projWarn
 			return r
 		}
