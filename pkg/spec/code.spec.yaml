@@ -32,6 +32,25 @@ help_text: |
 
   Supported: png, jpg, jpeg, gif, webp, svg (inline images); mp4, mov, webm (links).
 
+  ### Clone, commit and raise a PR
+
+      harness pull repository <repo_id> && cd <repo_id>
+
+  If git isn't already set up (agents, CI), configure just this clone. The token is
+  stored in this clone's .git/config; needs a PAT/SAT profile, not SSO:
+
+      EMAIL=$(harness auth fields email)
+      git config user.email "$EMAIL"
+      git config user.name "${EMAIL%@*}"
+      git config http.extraheader "Authorization: Basic $(printf '%s:%s' "$EMAIL" "$(harness auth fields token)" | base64 | tr -d '\n')"
+
+  Then commit and push on a branch, open the PR, and comment on it:
+
+      git switch -c my-change   # edit, then git commit -am "..."
+      git push -u origin my-change
+      harness create pr <repo_id> --set title="..." --set source_branch=my-change
+      echo "Looks good" | harness create pr_comment <repo_id>/<pr_number> -f -
+
   ### Nouns
 
   {{nouns}}
