@@ -223,10 +223,10 @@ func (m approvalModel) View() tea.View {
 	case phaseSelect:
 		b.WriteString(muted.Render("  ↑↓ select  a approve  r reject  esc back") + "\n")
 	case phaseComment:
-		b.WriteString(fmt.Sprintf("  Comment for %s (optional): %s%s\n", verb, m.comment, accent.Render("█")))
+		fmt.Fprintf(&b, "  Comment for %s (optional): %s%s\n", verb, m.comment, accent.Render("█"))
 		b.WriteString(muted.Render("  enter continue  esc cancel") + "\n")
 	case phaseConfirm:
-		b.WriteString(fmt.Sprintf("  %s %s? ", strings.ToUpper(verb[:1])+verb[1:], m.items[m.cursor].ID))
+		fmt.Fprintf(&b, "  %s %s? ", strings.ToUpper(verb[:1])+verb[1:], m.items[m.cursor].ID)
 		b.WriteString(muted.Render("y confirm  n cancel") + "\n")
 	case phaseSubmitting:
 		b.WriteString(muted.Render("  Submitting…") + "\n")
