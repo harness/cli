@@ -37,9 +37,10 @@ func TestApprovalModelFlow(t *testing.T) {
 		t.Fatalf("r should start a reject comment, got phase=%v action=%q", m.phase, m.action)
 	}
 	m = step(m, key("n"))
+	m = step(m, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	m = step(m, key("o"))
 	m = step(m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.phase != phaseConfirm || m.comment != "no" {
+	if m.phase != phaseConfirm || m.comment != "n o" {
 		t.Fatalf("enter should confirm with comment, got phase=%v comment=%q", m.phase, m.comment)
 	}
 	m = step(m, key("n"))

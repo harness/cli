@@ -182,8 +182,8 @@ func (m approvalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.comment = string(r[:len(r)-1])
 				}
 			default:
-				if r := []rune(key); len(r) == 1 && unicode.IsPrint(r[0]) {
-					m.comment += key
+				if r := []rune(msg.Text); len(r) > 0 && unicode.IsPrint(r[0]) {
+					m.comment += msg.Text
 				}
 			}
 		case phaseConfirm:
