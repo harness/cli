@@ -123,10 +123,11 @@ nouns:
         key: v
         label: logs
         ui_handler_fn: get_pipeline_log
-      - ui_command_type: view
+      - ui_command_type: link
         key: a
         label: approvals
-        ui_handler_fn: approve_execution
+        verb: list
+        noun: approval_instance
       - ui_command_type: up
         key: "^"
         label: pipeline
@@ -317,6 +318,15 @@ nouns:
       - id: error
         expr: it.error_message
         width_max: 60
+    ui_commands:
+      - ui_command_type: view
+        key: a
+        label: approve
+        ui_handler_fn: approve_instance
+      - ui_command_type: view
+        key: r
+        label: reject
+        ui_handler_fn: reject_instance
 
   - noun: freeze_window
     short_desc: A scheduled deployment freeze window that blocks pipeline executions.
