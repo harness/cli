@@ -289,13 +289,14 @@ harness auth env --export   # prefix each line with "export "
 
 Always outputs `HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`. For SSO profiles, `HARNESS_API_JWT` is printed instead of `HARNESS_API_KEY`. Outputs `HARNESS_ORG`, `HARNESS_PROJECT`, and `HARNESS_REGISTRY_URL` only when they are set in the resolved profile.
 
-### `harness auth token`
+### `harness auth fields`
 
-Prints the active API token to stdout. Useful for piping to other tools (e.g. w/ `$()`).
+Prints one field of the active profile, for scripting: `token`, `email`, `user_id`, `user_type`, `api_url`, `account`, `org`, `project`.
 
 ```
-harness auth token
-harness auth token --profile staging
+harness auth fields token
+harness auth fields email --profile staging
+git config user.email "$(harness auth fields email)"
 ```
 
-Does not require org/project to be configured. Prints PAT/SAT tokens only, never SSO JWTs (use `auth env` for an SSO token).
+Prints the raw value only. `token` is the PAT/SAT, never an SSO JWT (use `auth env` for an SSO token). A missing, unknown or unset field is an error. Does not require org/project to be configured.
