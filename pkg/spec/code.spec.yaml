@@ -32,6 +32,25 @@ help_text: |
 
   Supported: png, jpg, jpeg, gif, webp, svg (inline images); mp4, mov, webm (links).
 
+  ### Clone, commit and raise a PR
+
+  For agents and scripts (macOS keychain; PAT/SAT profile, not SSO):
+
+      harness pull repository <repo_id> && cd <repo_id>
+      EMAIL=$(harness auth fields email)
+      HOST=$(git remote get-url origin | sed 's#https://\([^/]*\)/.*#\1#')
+      git config user.email "$EMAIL"
+      git config user.name "${EMAIL%@*}"
+      git config credential.helper osxkeychain
+      printf 'protocol=https\nhost=%s\nusername=%s\npassword=%s\n\n' "$HOST" "$EMAIL" "$(harness auth fields token)" | git credential approve
+
+  Then push a branch, open the PR and comment on it:
+
+      git switch -c my-change   # edit, then git commit -am "..."
+      git push -u origin my-change
+      harness create pr <repo_id> --set title="..." --set source_branch=my-change
+      echo "Looks good" | harness create pr_comment <repo_id>/<pr_number> -f -
+
   ### Nouns
 
   {{nouns}}
