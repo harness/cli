@@ -223,37 +223,21 @@ commands:
         is_bool: true
         description: Prefix each line with "export "
 
-  - command: auth token
-    verb: auth
-    noun: token
-    short: Print the active PAT/SAT API token
-    long: |
-      Print the active profile's PAT or SAT API token to stdout.
-
-      Only PAT/SAT tokens are printed. SSO profiles use short-lived JWTs, which this
-      command does not print; use 'harness auth env' to get the SSO access token
-      (as HARNESS_API_JWT).
-    no_auth: true
-    handler_type: workflow
-    workflow_id: token
-    flags: []
-
   - command: auth fields
     verb: auth
     noun: fields
-    short: "Print profile fields for scripting: harness auth fields [<name>]"
+    short: "Print one profile field for scripting: harness auth fields <name>"
     long: |
-      Print the active profile's fields as name=value lines, or just the raw value
-      of one field when a name is given. Fields: token, email, user_id, user_type,
-      api_url, account, org, project. Unset fields are omitted.
+      Print the raw value of one field of the active profile. Fields: token, email,
+      user_id, user_type, api_url, account, org, project.
 
-      The token is the PAT/SAT only (as with 'harness auth token') and is not set
-      for SSO profiles.
+      The token is the PAT/SAT only and is not set for SSO profiles; use
+      'harness auth env' to get the SSO access token (as HARNESS_API_JWT).
     no_auth: true
     handler_type: workflow
     workflow_id: fields
-    has_args: true
-    args_label: "[<name>]"
+    allows_id: true
+    id_label: "<name>"
     flags: []
 
   - command: auth sso_refresh
