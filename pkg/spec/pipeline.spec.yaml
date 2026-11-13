@@ -123,6 +123,10 @@ nouns:
         key: v
         label: logs
         ui_handler_fn: get_pipeline_log
+      - ui_command_type: view
+        key: a
+        label: approve
+        ui_handler_fn: approve_execution
       - ui_command_type: up
         key: "^"
         label: pipeline
