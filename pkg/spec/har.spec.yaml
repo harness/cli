@@ -1254,10 +1254,8 @@ commands:
 
       Include/Exclude Patterns (includePatterns / excludePatterns, mutually exclusive):
         Glob patterns (* and ** wildcards) applied at a type-dependent granularity:
-          - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, TERRAFORM
-          - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, CRAN
-        Setting them for PUPPET or DEBIAN currently has no effect (silently ignored,
-        not rejected at config load).
+          - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, PUPPET, TERRAFORM
+          - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, DEBIAN, CRAN
 
       Output and automation flags:
         --summary      prints condensed per-status counts instead of the full per-file table.
@@ -1265,6 +1263,8 @@ commands:
                        reason, error) for scripts/CI to consume, even when the run fails.
 
       Environment variables can be used in the config file using ${VAR_NAME} syntax.
+      Unknown config keys are rejected. Top-level keys starting with x- are allowed,
+      e.g. to hold a YAML anchor: x-creds: &creds {username: ..., password: ...}
 
       Usage example:
         harness execute registry:migrate --config config.yaml

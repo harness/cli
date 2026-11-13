@@ -103,6 +103,16 @@ func main() {
 		{"content/raw-local/assets/images/logo.png",
 			[]byte("fake-png-content-for-testing")},
 
+		// Conda
+		{"content/conda-local/linux-64/repodata.json", []byte(`{
+  "packages": {
+    "demo-pkg-1.0.0-0.tar.bz2": { "name": "demo-pkg", "version": "1.0.0", "subdir": "linux-64" }
+  },
+  "packages.conda": {
+    "demo-pkg-2.0.0-0.conda": { "name": "demo-pkg", "version": "2.0.0", "subdir": "linux-64" }
+  }
+}`)},
+
 		// ── Binary packages ──
 
 		// NPM tarballs
@@ -122,6 +132,10 @@ func main() {
 		{"nuget-local/foo/company.grpc.pkg/1.0.0/company.grpc.pkg.1.0.0.nupkg", nupkg("company.grpc.pkg", "1.0.0")},
 		{"nuget-local/foo/company.grpc.pkg/2.0.0/company.grpc.pkg.2.0.0.nupkg", nupkg("company.grpc.pkg", "2.0.0")},
 		{"nuget-local/foo/company.grpc.pkg/2.0.0/company.grpc.pkg.2.0.0.snupkg", nupkg("company.grpc.pkg", "2.0.0")},
+
+		// Conda packages
+		{"conda-local/linux-64/demo-pkg-1.0.0-0.tar.bz2", []byte("mock conda package demo-pkg 1.0.0")},
+		{"conda-local/linux-64/demo-pkg-2.0.0-0.conda", []byte("mock conda package demo-pkg 2.0.0")},
 	}
 
 	for _, e := range entries {

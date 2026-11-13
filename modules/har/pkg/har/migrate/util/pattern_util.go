@@ -125,25 +125,14 @@ func FilterFilesByPatternsPackageName(packages []types.Package, includePatterns,
 // types.IsFileLevelPatternFilterable for the classification (kept there so
 // config validation can use it without an import cycle).
 func IsFileLevelFilterableArtifact(artifactType types.ArtifactType) bool {
-	switch artifactType {
-	case types.GENERIC, types.RAW, types.PYTHON, types.MAVEN, types.NUGET, types.NPM, types.DART, types.GO, types.RUBY, types.TERRAFORM:
-		return true
-	default:
-		return false
-	}
+	return types.IsFileLevelPatternFilterable(artifactType)
 }
 
 // IsPackageLevelFilterableArtifact reports whether include/exclude patterns
 // are applied to package names for this type. See
 // types.IsPackageLevelPatternFilterable.
 func IsPackageLevelFilterableArtifact(artifactType types.ArtifactType) bool {
-
-	switch artifactType {
-	case types.DOCKER, types.HELM, types.HELM_LEGACY, types.HELM_HTTP, types.RPM, types.CONDA, types.COMPOSER, types.SWIFT, types.CONAN, types.CRAN:
-		return true
-	default:
-		return false
-	}
+	return types.IsPackageLevelPatternFilterable(artifactType)
 }
 
 func IsMetadataDrivenArtifact(artifactType types.ArtifactType) bool {

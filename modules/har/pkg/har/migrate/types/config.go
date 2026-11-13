@@ -1,8 +1,11 @@
 package types
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -130,6 +133,9 @@ type Config struct {
 	Source      RegistryConfig    `yaml:"source"`
 	Dest        RegistryConfig    `yaml:"destination"`
 	Mappings    []RegistryMapping `yaml:"mappings"`
+	// Extensions collects unknown top-level keys; only x- prefixed keys
+	// (YAML anchor holders) are accepted.
+	Extensions map[string]yaml.Node `yaml:",inline"`
 }
 
 // RegistryConfig defines the source ar configuration
@@ -194,7 +200,12 @@ func LoadConfig(path string) (*Config, error) {
 	expandedData := expandEnvInYaml(string(data))
 
 	var config Config
-	if err := yaml.Unmarshal([]byte(expandedData), &config); err != nil {
+	dec := yaml.NewDecoder(strings.NewReader(expandedData))
+	dec.KnownFields(true)
+	if err := dec.Decode(&config); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("error parsing config file: %w", err)
+	}
+	if err := validateExtensionKeys(config.Extensions); err != nil {
 		return nil, fmt.Errorf("error parsing config file: %w", err)
 	}
 
@@ -204,6 +215,25 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func validateExtensionKeys(extensions map[string]yaml.Node) error {
+	keys := make([]string, 0, len(extensions))
+	for key := range extensions {
+		if !strings.HasPrefix(key, "x-") {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	slices.Sort(keys)
+	msgs := make([]string, len(keys))
+	for i, key := range keys {
+		msgs[i] = fmt.Sprintf("line %d: unknown top-level key %q", extensions[key].Line, key)
+	}
+	return fmt.Errorf("%s (only keys starting with x- are allowed, e.g. to hold YAML anchors)",
+		strings.Join(msgs, "; "))
 }
 
 // expandEnvInYaml expands environment variables in YAML content
@@ -270,8 +300,7 @@ func validateConfig(config *Config) error {
 			return fmt.Errorf("mapping %d: includePatterns/excludePatterns are not supported for artifact type %s — "+
 				"patterns are applied at file level for %s and at package level for %s",
 				i, mapping.ArtifactType,
-				"GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, PUPPET",
-				"DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, DEBIAN")
+				joinArtifactTypes(fileLevelPatternTypes), joinArtifactTypes(packageLevelPatternTypes))
 		}
 		// includePatterns and excludePatterns are mutually exclusive: applying
 		// both would silently discard excludePatterns (FilterFilesByPatterns uses
