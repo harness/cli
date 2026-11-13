@@ -45,8 +45,10 @@ func resolveApproval(ctx *cmdctx.Ctx, action string) error {
 
 	ctx.SetFlag("comment", comment)
 	if _, err := registry.CallEndpoint(ctx, cs.Endpoint); err != nil {
-		return err
+		fmt.Printf("Failed to %s %s: %v\n", action, ctx.Id, err)
+	} else {
+		fmt.Printf("%s submitted for %s\n", strings.ToUpper(action[:1])+action[1:], ctx.Id)
 	}
-	fmt.Printf("%s submitted for %s\n", strings.ToUpper(action[:1])+action[1:], ctx.Id)
+	_, _ = console.ReadPrompt("Press enter to go back", "")
 	return nil
 }
