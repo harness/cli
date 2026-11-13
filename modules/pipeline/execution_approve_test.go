@@ -3,7 +3,11 @@
 
 package pipeline
 
-import "testing"
+import (
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 func TestParseWaitingApprovals(t *testing.T) {
 	body := []byte(`[
@@ -20,15 +24,26 @@ func TestParseWaitingApprovals(t *testing.T) {
 	}
 }
 
-func TestPickApproval(t *testing.T) {
-	for _, tc := range []struct {
-		in      string
-		want    int
-		wantErr bool
-	}{{"1", 0, false}, {" 2 ", 1, false}, {"0", 0, true}, {"3", 0, true}, {"x", 0, true}} {
-		got, err := pickApproval(tc.in, 2)
-		if (err != nil) != tc.wantErr || (!tc.wantErr && got != tc.want) {
-			t.Errorf("pickApproval(%q) = %d, %v", tc.in, got, err)
-		}
+func TestApprovalModelFlow(t *testing.T) {
+	m := newApprovalModel(nil, []waitingApproval{{ID: "a1"}, {ID: "a2"}})
+	key := func(s string) tea.KeyPressMsg { return tea.KeyPressMsg{Text: s} }
+	step := func(m approvalModel, msg tea.Msg) approvalModel {
+		nm, _ := m.Update(msg)
+		return nm.(approvalModel)
+	}
+
+	m = step(m, key("r"))
+	if m.phase != phaseComment || m.action != "REJECT" {
+		t.Fatalf("r should start a reject comment, got phase=%v action=%q", m.phase, m.action)
+	}
+	m = step(m, key("n"))
+	m = step(m, key("o"))
+	m = step(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.phase != phaseConfirm || m.comment != "no" {
+		t.Fatalf("enter should confirm with comment, got phase=%v comment=%q", m.phase, m.comment)
+	}
+	m = step(m, key("n"))
+	if m.phase != phaseSelect {
+		t.Fatalf("n should cancel back to select, got %v", m.phase)
 	}
 }

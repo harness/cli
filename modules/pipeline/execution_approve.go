@@ -7,13 +7,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
+	"unicode"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/logstream"
+	"github.com/harness/cli/v3/pkg/tui"
 )
 
 const approveExecutionHandlerID = "approve_execution"
@@ -45,87 +49,31 @@ func parseWaitingApprovals(body []byte) ([]waitingApproval, error) {
 	return out, nil
 }
 
-// pickApproval resolves a 1-based answer against n choices.
-func pickApproval(answer string, n int) (int, error) {
-	i, err := strconv.Atoi(strings.TrimSpace(answer))
-	if err != nil || i < 1 || i > n {
-		return 0, fmt.Errorf("invalid choice %q (expected 1-%d)", answer, n)
-	}
-	return i - 1, nil
-}
-
-func approveExecutionHandler(ctx *cmdctx.Ctx) error {
-	ctx.UIWantBack = true
-
-	execID := logstream.ExecIdFromArg([]string{ctx.Id})
-	if execID == "" {
-		return fmt.Errorf("could not parse execution id from %q", ctx.Id)
-	}
-
+func listWaitingApprovals(ctx *cmdctx.Ctx, execID string) ([]waitingApproval, error) {
 	resp, err := client.New(ctx).DoRaw(client.Request{
 		Method:      "GET",
 		Path:        fmt.Sprintf("/pipeline/api/v1/orgs/%s/projects/%s/approvals/execution/%s", ctx.Auth.OrgID, ctx.Auth.ProjectID, execID),
 		QueryParams: map[string]string{"approval_status": "WAITING", "approval_type": "HarnessApproval"},
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("listing approvals failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("listing approvals failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	return parseWaitingApprovals(body)
+}
 
-	waiting, err := parseWaitingApprovals(body)
-	if err != nil {
-		return err
-	}
-	if len(waiting) == 0 {
-		fmt.Printf("No pending approval for execution %s\n", ctx.Id)
-		return nil
-	}
-
-	chosen := waiting[0]
-	if len(waiting) > 1 {
-		for i, w := range waiting {
-			fmt.Printf("  %d) %s  %s\n", i+1, w.ID, w.Message)
-		}
-		answer, err := console.ReadPrompt("Approve which", "")
-		if err != nil {
-			return err
-		}
-		idx, err := pickApproval(answer, len(waiting))
-		if err != nil {
-			return err
-		}
-		chosen = waiting[idx]
-	}
-
-	fmt.Printf("Execution %s\nApproval  %s\n", ctx.Id, chosen.ID)
-	if chosen.Message != "" {
-		fmt.Printf("Message   %s\n", chosen.Message)
-	}
-	comment, err := console.ReadPrompt("Comment (optional)", "")
-	if err != nil {
-		return err
-	}
-	if !console.PromptYesNo("Approve?") {
-		fmt.Println("Cancelled")
-		return nil
-	}
-
-	ctx.SetFlag("comment", comment)
-	reqBody, err := approvalApproveBody(ctx)
-	if err != nil {
-		return err
-	}
-	resp, err = client.New(ctx).DoRaw(client.Request{
+func submitApproval(ctx *cmdctx.Ctx, id, action, comment string) error {
+	resp, err := client.New(ctx).DoRaw(client.Request{
 		Method: "POST",
-		Path:   fmt.Sprintf("/pipeline/api/approvals/%s/harness/activity", chosen.ID),
-		Body:   reqBody,
+		Path:   fmt.Sprintf("/pipeline/api/approvals/%s/harness/activity", id),
+		Body:   map[string]any{"action": action, "comments": comment},
 	})
 	if err != nil {
 		return err
@@ -133,8 +81,164 @@ func approveExecutionHandler(ctx *cmdctx.Ctx) error {
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("approve failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(out)))
+		return fmt.Errorf("%s failed (%d): %s", strings.ToLower(action), resp.StatusCode, strings.TrimSpace(string(out)))
 	}
-	fmt.Printf("Approved %s\n", chosen.ID)
 	return nil
+}
+
+func approveExecutionHandler(ctx *cmdctx.Ctx) error {
+	ctx.UIWantBack = true
+	if !console.IsBothTTY() {
+		return fmt.Errorf("approve requires an interactive terminal (TTY)")
+	}
+	execID := logstream.ExecIdFromArg([]string{ctx.Id})
+	if execID == "" {
+		return fmt.Errorf("could not parse execution id from %q", ctx.Id)
+	}
+	waiting, err := listWaitingApprovals(ctx, execID)
+	if err != nil {
+		return err
+	}
+	if len(waiting) == 0 {
+		fmt.Printf("No pending approval for execution %s\n", ctx.Id)
+		return nil
+	}
+	_, err = tea.NewProgram(newApprovalModel(ctx, waiting)).Run()
+	return err
+}
+
+type approvalPhase int
+
+const (
+	phaseSelect approvalPhase = iota
+	phaseComment
+	phaseConfirm
+	phaseSubmitting
+	phaseDone
+)
+
+type approvalDoneMsg struct{ err error }
+
+type approvalModel struct {
+	ctx     *cmdctx.Ctx
+	items   []waitingApproval
+	cursor  int
+	phase   approvalPhase
+	action  string // APPROVE or REJECT
+	comment string
+	result  string
+	failed  bool
+}
+
+func newApprovalModel(ctx *cmdctx.Ctx, items []waitingApproval) approvalModel {
+	return approvalModel{ctx: ctx, items: items}
+}
+
+func (m approvalModel) Init() tea.Cmd { return nil }
+
+func (m approvalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case approvalDoneMsg:
+		m.phase = phaseDone
+		if msg.err != nil {
+			m.failed = true
+			m.result = msg.err.Error()
+		} else {
+			m.result = fmt.Sprintf("%s submitted for %s", strings.Title(strings.ToLower(m.action)), m.items[m.cursor].ID) //nolint:staticcheck
+		}
+		return m, nil
+
+	case tea.KeyPressMsg:
+		key := msg.String()
+		if key == "ctrl+c" {
+			return m, tea.Quit
+		}
+		switch m.phase {
+		case phaseSelect:
+			switch key {
+			case "q", "esc":
+				return m, tea.Quit
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down", "j":
+				if m.cursor < len(m.items)-1 {
+					m.cursor++
+				}
+			case "a":
+				m.action, m.phase = "APPROVE", phaseComment
+			case "r":
+				m.action, m.phase = "REJECT", phaseComment
+			}
+		case phaseComment:
+			switch key {
+			case "esc":
+				m.phase, m.comment = phaseSelect, ""
+			case "enter":
+				m.phase = phaseConfirm
+			case "backspace", "ctrl+h":
+				if r := []rune(m.comment); len(r) > 0 {
+					m.comment = string(r[:len(r)-1])
+				}
+			default:
+				if r := []rune(key); len(r) == 1 && unicode.IsPrint(r[0]) {
+					m.comment += key
+				}
+			}
+		case phaseConfirm:
+			switch key {
+			case "y":
+				m.phase = phaseSubmitting
+				ctx, id, action, comment := m.ctx, m.items[m.cursor].ID, m.action, m.comment
+				return m, func() tea.Msg { return approvalDoneMsg{submitApproval(ctx, id, action, comment)} }
+			case "n", "esc":
+				m.phase = phaseSelect
+			}
+		case phaseDone:
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m approvalModel) View() tea.View {
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(tui.CLIAccent))
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLITextMuted))
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLIAccent)).Bold(true)
+
+	var b strings.Builder
+	b.WriteString(title.Render("approvals  "+m.ctx.Id) + "\n\n")
+	for i, it := range m.items {
+		line := fmt.Sprintf("  %s  %s", it.ID, it.Message)
+		if i == m.cursor {
+			line = accent.Render("> " + strings.TrimPrefix(line, "  "))
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n")
+
+	verb := strings.ToLower(m.action)
+	switch m.phase {
+	case phaseSelect:
+		b.WriteString(muted.Render("  ↑↓ select  a approve  r reject  esc back") + "\n")
+	case phaseComment:
+		b.WriteString(fmt.Sprintf("  Comment for %s (optional): %s%s\n", verb, m.comment, accent.Render("█")))
+		b.WriteString(muted.Render("  enter continue  esc cancel") + "\n")
+	case phaseConfirm:
+		b.WriteString(fmt.Sprintf("  %s %s? ", strings.ToUpper(verb[:1])+verb[1:], m.items[m.cursor].ID))
+		b.WriteString(muted.Render("y confirm  n cancel") + "\n")
+	case phaseSubmitting:
+		b.WriteString(muted.Render("  Submitting…") + "\n")
+	case phaseDone:
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLISuccess))
+		if m.failed {
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLIError))
+		}
+		b.WriteString("  " + style.Render(m.result) + "\n")
+		b.WriteString(muted.Render("  any key to go back") + "\n")
+	}
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
