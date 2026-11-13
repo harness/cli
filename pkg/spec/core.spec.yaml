@@ -238,6 +238,24 @@ commands:
     workflow_id: token
     flags: []
 
+  - command: auth fields
+    verb: auth
+    noun: fields
+    short: "Print profile fields for scripting: harness auth fields [<name>]"
+    long: |
+      Print the active profile's fields as name=value lines, or just the raw value
+      of one field when a name is given. Fields: token, email, user_id, user_type,
+      api_url, account, org, project. Unset fields are omitted.
+
+      The token is the PAT/SAT only (as with 'harness auth token') and is not set
+      for SSO profiles.
+    no_auth: true
+    handler_type: workflow
+    workflow_id: fields
+    has_args: true
+    args_label: "[<name>]"
+    flags: []
+
   - command: auth sso_refresh
     verb: auth
     noun: sso_refresh
