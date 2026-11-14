@@ -207,6 +207,12 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_generic
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: version
         description: "Artifact version (default: 1.0.0)"
@@ -236,6 +242,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_maven
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: pom-file
         description: "Path to POM file (required)"
@@ -259,6 +271,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_npm
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -277,6 +295,12 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_python
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: max-concurrent-uploads
         default: "5"
@@ -297,6 +321,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_nuget
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -315,6 +345,12 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_rpm
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
 
   - command: push artifact:cargo
     verb: push
@@ -329,6 +365,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_cargo
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -346,6 +388,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_go
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: version
         description: "Module version (required, e.g. v1.2.3)"
@@ -372,6 +420,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_conda
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
 
   - command: push artifact:dart
     verb: push
@@ -386,6 +440,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_dart
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -403,6 +463,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_composer
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
 
   - command: push artifact:ruby
     verb: push
@@ -417,6 +483,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_ruby
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -434,6 +506,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_swift
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata-path
         description: "Path to metadata JSON file (optional)"
@@ -454,6 +532,12 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_puppet
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -471,6 +555,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_debian
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: distribution
         description: "Debian distribution name (e.g. focal, bullseye) (required)"
@@ -496,6 +586,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_conan
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: recipe-revision
         description: "Recipe revision (RREV). Defaults to the MD5 of conanmanifest.txt"
@@ -551,6 +647,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_terraform
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: namespace
         description: "Terraform namespace (required)"
