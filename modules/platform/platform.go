@@ -9,4 +9,5 @@ const resolvePrincipalIDFnID = "resolve_principal_id"
 
 func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterFlagResolveFn(resolvePrincipalIDFnID, resolvePrincipalID)
+	reg.RegisterWorkflow("project_copy", projectCopy)
 }

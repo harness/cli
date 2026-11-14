@@ -490,6 +490,48 @@ nouns:
         expr: epochMs(it.createdAt)
 
 commands:
+  - command: migrate project:project
+    verb: migrate
+    noun: project
+    noun_to: project
+    short: "Copy a project's CD core into another project in the same org"
+    long: |
+      Copy project-scoped CD configuration from --from to --to in one org.
+      The destination project is created when it does not already exist.
+      Identical destination resources are skipped. Differing destination
+      content aborts the copy before any write.
+
+      --resources cd-core copies secrets, connectors, services, environments,
+      infrastructures, service overrides, templates, pipelines, input sets,
+      triggers, policies, and policy sets. Triggers are created disabled.
+      Git-backed entities are skipped. Org and account references are reported
+      and left in place. Delegate selectors are checked against connected
+      account delegates; delegates are not copied.
+
+      Inline SecretText values are not read. New inline secrets are stored
+      with the placeholder value 123456 and must be updated before use.
+      Reference secrets copy their manager and path. Other secret types are
+      blocked. The default is a plan; pass --apply to write.
+      Reports support text/JSON and --out to a NEW file only.
+    handler_type: workflow
+    workflow_id: project_copy
+    migrate_from:
+      presence: required
+      label: Source project identifier
+    migrate_to:
+      presence: required
+      label: Destination project identifier
+    flags:
+      - name: resources
+        required: true
+        description: "Resource set to copy: cd-core"
+      - name: dry-run
+        is_bool: true
+        description: "Plan only. This is the default."
+      - name: apply
+        is_bool: true
+        description: "Create the destination project if needed and copy resources"
+
   - command: list organization
     verb: list
     noun: organization
