@@ -299,4 +299,4 @@ harness auth fields email --profile staging
 git config user.email "$(harness auth fields email)"
 ```
 
-Prints the raw value only. `token` is the PAT/SAT, never an SSO JWT (use `auth env` for an SSO token). A missing, unknown or unset field is an error. Does not require org/project to be configured.
+`harness auth token` is shorthand for `harness auth fields token`. Prints the raw value only. `token` is the PAT/SAT, never an SSO JWT (use `auth env` for an SSO token). A missing, unknown or unset field is an error. Does not require org/project to be configured.

@@ -341,6 +341,7 @@ harness auth status                # show resolved profile and validate credenti
 harness auth setscope --org my-org --project my-project
 harness auth env                   # print env vars for the current auth context
 harness auth env --export          # prefixed with "export "
+harness auth token                 # print the active API token
 harness auth fields <name>         # print one profile field (token, email, ...)
 harness auth sso_status            # show SSO token expiry (SSO profiles)
 harness auth sso_refresh           # refresh an SSO access token
@@ -396,6 +397,7 @@ Legend used in the tables below:
 | `auth setscope`      | Set default org / project on a profile                      |
 | `auth profiles`      | List all authentication profiles                            |
 | `auth env`           | Print env vars for the current auth context                 |
+| `auth token`         | Print the active API token                                  |
 | `auth fields`        | Print one profile field (token, email, ...)                 |
 | `version`            | Print the CLI version                                       |
 | `install cli`        | Install or upgrade the Harness CLI and installed modules    |

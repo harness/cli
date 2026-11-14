@@ -12,6 +12,11 @@ import (
 
 const fieldNames = "token, email, user_id, user_type, api_url, account, org, project"
 
+func TokenHandler(ctx *cmdctx.Ctx) error {
+	ctx.Id = "token"
+	return FieldsHandler(ctx)
+}
+
 func FieldsHandler(ctx *cmdctx.Ctx) error {
 	r, err := auth.LoadWithOverrides(
 		cmdctx.GetString(ctx.FlagValues, "profile"),

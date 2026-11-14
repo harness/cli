@@ -223,6 +223,15 @@ commands:
         is_bool: true
         description: Prefix each line with "export "
 
+  - command: auth token
+    verb: auth
+    noun: token
+    short: Print the active PAT/SAT API token (same as 'harness auth fields token')
+    no_auth: true
+    handler_type: workflow
+    workflow_id: token
+    flags: []
+
   - command: auth fields
     verb: auth
     noun: fields
