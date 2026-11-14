@@ -29,9 +29,20 @@ func withPackageHost(fn registry.WorkflowFn) registry.WorkflowFn {
 }
 
 // Off production, a package host the user did not configure must be looked up.
+// Pipeline auth applies no default: an empty host there is always looked up.
 func resolvePackageHost(ctx *cmdctx.Ctx) error {
 	a := ctx.Auth
-	if a == nil || a.Source == auth.SourcePipeline || !packageHostIsDefaulted(a) {
+	if a == nil {
+		return nil
+	}
+	if a.Source == auth.SourcePipeline {
+		if a.RegistryURL != "" {
+			if !strings.Contains(a.RegistryURL, "://") {
+				a.RegistryURL = "https://" + a.RegistryURL
+			}
+			return nil
+		}
+	} else if !packageHostIsDefaulted(a) {
 		return nil
 	}
 	res, _, err := client.New(ctx).Get("/gateway/har/api/v3/system/info",
@@ -57,6 +68,8 @@ func packageHostHint(a *auth.ResolvedAuth) string {
 	switch {
 	case a.Source == auth.SourceEnv:
 		return "set " + hbase.EnvRegistryURL + " to override"
+	case a.Source == auth.SourcePipeline:
+		return "the pipeline step did not provide a package registry URL"
 	case a.AuthType == auth.AuthTypeSSO:
 		return ""
 	default:
