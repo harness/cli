@@ -36,6 +36,10 @@ type Version struct {
 	dryRunStats     *types.DryRunStats
 	unfilteredRoot  *types.TreeNode
 	existingIndex   *types.ExistingIndex
+	// existenceErr is set when the per-version destination lookup failed; files of
+	// this version are then recorded as failed instead of uploaded.
+	existenceErr       error
+	destVersionPresent bool
 }
 
 func NewVersionJob(
@@ -113,14 +117,23 @@ func (r *Version) Pre(ctx context.Context) error {
 	// If an upfront index was built by registry.go, skip the per-version API
 	// call entirely — the index already has everything. Fall back to the
 	// per-version lookup only when no index is available.
-	if !r.config.Overwrite && (r.artifactType != types.MAVEN && r.artifactType != types.NPM && r.pkg.Name != "" && r.version.Name != "") {
+	// TERRAFORM is checked per file in Migrate: HAR's version APIs cannot address its
+	// "ns/name/provider" package names.
+	if !r.config.Overwrite && (r.artifactType != types.MAVEN && r.artifactType != types.NPM &&
+		r.artifactType != types.TERRAFORM && r.pkg.Name != "" && r.version.Name != "") {
 		if r.existingIndex == nil {
-			existingFiles, err := r.getAllExistingFilesForThisVersion(ctx)
+			existingFiles, err := checkExistsWithRetry(ctx, func() ([]string, error) {
+				return r.getAllExistingFilesForThisVersion(ctx)
+			})
 			if err != nil {
-				logger.Warn().Err(err).Msg("Failed to get existing files, will proceed with migration")
+				logger.Error().Err(err).Msg("Failed to get existing files, files of this version will not be uploaded")
+				r.existenceErr = err
 			} else {
 				for _, fileName := range existingFiles {
-					r.existingFileMap[strings.ToLower(fileName)] = true
+					r.existingFileMap[strings.TrimPrefix(strings.ToLower(fileName), "/")] = true
+					if strings.HasSuffix(strings.ToLower(fileName), ".tar.gz") {
+						r.destVersionPresent = true
+					}
 				}
 				logger.Info().Msgf("Found %d existing files for version %s", len(r.existingFileMap), r.version.Name)
 			}
@@ -252,10 +265,30 @@ func (r *Version) Migrate(ctx context.Context) error {
 			// or misses whenever the same filename appears under different
 			// nested JFrog folders (e.g. NuGet's ambiguous package layouts).
 			alreadyExists := false
-			if r.existingIndex != nil {
+			switch {
+			case r.artifactType == types.TERRAFORM && !r.config.Overwrite && !r.config.DryRun:
+				exists, err := checkExistsWithRetry(ctx, func() (bool, error) {
+					return r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, r.version.Name, file, r.artifactType)
+				})
+				if err != nil {
+					logger.Error().Err(err).Msgf("Failed to check if terraform file %s exists", file.Uri)
+					util.AddFileErrorToStat(r.stats, file, r.srcRegistry, existenceCheckError(err))
+					continue
+				}
+				alreadyExists = exists
+			case r.existingIndex != nil:
 				alreadyExists = r.existingIndex.HasFile(r.pkg.Name, r.version.Name, file.Uri, r.artifactType)
-			} else {
-				alreadyExists = r.existingFileMap[strings.ToLower(file.Name)]
+			case r.existenceErr != nil:
+				util.AddFileErrorToStat(r.stats, file, r.srcRegistry, existenceCheckError(r.existenceErr))
+				continue
+			case r.artifactType == types.DART:
+				// JFrog names Dart archives differently from HAR; a version holds one archive.
+				alreadyExists = r.destVersionPresent
+			default:
+				// The listing holds bare names for some types and source-relative paths
+				// (GENERIC, NUGET) for others.
+				alreadyExists = r.existingFileMap[strings.ToLower(file.Name)] ||
+					r.existingFileMap[strings.TrimPrefix(strings.ToLower(file.Uri), "/")]
 			}
 			if alreadyExists {
 				util.GetSkipPrinter().Println(fmt.Sprintf("Registry [%s], Package [%s/%s], File [%s] already exists",
@@ -301,6 +334,28 @@ func (r *Version) Migrate(ctx context.Context) error {
 			fileVersion := strings.TrimSuffix(file.Name, extension)
 			if fileVersion == r.version.Name {
 				versionFiles = append(versionFiles, file)
+			}
+		}
+		if !r.config.Overwrite && !r.config.DryRun {
+			if r.existenceErr != nil {
+				for _, file := range versionFiles {
+					util.AddFileErrorToStat(r.stats, file, r.srcRegistry, existenceCheckError(r.existenceErr))
+				}
+				return nil
+			}
+			if goVersionPresent(versionFiles, r.existingFileMap) {
+				logger.Info().Msgf("Skipping go version %s as it already exists in destination", r.version.Name)
+				for _, file := range versionFiles {
+					r.stats.Add(types.FileStat{
+						Name:     file.Name,
+						Registry: r.srcRegistry,
+						Uri:      file.Uri,
+						Size:     int64(file.Size),
+						Status:   types.StatusSkip,
+						Reason:   types.SkipReasonAlreadyExists,
+					})
+				}
+				return nil
 			}
 		}
 		downloadedFiles := []*types.PackageFiles{}
@@ -376,12 +431,12 @@ func (r *Version) Post(ctx context.Context) error {
 // getAllExistingFilesForThisVersion fetches existing files for this version from the destination API
 // Returns a slice of file paths that already exist
 func (r *Version) getAllExistingFilesForThisVersion(ctx context.Context) ([]string, error) {
-	// Call the destination adapter API to get all files for this version
+	pkgName, versionName := r.destCoordinates()
 	allFileNames, err := r.destAdapter.GetAllFilesForVersion(
 		ctx,
 		r.registry.Path,
-		r.pkg.Name,
-		r.version.Name,
+		pkgName,
+		versionName,
 	)
 
 	if err != nil {
@@ -390,6 +445,34 @@ func (r *Version) getAllExistingFilesForThisVersion(ctx context.Context) ([]stri
 
 	r.logger.Info().Msgf("Retrieved %d existing files from destination API for version %s", len(allFileNames), r.version.Name)
 	return allFileNames, nil
+}
+
+// destCoordinates returns the package and version names HAR stores this version
+// under, which differ from the source names for NUGET (lowercased) and DART.
+func (r *Version) destCoordinates() (string, string) {
+	switch r.artifactType {
+	case types.NUGET:
+		return strings.ToLower(r.pkg.Name), strings.ToLower(r.version.Name)
+	case types.DART:
+		if name, version, ok := types.DartCoordinates(r.version.Name, r.version.Path); ok {
+			return name, version
+		}
+	}
+	return r.pkg.Name, r.version.Name
+}
+
+// goVersionPresent reports whether every .mod/.zip/.info file of a Go version is
+// already at the destination; a partial version is re-created.
+func goVersionPresent(versionFiles []*types.File, existing map[string]bool) bool {
+	if len(versionFiles) == 0 {
+		return false
+	}
+	for _, file := range versionFiles {
+		if !existing[strings.ToLower(file.Name)] {
+			return false
+		}
+	}
+	return true
 }
 
 // npmTarballBelongsToVersion reports whether fileName is the <name>-<version>.tgz

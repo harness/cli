@@ -162,3 +162,101 @@ func TestUploadTerraformFile(t *testing.T) {
 		})
 	}
 }
+
+func TestDownloadExistenceChecks(t *testing.T) {
+	const tfBase = "/pkg/acct1/tfreg/terraform/v1"
+	const cranBase = "/pkg/acct1/cranreg/cran/src/contrib/"
+	tests := []struct {
+		name      string
+		check     func(c *client) (bool, error)
+		responses map[string]int
+		wantPaths []string
+		want      bool
+		wantErr   bool
+	}{
+		{
+			name: "terraform module present",
+			check: func(c *client) (bool, error) {
+				return c.terraformFileExists(context.Background(), "acct1/org/proj/tfreg", "acme/demo/aws", "1.0.0",
+					&types.File{Uri: "/acme/demo/aws/1.0.0/demo-1.0.0.tar.gz"})
+			},
+			responses: map[string]int{tfBase + "/modules/acme/demo/aws/1.0.0/download": http.StatusNoContent},
+			wantPaths: []string{tfBase + "/modules/acme/demo/aws/1.0.0/download"},
+			want:      true,
+		},
+		{
+			name: "terraform provider absent",
+			check: func(c *client) (bool, error) {
+				return c.terraformFileExists(context.Background(), "acct1/org/proj/tfreg", "acme/aws", "5.0.0",
+					&types.File{Uri: "/acme/aws/5.0.0/terraform-provider-aws_5.0.0_linux_amd64.zip"})
+			},
+			wantPaths: []string{tfBase + "/providers/acme/aws/5.0.0/terraform-provider-aws_5.0.0_linux_amd64.zip"},
+			want:      false,
+		},
+		{
+			name: "cran redirect to blob means present",
+			check: func(c *client) (bool, error) {
+				return c.cranFileExists(context.Background(), "acct1/org/proj/cranreg", "src/contrib/demo_1.0.0.tar.gz")
+			},
+			responses: map[string]int{cranBase + "demo_1.0.0.tar.gz": http.StatusTemporaryRedirect},
+			wantPaths: []string{cranBase + "demo_1.0.0.tar.gz"},
+			want:      true,
+		},
+		{
+			name: "cran superseded source found in archive",
+			check: func(c *client) (bool, error) {
+				return c.cranFileExists(context.Background(), "acct1/org/proj/cranreg", "src/contrib/demo_1.0.0.tar.gz")
+			},
+			responses: map[string]int{cranBase + "Archive/demo/demo_1.0.0.tar.gz": http.StatusTemporaryRedirect},
+			wantPaths: []string{cranBase + "demo_1.0.0.tar.gz", cranBase + "Archive/demo/demo_1.0.0.tar.gz"},
+			want:      true,
+		},
+		{
+			name: "cran binary has no archive fallback",
+			check: func(c *client) (bool, error) {
+				return c.cranFileExists(context.Background(), "acct1/org/proj/cranreg",
+					"bin/windows/contrib/4.4/demo_1.0.0.zip")
+			},
+			wantPaths: []string{"/pkg/acct1/cranreg/cran/bin/windows/contrib/4.4/demo_1.0.0.zip"},
+			want:      false,
+		},
+		{
+			name: "server error is not absence",
+			check: func(c *client) (bool, error) {
+				return c.cranFileExists(context.Background(), "acct1/org/proj/cranreg", "src/contrib/demo_1.0.0.tar.gz")
+			},
+			responses: map[string]int{cranBase + "demo_1.0.0.tar.gz": http.StatusInternalServerError},
+			wantPaths: []string{cranBase + "demo_1.0.0.tar.gz"},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPaths []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPaths = append(gotPaths, r.URL.Path)
+				status, ok := tt.responses[r.URL.Path]
+				if !ok {
+					status = http.StatusNotFound
+				}
+				if status == http.StatusTemporaryRedirect {
+					w.Header().Set("Location", "/blob")
+				}
+				w.WriteHeader(status)
+			}))
+			defer srv.Close()
+			c := &client{client: &http.Client{}, url: srv.URL, accountID: "acct1"}
+
+			got, err := tt.check(c)
+			if strings.Join(gotPaths, ",") != strings.Join(tt.wantPaths, ",") {
+				t.Errorf("paths = %v, want %v", gotPaths, tt.wantPaths)
+			}
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("exists = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

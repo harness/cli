@@ -136,13 +136,25 @@ func (r *Package) Pre(ctx context.Context) error {
 	}
 
 	if !r.config.Overwrite && ((r.artifactType == types.HELM_LEGACY || r.artifactType == types.HELM_HTTP) && r.pkg.Name != "" && r.pkg.Version != "") {
-		exists, err := r.destAdapter.VersionExists(ctx, r.pkg,
-			r.registry.Path, r.pkg.Name, r.pkg.Version,
-			r.artifactType)
+		exists, err := checkExistsWithRetry(ctx, func() (bool, error) {
+			if r.artifactType == types.HELM_LEGACY {
+				return r.helmChartTagExists(ctx)
+			}
+			return r.destAdapter.VersionExists(ctx, r.pkg, r.registry.Path, r.pkg.Name, r.pkg.Version, r.artifactType)
+		})
 		if err != nil {
 			log.Error().Err(err).Msgf("Failed to check if version exists Registry [%s], Package [%s/%s]",
 				r.destRegistry,
 				r.pkg.Name, r.pkg.Version)
+			r.skipMigration = true
+			r.stats.Add(types.FileStat{
+				Name:     r.pkg.Name,
+				Registry: r.srcRegistry,
+				Uri:      r.pkg.Version,
+				Size:     int64(r.pkg.Size),
+				Status:   types.StatusFail,
+				Error:    existenceCheckError(err).Error(),
+			})
 			return nil
 		}
 		if exists {
@@ -238,7 +250,7 @@ func (r *Package) Migrate(ctx context.Context) error {
 	startTime := time.Now()
 
 	if r.skipMigration {
-		logger.Info().Msg("Skipping migration as version already exists in destination registry")
+		logger.Info().Msg("Skipping migration: version already exists in destination or its existence could not be checked")
 		return nil
 	}
 
@@ -601,6 +613,36 @@ func isStaleSourceManifestErr(err error, srcHost string) bool {
 		return true
 	}
 	return false
+}
+
+// helmChartTagExists HEADs <chart>:<version> at the destination. HAR lists OCI
+// versions by manifest digest, so the version-list lookup never matches a chart tag.
+func (r *Package) helmChartTagExists(ctx context.Context) (bool, error) {
+	image, err := r.destAdapter.GetOCIImagePath(r.destRegistry, r.sourcePackageHostname, r.pkg.Name)
+	if err != nil {
+		return false, err
+	}
+	ref, err := name.ParseReference(image+":"+r.pkg.Version, name.WeakValidation)
+	if err != nil {
+		return false, err
+	}
+	keyChain, err := lib.CreateCraneKeychain(r.srcAdapter, r.destAdapter, r.sourcePackageHostname)
+	if err != nil {
+		return false, err
+	}
+	_, err = remote.Head(ref,
+		remote.WithContext(ctx),
+		remote.WithAuthFromKeychain(keyChain),
+		remote.WithUserAgent(util.UserAgentString()),
+	)
+	if err == nil {
+		return true, nil
+	}
+	var terr *transport.Error
+	if errors.As(err, &terr) && terr.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	return false, err
 }
 
 func (r *Package) migrateLegacyHelm(ctx context.Context) error {
@@ -1344,11 +1386,16 @@ func (r *Package) migrateCran(ctx context.Context) error {
 
 		if !r.config.Overwrite {
 			checkFile := &types.File{Uri: destPath}
-			exists, headErr := r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, version, checkFile, types.CRAN)
-			if headErr != nil {
-				r.logger.Warn().Err(headErr).Msgf("Failed to HEAD file %s, will proceed with migration", destPath)
-			} else if exists {
-				r.logger.Info().Msgf("Skipping file %s as it already exists in destination (HEAD 200)", destPath)
+			exists, checkErr := checkExistsWithRetry(ctx, func() (bool, error) {
+				return r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, version, checkFile, types.CRAN)
+			})
+			if checkErr != nil {
+				r.logger.Error().Err(checkErr).Msgf("Failed to check if CRAN file %s exists", destPath)
+				util.AddFileErrorToStat(r.stats, &file, r.srcRegistry, existenceCheckError(checkErr))
+				continue
+			}
+			if exists {
+				r.logger.Info().Msgf("Skipping file %s as it already exists in destination", destPath)
 				r.stats.Add(types.FileStat{
 					Name:     file.Name,
 					Registry: r.srcRegistry,
