@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	http2 "net/http"
+	"net/url"
 	"path"
 	"path/filepath"
 	"strings"
@@ -179,7 +181,7 @@ func (c *client) headRawFile(registryRef string, fileUri string) (bool, error) {
 func (c *client) cranFileExists(ctx context.Context, registryRef, fileUri string) (bool, error) {
 	base := fmt.Sprintf("%s/pkg/%s/%s/cran/", strings.TrimRight(c.url, "/"), c.accountID, path.Base(registryRef))
 	fileUri = strings.TrimPrefix(fileUri, "/")
-	exists, err := c.downloadExists(ctx, base+fileUri)
+	exists, err := c.downloadExists(ctx, base, fileUri)
 	if err != nil || exists {
 		return exists, err
 	}
@@ -188,39 +190,44 @@ func (c *client) cranFileExists(ctx context.Context, registryRef, fileUri string
 	if dir != "src/contrib/" || !ok {
 		return false, nil
 	}
-	return c.downloadExists(ctx, base+"src/contrib/Archive/"+pkg+"/"+file)
+	return c.downloadExists(ctx, base, "src/contrib/Archive/"+pkg+"/"+file)
 }
 
 // terraformFileExists uses the Terraform registry protocol download endpoints, since
 // HAR's version APIs cannot address "ns/name/provider" package names.
 func (c *client) terraformFileExists(ctx context.Context, registryRef, pkg, version string, f *types.File) (bool, error) {
-	base := fmt.Sprintf("%s/pkg/%s/%s/terraform/v1", strings.TrimRight(c.url, "/"), c.accountID,
+	base := fmt.Sprintf("%s/pkg/%s/%s/terraform/v1/", strings.TrimRight(c.url, "/"), c.accountID,
 		path.Base(registryRef))
 	parts := strings.Split(pkg, "/")
-	var url string
+	var rel string
 	switch len(parts) {
 	case 3:
-		url = fmt.Sprintf("%s/modules/%s/%s/%s/%s/download", base, parts[0], parts[1], parts[2], version)
+		rel = fmt.Sprintf("modules/%s/%s/%s/%s/download", parts[0], parts[1], parts[2], version)
 	case 2:
-		url = fmt.Sprintf("%s/providers/%s/%s/%s/%s", base, parts[0], parts[1], version, path.Base(f.Uri))
+		rel = fmt.Sprintf("providers/%s/%s/%s/%s", parts[0], parts[1], version, path.Base(f.Uri))
 	default:
 		return false, fmt.Errorf("unexpected terraform package name %q", pkg)
 	}
-	return c.downloadExists(ctx, url)
+	return c.downloadExists(ctx, base, rel)
 }
 
-// downloadExists reports whether a GET on a package download URL resolves. Redirects
-// (to blob storage) are not followed: a 3xx already means the file exists.
-func (c *client) downloadExists(ctx context.Context, url string) (bool, error) {
-	req, err := http2.NewRequestWithContext(ctx, http2.MethodGet, url, nil)
+// downloadExists reports whether a GET on base+rel resolves. Redirects (to blob
+// storage) are not followed: a 3xx already means the file exists. Errors name only
+// rel, so host and account do not end up in logs and result files.
+func (c *client) downloadExists(ctx context.Context, base, rel string) (bool, error) {
+	req, err := http2.NewRequestWithContext(ctx, http2.MethodGet, base+rel, nil)
 	if err != nil {
-		return false, fmt.Errorf("failed to create request: %w", err)
+		return false, fmt.Errorf("failed to create request for '%s': %w", rel, err)
 	}
 	noRedirect := *c.client
 	noRedirect.CheckRedirect = func(*http2.Request, []*http2.Request) error { return http2.ErrUseLastResponse }
 	resp, err := noRedirect.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("failed to check '%s': %w", url, err)
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return false, fmt.Errorf("failed to check '%s': %w", rel, err)
 	}
 	defer resp.Body.Close()
 	switch {
@@ -229,7 +236,7 @@ func (c *client) downloadExists(ctx context.Context, url string) (bool, error) {
 	case resp.StatusCode >= 200 && resp.StatusCode < 400:
 		return true, nil
 	default:
-		return false, fmt.Errorf("unexpected status code %d checking '%s'", resp.StatusCode, url)
+		return false, fmt.Errorf("unexpected status code %d checking '%s'", resp.StatusCode, rel)
 	}
 }
 

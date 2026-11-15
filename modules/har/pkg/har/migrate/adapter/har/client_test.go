@@ -254,6 +254,9 @@ func TestDownloadExistenceChecks(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
+			if err != nil && (strings.Contains(err.Error(), srv.URL) || strings.Contains(err.Error(), "acct1")) {
+				t.Errorf("err = %q, must not include host or account", err)
+			}
 			if got != tt.want {
 				t.Errorf("exists = %v, want %v", got, tt.want)
 			}

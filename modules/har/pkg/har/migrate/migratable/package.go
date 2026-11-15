@@ -53,6 +53,7 @@ type Package struct {
 	node                  *types.TreeNode
 	stats                 *types.TransferStats
 	skipMigration         bool
+	skipReason            string
 	mapping               *types.RegistryMapping
 	config                *types.Config
 	registry              types.RegistryInfo
@@ -136,17 +137,18 @@ func (r *Package) Pre(ctx context.Context) error {
 	}
 
 	if !r.config.Overwrite && ((r.artifactType == types.HELM_LEGACY || r.artifactType == types.HELM_HTTP) && r.pkg.Name != "" && r.pkg.Version != "") {
-		exists, err := checkExistsWithRetry(ctx, func() (bool, error) {
+		exists, err := checkExistsWithRetry(ctx, logger, func() (bool, error) {
 			if r.artifactType == types.HELM_LEGACY {
 				return r.helmChartTagExists(ctx)
 			}
 			return r.destAdapter.VersionExists(ctx, r.pkg, r.registry.Path, r.pkg.Name, r.pkg.Version, r.artifactType)
 		})
 		if err != nil {
-			log.Error().Err(err).Msgf("Failed to check if version exists Registry [%s], Package [%s/%s]",
+			logger.Error().Err(err).Msgf("Failed to check if version exists Registry [%s], Package [%s/%s]",
 				r.destRegistry,
 				r.pkg.Name, r.pkg.Version)
 			r.skipMigration = true
+			r.skipReason = "destination existence check failed"
 			r.stats.Add(types.FileStat{
 				Name:     r.pkg.Name,
 				Registry: r.srcRegistry,
@@ -161,6 +163,7 @@ func (r *Package) Pre(ctx context.Context) error {
 			util.GetSkipPrinter().Println(fmt.Sprintf("Registry [%s], Package [%s/%s] already exists", r.destRegistry,
 				r.pkg.Name, r.pkg.Version))
 			r.skipMigration = true
+			r.skipReason = "version already exists in destination registry"
 			stat := types.FileStat{
 				Name:     r.pkg.Name,
 				Registry: r.srcRegistry,
@@ -250,7 +253,7 @@ func (r *Package) Migrate(ctx context.Context) error {
 	startTime := time.Now()
 
 	if r.skipMigration {
-		logger.Info().Msg("Skipping migration: version already exists in destination or its existence could not be checked")
+		logger.Info().Msgf("Skipping migration: %s", r.skipReason)
 		return nil
 	}
 
@@ -1386,7 +1389,7 @@ func (r *Package) migrateCran(ctx context.Context) error {
 
 		if !r.config.Overwrite {
 			checkFile := &types.File{Uri: destPath}
-			exists, checkErr := checkExistsWithRetry(ctx, func() (bool, error) {
+			exists, checkErr := checkExistsWithRetry(ctx, r.logger, func() (bool, error) {
 				return r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, version, checkFile, types.CRAN)
 			})
 			if checkErr != nil {

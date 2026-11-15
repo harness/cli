@@ -122,7 +122,7 @@ func (r *Version) Pre(ctx context.Context) error {
 	if !r.config.Overwrite && (r.artifactType != types.MAVEN && r.artifactType != types.NPM &&
 		r.artifactType != types.TERRAFORM && r.pkg.Name != "" && r.version.Name != "") {
 		if r.existingIndex == nil {
-			existingFiles, err := checkExistsWithRetry(ctx, func() ([]string, error) {
+			existingFiles, err := checkExistsWithRetry(ctx, logger, func() ([]string, error) {
 				return r.getAllExistingFilesForThisVersion(ctx)
 			})
 			if err != nil {
@@ -267,7 +267,7 @@ func (r *Version) Migrate(ctx context.Context) error {
 			alreadyExists := false
 			switch {
 			case r.artifactType == types.TERRAFORM && !r.config.Overwrite && !r.config.DryRun:
-				exists, err := checkExistsWithRetry(ctx, func() (bool, error) {
+				exists, err := checkExistsWithRetry(ctx, logger, func() (bool, error) {
 					return r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, r.version.Name, file, r.artifactType)
 				})
 				if err != nil {
