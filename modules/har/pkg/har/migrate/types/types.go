@@ -2,6 +2,7 @@ package types
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -16,6 +17,18 @@ var (
 	ErrInvalidCredentials      = errors.New("invalid credentials")
 	ErrArtifactAlreadyExists   = errors.New("artifact already exists")
 )
+
+// StatusError is a non-success HTTP response from the destination.
+type StatusError struct {
+	StatusCode int
+	Msg        string
+}
+
+func (e *StatusError) Error() string { return e.Msg }
+
+func NewStatusError(statusCode int, format string, args ...any) error {
+	return &StatusError{StatusCode: statusCode, Msg: fmt.Sprintf(format, args...)}
+}
 
 type File struct {
 	Name         string

@@ -171,7 +171,8 @@ func (c *client) headRawFile(registryRef string, fileUri string) (bool, error) {
 	case http2.StatusNotFound:
 		return false, nil
 	default:
-		return false, fmt.Errorf("unexpected status code %d for HEAD on raw file '%s'", resp.StatusCode, fileUri)
+		return false, types.NewStatusError(resp.StatusCode, "unexpected status code %d for HEAD on raw file '%s'",
+			resp.StatusCode, fileUri)
 	}
 }
 
@@ -236,7 +237,7 @@ func (c *client) downloadExists(ctx context.Context, base, rel string) (bool, er
 	case resp.StatusCode >= 200 && resp.StatusCode < 400:
 		return true, nil
 	default:
-		return false, fmt.Errorf("unexpected status code %d checking '%s'", resp.StatusCode, rel)
+		return false, types.NewStatusError(resp.StatusCode, "unexpected status code %d checking '%s'", resp.StatusCode, rel)
 	}
 }
 
@@ -812,7 +813,7 @@ func (c *client) artifactFileExists(
 			return false, nil
 		}
 		if response.StatusCode() != http2.StatusOK {
-			return false, fmt.Errorf("failed to get artifact files: %s", response.Status())
+			return false, types.NewStatusError(response.StatusCode(), "failed to get artifact files: %s", response.Status())
 		}
 		data := response.JSON200
 		for _, v := range data.Data.Files {
@@ -881,7 +882,8 @@ func (c *client) listArtifactFiles(
 			return allFiles, nil
 		}
 		if response.StatusCode() != http2.StatusOK {
-			return allFiles, fmt.Errorf("failed to get artifact files: %s", response.Status())
+			return allFiles, types.NewStatusError(response.StatusCode(), "failed to get artifact files: %s",
+				response.Status())
 		}
 		data := response.JSON200
 
@@ -960,7 +962,8 @@ func (c *client) artifactVersionExists(
 			return false, nil
 		}
 		if response.StatusCode() != http2.StatusOK {
-			return false, fmt.Errorf("failed to get artifact versions: %s", response.Status())
+			return false, types.NewStatusError(response.StatusCode(), "failed to get artifact versions: %s",
+				response.Status())
 		}
 		var data ar.ListArtifactVersion
 
