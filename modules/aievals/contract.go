@@ -94,19 +94,12 @@ var legacyCandidateFields = map[string]bool{
 	"input_text": true, "expected": true, "cases": true, "metrics": true,
 }
 
-func unsupportedSchemaVersion(value any) error {
-	shown := "null"
-	if value != nil {
-		shown = fmt.Sprintf("%v", value)
-		if text, ok := value.(string); ok {
-			shown = "'" + text + "'"
-		}
-	}
-	return fmt.Errorf("schema_version %s is not supported. Set schema_version to '%s', or remove schema_version to use the legacy onboarding tree.", shown, SchemaVersionV1)
+func unsupportedSchemaVersion(_ any) error {
+	return fmt.Errorf("schema_version: unsupported_schema_version: schema version is not supported. Set schema_version to '%s', or remove schema_version to use the legacy onboarding tree.", SchemaVersionV1)
 }
 
 func absentSchemaVersion(reason string) error {
-	return fmt.Errorf("schema_version is absent. Set schema_version to '%s'. %s", SchemaVersionV1, reason)
+	return fmt.Errorf("schema_version: unsupported_schema_version: schema version is absent. Set schema_version to '%s'. %s", SchemaVersionV1, reason)
 }
 
 func credentialTokens(name string) []string {
@@ -702,7 +695,7 @@ func validateCandidate(raw any, label string) error {
 		switch key {
 		case "id", "confidence", "evidence":
 		default:
-			return fmt.Errorf("%s only allows id, confidence, and evidence", label)
+			return rejectUnknown(label + "." + publicUnknownKey(key))
 		}
 	}
 	id, _ := object["id"].(string)
@@ -736,7 +729,7 @@ func validateEvidence(raw any, label string) error {
 		switch key {
 		case "source", "summary", "confidence", "locator":
 		default:
-			return fmt.Errorf("%s only allows source, summary, confidence, and locator", label)
+			return rejectUnknown(label + "." + publicUnknownKey(key))
 		}
 	}
 	source, _ := object["source"].(string)
@@ -790,7 +783,7 @@ func rejectExecutableFields(node any, label string) error {
 	case map[string]any:
 		for key, value := range typed {
 			if executableFields[key] {
-				return fmt.Errorf("%s cannot include executable field %q. Record a source path and summary only.", label, key)
+				return rejectUnknown(label + "." + publicUnknownKey(key))
 			}
 			if err := rejectExecutableFields(value, label); err != nil {
 				return err

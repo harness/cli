@@ -102,7 +102,7 @@ func (item *SampleCase) UnmarshalJSON(data []byte) error {
 	}
 	for key := range raw {
 		if !sampleCaseFields[key] {
-			return fmt.Errorf("sample case contains unknown field %q", key)
+			return rejectUnknown("cases[]." + publicUnknownKey(key))
 		}
 	}
 	*item = SampleCase{}
@@ -236,11 +236,6 @@ type WriteOptions struct {
 }
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-
-var forbiddenCandidateKeys = map[string]bool{
-	"secret": true, "token": true, "api_key": true, "apikey": true,
-	"password": true, "auth_value": true, "credential": true, "api_key_value": true,
-}
 
 // Scan prints nothing and writes nothing. A route that is not an exact supported
 // hint returns exit code 2. An empty repository returns an empty candidate list.
@@ -417,13 +412,8 @@ func LoadCandidateFile(path string) (Candidate, error) {
 		return loadV1Candidate(raw)
 	}
 	for key := range raw {
-		if forbiddenCandidateKeys[strings.ToLower(key)] {
-			return Candidate{}, fmt.Errorf("candidate file contains %q; pass secret names only, never secret values", key)
-		}
-	}
-	for key := range raw {
 		if !legacyCandidateFields[key] {
-			return Candidate{}, absentSchemaVersion(fmt.Sprintf("Field %q does not map unambiguously from the legacy candidate. Legacy files may only use agent_id, endpoint_url, method, request_field, request_fields, response_path, auth_header, auth_env, input_text, expected, cases, and metrics.", key))
+			return Candidate{}, rejectUnknown("candidate." + publicUnknownKey(key))
 		}
 	}
 	var candidate Candidate

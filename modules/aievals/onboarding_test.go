@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1682,7 +1683,7 @@ func TestWriteCandidateRejectsIncompleteAndSecretValues(t *testing.T) {
 	if err := os.WriteFile(secret, []byte(`{"endpoint_url":"http://127.0.0.1:8080/chat","method":"POST","request_field":"text","response_path":"output.text","token":"pat.secret"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadCandidateFile(secret); err == nil || !strings.Contains(err.Error(), "token") {
+	if _, err := LoadCandidateFile(secret); err == nil || err.Error() != "candidate.[redacted]: unknown_field: field is not accepted" || strings.Contains(err.Error(), "pat.secret") {
 		t.Fatalf("secret file err = %v", err)
 	}
 	code, err = WriteCandidate(WriteOptions{
@@ -2070,6 +2071,76 @@ func TestUploadAuthScopeAndURLs(t *testing.T) {
 	}
 	if !strings.Contains(text, GitSyncRecommendation) {
 		t.Fatalf("git sync recommendation missing:\n%s", text)
+	}
+}
+
+func TestUploadV1TreePostsWithoutRunnerVerification(t *testing.T) {
+	repo := t.TempDir()
+	code, err := WriteCandidate(WriteOptions{
+		Repo:      repo,
+		Candidate: Candidate{Wire: onboardingV1FixtureDocument()},
+		Confirm:   true,
+		Stdout:    io.Discard,
+		Stderr:    io.Discard,
+	})
+	if code != 0 || err != nil {
+		t.Fatalf("stage code=%d err=%v", code, err)
+	}
+
+	var posted bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posted = true
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read archive: %v", err)
+		}
+		if !bytes.Contains(body, []byte("schema_version: onboarding/v1")) {
+			t.Errorf("archive did not contain the v1 agent document")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"agents":[{"identifier":"support","ui_path":"/agent"}],"evals":[{"identifier":"support-eval","ui_path":"/eval"}]}`)
+	}))
+	defer server.Close()
+
+	t.Setenv(hbase.EnvCLIHome, t.TempDir())
+	auth := patAuth()
+	auth.APIUrl = server.URL
+	ctx := &cmdctx.Ctx{
+		Auth:       auth,
+		FlagValues: map[string]any{"root": filepath.Join(repo, ".harness", "evals")},
+	}
+	if err := uploadWorkflow(ctx); err != nil {
+		t.Fatalf("upload returned error: %v", err)
+	}
+	if !posted {
+		t.Fatal("upload did not POST the archive")
+	}
+}
+
+func TestCrossRepoWorkflowPinsReviewedD2FixtureRevision(t *testing.T) {
+	const reviewedD2Ref = "a30b4ef161d37f71224c5e7fbcaba319e2251669"
+	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "onboarding-v1-cross-repo.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	if !strings.Contains(workflowText, "D2_REF: "+reviewedD2Ref) {
+		t.Fatalf("workflow does not pin reviewed D2 ref %s", reviewedD2Ref)
+	}
+	if strings.Contains(workflowText, "223b19869f2d1f012e4ceddc4b11bc7837c08bcf") {
+		t.Fatal("workflow still pins the superseded D2 ref")
+	}
+
+	docs, err := os.ReadFile(filepath.Join("..", "..", "docs", "onboarding-v1-cross-repo.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	docsText := string(docs)
+	if !strings.Contains(docsText, "D2_REF") || !strings.Contains(docsText, "fixture and reference together") {
+		t.Fatalf("docs do not require fixture/reference updates together:\n%s", docsText)
 	}
 }
 

@@ -4,6 +4,7 @@
 package aievals
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -12,9 +13,12 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"go.yaml.in/yaml/v3"
 )
 
 const importArchivePath = "/gateway/ai-evals/api/v1/orgs/%s/projects/%s/evals/import-archive"
@@ -35,6 +39,97 @@ type importArchiveResponse struct {
 	Datasets   []importedResource `json:"datasets"`
 	MetricSets []importedResource `json:"metric_sets"`
 	Suites     []importedResource `json:"suites"`
+}
+
+// ValidateUploadTree checks the files that BuildArchive will include without
+// requiring the local execution runner. Upload is an archive/API operation;
+// v1 run compatibility remains enforced by RunAgent.
+func ValidateUploadTree(root string) error {
+	info, err := os.Stat(root)
+	if err != nil {
+		return fmt.Errorf("reading upload tree %s: %w", root, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("upload tree %s is not a directory", root)
+	}
+
+	agentFiles := 0
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".yaml" && ext != ".yml" && ext != ".jsonl" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		switch ext {
+		case ".yaml", ".yml":
+			if err := validateUploadYAML(path, data); err != nil {
+				return err
+			}
+			if filepath.Base(path) == "agent.yaml" {
+				agentFiles++
+			}
+		case ".jsonl":
+			if err := validateUploadJSONL(path, data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if agentFiles == 0 {
+		return fmt.Errorf("upload tree has no agent.yaml")
+	}
+	return nil
+}
+
+func validateUploadYAML(path string, data []byte) error {
+	var value any
+	if err := yaml.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("invalid YAML in %s", path)
+	}
+	if filepath.Base(path) != "agent.yaml" {
+		return nil
+	}
+	document, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("agent document %s must be a mapping", path)
+	}
+	if _, hasVersion := document["schema_version"]; hasVersion {
+		if err := validateV1Document(document); err != nil {
+			return fmt.Errorf("invalid agent document %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func validateUploadJSONL(path string, data []byte) error {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 64*1024), MaxMemberBytes)
+	line := 0
+	for scanner.Scan() {
+		line++
+		if strings.TrimSpace(scanner.Text()) == "" {
+			continue
+		}
+		if _, err := decodeJSONValue([]byte(scanner.Text())); err != nil {
+			return fmt.Errorf("invalid JSONL in %s at line %d", path, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("reading JSONL in %s: %w", path, err)
+	}
+	return nil
 }
 
 // NewArchiveRequest builds the multipart POST the import-archive route accepts.

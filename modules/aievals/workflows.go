@@ -250,24 +250,8 @@ func uploadWorkflow(ctx *cmdctx.Ctx) error {
 		root = filepath.Join(wd, root)
 	}
 	repo := filepath.Dir(filepath.Dir(root))
-	v1Tree, err := treeRequiresV1Runner(root)
-	if err != nil {
+	if err := ValidateUploadTree(root); err != nil {
 		return err
-	}
-	if v1Tree && SchemaVersion != SchemaVersionV1 {
-		return fmt.Errorf("%s", RunnerV1Remediation())
-	}
-	layout, err := VerifyRunner(RunnerHome(), nil)
-	if err != nil {
-		return err
-	}
-	args := ValidatorArgs(layout.Python, root)
-	result, err := defaultCommand(args[0], args[1:], nil, repo)
-	if err != nil {
-		return err
-	}
-	if result.Code != 0 {
-		return fmt.Errorf("onboarding validator failed: %s", strings.TrimSpace(result.Stderr))
 	}
 	payload, err := BuildArchive(repo, DefaultLimits())
 	if err != nil {

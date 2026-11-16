@@ -2370,13 +2370,12 @@ commands:
     short: "Validate and upload .harness/evals: harness upload eval_onboarding"
     long: |
       TODO(onboarding-schema): provisional command.
-      An onboarding/v1 tree fails closed when the pinned runner schema is not
-      onboarding/v1. The files are not modified. Otherwise validates the tree
-      with the pinned runner, builds a deterministic zip, and
-      POSTs it to the import-archive endpoint using the active profile scope.
-      Prints the server-returned Agent and Eval paths. Use --profile <name> or
-      HARNESS_PROFILE to select an existing profile; this command never changes
-      profiles.
+      Locally validates the tree without requiring the execution runner, builds
+      a deterministic zip, and POSTs it to the import-archive endpoint using
+      the active profile scope. Prints the server-returned Agent and Eval
+      paths. Use --profile <name> or HARNESS_PROFILE to select an existing
+      profile; this command never changes profiles. `run` remains fail-closed
+      when the pinned runner does not support onboarding/v1.
     handler_type: workflow
     workflow_id: upload
     flags:

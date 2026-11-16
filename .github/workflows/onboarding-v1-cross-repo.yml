@@ -2,9 +2,10 @@
 name: Onboarding v1 cross-repo
 
 # Dedicated compatibility check; the normal D4 Go tests remain self-contained.
-# D2_REF is the full commit on onboarding-d2-local-runner that contains the
-# onboarding/v1 loader and the D4 fixture contract. Update it together with the
-# mirrored fixture as documented in docs/onboarding-v1-cross-repo.md.
+# D2_REF is the full reviewed commit on onboarding-d2-local-runner that
+# contains the onboarding/v1 loader and the D4 fixture contract. Update this
+# reference, its checksum verification, and the mirrored fixture together as
+# documented in docs/onboarding-v1-cross-repo.md.
 on:  # yamllint disable-line rule:truthy
   workflow_dispatch:
 
@@ -13,7 +14,7 @@ permissions:
 
 env:
   D2_REPOSITORY: harness/ai-evals
-  D2_REF: 223b19869f2d1f012e4ceddc4b11bc7837c08bcf
+  D2_REF: a30b4ef161d37f71224c5e7fbcaba319e2251669
   D2_BRANCH: onboarding-d2-local-runner
   HARNESS_PYPI_HOST: https://harness0.harness.io
   HARNESS_PYPI_PREFIX: /pkg/l7B_kbSEQD2wjrM7PShm5w/

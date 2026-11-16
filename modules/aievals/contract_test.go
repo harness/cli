@@ -216,6 +216,63 @@ func TestV1UnknownSensitiveFieldsAreRedactedWithD2Code(t *testing.T) {
 	}
 }
 
+func TestCandidateValidationRedactsSchemaVersionsAndLegacyUnknowns(t *testing.T) {
+	document := onboardingV1FixtureDocument()
+	const schemaSecret = "sk-live-schema-secret"
+	document["schema_version"] = schemaSecret
+
+	err := validateV1Document(document)
+	if err == nil {
+		t.Fatal("expected unsupported schema version")
+	}
+	if got, want := err.Error(), "schema_version: unsupported_schema_version: schema version is not supported. Set schema_version to 'onboarding/v1', or remove schema_version to use the legacy onboarding tree."; got != want {
+		t.Fatalf("schema error = %q, want %q", got, want)
+	}
+	if strings.Contains(err.Error(), schemaSecret) {
+		t.Fatalf("schema error echoed secret-shaped version: %v", err)
+	}
+
+	legacyPath := filepath.Join(t.TempDir(), "legacy.json")
+	legacy := `{"endpoint_url":"http://127.0.0.1:8080/chat","method":"POST","request_field":"text","response_path":"output.text","sk-live-user-secret":"raw-secret-value"}`
+	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = func() error {
+		_, err := LoadCandidateFile(legacyPath)
+		return err
+	}()
+	if err == nil {
+		t.Fatal("expected legacy unknown field rejection")
+	}
+	if got, want := err.Error(), "candidate.[redacted]: unknown_field: field is not accepted"; got != want {
+		t.Fatalf("legacy error = %q, want %q", got, want)
+	}
+	for _, leaked := range []string{"sk-live-user-secret", "raw-secret-value"} {
+		if strings.Contains(err.Error(), leaked) {
+			t.Fatalf("legacy error echoed %q: %v", leaked, err)
+		}
+	}
+
+	ordinaryPath := filepath.Join(t.TempDir(), "legacy-ordinary.json")
+	ordinary := `{"endpoint_url":"http://127.0.0.1:8080/chat","method":"POST","request_field":"text","response_path":"output.text","unexpected":"Bearer raw-secret-value"}`
+	if err := os.WriteFile(ordinaryPath, []byte(ordinary), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = func() error {
+		_, err := LoadCandidateFile(ordinaryPath)
+		return err
+	}()
+	if err == nil {
+		t.Fatal("expected ordinary legacy unknown field rejection")
+	}
+	if got, want := err.Error(), "candidate.unexpected: unknown_field: field is not accepted"; got != want {
+		t.Fatalf("ordinary legacy error = %q, want %q", got, want)
+	}
+	if strings.Contains(err.Error(), "Bearer raw-secret-value") {
+		t.Fatalf("ordinary legacy error echoed unknown value: %v", err)
+	}
+}
+
 func TestStageRejectsSchemaGrammarAndSecretsBeforeWrite(t *testing.T) {
 	repo := t.TempDir()
 	run := func(string, []string, []string, string) (CommandResult, error) {
