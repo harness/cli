@@ -75,8 +75,13 @@ func (e *hTTPError) IsNotFound() bool {
 	return e.StatusCode == http.StatusNotFound
 }
 
+// IsClientError reports a 4xx that polling should not retry. 429 is excluded:
+// HCli retries it and, once retries are spent, returns a plain error the poll
+// loop keeps polling through. Ported from HCli's cov waituntil. Differences from
+// the original: HCli also retries each request itself; core's client has no hook
+// for that, so only the poll loop retries.
 func (e *hTTPError) IsClientError() bool {
-	return e.StatusCode >= 400 && e.StatusCode < 500
+	return e.StatusCode >= 400 && e.StatusCode < 500 && e.StatusCode != http.StatusTooManyRequests
 }
 
 func statusPath(accountID, executionID string) string {

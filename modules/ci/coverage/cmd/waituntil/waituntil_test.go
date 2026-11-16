@@ -44,6 +44,7 @@ func TestCoverageHTTPError(t *testing.T) {
 		{399, false, false},
 		{400, false, true},
 		{404, true, true},
+		{429, false, false},
 		{499, false, true},
 		{500, false, false},
 	}
@@ -385,6 +386,32 @@ func TestCoverageWaitUntil_ClientErrorFailsFastWithoutExhaustingTimeout(t *testi
 	}
 	if atomic.LoadInt32(&calls) > 2 {
 		t.Fatalf("status endpoint was called %d times, want it to fail fast on the first 403 instead of retrying toward the 5s timeout", calls)
+	}
+}
+
+func TestCoverageWaitUntil_RateLimitIsRetriedNotFatal(t *testing.T) {
+	t.Setenv("CI", "true")
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
+		writeCoverageJSON(t, w, statusResponse{State: "complete", Summary: &reportSummary{Coverage: 90}})
+	}))
+	defer server.Close()
+
+	ctx := testCtx(t, server.URL, "acct")
+	f := baseWaitFlags()
+	f.gte = 80
+	f.timeout = "5s"
+	f.interval = "20ms"
+
+	if err := waitUntil(ctx, f); err != nil {
+		t.Fatalf("waitUntil() error = %v, want it to keep polling past a 429", err)
+	}
+	if atomic.LoadInt32(&calls) < 2 {
+		t.Fatalf("status endpoint was called %d times, want a retry after the 429", calls)
 	}
 }
 
