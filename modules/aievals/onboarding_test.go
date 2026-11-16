@@ -2128,7 +2128,7 @@ func TestUploadV1TreePostsWithoutRunnerVerification(t *testing.T) {
 }
 
 func TestCrossRepoWorkflowPinsReviewedD2FixtureRevision(t *testing.T) {
-	const reviewedD2Ref = "a30b4ef161d37f71224c5e7fbcaba319e2251669"
+	const reviewedD2Ref = "8617179d2a072fd019ad9729dfd2c8ab02096f77"
 	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "onboarding-v1-cross-repo.yml"))
 	if err != nil {
 		t.Fatal(err)

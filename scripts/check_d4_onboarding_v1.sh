@@ -17,8 +17,13 @@ if [ -z "${D2_ONBOARDING_ROOT:-}" ]; then
 fi
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 FIXTURE="$ROOT/modules/aievals/testdata/onboarding_v1_candidate.json"
+DATASET_FIXTURE="$ROOT/modules/aievals/testdata/onboarding_v1_dataset_cases.json"
 if [ ! -f "$FIXTURE" ]; then
   echo "missing $FIXTURE" >&2
+  exit 1
+fi
+if [ ! -f "$DATASET_FIXTURE" ]; then
+  echo "missing $DATASET_FIXTURE" >&2
   exit 1
 fi
 cd "$D2_ONBOARDING_ROOT"

@@ -7,11 +7,14 @@ D2 checkout or a network connection.
 
 The dedicated
 `.github/workflows/onboarding-v1-cross-repo.yml` workflow performs the second
-gate. It checks out D2 from `harness/ai-evals` at the full
-`onboarding-d2-local-runner` commit recorded in the workflow, installs the D2
-runner manifest, and runs `scripts/check_d4_onboarding_v1.sh` with
-`D2_ONBOARDING_ROOT` set to that checkout. The cross-repo loader test is not
-part of ordinary D4 unit-test CI.
+gate. It checks out D2 from `harness/ai-evals` at reviewed revision
+`8617179d2a072fd019ad9729dfd2c8ab02096f77` on
+`onboarding-d2-local-runner`, installs the D2 runner manifest, and runs
+`scripts/check_d4_onboarding_v1.sh` with `D2_ONBOARDING_ROOT` set to that
+checkout. The checker loads the generated candidate and verifies scalar, list,
+object, and null `precomputed_output` values in the managed single-eval YAML,
+including its JSON materialization round trip. The cross-repo loader test is
+not part of ordinary D4 unit-test CI.
 
 ## Updating the contract
 
@@ -25,8 +28,8 @@ advance only the checkout pin or only the fixture.
    test.
 4. Land the D2 change on `onboarding-d2-local-runner`.
 5. Change `D2_REF` in the dedicated workflow to the full reviewed D2 commit
-   SHA, and keep the `D2_BRANCH` comment/context and checksum verification
-   accurate.
+   SHA (`8617179d2a072fd019ad9729dfd2c8ab02096f77` here), and keep the
+   `D2_BRANCH` comment/context and checksum verification accurate.
 6. Run the dedicated workflow before treating the fixture change as complete.
 
 The workflow requires `AI_EVALS_READ_TOKEN` for the pinned D2 checkout and

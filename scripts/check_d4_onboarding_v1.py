@@ -33,6 +33,13 @@ entries:
     score_name: exact_match
 """
 
+_EXPECTED_PRECOMPUTED_OUTPUT = {
+    "scalar-input": 0,
+    "list-input": ["one", 2, None],
+    "object-input": {"output": "ready"},
+    "null-input": None,
+}
+
 
 def main() -> None:
     if len(sys.argv) != 2:
@@ -67,20 +74,35 @@ def main() -> None:
         loaded_rows = agent.evals["answer-quality"].dataset.items
         if loaded_rows != dataset_cases:
             raise SystemExit(f"dataset rows changed in D2 loader: {loaded_rows!r}")
-        items = translate(tree, "support-agent", "local").items_by_eval["answer-quality"]
+        translation = translate(tree, "support-agent", "local")
+        items = translation.items_by_eval["answer-quality"]
         by_id = {item.id: item for item in items}
         if by_id["scalar-input"].input != "hello" or by_id["scalar-input"].expected is not None:
             raise SystemExit("scalar/null dataset values changed in D2 translator")
-        if by_id["scalar-input"].precomputed_output != ["one", 2, None]:
-            raise SystemExit("scalar precomputed_output changed in D2 translator")
         if by_id["list-input"].input != [1, "two", False] or by_id["list-input"].expected != ["x", {"y": None}]:
             raise SystemExit("list dataset values changed in D2 translator")
         if by_id["object-input"].expected != {"answer": 42}:
             raise SystemExit("object expected value changed in D2 translator")
-        if by_id["object-input"].precomputed_output != {"output": "ready"}:
-            raise SystemExit("object precomputed_output changed in D2 translator")
         if by_id["null-input"].input is not None:
             raise SystemExit("null input changed in D2 translator")
+        for item_id, expected in _EXPECTED_PRECOMPUTED_OUTPUT.items():
+            if by_id[item_id].precomputed_output != expected:
+                raise SystemExit(f"{item_id} precomputed_output changed in D2 translator")
+        managed_yaml = yaml.safe_load(translation.managed_eval_yaml["answer-quality"])
+        serialized = materialized_json(translation)
+        materialized = json.loads(serialized)
+        round_tripped_yaml = yaml.safe_load(materialized["managed_eval_yaml"]["answer-quality"])
+        for projection_name, projection in (
+            ("managed single-eval YAML", managed_yaml),
+            ("materialized managed single-eval YAML", round_tripped_yaml),
+        ):
+            managed_items = {item["id"]: item for item in projection["dataset"]["items"]}
+            for item_id, expected in _EXPECTED_PRECOMPUTED_OUTPUT.items():
+                item = managed_items.get(item_id)
+                if item is None or "precomputed_output" not in item:
+                    raise SystemExit(f"{projection_name} dropped {item_id} precomputed_output")
+                if item["precomputed_output"] != expected:
+                    raise SystemExit(f"{projection_name} changed {item_id} precomputed_output")
         nested = agent.request_template["nested"]["value"]
         if nested["flag"] is not True or nested["count"] != 2 or nested["empty"] is not None:
             raise SystemExit(f"nested literal was retyped: {nested!r}")
@@ -104,7 +126,6 @@ def main() -> None:
             raise SystemExit("auth header did not stay a named secret reference")
         if plan["auth_headers"]["X-Request-Id"] != "{{env.REQUEST_ID}}":
             raise SystemExit("auth header did not stay an environment name")
-        serialized = materialized_json(translate(tree, "support-agent", "local"))
         # desk-lamp stays in the plan. These sentinels are not substrings of it.
         for forbidden in ("super-secret", "pat.", "resolved-secret", "sk-abc"):
             if forbidden in serialized:

@@ -172,6 +172,35 @@ func TestD2DatasetCaseShapesAndFieldsSurviveStaging(t *testing.T) {
 	if !ok {
 		t.Fatalf("fixture is not a list: %#v", wantValue)
 	}
+	expectedPrecomputed := map[string]any{
+		"scalar-input": int64(0),
+		"list-input":   []any{"one", int64(2), nil},
+		"object-input": map[string]any{"output": "ready"},
+		"null-input":   nil,
+	}
+	seenPrecomputed := make(map[string]bool, len(expectedPrecomputed))
+	for _, raw := range want {
+		row, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("fixture row is not an object: %#v", raw)
+		}
+		id, ok := row["id"].(string)
+		if !ok {
+			t.Fatalf("fixture row has no string id: %#v", row)
+		}
+		expected, ok := expectedPrecomputed[id]
+		if !ok {
+			continue
+		}
+		actual, present := row["precomputed_output"]
+		if !present || !reflect.DeepEqual(actual, expected) {
+			t.Fatalf("fixture precomputed_output[%s] = (%#v, %t), want (%#v, true)", id, actual, present, expected)
+		}
+		seenPrecomputed[id] = true
+	}
+	if len(seenPrecomputed) != len(expectedPrecomputed) {
+		t.Fatalf("fixture did not cover all precomputed_output shapes: got %v, want %v", seenPrecomputed, expectedPrecomputed)
+	}
 	var got []any
 	for _, line := range strings.Split(strings.TrimSpace(string(staged)), "\n") {
 		value, err := decodeJSONValue([]byte(line))

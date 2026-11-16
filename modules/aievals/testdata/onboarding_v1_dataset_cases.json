@@ -6,11 +6,7 @@
     "expected_output": {
       "accepted": true
     },
-    "precomputed_output": [
-      "one",
-      2,
-      null
-    ]
+    "precomputed_output": 0
   },
   {
     "id": "list-input",
@@ -24,6 +20,11 @@
       {
         "y": null
       }
+    ],
+    "precomputed_output": [
+      "one",
+      2,
+      null
     ]
   },
   {
