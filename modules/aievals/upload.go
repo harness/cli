@@ -106,7 +106,7 @@ func validateUploadYAML(path string, data []byte) error {
 		return fmt.Errorf("agent document %s must be a mapping", path)
 	}
 	if _, hasVersion := document["schema_version"]; hasVersion {
-		if err := validateV1Document(document); err != nil {
+		if err := validateV1AgentDocument(document); err != nil {
 			return fmt.Errorf("invalid agent document %s: %w", path, err)
 		}
 	}

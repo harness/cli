@@ -82,6 +82,7 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 		Candidate: Candidate{
 			AgentID: "guide", EndpointURL: "http://127.0.0.1:8080/analyze",
 			Method: "POST", RequestField: "query", ResponsePath: "reasoning",
+			Cases: validSampleCases(),
 		},
 		Python:            "validator",
 		Run:               run,
@@ -216,6 +217,54 @@ func TestV1UnknownSensitiveFieldsAreRedactedWithD2Code(t *testing.T) {
 	}
 }
 
+func TestScanRedactsSensitiveSourcePathsAndRouteDiagnostics(t *testing.T) {
+	repo := t.TempDir()
+	writeFixtureFile(t, repo, "services/api-key-worker/server.py", `from fastapi import FastAPI
+app = FastAPI()
+@app.get("/reports")
+def reports(): return {}
+`)
+	writeFixtureFile(t, repo, "services/billing/server.py", `from fastapi import FastAPI
+app = FastAPI()
+@app.get("/reports")
+def reports(): return {}
+`)
+
+	report, code, err := Scan(repo, "")
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	for _, leaked := range []string{"api-key-worker", "services/api-key-worker"} {
+		if strings.Contains(text, leaked) {
+			t.Fatalf("scan exposed sensitive source path %q: %s", leaked, text)
+		}
+	}
+	if !strings.Contains(text, "[redacted]") || !strings.Contains(text, "services/billing") {
+		t.Fatalf("scan did not retain safe opaque/path evidence: %s", text)
+	}
+	if _, code, err := Scan(repo, report.Candidates[0].ID); code != 0 || err != nil {
+		t.Fatalf("sanitized candidate ID was not selectable: code=%d err=%v", code, err)
+	}
+
+	_, code, err = Scan(repo, "GET /missing")
+	if code != 2 || err == nil {
+		t.Fatalf("code=%d err=%v, want route-selection error", code, err)
+	}
+	for _, leaked := range []string{"api-key-worker", "services/api-key-worker"} {
+		if strings.Contains(err.Error(), leaked) {
+			t.Fatalf("route diagnostic exposed sensitive source path %q: %v", leaked, err)
+		}
+	}
+	if !strings.Contains(err.Error(), "[redacted]") || !strings.Contains(err.Error(), "services/billing") {
+		t.Fatalf("route diagnostic lost safe path evidence: %v", err)
+	}
+}
+
 func TestCandidateValidationRedactsSchemaVersionsAndLegacyUnknowns(t *testing.T) {
 	document := onboardingV1FixtureDocument()
 	const schemaSecret = "sk-live-schema-secret"
@@ -270,6 +319,133 @@ func TestCandidateValidationRedactsSchemaVersionsAndLegacyUnknowns(t *testing.T)
 	}
 	if strings.Contains(err.Error(), "Bearer raw-secret-value") {
 		t.Fatalf("ordinary legacy error echoed unknown value: %v", err)
+	}
+}
+
+func TestStageRequiresExplicitUniqueDatasetCasesWithoutWriting(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+		want   string
+		leak   string
+	}{
+		{
+			name: "missing",
+			mutate: func(doc map[string]any) {
+				delete(doc, "cases")
+			},
+			want: "cases: missing_cases",
+		},
+		{
+			name: "null",
+			mutate: func(doc map[string]any) {
+				doc["cases"] = nil
+			},
+			want: "cases: missing_cases",
+		},
+		{
+			name: "empty",
+			mutate: func(doc map[string]any) {
+				doc["cases"] = []any{}
+			},
+			want: "cases: empty_cases",
+		},
+		{
+			name: "duplicate id",
+			mutate: func(doc map[string]any) {
+				doc["cases"] = []any{
+					map[string]any{"id": "case-token", "input": "hello"},
+					map[string]any{"id": "case-token", "input": "goodbye"},
+				}
+			},
+			want: "cases[1].id: duplicate_case_id",
+			leak: "case-token",
+		},
+		{
+			name: "duplicate external key",
+			mutate: func(doc map[string]any) {
+				doc["cases"] = []any{
+					map[string]any{"id": "case-one", "input": "hello", "metadata": map[string]any{"external_key": "external-1"}},
+					map[string]any{"id": "case-two", "input": "goodbye", "metadata": map[string]any{"external_key": "external-1"}},
+				}
+			},
+			want: "cases[1].metadata.external_key: duplicate_external_key",
+			leak: "external-1",
+		},
+		{
+			name: "duplicate semantic identity",
+			mutate: func(doc map[string]any) {
+				doc["cases"] = []any{
+					map[string]any{"id": "first", "input": map[string]any{"text": "same"}, "expected": "ok"},
+					map[string]any{"id": "second", "input": map[string]any{"text": "same"}, "expected": "ok"},
+				}
+			},
+			want: "cases[1]: duplicate_semantic_identity",
+			leak: "same",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			doc := onboardingV1FixtureDocument()
+			test.mutate(doc)
+			repo := t.TempDir()
+			code, err := WriteCandidate(WriteOptions{
+				Repo: repo, Candidate: Candidate{Wire: doc}, Confirm: true,
+				Stdout: io.Discard, Stderr: io.Discard,
+				Run: func(string, []string, []string, string) (CommandResult, error) {
+					t.Fatal("invalid cases invoked a subprocess")
+					return CommandResult{}, nil
+				},
+			})
+			if code != 2 || err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("code=%d err=%v, want %q", code, err, test.want)
+			}
+			if test.leak != "" && strings.Contains(err.Error(), test.leak) {
+				t.Fatalf("error exposed case identity %q: %v", test.leak, err)
+			}
+			assertNoEvalFiles(t, repo)
+		})
+	}
+}
+
+func TestStageAcceptsValidTypedCasesAndPreservesShapes(t *testing.T) {
+	doc := onboardingV1FixtureDocument()
+	fixture, err := os.ReadFile(filepath.Join("testdata", "onboarding_v1_dataset_cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []any
+	if err := json.Unmarshal(fixture, &cases); err != nil {
+		t.Fatal(err)
+	}
+	doc["cases"] = cases
+	repo := t.TempDir()
+	code, err := WriteCandidate(WriteOptions{
+		Repo: repo, Candidate: Candidate{Wire: doc}, Confirm: true,
+		Stdout: io.Discard, Stderr: io.Discard,
+	})
+	if code != 0 || err != nil {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	staged, err := os.ReadFile(filepath.Join(repo, ".harness", "evals", "datasets", "answers.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []any
+	for _, line := range strings.Split(strings.TrimSpace(string(staged)), "\n") {
+		value, err := decodeJSONValue([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, value)
+	}
+	want, err := decodeJSONValue(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("staged typed cases changed:\n got: %#v\nwant: %#v", got, want)
 	}
 }
 
@@ -836,7 +1012,23 @@ func TestGoldenCandidateSerialization(t *testing.T) {
 }
 
 func onboardingV1FixtureDocument() map[string]any {
-	return CanonicalOnboardingV1Candidate()
+	doc := CanonicalOnboardingV1Candidate()
+	doc["cases"] = []any{
+		map[string]any{
+			"id":       "case-1",
+			"input":    map[string]any{"text": "hello"},
+			"expected": "ok",
+		},
+	}
+	return doc
+}
+
+func validSampleCases() []SampleCase {
+	return []SampleCase{{
+		ID:       "case-1",
+		Input:    json.RawMessage(`{"text":"hello"}`),
+		Expected: "ok",
+	}}
 }
 
 func loadGoldenCandidate(t *testing.T) (map[string]any, error) {

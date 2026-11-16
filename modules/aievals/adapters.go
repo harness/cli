@@ -146,7 +146,7 @@ func inferSupportedAdapters(repo, selection string) (Inference, error) {
 	if !ok {
 		inf.HasSignal = true
 		inf.CandidatePaths = routeCandidateIdentities(candidates)
-		inf.Notes = append(inf.Notes, fmt.Sprintf("Route %q did not match exactly one detected candidate.", selection))
+		inf.Notes = append(inf.Notes, fmt.Sprintf("Route %q did not match exactly one detected candidate.", sanitizeSourcePath(selection)))
 		return inf, nil
 	}
 	inf.Language = candidate.Adapter
@@ -195,9 +195,9 @@ func scanAdapters(files map[string]string) adapterScan {
 		}
 		if err != nil {
 			if test {
-				scan.notes = append(scan.notes, fmt.Sprintf("Ignored test evidence in %s: %v.", file.path, err))
+				scan.notes = append(scan.notes, fmt.Sprintf("Ignored test evidence in %s: %v.", sanitizeSourcePath(file.path), err))
 			} else {
-				scan.notes = append(scan.notes, fmt.Sprintf("Skipped %s: %v; no routes were read from it.", file.path, err))
+				scan.notes = append(scan.notes, fmt.Sprintf("Skipped %s: %v; no routes were read from it.", sanitizeSourcePath(file.path), err))
 			}
 			continue
 		}
@@ -335,7 +335,7 @@ func uniqueAdapterCandidates(routes []RouteCandidate) []RouteCandidate {
 		if route.Method == "" || route.Path == "" || isOperationalPath(route.Path) {
 			continue
 		}
-		key := route.ServiceRoot + "\x00" + route.Identity()
+		key := route.ServiceRoot + "\x00" + route.internalIdentity()
 		if seen[key] {
 			continue
 		}
@@ -368,7 +368,7 @@ func sortCandidates(candidates []RouteCandidate) []RouteCandidate {
 		if candidates[i].ServiceRoot != candidates[j].ServiceRoot {
 			return candidates[i].ServiceRoot < candidates[j].ServiceRoot
 		}
-		return candidates[i].Identity() < candidates[j].Identity()
+		return candidates[i].internalIdentity() < candidates[j].internalIdentity()
 	})
 	return candidates
 }
@@ -394,7 +394,10 @@ func selectAdapterRoute(candidates []RouteCandidate, selection string) (RouteCan
 	route = normalizeRouteSelection(route)
 	var matched []RouteCandidate
 	for _, candidate := range candidates {
-		if candidate.Route() != route || (service != "" && candidate.ServiceRoot != service) || (source != "" && candidate.Source != source) {
+		serviceMatches := service == "" || candidate.ServiceRoot == service || sanitizeSourcePath(candidate.ServiceRoot) == service
+		sourceMatches := source == "" || candidate.Source == source || sanitizeSourcePath(candidate.Source) == source
+		routeMatches := candidate.Route() == route || sanitizeSourcePath(candidate.Route()) == route
+		if !routeMatches || !serviceMatches || !sourceMatches {
 			continue
 		}
 		matched = append(matched, candidate)
@@ -581,7 +584,7 @@ func choosePort(route RouteCandidate, ports []portEvidence) (portEvidence, strin
 			found = append(found, value)
 		}
 		sort.Strings(found)
-		return portEvidence{}, fmt.Sprintf("Service %s declares conflicting ports (%s); none was selected.", route.ServiceRoot, strings.Join(found, ", "))
+		return portEvidence{}, fmt.Sprintf("Service %s declares conflicting ports (%s); none was selected.", sanitizeSourcePath(route.ServiceRoot), strings.Join(found, ", "))
 	}
 	return portEvidence{}, ""
 }

@@ -72,6 +72,10 @@ type RouteCandidate struct {
 }
 
 func (c RouteCandidate) Identity() string {
+	return fmt.Sprintf("%s [%s %s]", sanitizeSourcePath(c.Route()), sanitizeSourcePath(c.ServiceRoot), sanitizeSourcePath(c.Source))
+}
+
+func (c RouteCandidate) internalIdentity() string {
 	return fmt.Sprintf("%s [%s %s]", c.Route(), c.ServiceRoot, c.Source)
 }
 
@@ -129,14 +133,14 @@ func FormatMediumConfirmation(inf Inference) string {
 	var b strings.Builder
 	b.WriteString("Confirm these medium-confidence values:\n")
 	for _, ev := range items {
-		fmt.Fprintf(&b, "- %s = %s (%s)\n", ev.Field, ev.Value, ev.Source)
+		fmt.Fprintf(&b, "- %s = %s (%s)\n", ev.Field, ev.Value, sanitizeSourcePath(ev.Source))
 	}
 	return b.String()
 }
 
 func FormatLowQuestion(inf Inference) string {
 	if inf.LocationQuestion != "" {
-		return inf.LocationQuestion
+		return sanitizeSourcePath(inf.LocationQuestion)
 	}
 	var items []FieldEvidence
 	for _, ev := range inf.Low() {
@@ -151,7 +155,7 @@ func FormatLowQuestion(inf Inference) string {
 	var b strings.Builder
 	b.WriteString("One question: these values had no reliable evidence. Reply with names only, never secret values.\n")
 	for _, ev := range items {
-		fmt.Fprintf(&b, "- %s: what is the value? (source gap %s)\n", ev.Field, ev.Source)
+		fmt.Fprintf(&b, "- %s: what is the value? (source gap %s)\n", ev.Field, sanitizeSourcePath(ev.Source))
 	}
 	return b.String()
 }

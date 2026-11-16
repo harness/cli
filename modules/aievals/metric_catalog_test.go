@@ -196,7 +196,7 @@ func TestSelectedMetricErrorsDoNotWriteFiles(t *testing.T) {
 				t.Fatal(err)
 			}
 			repo := t.TempDir()
-			candidate := Candidate{AgentID: "chat", EndpointURL: "http://localhost:8080/chat", Method: "POST", RequestField: "text", ResponsePath: "reply", Metrics: metrics}
+			candidate := Candidate{AgentID: "chat", EndpointURL: "http://localhost:8080/chat", Method: "POST", RequestField: "text", ResponsePath: "reply", Cases: validSampleCases(), Metrics: metrics}
 			code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: candidate, Confirm: true, Python: python, Stdout: io.Discard, Stderr: io.Discard})
 			if code == 0 || err == nil || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("code=%d err=%v, want %s", code, err, tc.message)
@@ -229,6 +229,9 @@ func TestStagedMetricsUseSelectedOptionsWhenScoring(t *testing.T) {
 	repo := t.TempDir()
 	candidate := Candidate{
 		AgentID: "chat", EndpointURL: "http://localhost:8080/chat", Method: "POST", RequestField: "text", ResponsePath: "reply",
+		Cases: []SampleCase{{
+			ID: "case-1", Input: json.RawMessage(`{"text":"Check service health"}`), Expected: "service=healthy",
+		}},
 		InputText: "Check service health", Expected: "service=healthy",
 		Metrics: []MetricSelection{
 			{Kind: "contains", ScoreName: "required-text", Options: map[string]any{"case_sensitive": false}},
@@ -265,7 +268,7 @@ assert [metric.name for metric in metrics] == ["required-text", "no-leak"]
 func TestMetricCatalogFailureDoesNotFallBackToExactMatch(t *testing.T) {
 	for _, result := range []CommandResult{{Code: 1}, {Stdout: "[]"}, {Stdout: "not-json"}} {
 		repo := t.TempDir()
-		candidate := Candidate{AgentID: "chat", EndpointURL: "http://localhost:8080/chat", Method: "POST", RequestField: "text", ResponsePath: "reply", Metrics: []MetricSelection{{Kind: "contains"}}}
+		candidate := Candidate{AgentID: "chat", EndpointURL: "http://localhost:8080/chat", Method: "POST", RequestField: "text", ResponsePath: "reply", Cases: validSampleCases(), Metrics: []MetricSelection{{Kind: "contains"}}}
 		calls := 0
 		code, err := WriteCandidate(WriteOptions{
 			Repo: repo, Candidate: candidate, Confirm: true, Python: "python-test", Stdout: io.Discard, Stderr: io.Discard,

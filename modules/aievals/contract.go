@@ -127,6 +127,41 @@ func secretShaped(value string) bool {
 	return secretShapedValue.MatchString(value)
 }
 
+func sanitizeSourcePath(value string) string {
+	if value == "" {
+		return value
+	}
+	var out strings.Builder
+	start := 0
+	for index, char := range value {
+		if char != '/' && char != '\\' {
+			continue
+		}
+		out.WriteString(sanitizePathSegment(value[start:index]))
+		out.WriteRune(char)
+		start = index + 1
+	}
+	out.WriteString(sanitizePathSegment(value[start:]))
+	return out.String()
+}
+
+func sanitizePathSegment(segment string) string {
+	parts := strings.FieldsFunc(segment, func(char rune) bool {
+		switch char {
+		case ' ', '\t', '\r', '\n', '[', ']', '(', ')', '{', '}', '<', '>', ':', ',', ';', '"', '\'':
+			return true
+		default:
+			return false
+		}
+	})
+	for _, part := range parts {
+		if isCredentialName(part) || secretShaped(part) {
+			return "[redacted]"
+		}
+	}
+	return segment
+}
+
 func rejectSecretShaped(label string) error {
 	return fmt.Errorf("%s: credential_value: credential value is not accepted", label)
 }
@@ -181,6 +216,14 @@ func normalizeJSONNumbers(value any) any {
 }
 
 func validateV1Document(doc map[string]any) error {
+	return validateV1DocumentForStage(doc, true)
+}
+
+func validateV1AgentDocument(doc map[string]any) error {
+	return validateV1DocumentForStage(doc, false)
+}
+
+func validateV1DocumentForStage(doc map[string]any, requireCases bool) error {
 	version, ok := doc["schema_version"]
 	if !ok {
 		return absentSchemaVersion("A stage file needs schema_version.")
@@ -225,8 +268,10 @@ func validateV1Document(doc map[string]any) error {
 	if err := validateStagingMetrics(doc["metrics"]); err != nil {
 		return err
 	}
-	if err := validateStagingCases(doc["cases"]); err != nil {
-		return err
+	if rawCases, hasCases := doc["cases"]; requireCases || hasCases {
+		if err := validateStagingCases(rawCases, hasCases); err != nil {
+			return err
+		}
 	}
 	return scanStagedValue(doc, "candidate")
 }
@@ -1107,19 +1152,25 @@ func validateStagingMetrics(raw any) error {
 	return nil
 }
 
-func validateStagingCases(raw any) error {
-	if raw == nil {
-		return nil
+func validateStagingCases(raw any, present bool) error {
+	if !present || raw == nil {
+		return fmt.Errorf("cases: missing_cases: staging requires an explicit non-empty case list; ask the user to add a sample case first")
 	}
 	cases, ok := raw.([]any)
 	if !ok {
 		return fmt.Errorf("cases must be a list")
+	}
+	if len(cases) == 0 {
+		return fmt.Errorf("cases: empty_cases: staging requires an explicit non-empty case list; ask the user to add a sample case first")
 	}
 	allowed := map[string]bool{
 		"id": true, "input": true, "expected": true, "expected_output": true,
 		"context": true, "expected_tools": true, "expected_tool_calls": true,
 		"tags": true, "metadata": true, "precomputed_output": true,
 	}
+	ids := map[string]int{}
+	externalKeys := map[string]int{}
+	semanticIDs := map[string]int{}
 	for index, item := range cases {
 		label := fmt.Sprintf("cases[%d]", index)
 		body, ok := item.(map[string]any)
@@ -1133,10 +1184,60 @@ func validateStagingCases(raw any) error {
 		}
 		id, _ := body["id"].(string)
 		if strings.TrimSpace(id) == "" || secretShaped(id) {
-			return fmt.Errorf("%s.id is required", label)
+			return fmt.Errorf("%s.id: required_case_id: case id is required", label)
 		}
+		if previous, exists := ids[id]; exists {
+			return fmt.Errorf("%s.id: duplicate_case_id: duplicate case id (first seen at cases[%d].id)", label, previous)
+		}
+		ids[id] = index
+		if externalKey, keyPath, ok := caseExternalKey(body); ok {
+			if previous, exists := externalKeys[externalKey]; exists {
+				return fmt.Errorf("%s: duplicate_external_key: duplicate external key (first seen at cases[%d].%s)", label+"."+keyPath, previous, keyPath)
+			}
+			externalKeys[externalKey] = index
+		}
+		semanticID, err := semanticCaseID(body)
+		if err != nil {
+			return fmt.Errorf("%s: invalid_semantic_identity: case identity could not be normalized", label)
+		}
+		if previous, exists := semanticIDs[semanticID]; exists {
+			return fmt.Errorf("%s: duplicate_semantic_identity: duplicate case meaning (first seen at cases[%d])", label, previous)
+		}
+		semanticIDs[semanticID] = index
 	}
 	return nil
+}
+
+func caseExternalKey(body map[string]any) (string, string, bool) {
+	metadata, ok := body["metadata"].(map[string]any)
+	if !ok {
+		return "", "", false
+	}
+	for _, key := range []string{"external_key", "item_identifier"} {
+		value, ok := metadata[key].(string)
+		if ok && strings.TrimSpace(value) != "" {
+			return value, "metadata." + publicKey(key), true
+		}
+	}
+	return "", "", false
+}
+
+func isCaseExternalKey(label, key string) bool {
+	return strings.HasSuffix(label, ".metadata") && (key == "external_key" || key == "item_identifier")
+}
+
+func semanticCaseID(body map[string]any) (string, error) {
+	clone := cloneValue(body).(map[string]any)
+	delete(clone, "id")
+	if metadata, ok := clone["metadata"].(map[string]any); ok {
+		delete(metadata, "external_key")
+		delete(metadata, "item_identifier")
+	}
+	encoded, err := json.Marshal(clone)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func requireIdentifier(value any, label string) (string, error) {
@@ -1195,7 +1296,7 @@ func scanStagedValue(value any, label string) error {
 			}
 			// Schema names such as secrets and auth_headers tokenize as credential
 			// words. They are containers, not literal secret fields.
-			if !secretRefs && !structuralContainers[key] && isCredentialName(key) && !approvedSecretSource(child) {
+			if !secretRefs && !structuralContainers[key] && !isCaseExternalKey(label, key) && isCredentialName(key) && !approvedSecretSource(child) {
 				return rejectLiteralCredential(childLabel)
 			}
 			if err := scanStagedValue(child, childLabel); err != nil {

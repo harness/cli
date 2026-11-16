@@ -257,7 +257,7 @@ func Scan(repo, route string) (ScanReport, int, error) {
 		chosen = []RouteCandidate{match}
 	}
 	for _, candidate := range chosen {
-		detailed, err := InferWithRoute(repo, candidate.Identity())
+		detailed, err := InferWithRoute(repo, candidate.internalIdentity())
 		if err != nil {
 			return ScanReport{}, 1, err
 		}
@@ -268,7 +268,7 @@ func Scan(repo, route string) (ScanReport, int, error) {
 }
 
 func routeSelectionError(route string, candidates []RouteCandidate) string {
-	msg := fmt.Sprintf("route %q is not a supported AST-detected route and cannot be selected with --route; use guided/manual configuration instead", route)
+	msg := fmt.Sprintf("route %q is not a supported AST-detected route and cannot be selected with --route; use guided/manual configuration instead", sanitizeSourcePath(route))
 	if len(candidates) == 0 {
 		return msg
 	}
@@ -315,7 +315,7 @@ func scanCandidateFrom(candidate RouteCandidate, inf Inference) ScanCandidate {
 	if path == "" {
 		path = candidate.Path
 	}
-	source := candidate.Source
+	source := sanitizeSourcePath(candidate.Source)
 	if strings.TrimSpace(source) == "" {
 		source = "repository"
 	}
@@ -541,22 +541,11 @@ func WriteCandidate(opts WriteOptions) (int, error) {
 		if err != nil {
 			return 2, err
 		}
-		if len(normalized.Cases) == 0 && (normalized.InputText != "" || normalized.Expected != "") {
-			fields := requestFieldList(normalized.RequestField, normalized.RequestFields)
-			input := map[string]string{}
-			for _, field := range fields {
-				if field == normalized.RequestField || len(fields) == 1 {
-					input[field] = normalized.InputText
-				} else {
-					input[field] = ""
-				}
-			}
-			raw, err := json.Marshal(input)
-			if err != nil {
-				return 2, err
-			}
-			normalized.Cases = []SampleCase{{ID: "case-1", Input: raw, Expected: normalized.Expected}}
+		caseValue, err := sampleCasesValue(normalized.Cases)
+		if err != nil {
+			return 2, err
 		}
+		document["cases"] = caseValue
 		opts.Candidate.Wire = document
 		opts.Candidate.Cases = normalized.Cases
 		opts.Candidate.Metrics = normalized.Metrics
@@ -629,13 +618,16 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 	if candidate.AuthHeader != "" && candidate.AuthEnv == "" {
 		return Candidate{}, &StatusError{Code: 2, Msg: "auth_header without auth_env does not map to onboarding/v1. Declare target.auth_headers.<Header> as {\"source\":\"env\",\"name\":\"ENV_NAME\"} or {\"source\":\"harness_secret\",\"ref\":\"REF\",\"env\":\"ENV_NAME\"}. The literal value is not accepted."}
 	}
+	if len(candidate.Cases) == 0 {
+		return Candidate{}, fmt.Errorf("cases: missing_cases: staging requires an explicit non-empty case list; ask the user to add a sample case first")
+	}
 	for i, item := range candidate.Cases {
 		if strings.TrimSpace(item.ID) == "" {
-			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("case %d id is required", i+1)}
+			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("cases[%d].id: required_case_id: case id is required", i)}
 		}
 		input := strings.TrimSpace(string(item.Input))
 		if len(input) == 0 || !json.Valid(item.Input) {
-			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("case %s input must be valid JSON", item.ID)}
+			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("cases[%d].input: invalid_case_input: input must be valid JSON", i)}
 		}
 	}
 	return candidate, nil
@@ -762,6 +754,11 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 	if err := validateV1Document(opts.Candidate.Wire); err != nil {
 		return 2, err
 	}
+	cases, err := candidateCases(opts.Candidate)
+	if err != nil {
+		return 2, err
+	}
+	opts.Candidate.Cases = cases
 	if len(opts.Candidate.Metrics) > 0 {
 		encoded, err := json.Marshal(opts.Candidate.Metrics)
 		if err != nil {
@@ -890,22 +887,7 @@ func v1TreeFiles(candidate Candidate) (map[string]string, error) {
 
 func datasetBody(cases []SampleCase, doc map[string]any) (string, error) {
 	if len(cases) == 0 {
-		input := map[string]string{}
-		if target, ok := doc["target"].(map[string]any); ok {
-			if template, ok := target["request_template"].(map[string]any); ok {
-				for field := range template {
-					input[field] = ""
-				}
-			}
-		}
-		if len(input) == 0 {
-			input["text"] = ""
-		}
-		row, err := json.Marshal(map[string]any{"id": "case-1", "input": input, "expected": ""})
-		if err != nil {
-			return "", err
-		}
-		return string(row) + "\n", nil
+		return "", fmt.Errorf("cases: missing_cases: staging requires an explicit non-empty case list; ask the user to add a sample case first")
 	}
 	var body strings.Builder
 	for _, item := range cases {
@@ -920,6 +902,41 @@ func datasetBody(cases []SampleCase, doc map[string]any) (string, error) {
 		body.WriteByte('\n')
 	}
 	return body.String(), nil
+}
+
+func candidateCases(candidate Candidate) ([]SampleCase, error) {
+	if candidate.Cases != nil {
+		if len(candidate.Cases) == 0 {
+			return nil, fmt.Errorf("cases: empty_cases: staging requires an explicit non-empty case list; ask the user to add a sample case first")
+		}
+		return candidate.Cases, nil
+	}
+	raw, ok := candidate.Wire["cases"]
+	if !ok || raw == nil {
+		return nil, fmt.Errorf("cases: missing_cases: staging requires an explicit non-empty case list; ask the user to add a sample case first")
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("cases must be a list")
+	}
+	var cases []SampleCase
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cases); err != nil {
+		return nil, fmt.Errorf("candidate file does not match the onboarding candidate schema")
+	}
+	if len(cases) == 0 {
+		return nil, fmt.Errorf("cases: empty_cases: staging requires an explicit non-empty case list; ask the user to add a sample case first")
+	}
+	return cases, nil
+}
+
+func sampleCasesValue(cases []SampleCase) (any, error) {
+	encoded, err := json.Marshal(cases)
+	if err != nil {
+		return nil, err
+	}
+	return decodeJSONValue(encoded)
 }
 
 func exactMatchMetric(agent string) string {

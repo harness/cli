@@ -2301,8 +2301,11 @@ commands:
       environment-variable name. Never pass a secret value.
       Candidate files may include metrics (kind, threshold, score_name, options,
       config) and cases with structured expected values, context, expected_tools,
-      expected_tool_calls, tags, and metadata. Metric kinds and defaults come
-      from the installed SDK catalog. Omitted metrics retain legacy exact match.
+      expected_tool_calls, tags, and metadata. Staging requires an explicit
+      non-empty cases list with unique case identities; if scan has no cases,
+      ask the user to confirm or add a sample case before staging. Metric kinds
+      and defaults come from the installed SDK catalog. Omitted metrics retain
+      legacy exact match.
     handler_type: workflow
     workflow_id: stage
     flags:

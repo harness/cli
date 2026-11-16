@@ -1533,9 +1533,11 @@ func TestWriteCandidateValidatesAndWrites(t *testing.T) {
 		t.Fatalf("code=%d err=%v candidates=%d", code, err, len(report.Candidates))
 	}
 	assertNoEvalFiles(t, repo)
+	candidate := report.Candidates[0].AsCandidate()
+	candidate.Cases = validSampleCases()
 	code, err = WriteCandidate(WriteOptions{
 		Repo:      repo,
-		Candidate: report.Candidates[0].AsCandidate(),
+		Candidate: candidate,
 		Confirm:   true,
 		Python:    layout.Python,
 		Stdout:    io.Discard,
@@ -1561,9 +1563,11 @@ func TestExplicitJavaRouteSelectionStagesPinnedSchemaTree(t *testing.T) {
 		t.Fatalf("code=%d err=%v candidates=%d", code, err, len(report.Candidates))
 	}
 	assertNoEvalFiles(t, repo)
+	candidate := report.Candidates[0].AsCandidate()
+	candidate.Cases = validSampleCases()
 	code, err = WriteCandidate(WriteOptions{
 		Repo:      repo,
-		Candidate: report.Candidates[0].AsCandidate(),
+		Candidate: candidate,
 		Confirm:   true,
 		Python:    layout.Python,
 		Stdout:    io.Discard,
@@ -1600,9 +1604,11 @@ func TestSpringAndMicronautFixturesStageWithPinnedRunner(t *testing.T) {
 			if err != nil || code != 0 || len(report.Candidates) != 1 {
 				t.Fatalf("code=%d err=%v candidates=%d", code, err, len(report.Candidates))
 			}
+			candidate := report.Candidates[0].AsCandidate()
+			candidate.Cases = validSampleCases()
 			code, err = WriteCandidate(WriteOptions{
 				Repo:      repo,
-				Candidate: report.Candidates[0].AsCandidate(),
+				Candidate: candidate,
 				Confirm:   true,
 				Python:    layout.Python,
 				Stdout:    io.Discard,
@@ -1793,6 +1799,7 @@ func TestNoSignalGuideThenStage(t *testing.T) {
 			RequestField: "query",
 			ResponsePath: "reasoning",
 			AuthHeader:   "none",
+			Cases:        validSampleCases(),
 		},
 		Confirm: true,
 		Python:  layout.Python,
