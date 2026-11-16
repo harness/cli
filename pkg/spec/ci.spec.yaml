@@ -275,8 +275,6 @@ commands:
     handler_type: workflow
     workflow_id: execute_coverage_upload
     flags:
-      - name: account
-        description: "Account identifier (auto-detected from CI when unset)"
       - name: provider
         description: "SCM provider (auto-detected from CI when unset)"
       - name: owner
@@ -345,8 +343,6 @@ commands:
     handler_type: workflow
     workflow_id: execute_coverage_wait_until
     flags:
-      - name: account
-        description: "Account identifier (auto-detected from CI when unset)"
       - name: execution
         description: "ID which identifies the execution of a pipeline globally (auto-detected from CI when unset; mandatory)"
       - name: gt

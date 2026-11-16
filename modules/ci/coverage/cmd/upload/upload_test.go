@@ -65,7 +65,6 @@ func setDefaultBranch(t *testing.T, branch string) {
 
 func baseUploadFlags() uploadFlags {
 	return uploadFlags{
-		accountID:   "acct",
 		provider:    "github",
 		owner:       "owner",
 		identifier:  "repo",
@@ -180,11 +179,20 @@ func TestCoverageUploadTargetScope(t *testing.T) {
 	}
 }
 
+func TestCoverageResolveUploadParams_RequiresAccountID(t *testing.T) {
+	withGitRemote(t, "https://example.com/test-owner/test-repo.git")
+
+	_, err := resolveUploadParams("", baseUploadFlags())
+	if err == nil || !strings.Contains(err.Error(), "failed to get account ID") {
+		t.Fatalf("resolveUploadParams() error = %v, want it to mention the missing account ID", err)
+	}
+}
+
 func TestCoverageResolveUploadParams(t *testing.T) {
 	t.Run("resolves scope from the pipeline path and leaves base/commit-before empty", func(t *testing.T) {
 		withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 
-		params, err := resolveUploadParams(baseUploadFlags())
+		params, err := resolveUploadParams("acct", baseUploadFlags())
 		if err != nil {
 			t.Fatalf("resolveUploadParams() error = %v", err)
 		}
@@ -208,7 +216,7 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 
 		f := baseUploadFlags()
 		f.executionID = ""
-		if _, err := resolveUploadParams(f); err != errCoverageExecutionIDMandatory {
+		if _, err := resolveUploadParams("acct", f); err != errCoverageExecutionIDMandatory {
 			t.Fatalf("resolveUploadParams() error = %v, want errCoverageExecutionIDMandatory", err)
 		}
 	})
@@ -218,7 +226,7 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 
 		f := baseUploadFlags()
 		f.patch = true
-		_, err := resolveUploadParams(f)
+		_, err := resolveUploadParams("acct", f)
 		if err == nil || !strings.Contains(err.Error(), "--patch requires --base") {
 			t.Fatalf("resolveUploadParams() error = %v, want it to mention --patch requires --base", err)
 		}
@@ -229,7 +237,7 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 
 		f := baseUploadFlags()
 		f.targetScope = "other-account/org"
-		if _, err := resolveUploadParams(f); err == nil {
+		if _, err := resolveUploadParams("acct", f); err == nil {
 			t.Fatal("resolveUploadParams() expected an error for a target scope outside the account")
 		}
 	})
@@ -238,7 +246,7 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 		withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 		setDefaultBranch(t, "main")
 
-		params, err := resolveUploadParams(baseUploadFlags())
+		params, err := resolveUploadParams("acct", baseUploadFlags())
 		if err != nil {
 			t.Fatalf("resolveUploadParams() error = %v", err)
 		}
@@ -256,7 +264,7 @@ func TestCoverageResolveUploadParams(t *testing.T) {
 
 		f := baseUploadFlags()
 		f.base = "release"
-		params, err := resolveUploadParams(f)
+		params, err := resolveUploadParams("acct", f)
 		if err != nil {
 			t.Fatalf("resolveUploadParams() error = %v", err)
 		}
@@ -502,12 +510,9 @@ func TestCoverageUpload_StorageUploadFailureStopsBeforeComplete(t *testing.T) {
 	}
 }
 
-// TestCoverageUpload_AllCallsUseTheAuthAccountID is a regression test for a
-// bug where completeReport keyed its URL off the CI-vendor/flag
-// account instead of ctx.Auth.AccountID, diverging from ensure-repo/settings/
-// presign. f.accountID is deliberately set to a different value than
-// ctx.Auth.AccountID: every handler is registered only under the auth
-// account's path, so a stray params.accountID reference 404s.
+// TestCoverageUpload_AllCallsUseTheAuthAccountID checks that every call in
+// the upload sequence is keyed off ctx.Auth.AccountID: the handlers are
+// registered only under that account's path.
 func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
 	withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 	coverFile := uploadTestCoverageFile(t)
@@ -541,7 +546,6 @@ func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
 
 	ctx := testCtx(t, server.URL, "auth-acct")
 	f := baseUploadFlags()
-	f.accountID = "flag-acct"
 	f.files = []string{coverFile}
 
 	if err := upload(ctx, f); err != nil {

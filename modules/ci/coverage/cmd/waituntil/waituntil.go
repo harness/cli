@@ -26,7 +26,6 @@ const (
 
 // waitUntilFlags holds the raw --flag values for `execute coverage:wait_until`.
 type waitUntilFlags struct {
-	accountID   string
 	executionID string
 	gt          float64
 	gte         float64
@@ -101,12 +100,9 @@ func waitUntil(ctx *cmdctx.Ctx, f waitUntilFlags) error {
 		return fmt.Errorf("failed to get CI vendor info: %v", err)
 	}
 
-	accountID := f.accountID
+	accountID := ctx.Auth.AccountID
 	if accountID == "" {
-		accountID, err = vendor.AccountID()
-		if err != nil {
-			return fmt.Errorf("failed to get account ID: %w", err)
-		}
+		return fmt.Errorf("failed to get account ID")
 	}
 
 	executionID := f.executionID

@@ -167,7 +167,7 @@ harness execute coverage:analyze --patch --base origin/main
 
 ### `harness execute coverage:upload`
 
-Parses local coverage report file(s) and uploads them to the Harness coverage service: registers the repository if needed, resolves exclude settings (coverage repository settings override `--exclude`), encodes each file, and uploads via a presigned URL. Most identifying fields (account, SCM provider/owner/identifier/commit/branch, pipeline, execution, pull request) are auto-detected from the CI environment and can be overridden.
+Parses local coverage report file(s) and uploads them to the Harness coverage service: registers the repository if needed, resolves exclude settings (coverage repository settings override `--exclude`), encodes each file, and uploads via a presigned URL. The account comes from the pipeline auth. Most other identifying fields (SCM provider/owner/identifier/commit/branch, pipeline, execution, pull request) are auto-detected from the CI environment and can be overridden.
 
 ```
 harness execute coverage:upload --file coverage.out
@@ -188,7 +188,7 @@ harness execute coverage:wait_until --patch-gt 80
 harness execute coverage:wait_until --gt 70 --patch-gte 80
 ```
 
-`--wait-timeout` (default `5m`) is this command's own polling timeout, distinct from the global `--timeout` flag (which hard-kills the whole process). `--interval` (default `10s`) controls poll frequency. Account/execution auto-detect from the CI environment the same way as `coverage:upload`.
+`--wait-timeout` (default `5m`) is this command's own polling timeout, distinct from the global `--timeout` flag (which hard-kills the whole process). `--interval` (default `10s`) controls poll frequency. The account comes from the pipeline auth and the execution auto-detects from the CI environment the same way as `coverage:upload`.
 
 ---
 

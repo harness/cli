@@ -21,7 +21,6 @@ func Handler(ctx *cmdctx.Ctx) error {
 	}
 
 	f := waitUntilFlags{
-		accountID:   cmdctx.GetString(ctx.FlagValues, "account"),
 		executionID: cmdctx.GetString(ctx.FlagValues, "execution"),
 		gt:          cmdctx.GetFloat64(ctx.FlagValues, "gt"),
 		gte:         cmdctx.GetFloat64(ctx.FlagValues, "gte"),

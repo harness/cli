@@ -21,7 +21,6 @@ func Handler(ctx *cmdctx.Ctx) error {
 	}
 
 	f := uploadFlags{
-		accountID:       cmdctx.GetString(ctx.FlagValues, "account"),
 		provider:        cmdctx.GetString(ctx.FlagValues, "provider"),
 		owner:           cmdctx.GetString(ctx.FlagValues, "owner"),
 		identifier:      cmdctx.GetString(ctx.FlagValues, "identifier"),

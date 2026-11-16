@@ -32,7 +32,6 @@ var errCoverageExecutionIDMandatory = errors.New("execution ID is mandatory")
 
 // uploadFlags holds the raw --flag values for `execute coverage:upload`.
 type uploadFlags struct {
-	accountID       string
 	provider        string
 	owner           string
 	identifier      string
@@ -53,7 +52,6 @@ type uploadFlags struct {
 // uploadParams is the fully resolved set of parameters that drive
 // report upload, after CI-vendor defaulting (resolveUploadParams).
 type uploadParams struct {
-	accountID     string
 	provider      string
 	baseURL       string
 	owner         string
@@ -76,18 +74,14 @@ type uploadParams struct {
 // values, mirroring HCli's upload checkFlags. A failed vendor lookup is not
 // fatal: the zero-value env.Vendor still resolves owner/identifier/commit
 // from the local git remote and HEAD.
-func resolveUploadParams(f uploadFlags) (*uploadParams, error) {
+func resolveUploadParams(accountID string, f uploadFlags) (*uploadParams, error) {
 	vendor, err := env.Info()
 	if err != nil {
 		hlog.Debug("no CI vendor detected, will use git remote for SCM detection", "err", err)
 	}
 
-	accountID := f.accountID
 	if accountID == "" {
-		accountID, err = vendor.AccountID()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get account ID: %w", err)
-		}
+		return nil, fmt.Errorf("failed to get account ID")
 	}
 
 	provider := f.provider
@@ -200,7 +194,6 @@ func resolveUploadParams(f uploadFlags) (*uploadParams, error) {
 	}
 
 	return &uploadParams{
-		accountID:     accountID,
 		provider:      provider,
 		baseURL:       baseURL,
 		owner:         owner,
@@ -311,7 +304,7 @@ func loadUploadExcludePatterns(
 // parameters, discover coverage files, load server-side excludes once, then
 // parse/encode/upload every file concurrently.
 func upload(ctx *cmdctx.Ctx, f uploadFlags) error {
-	params, err := resolveUploadParams(f)
+	params, err := resolveUploadParams(ctx.Auth.AccountID, f)
 	if err != nil {
 		return err
 	}

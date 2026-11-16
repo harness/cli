@@ -20,7 +20,6 @@ import (
 
 func baseWaitFlags() waitUntilFlags {
 	return waitUntilFlags{
-		accountID:   "acct",
 		executionID: "exec-1",
 		timeout:     "300ms",
 		interval:    "20ms",
@@ -291,6 +290,17 @@ func TestCoverageWaitUntil_RequiresAThreshold(t *testing.T) {
 	}
 }
 
+func TestCoverageWaitUntil_RequiresAccountID(t *testing.T) {
+	t.Setenv("CI", "true")
+
+	f := baseWaitFlags()
+	f.gte = 80
+	err := waitUntil(testCtx(t, "http://unused.invalid", ""), f)
+	if err == nil || !strings.Contains(err.Error(), "failed to get account ID") {
+		t.Fatalf("waitUntil() error = %v, want it to mention the missing account ID", err)
+	}
+}
+
 func TestCoverageWaitUntil_RequiresDetectedCIVendorEvenWithExplicitFlags(t *testing.T) {
 	clearCIEnv(t)
 
@@ -298,7 +308,7 @@ func TestCoverageWaitUntil_RequiresDetectedCIVendorEvenWithExplicitFlags(t *test
 	f.gte = 80
 	err := waitUntil(testCtx(t, "http://unused.invalid", "acct"), f)
 	if err == nil || !strings.Contains(err.Error(), "failed to get CI vendor info") {
-		t.Fatalf("waitUntil() error = %v, want it to require a detected CI vendor even though --account/--execution were set", err)
+		t.Fatalf("waitUntil() error = %v, want it to require a detected CI vendor even though --execution was set", err)
 	}
 }
 
