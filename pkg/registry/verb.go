@@ -30,6 +30,8 @@ const (
 	VerbPush      = "push"
 	VerbPull      = "pull"
 	VerbConfigure = "configure"
+	VerbSynth     = "synth"
+	VerbDiff      = "diff"
 )
 
 // Package manager verbs — install/uninstall for plugins, agents, mcp, and the CLI itself.
@@ -74,6 +76,7 @@ type VerbSpec struct {
 var VerbOrder = []string{
 	VerbList, VerbGet, VerbCreate, VerbUpdate, VerbDelete, VerbExecute,
 	VerbInstall, VerbPush, VerbPull, VerbConfigure, VerbMigrate,
+	VerbSynth, VerbDiff,
 }
 
 // verbRegistry is the authoritative table of every allowed verb.
@@ -84,6 +87,8 @@ var verbRegistry = map[string]VerbSpec{
 	VerbPull:      {Kind: VerbKindCore, Gerund: "pulling", ShortDesc: "Pull an artifact from a Harness registry", RequiresId: true},
 	VerbInstall:   {Kind: VerbKindCore, Gerund: "installing", ShortDesc: "Install a Harness component", AllowsId: true},
 	VerbConfigure: {Kind: VerbKindCore, Gerund: "configuring", ShortDesc: "Configure a local package manager client for a Harness registry", RequiresId: true},
+	VerbSynth:     {Kind: VerbKindCore, Gerund: "synthesizing", ShortDesc: "Run a remote CDK synth on an IACM workspace"},
+	VerbDiff:      {Kind: VerbKindCore, Gerund: "diffing", ShortDesc: "Run a remote CDK diff on an IACM workspace"},
 
 	// Pair verbs
 	VerbMigrate: {Kind: VerbKindCore, Gerund: "migrating", ShortDesc: "Migrate a resource between two endpoints", NounPair: true},

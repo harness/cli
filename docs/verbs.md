@@ -58,6 +58,8 @@ don't add `uninstall` to a spec file on the strength of this doc.
 | `pull` | Download an artifact from a Harness registry to disk. | implemented (artifact only) |
 | `install` | Place a binary or component into local state. | implemented |
 | `configure` | Write durable local config pointing a third-party client at Harness. | implemented (registry only) |
+| `synth` | Run a remote CDK synth on an awscdk IACM workspace from local source. | implemented (workspace only) |
+| `diff` | Run a remote CDK diff on an awscdk IACM workspace from local source. | implemented (workspace only) |
 | `convert` | Translate one representation into another. **Takes a noun pair.** Both endpoints documents. | proposed |
 | `migrate` | Move a resource between two endpoints, at least one of them live. **Takes a noun pair.** | implemented |
 | `uninstall` | Remove a locally installed component. Reverse of `install`. | proposed |
@@ -206,6 +208,14 @@ config into one child process and leaves nothing behind. Both are legitimate; th
 different questions ("set up my machine" vs. "run this one command correctly").
 
 The boundary against `update`: `configure` never touches server state.
+
+## `synth`
+
+Upload local source to an awscdk IACM workspace and run its default synth pipeline (`cdk synth`). A module-approved verb for the `workspace` noun; the Terraform equivalent is `execute workspace`.
+
+## `diff`
+
+Same remote-execution path as `synth`, running the workspace's default diff pipeline (`cdk diff`).
 
 ---
 
