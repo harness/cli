@@ -19,17 +19,6 @@ import yaml
 from ai_evals.onboarding.load import load_onboarding_tree
 from ai_evals.onboarding.translate import materialized_json, translate
 
-_DATASET = (
-    json.dumps(
-        {
-            "id": "case-1",
-            "input": {"text": "hello", "items": ["first"]},
-            "expected": "ok",
-            "metadata": {"user_id": "user-7"},
-        }
-    )
-    + "\n"
-)
 _METRIC_SET = """
 identifier: quality
 name: Quality
@@ -48,7 +37,11 @@ entries:
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: check_d4_onboarding_v1.py <candidate.json>")
-    document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    candidate_path = Path(sys.argv[1])
+    document = json.loads(candidate_path.read_text(encoding="utf-8"))
+    dataset_cases = json.loads(
+        candidate_path.with_name("onboarding_v1_dataset_cases.json").read_text(encoding="utf-8")
+    )
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         evals = root / ".harness" / "evals"
@@ -57,7 +50,10 @@ def main() -> None:
         (evals / "datasets").mkdir()
         (evals / "metric-sets").mkdir()
         (agent_dir / "agent.yaml").write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
-        (evals / "datasets" / "answers.jsonl").write_text(_DATASET, encoding="utf-8")
+        (evals / "datasets" / "answers.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in dataset_cases),
+            encoding="utf-8",
+        )
         (evals / "metric-sets" / "quality.yaml").write_text(_METRIC_SET, encoding="utf-8")
         tree = load_onboarding_tree(evals)
         agent = tree.agents["support-agent"]
@@ -68,6 +64,23 @@ def main() -> None:
         evidence = agent.candidate.evidence[0]
         if evidence.source != "src/chat.py" or evidence.confidence != 0.9:
             raise SystemExit("evidence was not preserved")
+        loaded_rows = agent.evals["answer-quality"].dataset.items
+        if loaded_rows != dataset_cases:
+            raise SystemExit(f"dataset rows changed in D2 loader: {loaded_rows!r}")
+        items = translate(tree, "support-agent", "local").items_by_eval["answer-quality"]
+        by_id = {item.id: item for item in items}
+        if by_id["scalar-input"].input != "hello" or by_id["scalar-input"].expected is not None:
+            raise SystemExit("scalar/null dataset values changed in D2 translator")
+        if by_id["scalar-input"].precomputed_output != ["one", 2, None]:
+            raise SystemExit("scalar precomputed_output changed in D2 translator")
+        if by_id["list-input"].input != [1, "two", False] or by_id["list-input"].expected != ["x", {"y": None}]:
+            raise SystemExit("list dataset values changed in D2 translator")
+        if by_id["object-input"].expected != {"answer": 42}:
+            raise SystemExit("object expected value changed in D2 translator")
+        if by_id["object-input"].precomputed_output != {"output": "ready"}:
+            raise SystemExit("object precomputed_output changed in D2 translator")
+        if by_id["null-input"].input is not None:
+            raise SystemExit("null input changed in D2 translator")
         nested = agent.request_template["nested"]["value"]
         if nested["flag"] is not True or nested["count"] != 2 or nested["empty"] is not None:
             raise SystemExit(f"nested literal was retyped: {nested!r}")

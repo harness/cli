@@ -197,7 +197,7 @@ func validateV1Document(doc map[string]any) error {
 	}
 	for key := range doc {
 		if !v1DocumentFields[key] {
-			return rejectUnknown("candidate." + publicKey(key))
+			return rejectUnknown("candidate." + publicUnknownKey(key))
 		}
 	}
 	if _, err := requireIdentifier(doc["identifier"], "identifier"); err != nil {
@@ -241,7 +241,7 @@ func validateV1Document(doc map[string]any) error {
 func validateV1Target(target map[string]any) error {
 	for key := range target {
 		if !v1TargetFields[key] {
-			return rejectUnknown("target." + publicKey(key))
+			return rejectUnknown("target." + publicUnknownKey(key))
 		}
 	}
 	method, _ := target["method"].(string)
@@ -826,7 +826,7 @@ func validateV1Environments(raw any) error {
 			switch key {
 			case "endpoint", "secrets", "kind":
 			default:
-				return rejectUnknown("environments." + publicKey(name) + "." + publicKey(key))
+				return rejectUnknown("environments." + publicKey(name) + "." + publicUnknownKey(key))
 			}
 		}
 		endpoint, _ := spec["endpoint"].(string)
@@ -859,7 +859,7 @@ func validateV1Environments(raw any) error {
 				case map[string]any:
 					for key := range mapping {
 						if key != "env" {
-							return rejectUnknown(refLabel + "." + publicKey(key))
+							return rejectUnknown(refLabel + "." + publicUnknownKey(key))
 						}
 					}
 					if _, hasValue := mapping["value"]; hasValue {
@@ -913,7 +913,7 @@ func validateV1Evals(raw any) (map[string]bool, error) {
 			switch key {
 			case "identifier", "name", "dataset", "dataset_identifier", "metric_set", "required":
 			default:
-				return nil, rejectUnknown(label + "." + publicKey(key))
+				return nil, rejectUnknown(label + "." + publicUnknownKey(key))
 			}
 		}
 		id, err := requireIdentifier(body["identifier"], label+".identifier")
@@ -961,7 +961,7 @@ func validateV1Suite(raw any, evalIDs map[string]bool) error {
 		switch key {
 		case "identifier", "name", "pass_strategy", "pass_threshold", "evals":
 		default:
-			return rejectUnknown("suite." + publicKey(key))
+			return rejectUnknown("suite." + publicUnknownKey(key))
 		}
 	}
 	if _, err := requireIdentifier(suite["identifier"], "suite.identifier"); err != nil {
@@ -1012,7 +1012,7 @@ func validateV1Suite(raw any, evalIDs map[string]bool) error {
 				switch key {
 				case "identifier", "required":
 				default:
-					return rejectUnknown("suite.evals." + publicKey(key))
+					return rejectUnknown("suite.evals." + publicUnknownKey(key))
 				}
 			}
 			id, err := requireIdentifier(typed["identifier"], "suite.evals.identifier")
@@ -1057,7 +1057,7 @@ func validateStagingMetrics(raw any) error {
 			switch key {
 			case "kind", "threshold", "score_name", "options", "config":
 			default:
-				return rejectUnknown(label + "." + publicKey(key))
+				return rejectUnknown(label + "." + publicUnknownKey(key))
 			}
 		}
 		kind, _ := body["kind"].(string)
@@ -1103,7 +1103,7 @@ func validateStagingMetrics(raw any) error {
 				switch key {
 				case "metadata", "criteria", "rubric", "prompt_instructions", "allowed_topics", "role_description":
 				default:
-					return rejectUnknown(label + ".config." + publicKey(key))
+					return rejectUnknown(label + ".config." + publicUnknownKey(key))
 				}
 			}
 			if err := validateMetricConfig(fields, label+".config"); err != nil {
@@ -1123,8 +1123,9 @@ func validateStagingCases(raw any) error {
 		return fmt.Errorf("cases must be a list")
 	}
 	allowed := map[string]bool{
-		"id": true, "input": true, "expected": true, "context": true,
-		"expected_tools": true, "expected_tool_calls": true, "tags": true, "metadata": true,
+		"id": true, "input": true, "expected": true, "expected_output": true,
+		"context": true, "expected_tools": true, "expected_tool_calls": true,
+		"tags": true, "metadata": true, "precomputed_output": true,
 	}
 	for index, item := range cases {
 		label := fmt.Sprintf("cases[%d]", index)
@@ -1134,7 +1135,7 @@ func validateStagingCases(raw any) error {
 		}
 		for key := range body {
 			if !allowed[key] {
-				return rejectUnknown(label + "." + publicKey(key))
+				return rejectUnknown(label + "." + publicUnknownKey(key))
 			}
 		}
 		id, _ := body["id"].(string)
@@ -1178,6 +1179,13 @@ func rejectUnknown(path string) error {
 func publicKey(key string) string {
 	if secretShaped(key) || strings.ContainsAny(key, " \t\r\n") {
 		return "<redacted>"
+	}
+	return key
+}
+
+func publicUnknownKey(key string) string {
+	if isCredentialName(key) || secretShaped(key) || strings.ContainsAny(key, " \t\r\n") {
+		return "[redacted]"
 	}
 	return key
 }

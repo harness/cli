@@ -62,9 +62,20 @@ func TestScanEmitsV1CandidateAndWritesNothing(t *testing.T) {
 
 func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 	repo := t.TempDir()
+	calls := 0
+	runnerCalls := 0
+	catalogCalls := 0
 	run := func(string, []string, []string, string) (CommandResult, error) {
-		t.Fatal("unconfirmed candidate invoked the validator")
+		calls++
 		return CommandResult{}, nil
+	}
+	ensureRunner := func(string, func(string) (string, error), CommandFunc) (RunnerLayout, error) {
+		runnerCalls++
+		return RunnerLayout{}, nil
+	}
+	readCatalog := func(string, CommandFunc) ([]MetricCatalogEntry, error) {
+		catalogCalls++
+		return nil, nil
 	}
 	code, err := WriteCandidate(WriteOptions{
 		Repo: repo,
@@ -72,29 +83,137 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 			AgentID: "guide", EndpointURL: "http://127.0.0.1:8080/analyze",
 			Method: "POST", RequestField: "query", ResponsePath: "reasoning",
 		},
-		Python: "validator",
-		Run:    run,
-		Stdout: io.Discard,
-		Stderr: io.Discard,
+		Python:            "validator",
+		Run:               run,
+		EnsureRunner:      ensureRunner,
+		ReadMetricCatalog: readCatalog,
+		Stdout:            io.Discard,
+		Stderr:            io.Discard,
 	})
 	if code != 2 || err == nil || err.Error() != stageConfirmMessage {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
+	if calls != 0 || runnerCalls != 0 || catalogCalls != 0 {
+		t.Fatalf("unconfirmed candidate made subprocess=%d runner=%d catalog=%d calls", calls, runnerCalls, catalogCalls)
+	}
 	assertNoEvalFiles(t, repo)
 
 	document := onboardingV1FixtureDocument()
+	document["metrics"] = []any{map[string]any{"kind": "contains"}}
 	code, err = WriteCandidate(WriteOptions{
-		Repo:      repo,
-		Candidate: Candidate{Wire: document},
-		Python:    "validator",
-		Run:       run,
-		Stdout:    io.Discard,
-		Stderr:    io.Discard,
+		Repo:              repo,
+		Candidate:         Candidate{Wire: document, Metrics: []MetricSelection{{Kind: "contains"}}},
+		Python:            "",
+		Run:               run,
+		EnsureRunner:      ensureRunner,
+		ReadMetricCatalog: readCatalog,
+		Stdout:            io.Discard,
+		Stderr:            io.Discard,
 	})
 	if code != 2 || err == nil || err.Error() != stageConfirmMessage {
 		t.Fatalf("v1 code=%d err=%v", code, err)
 	}
+	if calls != 0 || runnerCalls != 0 || catalogCalls != 0 {
+		t.Fatalf("unconfirmed v1 candidate made subprocess=%d runner=%d catalog=%d calls", calls, runnerCalls, catalogCalls)
+	}
 	assertNoEvalFiles(t, repo)
+}
+
+func TestD2DatasetCaseShapesAndFieldsSurviveStaging(t *testing.T) {
+	fixture, err := os.ReadFile(filepath.Join("testdata", "onboarding_v1_dataset_cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []SampleCase
+	decoder := json.NewDecoder(strings.NewReader(string(fixture)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&cases); err != nil {
+		t.Fatal(err)
+	}
+	document := onboardingV1FixtureDocument()
+	document["cases"] = cases
+	repo := t.TempDir()
+	candidatePath := filepath.Join(t.TempDir(), "candidate.json")
+	candidateBytes, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidatePath, candidateBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := LoadCandidateFile(candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := WriteCandidate(WriteOptions{
+		Repo:      repo,
+		Candidate: candidate,
+		Confirm:   true,
+		Stdout:    io.Discard,
+		Stderr:    io.Discard,
+		Run: func(string, []string, []string, string) (CommandResult, error) {
+			t.Fatal("v1 staging without metrics invoked a subprocess")
+			return CommandResult{}, nil
+		},
+	})
+	if code != 0 || err != nil {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	staged, err := os.ReadFile(filepath.Join(repo, ".harness", "evals", "datasets", "answers.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantValue, err := decodeJSONValue(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, ok := wantValue.([]any)
+	if !ok {
+		t.Fatalf("fixture is not a list: %#v", wantValue)
+	}
+	var got []any
+	for _, line := range strings.Split(strings.TrimSpace(string(staged)), "\n") {
+		value, err := decodeJSONValue([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, value)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("staged dataset changed D2 row shapes:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestV1UnknownSensitiveFieldsAreRedactedWithD2Code(t *testing.T) {
+	document := onboardingV1FixtureDocument()
+	document["api_key"] = "raw-sensitive-value"
+	target := document["target"].(map[string]any)
+	target["request_template"].(map[string]any)["accessToken"] = "another-sensitive-value"
+
+	err := validateV1Document(document)
+	if err == nil {
+		t.Fatal("expected sensitive unknown field rejection")
+	}
+	if got, want := err.Error(), "candidate.[redacted]: unknown_field: field is not accepted"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+	if strings.Contains(err.Error(), "api_key") || strings.Contains(err.Error(), "raw-sensitive-value") {
+		t.Fatalf("error exposed sensitive unknown field: %v", err)
+	}
+
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "candidate.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadCandidateFile(path); err == nil {
+		t.Fatal("expected loader rejection")
+	} else if got, want := err.Error(), "candidate.[redacted]: unknown_field: field is not accepted"; got != want {
+		t.Fatalf("loader error = %q, want %q", got, want)
+	}
 }
 
 func TestStageRejectsSchemaGrammarAndSecretsBeforeWrite(t *testing.T) {

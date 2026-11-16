@@ -33,7 +33,7 @@ When the prompt header includes a `harness auth login` command, use that command
 
 Metric selections go in the candidate file's `metrics` list. Each selection has an SDK `kind`, optional numeric `threshold`, optional unique `score_name`, constructor `options`, and optional `config`. Use `config.metadata` for non-secret provider/model settings and `config.criteria` for judge criteria. Never put keys or credentials in metric options or config. The stager derives metric type and dimension from the SDK catalog and checks construction without calling providers. This does not verify credentials, provider connectivity, or dataset suitability.
 
-Cases can carry structured `expected` values, `context`, `expected_tools`, `expected_tool_calls`, `tags`, and `metadata`; these are preserved in JSONL. Use `cases` instead of `input_text`/`expected` when a metric needs these fields or there is more than one case. A dataset field is useful only if the runner maps it to the SDK field the metric reads; check that mapping before recommending trace, conversation, or telemetry metrics.
+Cases preserve D2 JSON shapes for `input`, `expected`, `expected_output`, and `precomputed_output`: each may be a scalar, list, object, or null. They can also carry `context`, `expected_tools`, `expected_tool_calls`, `tags`, and `metadata`; these are preserved in JSONL. Use `cases` instead of `input_text`/`expected` when a metric needs these fields or there is more than one case. A dataset field is useful only if the runner maps it to the SDK field the metric reads; check that mapping before recommending trace, conversation, or telemetry metrics.
 
 Example candidate file, illustrating the `onboarding/v1` shape only (not a default agent, endpoint, case, or metric recommendation):
 

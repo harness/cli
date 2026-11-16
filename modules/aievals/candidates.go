@@ -68,11 +68,137 @@ type SampleCase struct {
 	ID                string           `json:"id"`
 	Input             json.RawMessage  `json:"input"`
 	Expected          any              `json:"expected,omitempty"`
+	ExpectedOutput    any              `json:"expected_output,omitempty"`
 	Context           any              `json:"context,omitempty"`
 	ExpectedTools     []string         `json:"expected_tools,omitempty"`
 	ExpectedToolCalls []map[string]any `json:"expected_tool_calls,omitempty"`
 	Tags              []string         `json:"tags,omitempty"`
 	Metadata          map[string]any   `json:"metadata,omitempty"`
+	PrecomputedOutput any              `json:"precomputed_output,omitempty"`
+
+	expectedPresent          bool
+	expectedOutputPresent    bool
+	precomputedOutputPresent bool
+}
+
+var sampleCaseFields = map[string]bool{
+	"id": true, "input": true, "expected": true, "expected_output": true,
+	"context": true, "expected_tools": true, "expected_tool_calls": true,
+	"tags": true, "metadata": true, "precomputed_output": true,
+}
+
+// UnmarshalJSON keeps dataset values as JSON data instead of narrowing them
+// to strings or float64. The presence bits distinguish an authored null from
+// an omitted optional field, which D2 carries through its dataset loader.
+func (item *SampleCase) UnmarshalJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var raw map[string]json.RawMessage
+	if err := decoder.Decode(&raw); err != nil {
+		return err
+	}
+	if raw == nil {
+		return fmt.Errorf("sample case must be a JSON object")
+	}
+	for key := range raw {
+		if !sampleCaseFields[key] {
+			return fmt.Errorf("sample case contains unknown field %q", key)
+		}
+	}
+	*item = SampleCase{}
+	if encoded, ok := raw["id"]; ok {
+		if err := json.Unmarshal(encoded, &item.ID); err != nil {
+			return err
+		}
+	}
+	if encoded, ok := raw["input"]; ok {
+		if !json.Valid(encoded) {
+			return fmt.Errorf("sample case input must be valid JSON")
+		}
+		item.Input = append(json.RawMessage(nil), encoded...)
+	}
+	decodeAny := func(key string) (any, bool, error) {
+		encoded, ok := raw[key]
+		if !ok {
+			return nil, false, nil
+		}
+		value, err := decodeJSONValue(encoded)
+		return value, true, err
+	}
+	var err error
+	if item.Expected, item.expectedPresent, err = decodeAny("expected"); err != nil {
+		return err
+	}
+	if item.ExpectedOutput, item.expectedOutputPresent, err = decodeAny("expected_output"); err != nil {
+		return err
+	}
+	if item.Context, _, err = decodeAny("context"); err != nil {
+		return err
+	}
+	if item.PrecomputedOutput, item.precomputedOutputPresent, err = decodeAny("precomputed_output"); err != nil {
+		return err
+	}
+	if encoded, ok := raw["expected_tools"]; ok {
+		if err := json.Unmarshal(encoded, &item.ExpectedTools); err != nil {
+			return err
+		}
+	}
+	if encoded, ok := raw["expected_tool_calls"]; ok {
+		if err := json.Unmarshal(encoded, &item.ExpectedToolCalls); err != nil {
+			return err
+		}
+	}
+	if encoded, ok := raw["tags"]; ok {
+		if err := json.Unmarshal(encoded, &item.Tags); err != nil {
+			return err
+		}
+	}
+	if encoded, ok := raw["metadata"]; ok {
+		value, err := decodeJSONValue(encoded)
+		if err != nil {
+			return err
+		}
+		if value != nil {
+			var ok bool
+			item.Metadata, ok = value.(map[string]any)
+			if !ok {
+				return fmt.Errorf("sample case metadata must be an object")
+			}
+		}
+	}
+	return nil
+}
+
+func (item SampleCase) MarshalJSON() ([]byte, error) {
+	row := map[string]any{"id": item.ID}
+	if item.Input != nil {
+		row["input"] = json.RawMessage(item.Input)
+	}
+	if item.expectedPresent || item.Expected != nil {
+		row["expected"] = item.Expected
+	}
+	if item.expectedOutputPresent || item.ExpectedOutput != nil {
+		row["expected_output"] = item.ExpectedOutput
+	}
+	if item.Context != nil {
+		row["context"] = item.Context
+	}
+	if item.ExpectedTools != nil {
+		row["expected_tools"] = item.ExpectedTools
+	}
+	if item.ExpectedToolCalls != nil {
+		row["expected_tool_calls"] = item.ExpectedToolCalls
+	}
+	if item.Tags != nil {
+		row["tags"] = item.Tags
+	}
+	if item.Metadata != nil {
+		row["metadata"] = item.Metadata
+	}
+	if item.precomputedOutputPresent || item.PrecomputedOutput != nil {
+		row["precomputed_output"] = item.PrecomputedOutput
+	}
+	return json.Marshal(row)
 }
 
 // Candidate is the validate-and-write input.
@@ -98,13 +224,15 @@ type Candidate struct {
 // Confirm must be set, from `harness stage eval_onboarding --confirm`, or the
 // command writes nothing.
 type WriteOptions struct {
-	Repo      string
-	Candidate Candidate
-	Confirm   bool
-	Python    string
-	Run       CommandFunc
-	Stdout    io.Writer
-	Stderr    io.Writer
+	Repo              string
+	Candidate         Candidate
+	Confirm           bool
+	Python            string
+	Run               CommandFunc
+	EnsureRunner      func(string, func(string) (string, error), CommandFunc) (RunnerLayout, error)
+	ReadMetricCatalog func(string, CommandFunc) ([]MetricCatalogEntry, error)
+	Stdout            io.Writer
+	Stderr            io.Writer
 }
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -285,13 +413,13 @@ func LoadCandidateFile(path string) (Candidate, error) {
 	if !ok {
 		return Candidate{}, fmt.Errorf("candidate file must be a JSON object")
 	}
+	if _, ok := raw["schema_version"]; ok {
+		return loadV1Candidate(raw)
+	}
 	for key := range raw {
 		if forbiddenCandidateKeys[strings.ToLower(key)] {
 			return Candidate{}, fmt.Errorf("candidate file contains %q; pass secret names only, never secret values", key)
 		}
-	}
-	if _, ok := raw["schema_version"]; ok {
-		return loadV1Candidate(raw)
 	}
 	for key := range raw {
 		if !legacyCandidateFields[key] {
@@ -327,14 +455,14 @@ func loadV1Candidate(raw map[string]any) (Candidate, error) {
 	}
 	for key := range raw {
 		if !v1DocumentFields[key] {
-			return Candidate{}, fmt.Errorf("field %q is not part of %s. Use target.request_template value sources (literal, input, env, harness_secret), target.query_params, and target.auth_headers. Do not include a secret value.", key, SchemaVersionV1)
+			return Candidate{}, rejectUnknown("candidate." + publicUnknownKey(key))
 		}
 	}
 	candidate := Candidate{Wire: raw}
-	if err := attachStagingSupplements(&candidate, raw); err != nil {
+	if err := validateV1Document(raw); err != nil {
 		return Candidate{}, err
 	}
-	if err := validateV1Document(raw); err != nil {
+	if err := attachStagingSupplements(&candidate, raw); err != nil {
 		return Candidate{}, err
 	}
 	return candidate, nil
@@ -516,8 +644,8 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("case %d id is required", i+1)}
 		}
 		input := strings.TrimSpace(string(item.Input))
-		if len(input) == 0 || !json.Valid(item.Input) || input[0] != '{' {
-			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("case %s input must be a JSON object", item.ID)}
+		if len(input) == 0 || !json.Valid(item.Input) {
+			return Candidate{}, &StatusError{Code: 2, Msg: fmt.Sprintf("case %s input must be valid JSON", item.ID)}
 		}
 	}
 	return candidate, nil
@@ -683,14 +811,22 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 	if len(opts.Candidate.Metrics) > 0 {
 		python := opts.Python
 		if python == "" {
-			layout, err := EnsureRunner(RunnerHome(), nil, opts.Run)
+			ensureRunner := opts.EnsureRunner
+			if ensureRunner == nil {
+				ensureRunner = EnsureRunner
+			}
+			layout, err := ensureRunner(RunnerHome(), nil, opts.Run)
 			if err != nil {
 				return 1, err
 			}
 			python = layout.Python
 		}
 		agent, _ := opts.Candidate.Wire["identifier"].(string)
-		catalog, err := ReadMetricCatalog(python, opts.Run)
+		readMetricCatalog := opts.ReadMetricCatalog
+		if readMetricCatalog == nil {
+			readMetricCatalog = ReadMetricCatalog
+		}
+		catalog, err := readMetricCatalog(python, opts.Run)
 		if err != nil {
 			return 1, err
 		}
