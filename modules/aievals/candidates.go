@@ -4,45 +4,63 @@
 package aievals
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
+// EvidenceRecord is one scanner observation. Source is a path, not a program.
+type EvidenceRecord struct {
+	Source     string `json:"source"`
+	Summary    string `json:"summary"`
+	Confidence any    `json:"confidence,omitempty"`
+	Locator    string `json:"locator,omitempty"`
+}
+
+// ScanTarget is the generic typed hint inside a scan candidate.
+// Values are D2 source nodes. Names are included; secret values are not.
+type ScanTarget struct {
+	Method          string         `json:"method,omitempty"`
+	ResponsePath    string         `json:"response_path,omitempty"`
+	RequestTemplate map[string]any `json:"request_template,omitempty"`
+	QueryParams     map[string]any `json:"query_params,omitempty"`
+	AuthHeaders     map[string]any `json:"auth_headers,omitempty"`
+	Headers         map[string]any `json:"headers,omitempty"`
+}
+
 // ScanCandidate is one optional scanner hint. It is JSON for the coding agent.
-// Secret values are never included; auth_env is an environment-variable name.
+// The JSON object is an onboarding/v1 candidate, not a .harness/evals tree.
 type ScanCandidate struct {
-	Identity            string   `json:"identity"`
-	Method              string   `json:"method"`
-	Path                string   `json:"path"`
-	Port                string   `json:"port,omitempty"`
-	Endpoint            string   `json:"endpoint,omitempty"`
-	RequestField        string   `json:"request_field,omitempty"`
-	RequestFields       string   `json:"request_fields,omitempty"`
-	ResponsePath        string   `json:"response_path,omitempty"`
-	AuthHeader          string   `json:"auth_header,omitempty"`
-	AuthEnv             string   `json:"auth_env,omitempty"`
-	AgentID             string   `json:"agent_id,omitempty"`
-	ServiceRoot         string   `json:"service_root,omitempty"`
-	Source              string   `json:"source,omitempty"`
-	Adapter             string   `json:"adapter,omitempty"`
-	InputText           string   `json:"input_text,omitempty"`
-	Expected            string   `json:"expected,omitempty"`
-	RequiredQueryParams string   `json:"required_query_params,omitempty"`
-	RequiredPathParams  string   `json:"required_path_params,omitempty"`
-	Defaults            []string `json:"defaults,omitempty"`
-	Notes               []string `json:"notes,omitempty"`
+	ID         string           `json:"id"`
+	Confidence string           `json:"confidence"`
+	Evidence   []EvidenceRecord `json:"evidence"`
+	Target     ScanTarget       `json:"target"`
+
+	agentID       string
+	endpoint      string
+	method        string
+	requestField  string
+	requestFields string
+	responsePath  string
+	authHeader    string
+	authEnv       string
+	inputText     string
+	expected      string
 }
 
 // ScanReport is the stdout of `harness scan eval_onboarding`.
 type ScanReport struct {
-	Schema     string          `json:"schema"`
-	HasSignal  bool            `json:"has_signal"`
-	Notes      []string        `json:"notes,omitempty"`
-	Candidates []ScanCandidate `json:"candidates"`
+	SchemaVersion string          `json:"schema_version"`
+	HasSignal     bool            `json:"has_signal"`
+	Notes         []string        `json:"notes,omitempty"`
+	Candidates    []ScanCandidate `json:"candidates"`
 }
 
 // SampleCase is one dataset row the agent already confirmed with the user.
@@ -57,7 +75,9 @@ type SampleCase struct {
 	Metadata          map[string]any   `json:"metadata,omitempty"`
 }
 
-// Candidate is the validate-and-write input. Flags and a JSON file use the same fields.
+// Candidate is the validate-and-write input.
+// Wire is set when the file is an onboarding/v1 document. Flat fields remain
+// for flags and for a legacy file that maps onto that document.
 type Candidate struct {
 	AgentID       string            `json:"agent_id,omitempty"`
 	EndpointURL   string            `json:"endpoint_url,omitempty"`
@@ -71,19 +91,22 @@ type Candidate struct {
 	Expected      string            `json:"expected,omitempty"`
 	Cases         []SampleCase      `json:"cases,omitempty"`
 	Metrics       []MetricSelection `json:"metrics,omitempty"`
+	Wire          map[string]any    `json:"-"`
 }
 
 // WriteOptions validates a candidate and writes the .harness/evals tree.
+// Confirm must be set, from `harness stage eval_onboarding --confirm`, or the
+// command writes nothing.
 type WriteOptions struct {
 	Repo      string
 	Candidate Candidate
+	Confirm   bool
 	Python    string
 	Run       CommandFunc
 	Stdout    io.Writer
 	Stderr    io.Writer
 }
 
-var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 var forbiddenCandidateKeys = map[string]bool{
@@ -98,7 +121,7 @@ func Scan(repo, route string) (ScanReport, int, error) {
 	if err != nil {
 		return ScanReport{}, 1, err
 	}
-	report := ScanReport{Schema: SchemaVersion, Candidates: []ScanCandidate{}}
+	report := ScanReport{SchemaVersion: SchemaVersionV1, Candidates: []ScanCandidate{}}
 	if len(inf.Notes) > 0 {
 		report.Notes = append([]string{}, inf.Notes...)
 	}
@@ -134,104 +157,219 @@ func routeSelectionError(route string, candidates []RouteCandidate) string {
 }
 
 func scanCandidateFrom(candidate RouteCandidate, inf Inference) ScanCandidate {
-	out := ScanCandidate{
-		Identity:    candidate.Identity(),
-		Method:      candidate.Method,
-		Path:        candidate.Path,
-		ServiceRoot: candidate.ServiceRoot,
-		Source:      candidate.Source,
-		Adapter:     candidate.Adapter,
-		AgentID:     inf.AgentID,
+	out := ScanCandidate{ID: candidate.Identity(), Confidence: "high"}
+	out.agentID = inf.AgentID
+	if out.agentID == "" {
+		out.agentID = candidate.Agent
 	}
-	if out.AgentID == "" {
-		out.AgentID = candidate.Agent
-	}
-	var defaults []string
 	set := func(field string, dest *string) {
 		ev, ok := inf.ByField(field)
 		if !ok || ev.Value == "" {
 			return
 		}
 		*dest = ev.Value
-		if ev.Source == "default" {
-			defaults = append(defaults, field)
+	}
+	set("method", &out.method)
+	var path, port string
+	set("endpoint_path", &path)
+	set("port", &port)
+	set("request_field", &out.requestField)
+	set("request_fields", &out.requestFields)
+	set("response_path", &out.responsePath)
+	set("auth_header", &out.authHeader)
+	set("auth_env", &out.authEnv)
+	set("agent_id", &out.agentID)
+	set("test_input_text", &out.inputText)
+	if ev, ok := inf.ByField("test_expected"); ok && ev.Source != "gap" {
+		out.expected = ev.Value
+	}
+	if port != "" && path != "" {
+		out.endpoint = fmt.Sprintf("http://127.0.0.1:%s%s", port, ensureSlash(path))
+	}
+	if out.method == "" {
+		out.method = candidate.Method
+	}
+	if path == "" {
+		path = candidate.Path
+	}
+	source := candidate.Source
+	if strings.TrimSpace(source) == "" {
+		source = "repository"
+	}
+	summary := strings.TrimSpace(out.method + " " + path)
+	if summary == "" {
+		summary = candidate.Route()
+	}
+	if ev, ok := inf.ByField("required_query_params"); ok && ev.Value != "" {
+		summary += "; required query parameters " + ev.Value
+	}
+	out.Evidence = []EvidenceRecord{{
+		Source:     source,
+		Summary:    summary,
+		Locator:    source,
+		Confidence: "high",
+	}}
+	out.Target.Method = out.method
+	out.Target.ResponsePath = out.responsePath
+	fields := requestFieldList(out.requestField, out.requestFields)
+	if len(fields) > 0 {
+		out.Target.RequestTemplate = map[string]any{}
+		for _, field := range fields {
+			if inputSelector.FindString(field) != field {
+				continue
+			}
+			out.Target.RequestTemplate[field] = map[string]any{"source": "input", "selector": field}
 		}
 	}
-	set("method", &out.Method)
-	set("endpoint_path", &out.Path)
-	set("port", &out.Port)
-	set("request_field", &out.RequestField)
-	set("request_fields", &out.RequestFields)
-	set("response_path", &out.ResponsePath)
-	set("auth_header", &out.AuthHeader)
-	set("auth_env", &out.AuthEnv)
-	set("agent_id", &out.AgentID)
-	set("test_input_text", &out.InputText)
-	set("required_query_params", &out.RequiredQueryParams)
-	set("required_path_params", &out.RequiredPathParams)
-	if ev, ok := inf.ByField("test_expected"); ok && ev.Source != "gap" {
-		out.Expected = ev.Value
-	}
-	if out.Port != "" && out.Path != "" {
-		out.Endpoint = fmt.Sprintf("http://127.0.0.1:%s%s", out.Port, ensureSlash(out.Path))
-	}
-	if len(defaults) > 0 {
-		out.Defaults = defaults
-	}
-	if len(inf.Notes) > 0 {
-		out.Notes = append([]string{}, inf.Notes...)
+	if out.authHeader != "" && out.authEnv != "" && envNamePattern.MatchString(out.authEnv) {
+		out.Target.AuthHeaders = map[string]any{
+			canonicalHeader(out.authHeader): map[string]any{"source": "env", "name": out.authEnv},
+		}
 	}
 	return out
 }
 
-// AsCandidate converts a scan hint into validate-and-write input.
+func requestFieldList(primary, listed string) []string {
+	if listed != "" {
+		var out []string
+		seen := map[string]bool{}
+		for _, part := range strings.Split(listed, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" || seen[part] {
+				continue
+			}
+			seen[part] = true
+			out = append(out, part)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	if strings.TrimSpace(primary) != "" {
+		return []string{strings.TrimSpace(primary)}
+	}
+	return nil
+}
+
+// AsCandidate converts a scan hint into the legacy flag shape.
+// Stage maps that shape onto onboarding/v1 when every field is unambiguous.
 func (c ScanCandidate) AsCandidate() Candidate {
 	return Candidate{
-		AgentID:       c.AgentID,
-		EndpointURL:   c.Endpoint,
-		Method:        c.Method,
-		RequestField:  c.RequestField,
-		RequestFields: c.RequestFields,
-		ResponsePath:  c.ResponsePath,
-		AuthHeader:    c.AuthHeader,
-		AuthEnv:       c.AuthEnv,
-		InputText:     c.InputText,
-		Expected:      c.Expected,
+		AgentID:       c.agentID,
+		EndpointURL:   c.endpoint,
+		Method:        c.method,
+		RequestField:  c.requestField,
+		RequestFields: c.requestFields,
+		ResponsePath:  c.responsePath,
+		AuthHeader:    c.authHeader,
+		AuthEnv:       c.authEnv,
+		InputText:     c.inputText,
+		Expected:      c.expected,
 	}
 }
 
 // LoadCandidateFile reads the temporary JSON file the agent writes.
-// Forbidden keys are rejected so a secret value cannot ride along.
+// An onboarding/v1 document is accepted as itself. A legacy flat file is
+// accepted only when every field maps onto that document. Anything else fails
+// before a tree is written. Secret values are never copied into the error.
 func LoadCandidateFile(path string) (Candidate, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Candidate{}, err
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	decoded, err := decodeJSONValue(data)
+	if err != nil {
 		return Candidate{}, fmt.Errorf("candidate file: %w", err)
+	}
+	raw, ok := decoded.(map[string]any)
+	if !ok {
+		return Candidate{}, fmt.Errorf("candidate file must be a JSON object")
 	}
 	for key := range raw {
 		if forbiddenCandidateKeys[strings.ToLower(key)] {
 			return Candidate{}, fmt.Errorf("candidate file contains %q; pass secret names only, never secret values", key)
 		}
 	}
+	if _, ok := raw["schema_version"]; ok {
+		return loadV1Candidate(raw)
+	}
+	for key := range raw {
+		if !legacyCandidateFields[key] {
+			return Candidate{}, absentSchemaVersion(fmt.Sprintf("Field %q does not map unambiguously from the legacy candidate. Legacy files may only use agent_id, endpoint_url, method, request_field, request_fields, response_path, auth_header, auth_env, input_text, expected, cases, and metrics.", key))
+		}
+	}
 	var candidate Candidate
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&candidate); err != nil {
 		return Candidate{}, fmt.Errorf("candidate file does not match the onboarding candidate schema")
 	}
 	if metrics, ok := raw["metrics"]; ok {
-		if string(metrics) == "null" {
+		if metrics == nil {
 			return Candidate{}, fmt.Errorf("metrics must be a non-empty list when provided")
 		}
-		if err := rejectMetricSecrets(metrics); err != nil {
+		encoded, err := json.Marshal(metrics)
+		if err != nil {
+			return Candidate{}, err
+		}
+		if err := rejectMetricSecrets(encoded); err != nil {
 			return Candidate{}, err
 		}
 	}
 	return candidate, nil
+}
+
+func loadV1Candidate(raw map[string]any) (Candidate, error) {
+	version := raw["schema_version"]
+	if version != SchemaVersionV1 {
+		return Candidate{}, unsupportedSchemaVersion(version)
+	}
+	for key := range raw {
+		if !v1DocumentFields[key] {
+			return Candidate{}, fmt.Errorf("field %q is not part of %s. Use target.request_template value sources (literal, input, env, harness_secret), target.query_params, and target.auth_headers. Do not include a secret value.", key, SchemaVersionV1)
+		}
+	}
+	candidate := Candidate{Wire: raw}
+	if err := attachStagingSupplements(&candidate, raw); err != nil {
+		return Candidate{}, err
+	}
+	if err := validateV1Document(raw); err != nil {
+		return Candidate{}, err
+	}
+	return candidate, nil
+}
+
+func attachStagingSupplements(candidate *Candidate, raw map[string]any) error {
+	if metrics, ok := raw["metrics"]; ok && metrics != nil {
+		encoded, err := json.Marshal(metrics)
+		if err != nil {
+			return err
+		}
+		if string(encoded) == "null" || string(encoded) == "[]" {
+			return fmt.Errorf("metrics must be a non-empty list when provided")
+		}
+		if err := rejectMetricSecrets(encoded); err != nil {
+			return err
+		}
+		decoder := json.NewDecoder(bytes.NewReader(encoded))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&candidate.Metrics); err != nil {
+			return fmt.Errorf("candidate file does not match the onboarding candidate schema")
+		}
+	}
+	if cases, ok := raw["cases"]; ok && cases != nil {
+		encoded, err := json.Marshal(cases)
+		if err != nil {
+			return err
+		}
+		decoder := json.NewDecoder(bytes.NewReader(encoded))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&candidate.Cases); err != nil {
+			return fmt.Errorf("candidate file does not match the onboarding candidate schema")
+		}
+	}
+	return nil
 }
 
 // WithOverrides replaces fields that the flags set. Empty overrides keep the file value.
@@ -276,25 +414,26 @@ func (c Candidate) WithOverrides(override Candidate) Candidate {
 }
 
 // WriteCandidate validates the candidate, runs the pinned onboarding validator,
-// and writes only a tree the validator accepts.
+// and writes only a tree the validator accepts. A valid candidate that is not
+// confirmed returns before the validator and before any file is written.
 func WriteCandidate(opts WriteOptions) (int, error) {
+	if opts.Candidate.Wire != nil {
+		return writeV1Candidate(opts)
+	}
 	stdout := opts.Stdout
 	if stdout == nil {
 		stdout = os.Stdout
-	}
-	stderr := opts.Stderr
-	if stderr == nil {
-		stderr = os.Stderr
 	}
 	candidate, err := normalizeCandidate(opts.Candidate)
 	if err != nil {
 		return 2, err
 	}
-	if candidate.AuthHeader != "" && candidate.AuthEnv == "" {
-		fmt.Fprintln(stderr, "Auth header name was omitted from the tree because no environment-variable name was given. Pass --auth-env with the variable name, never the secret value.")
+	if !opts.Confirm {
+		return 2, &StatusError{Code: 2, Msg: stageConfirmMessage}
 	}
 	inf := candidateInference(opts.Repo, candidate)
 	files := ApplyFiles(inf, true, nil)
+	stampV1Candidate(files, inf.AgentID)
 	if len(files) == 0 {
 		return 2, &StatusError{Code: 2, Msg: "candidate did not produce a tree"}
 	}
@@ -374,10 +513,16 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 	if candidate.EndpointURL == "" || candidate.Method == "" || candidate.ResponsePath == "" || candidate.RequestField == "" {
 		return Candidate{}, &StatusError{Code: 2, Msg: "endpoint_url, method, request_field, and response_path are required"}
 	}
+	if candidate.Method == "HEAD" {
+		return Candidate{}, &StatusError{Code: 2, Msg: "method HEAD is not supported by onboarding/v1. Use GET, POST, PUT, PATCH, or DELETE."}
+	}
 	switch candidate.Method {
-	case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD":
+	case "GET", "POST", "PUT", "PATCH", "DELETE":
 	default:
 		return Candidate{}, &StatusError{Code: 2, Msg: "method must be an HTTP method"}
+	}
+	if candidate.AuthHeader != "" && candidate.AuthEnv == "" {
+		return Candidate{}, &StatusError{Code: 2, Msg: "auth_header without auth_env does not map to onboarding/v1. Declare target.auth_headers.<Header> as {\"source\":\"env\",\"name\":\"ENV_NAME\"} or {\"source\":\"harness_secret\",\"ref\":\"REF\",\"env\":\"ENV_NAME\"}. The literal value is not accepted."}
 	}
 	for i, item := range candidate.Cases {
 		if strings.TrimSpace(item.ID) == "" {
@@ -447,4 +592,255 @@ func applySampleCases(files map[string]string, agent string, cases []SampleCase)
 	}
 	files[fmt.Sprintf("datasets/%s.jsonl", agent)] = body.String()
 	return nil
+}
+
+func stampV1Candidate(files map[string]string, agentID string) {
+	if len(files) == 0 || agentID == "" {
+		return
+	}
+	rel := fmt.Sprintf("agents/%s/agent.yaml", agentID)
+	body, ok := files[rel]
+	if !ok || strings.Contains(body, "schema_version:") {
+		return
+	}
+	files[rel] = fmt.Sprintf("schema_version: %s\ncandidate:\n  id: %s\n  confidence: high\n  evidence:\n    - source: %s\n      summary: %s\n%s",
+		SchemaVersionV1, yamlString(agentID), yamlString("cli"), yamlString("confirmed onboarding candidate"), body)
+}
+
+func writeV1Candidate(opts WriteOptions) (int, error) {
+	stdout := opts.Stdout
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	if err := validateV1Document(opts.Candidate.Wire); err != nil {
+		return 2, err
+	}
+	if !opts.Confirm {
+		return 2, &StatusError{Code: 2, Msg: stageConfirmMessage}
+	}
+	wire, pinned, err := v1TreeFiles(opts.Candidate)
+	if err != nil {
+		return 2, err
+	}
+	python := opts.Python
+	if python == "" {
+		layout, err := EnsureRunner(RunnerHome(), nil, opts.Run)
+		if err != nil {
+			return 1, err
+		}
+		python = layout.Python
+	}
+	if len(opts.Candidate.Metrics) > 0 {
+		agent, _ := opts.Candidate.Wire["identifier"].(string)
+		catalog, err := ReadMetricCatalog(python, opts.Run)
+		if err != nil {
+			return 1, err
+		}
+		side := map[string]string{}
+		if err := applySelectedMetrics(side, agent, opts.Candidate.Metrics, catalog); err != nil {
+			return 2, err
+		}
+		body := side[fmt.Sprintf("metric-sets/%s.yaml", agent)]
+		for _, rel := range metricRefs(opts.Candidate.Wire) {
+			wire[rel] = body
+			pinned[rel] = body
+		}
+	}
+	result, err := stageCommitted(opts.Repo, wire, pinned, python, opts.Run)
+	if err != nil {
+		return 1, err
+	}
+	for _, rel := range result.Wrote {
+		fmt.Fprintf(stdout, "wrote %s\n", rel)
+	}
+	for _, rel := range result.Identical {
+		fmt.Fprintf(stdout, "identical %s\n", rel)
+	}
+	return 0, nil
+}
+
+func v1TreeFiles(candidate Candidate) (map[string]string, map[string]string, error) {
+	doc, ok := cloneValue(candidate.Wire).(map[string]any)
+	if !ok {
+		return nil, nil, fmt.Errorf("candidate file must be a JSON object")
+	}
+	delete(doc, "metrics")
+	delete(doc, "cases")
+	agent, _ := doc["identifier"].(string)
+	encoded, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, nil, err
+	}
+	agentRel := fmt.Sprintf("agents/%s/agent.yaml", agent)
+	wire := map[string]string{agentRel: string(encoded)}
+	pinnedDoc := projectAgentDocument(doc)
+	pinnedYAML, err := yaml.Marshal(pinnedDoc)
+	if err != nil {
+		return nil, nil, err
+	}
+	pinned := map[string]string{agentRel: string(pinnedYAML)}
+	datasetBody, err := datasetBody(candidate.Cases)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, rel := range datasetRefs(doc) {
+		if err := relativeTreePath(rel); err != nil {
+			return nil, nil, err
+		}
+		wire[rel] = datasetBody
+		pinned[rel] = datasetBody
+	}
+	metricBody := exactMatchMetric(agent)
+	for _, rel := range metricRefs(doc) {
+		if err := relativeTreePath(rel); err != nil {
+			return nil, nil, err
+		}
+		wire[rel] = metricBody
+		pinned[rel] = metricBody
+	}
+	return wire, pinned, nil
+}
+
+func datasetBody(cases []SampleCase) (string, error) {
+	if len(cases) == 0 {
+		return "{\"id\":\"case-1\",\"input\":{},\"expected\":\"\"}\n", nil
+	}
+	var body strings.Builder
+	for _, item := range cases {
+		if strings.TrimSpace(item.ID) == "" {
+			return "", fmt.Errorf("case id is required")
+		}
+		row, err := json.Marshal(item)
+		if err != nil {
+			return "", err
+		}
+		body.Write(row)
+		body.WriteByte('\n')
+	}
+	return body.String(), nil
+}
+
+func exactMatchMetric(agent string) string {
+	return fmt.Sprintf(`identifier: %s
+name: %s
+entries:
+  - metric:
+      identifier: exact-match
+      name: Exact Match
+      kind: exact_match
+      type: heuristic
+      dimension: correctness
+    threshold: 1.0
+    score_name: exact_match
+`, yamlString(agent), yamlString(displayName(agent)))
+}
+
+func datasetRefs(doc map[string]any) []string {
+	return evalRefs(doc, "dataset")
+}
+
+func metricRefs(doc map[string]any) []string {
+	return evalRefs(doc, "metric_set")
+}
+
+func evalRefs(doc map[string]any, field string) []string {
+	evals, _ := doc["evals"].([]any)
+	var refs []string
+	seen := map[string]bool{}
+	for _, item := range evals {
+		body, _ := item.(map[string]any)
+		rel, _ := body[field].(string)
+		if rel == "" || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		refs = append(refs, rel)
+	}
+	return refs
+}
+
+func relativeTreePath(rel string) error {
+	clean := filepath.Clean(rel)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) || strings.Contains(rel, "\\") {
+		return fmt.Errorf("candidate path escapes the tree: %s", rel)
+	}
+	return nil
+}
+
+func projectAgentDocument(doc map[string]any) map[string]any {
+	cloned, _ := cloneValue(doc).(map[string]any)
+	target, _ := cloned["target"].(map[string]any)
+	if target == nil {
+		return cloned
+	}
+	if template, ok := target["request_template"]; ok {
+		target["request_template"] = projectTemplateNode(template)
+	}
+	if headers, ok := target["headers"]; ok {
+		target["headers"] = projectTemplateNode(headers)
+	}
+	return cloned
+}
+
+// projectTemplateNode rewrites v1 sources the pinned 0.7.7 loader rejects.
+// input becomes the same placeholder D2 renders. A literal becomes its JSON
+// value. env and harness_secret stay named sources. Query params and auth
+// headers are left for D2; 0.7.7 does not walk those maps.
+func projectTemplateNode(node any) any {
+	object, ok := node.(map[string]any)
+	if !ok {
+		list, ok := node.([]any)
+		if !ok {
+			return node
+		}
+		out := make([]any, len(list))
+		for i, item := range list {
+			out[i] = projectTemplateNode(item)
+		}
+		return out
+	}
+	source, _ := object["source"].(string)
+	switch source {
+	case "input":
+		text, err := renderInputPlaceholder(object)
+		if err != nil {
+			return object
+		}
+		return text
+	case "literal":
+		return object["value"]
+	case "env", "harness_secret":
+		return object
+	default:
+		out := make(map[string]any, len(object))
+		for key, value := range object {
+			out[key] = projectTemplateNode(value)
+		}
+		return out
+	}
+}
+
+func cloneValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, child := range typed {
+			out[key] = cloneValue(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, child := range typed {
+			out[i] = cloneValue(child)
+		}
+		return out
+	default:
+		return typed
+	}
+}
+
+func legacyOverrideSet(override Candidate) bool {
+	return override.AgentID != "" || override.EndpointURL != "" || override.Method != "" ||
+		override.RequestField != "" || override.RequestFields != "" || override.ResponsePath != "" ||
+		override.AuthHeader != "" || override.AuthEnv != "" || override.InputText != "" || override.Expected != ""
 }

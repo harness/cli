@@ -1535,6 +1535,7 @@ func TestWriteCandidateValidatesAndWrites(t *testing.T) {
 	code, err = WriteCandidate(WriteOptions{
 		Repo:      repo,
 		Candidate: report.Candidates[0].AsCandidate(),
+		Confirm:   true,
 		Python:    layout.Python,
 		Stdout:    io.Discard,
 		Stderr:    io.Discard,
@@ -1562,6 +1563,7 @@ func TestExplicitJavaRouteSelectionStagesPinnedSchemaTree(t *testing.T) {
 	code, err = WriteCandidate(WriteOptions{
 		Repo:      repo,
 		Candidate: report.Candidates[0].AsCandidate(),
+		Confirm:   true,
 		Python:    layout.Python,
 		Stdout:    io.Discard,
 		Stderr:    io.Discard,
@@ -1600,6 +1602,7 @@ func TestSpringAndMicronautFixturesStageWithPinnedRunner(t *testing.T) {
 			code, err = WriteCandidate(WriteOptions{
 				Repo:      repo,
 				Candidate: report.Candidates[0].AsCandidate(),
+				Confirm:   true,
 				Python:    layout.Python,
 				Stdout:    io.Discard,
 				Stderr:    io.Discard,
@@ -1632,9 +1635,10 @@ func TestWriteCandidateKeepsDatasetJSONValid(t *testing.T) {
 				Expected: "ok",
 			}},
 		},
-		Python: layout.Python,
-		Stdout: io.Discard,
-		Stderr: io.Discard,
+		Confirm: true,
+		Python:  layout.Python,
+		Stdout:  io.Discard,
+		Stderr:  io.Discard,
 	})
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v", code, err)
@@ -1789,9 +1793,10 @@ func TestNoSignalGuideThenStage(t *testing.T) {
 			ResponsePath: "reasoning",
 			AuthHeader:   "none",
 		},
-		Python: layout.Python,
-		Stdout: io.Discard,
-		Stderr: &stderr,
+		Confirm: true,
+		Python:  layout.Python,
+		Stdout:  io.Discard,
+		Stderr:  &stderr,
 	})
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())

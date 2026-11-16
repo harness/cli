@@ -2264,9 +2264,10 @@ commands:
     short: "Print onboarding candidates as JSON: harness scan eval_onboarding"
     long: |
       TODO(onboarding-schema): provisional command.
-      Optional hint for the coding agent. Prints candidate endpoint, method,
-      port, request field, response path, and auth header name as JSON.
-      Writes nothing. --route narrows the hint to one supported candidate.
+      Optional hint for the coding agent. Prints an onboarding/v1 candidate
+      with id, confidence, evidence, and typed value sources. Writes nothing
+      and does not generate a tree. --route narrows the hint to one supported
+      candidate.
       A route that is not an exact supported hint is rejected.
       --metrics prints the complete installed SDK metric catalog instead,
       including options, thresholds, provider needs, and onboarding support.
@@ -2291,10 +2292,13 @@ commands:
     short: "Validate candidate values and write .harness/evals: harness stage eval_onboarding"
     long: |
       TODO(onboarding-schema): provisional command.
-      Validates candidate values from --file and/or flags, then writes
-      .harness/evals through the pinned onboarding validator. Flags override
-      the same fields in the file. auth-header is a header name and auth-env
-      is an environment-variable name. Never pass a secret value.
+      Accepts an onboarding/v1 candidate file, or legacy flags that map onto
+      that document without ambiguity. --confirm is required. Without it,
+      nothing is written. Unsupported schema versions, unknown fields,
+      secret-shaped literals, and source-grammar mismatches are rejected
+      before any file is written. Flags override the same legacy fields in a
+      legacy file. auth-header is a header name and auth-env is an
+      environment-variable name. Never pass a secret value.
       Candidate files may include metrics (kind, threshold, score_name, options,
       config) and cases with structured expected values, context, expected_tools,
       expected_tool_calls, tags, and metadata. Metric kinds and defaults come
@@ -2305,7 +2309,10 @@ commands:
       - name: repo
         description: Repository root that receives .harness/evals (default current directory)
       - name: file
-        description: Temporary JSON file of candidate values
+        description: Temporary JSON file of an onboarding/v1 candidate, or a legacy candidate that maps onto it
+      - name: confirm
+        is_bool: true
+        description: Write the tree only after the user has confirmed this candidate. Without this flag, nothing is written.
       - name: agent
         description: Stable agent identifier
       - name: endpoint

@@ -150,7 +150,7 @@ func stageWorkflow(ctx *cmdctx.Ctx) error {
 			return err
 		}
 	}
-	candidate = candidate.WithOverrides(Candidate{
+	override := Candidate{
 		AgentID:       cmdctx.GetString(ctx.FlagValues, "agent"),
 		EndpointURL:   cmdctx.GetString(ctx.FlagValues, "endpoint"),
 		Method:        cmdctx.GetString(ctx.FlagValues, "method"),
@@ -161,10 +161,17 @@ func stageWorkflow(ctx *cmdctx.Ctx) error {
 		AuthEnv:       cmdctx.GetString(ctx.FlagValues, "auth-env"),
 		InputText:     cmdctx.GetString(ctx.FlagValues, "input-text"),
 		Expected:      cmdctx.GetString(ctx.FlagValues, "expected"),
-	})
+	}
+	if candidate.Wire != nil && legacyOverrideSet(override) {
+		return fmt.Errorf("onboarding/v1 candidate files are staged as written. Flags such as --endpoint are the legacy mapping and cannot be combined with schema_version %s. Edit the document, then pass --confirm.", SchemaVersionV1)
+	}
+	if candidate.Wire == nil {
+		candidate = candidate.WithOverrides(override)
+	}
 	code, err := WriteCandidate(WriteOptions{
 		Repo:      repo,
 		Candidate: candidate,
+		Confirm:   cmdctx.GetBool(ctx.FlagValues, "confirm"),
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
 	})

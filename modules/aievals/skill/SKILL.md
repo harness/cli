@@ -23,31 +23,41 @@ When the prompt header includes a `harness auth login` command, use that command
 ## Commands
 
 - `harness setup eval_onboarding` installs or prints this skill. It does not scan and it does not write eval files. Optional `--skill-dir` chooses the destination. With no coding-agent skills directory and no `--skill-dir`, it prints the skill to stdout.
-- `harness scan eval_onboarding` is an optional hint. It prints candidate JSON and writes nothing. `--route '<METHOD path>'` narrows the hint. The agent's own reading of the repository is the source of truth. If the hint and the agent disagree, show both and let the user choose.
+- `harness scan eval_onboarding` is an optional hint. It prints an `onboarding/v1` candidate with id, confidence, evidence, and typed value sources. It writes nothing and does not generate a tree. `--route '<METHOD path>'` narrows the hint. The agent's own reading of the repository is the source of truth. If the hint and the agent disagree, show both and let the user choose.
 - `harness scan eval_onboarding --metrics` reads the full metric catalog from the Harness Evals SDK in the pinned runner. It prints every catalog entry, including descriptions, constructor options and required options, default thresholds, LLM/embedding requirements, execution scope, and onboarding support. It does not scan the repository, install packages, call an agent or judge, or write files. Do not combine it with `--route`.
-- Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`. Pass `--file <path>` pointing at a temporary JSON file, or pass flags. Flags override the same fields in the file.
+- Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`. Pass `--confirm --file <path>` pointing at a temporary JSON file, or pass legacy flags that map unambiguously onto `onboarding/v1`. `--confirm` is required after the user says yes. Without it, the command writes nothing. The file uses `schema_version: "onboarding/v1"`. Value sources are `literal`, `input`, `env`, and `harness_secret` with D2 field names (`name`, `ref`, `env`). Do not use `env_name` or `secret_ref`. Never put a secret value in the file. Flags override the same legacy fields in a legacy file. They cannot be combined with an `onboarding/v1` file.
 - `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>]` runs a staged agent. `local` is the default. The command checks the pinned runner and does not upgrade it. A PAT or SAT is passed to the runner. An SSO access token is not.
 - `harness upload eval_onboarding` validates locally, uploads `.harness/evals`, and prints Agent and Eval links. Git sync is not applied by the upload.
 
-`stage` accepts `--agent`, `--endpoint`, `--method`, `--request-field`, `--request-fields`, `--response-path`, `--auth-header`, `--auth-env`, `--input-text`, and `--expected`. `--auth-header` is a header name. `--auth-env` is an environment-variable name. Never pass a secret value. A header name without an environment-variable name is omitted from the tree.
+`stage` accepts `--confirm` plus `--agent`, `--endpoint`, `--method`, `--request-field`, `--request-fields`, `--response-path`, `--auth-header`, `--auth-env`, `--input-text`, and `--expected` for a legacy file. `--auth-header` is a header name. `--auth-env` is an environment-variable name. Never pass a secret value. A header name without an environment-variable name does not map to `onboarding/v1`, and the command writes nothing.
 
 Metric selections go in the candidate file's `metrics` list. Each selection has an SDK `kind`, optional numeric `threshold`, optional unique `score_name`, constructor `options`, and optional `config`. Use `config.metadata` for non-secret provider/model settings and `config.criteria` for judge criteria. Never put keys or credentials in metric options or config. The stager derives metric type and dimension from the SDK catalog and checks construction without calling providers. This does not verify credentials, provider connectivity, or dataset suitability.
 
 Cases can carry structured `expected` values, `context`, `expected_tools`, `expected_tool_calls`, `tags`, and `metadata`; these are preserved in JSONL. Use `cases` instead of `input_text`/`expected` when a metric needs these fields or there is more than one case. A dataset field is useful only if the runner maps it to the SDK field the metric reads; check that mapping before recommending trace, conversation, or telemetry metrics.
 
-Example candidate file, illustrating a substring check only (not a default agent, endpoint, case, or metric recommendation):
+Example candidate file, illustrating the `onboarding/v1` shape only (not a default agent, endpoint, case, or metric recommendation):
 
 ```json
 {
-  "agent_id": "support",
-  "endpoint_url": "http://127.0.0.1:8080/api/chat",
-  "method": "POST",
-  "request_field": "text",
-  "response_path": "output.text",
-  "auth_header": "Authorization",
-  "auth_env": "SUPPORT_TOKEN",
-  "input_text": "hello",
-  "expected": "ok",
+  "schema_version": "onboarding/v1",
+  "identifier": "support",
+  "name": "Support",
+  "candidate": {
+    "id": "support",
+    "confidence": "high",
+    "evidence": [{"source": "src/chat.py", "summary": "POST /chat", "locator": "src/chat.py"}]
+  },
+  "target": {
+    "method": "POST",
+    "response_path": "output.text",
+    "request_template": {"text": {"source": "input", "selector": "text"}},
+    "query_params": {"region": {"source": "env", "name": "REGION"}},
+    "auth_headers": {"Authorization": {"source": "env", "name": "SUPPORT_TOKEN"}}
+  },
+  "environments": {"local": {"endpoint": "http://127.0.0.1:8080/api/chat", "secrets": {}}},
+  "evals": [{"identifier": "support-eval", "name": "Support", "dataset": "datasets/support.jsonl", "metric_set": "metric-sets/support.yaml"}],
+  "suite": {"identifier": "support-suite", "name": "Support", "pass_strategy": "all_must_pass", "evals": ["support-eval"]},
+  "cases": [{"id": "case-1", "input": {"text": "hello"}, "expected": "ok"}],
   "metrics": [
     {"kind": "contains", "threshold": 1.0, "options": {"case_sensitive": false}}
   ]
@@ -124,7 +134,7 @@ After the user confirms the agent and metrics, show the proposed `.harness/evals
 
 Checkpoint: Write these files?
 
-Only after yes, create the temporary candidate JSON with the confirmed `metrics` and cases and call `harness stage eval_onboarding --file <path> --repo <repository>`. Do not write the tree with a standalone script or by hand. If catalog lookup, options validation, or schema validation fails, show the failure and correct the candidate with user approval; never silently retry without the selected metrics. After success, read back the three generated files and verify the chosen agent, case fields, metric kinds, options, thresholds, and references were preserved. Report the directory paths.
+Only after yes, create the temporary `onboarding/v1` candidate JSON with the confirmed `metrics` and cases and call `harness stage eval_onboarding --confirm --file <path> --repo <repository>`. Do not write the tree with a standalone script or by hand. If catalog lookup, options validation, or schema validation fails, show the failure and correct the candidate with user approval; never silently retry without the selected metrics. After success, read back the three generated files and verify the chosen agent, case fields, metric kinds, options, thresholds, and references were preserved. Report the directory paths.
 
 ## Stage 3. Local run
 
@@ -188,4 +198,4 @@ Read the existing agent, dataset, and metric-set files first and preserve the us
 
 Checkpoint: Write these updated files?
 
-Then call `harness stage eval_onboarding` with the full confirmed candidate, including existing and new metrics. The stager does not overwrite non-identical files: if it reports a collision, stop and ask the user how to handle it; do not bypass that protection. Preserve chosen metrics rather than resetting to exact match. Show LLM or embedding provider setup only when those metrics were chosen, and ask again before any subsequent run or upload.
+Then call `harness stage eval_onboarding --confirm` with the full confirmed candidate, including existing and new metrics. The stager does not overwrite non-identical files: if it reports a collision, stop and ask the user how to handle it; do not bypass that protection. Preserve chosen metrics rather than resetting to exact match. Show LLM or embedding provider setup only when those metrics were chosen, and ask again before any subsequent run or upload.

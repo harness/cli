@@ -104,7 +104,7 @@ func TestSelectedMetricsAndCaseDataSurviveStaging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: candidate, Python: python, Stdout: io.Discard, Stderr: io.Discard})
+	code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: candidate, Confirm: true, Python: python, Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil || code != 0 {
 		t.Fatalf("stage selected metrics: code=%d err=%v", code, err)
 	}
@@ -197,7 +197,7 @@ func TestSelectedMetricErrorsDoNotWriteFiles(t *testing.T) {
 			}
 			repo := t.TempDir()
 			candidate := Candidate{AgentID: "chat", EndpointURL: "http://localhost:8080/chat", Method: "POST", RequestField: "text", ResponsePath: "reply", Metrics: metrics}
-			code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: candidate, Python: python, Stdout: io.Discard, Stderr: io.Discard})
+			code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: candidate, Confirm: true, Python: python, Stdout: io.Discard, Stderr: io.Discard})
 			if code == 0 || err == nil || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("code=%d err=%v, want %s", code, err, tc.message)
 			}
@@ -235,7 +235,7 @@ func TestStagedMetricsUseSelectedOptionsWhenScoring(t *testing.T) {
 			{Kind: "contains", ScoreName: "no-leak", Options: map[string]any{"case_sensitive": false, "negate": true, "forbidden": "internal-only"}},
 		},
 	}
-	code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: candidate, Python: python, Stdout: io.Discard, Stderr: io.Discard})
+	code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: candidate, Confirm: true, Python: python, Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
@@ -266,7 +266,7 @@ func TestMetricCatalogFailureDoesNotFallBackToExactMatch(t *testing.T) {
 		candidate := Candidate{AgentID: "chat", EndpointURL: "http://localhost:8080/chat", Method: "POST", RequestField: "text", ResponsePath: "reply", Metrics: []MetricSelection{{Kind: "contains"}}}
 		calls := 0
 		code, err := WriteCandidate(WriteOptions{
-			Repo: repo, Candidate: candidate, Python: "python-test", Stdout: io.Discard, Stderr: io.Discard,
+			Repo: repo, Candidate: candidate, Confirm: true, Python: "python-test", Stdout: io.Discard, Stderr: io.Discard,
 			Run: func(string, []string, []string, string) (CommandResult, error) {
 				calls++
 				return result, nil
