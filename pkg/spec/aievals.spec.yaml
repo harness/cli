@@ -2386,10 +2386,27 @@ commands:
       paths. Use --profile <name> or HARNESS_PROFILE to select an existing
       profile; this command never changes profiles. `run` remains fail-closed
       when the pinned runner does not support onboarding/v1.
+      Without --persist-report this is import-only. With the explicit
+      --persist-report <path> flag, it validates a completed D2
+      --report-json file before upload, shows the manifest metric mapping, and
+      then imports the completed result through the normal scoped runs API.
+      The coding agent must ask the user before invoking --persist-report.
+      If the archive contains multiple evals, pass --eval-identifier to select
+      one; otherwise the sole manifest eval is selected. Hosted APIs default to
+      /gateway. For a raw local API, pass --api-url http://localhost:<port>
+      --api-base-path /.
     handler_type: workflow
     workflow_id: upload
     flags:
       - name: root
         description: Path to the .harness/evals directory
         default: .harness/evals
+      - name: persist-report
+        description: Optional completed D2 --report-json path; never use without explicit user confirmation
+      - name: eval-identifier
+        description: Source eval identifier to select from a multi-eval archive manifest
+      - name: api-url
+        description: Explicit API origin override; supports hosted origins and raw local http://localhost origins
+      - name: api-base-path
+        description: Explicit API path prefix; defaults to /gateway, pass / for a raw local API
 

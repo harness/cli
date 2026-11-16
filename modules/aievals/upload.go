@@ -21,11 +21,24 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const importArchivePath = "/gateway/ai-evals/api/v1/orgs/%s/projects/%s/evals/import-archive"
+const importArchivePath = "/ai-evals/api/v1/orgs/%s/projects/%s/evals/import-archive"
 
 // GitSyncRecommendation is printed after a successful archive import.
 // The import path does not sync Git.
 const GitSyncRecommendation = "Git sync was not applied. This upload does not connect Git. To make Git the source of truth, register the repository with `harness execute eval_git_registration:register`."
+
+type importMetricBinding struct {
+	SourceMetricID  string `json:"source_metric_id"`
+	SourceScoreName string `json:"source_score_name"`
+	MetricID        string `json:"metric_id"`
+	ScoreName       string `json:"score_name"`
+}
+
+type importManifest struct {
+	Eval           importedResource      `json:"eval"`
+	Dataset        importedResource      `json:"dataset"`
+	MetricBindings []importMetricBinding `json:"metric_bindings"`
+}
 
 type importedResource struct {
 	Identifier string `json:"identifier"`
@@ -39,6 +52,12 @@ type importArchiveResponse struct {
 	Datasets   []importedResource `json:"datasets"`
 	MetricSets []importedResource `json:"metric_sets"`
 	Suites     []importedResource `json:"suites"`
+	Manifest   []importManifest   `json:"manifest"`
+}
+
+type ArchiveImportResult struct {
+	Text     string
+	Response importArchiveResponse
 }
 
 // ValidateUploadTree checks the files that BuildArchive will include without
@@ -135,6 +154,13 @@ func validateUploadJSONL(path string, data []byte) error {
 // NewArchiveRequest builds the multipart POST the import-archive route accepts.
 // The file part is named archive. The request Content-Type is multipart/form-data.
 func NewArchiveRequest(a *auth.ResolvedAuth, payload []byte) (*http.Request, error) {
+	return NewArchiveRequestWithBasePath(a, payload, "")
+}
+
+// NewArchiveRequestWithBasePath builds an archive request using an explicit
+// API path prefix. An empty prefix preserves the hosted /gateway default.
+// Pass "/" for a raw local API origin.
+func NewArchiveRequestWithBasePath(a *auth.ResolvedAuth, payload []byte, apiBasePath string) (*http.Request, error) {
 	if a == nil {
 		return nil, fmt.Errorf("upload requires an authenticated profile")
 	}
@@ -148,7 +174,11 @@ func NewArchiveRequest(a *auth.ResolvedAuth, payload []byte) (*http.Request, err
 	if err != nil {
 		return nil, err
 	}
-	endpoint := strings.TrimRight(a.APIUrl, "/") + fmt.Sprintf(importArchivePath, url.PathEscape(a.OrgID), url.PathEscape(a.ProjectID))
+	route := fmt.Sprintf(importArchivePath, url.PathEscape(a.OrgID), url.PathEscape(a.ProjectID))
+	endpoint, err := apiEndpoint(a.APIUrl, apiBasePath, route)
+	if err != nil {
+		return nil, err
+	}
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, err
@@ -189,6 +219,43 @@ func archivePart(payload []byte) ([]byte, string, error) {
 	return buf.Bytes(), w.FormDataContentType(), nil
 }
 
+// apiEndpoint joins a configured API origin, an explicit API path prefix, and
+// a route without inferring a host. Hosted defaults use /gateway; callers
+// targeting a raw local API must explicitly pass "/" as the prefix.
+func apiEndpoint(apiURL, apiBasePath, route string) (string, error) {
+	if strings.TrimSpace(apiURL) == "" {
+		return "", fmt.Errorf("upload requires an API URL")
+	}
+	u, err := url.Parse(apiURL)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("invalid API URL; pass an origin such as https://app.harness.io or http://localhost:8000")
+	}
+
+	root := strings.TrimRight(u.Path, "/")
+	prefix := strings.TrimSpace(apiBasePath)
+	if strings.HasSuffix(root, "/gateway") {
+		root = strings.TrimSuffix(root, "/gateway")
+		if prefix == "" {
+			prefix = "/gateway"
+		}
+	}
+	if prefix == "" {
+		prefix = "/gateway"
+	}
+	prefix = "/" + strings.Trim(prefix, "/")
+	if prefix == "/" {
+		prefix = ""
+	}
+	escapedPath := strings.TrimRight(root, "/") + prefix + "/" + strings.TrimLeft(route, "/")
+	decodedPath, err := url.PathUnescape(escapedPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid API route")
+	}
+	u.Path = decodedPath
+	u.RawPath = escapedPath
+	return u.String(), nil
+}
+
 // FormatImport prints server-returned Agent and Eval URLs plus the Git-sync recommendation.
 func FormatImport(apiURL, uiURL string, body []byte) (string, error) {
 	var parsed importArchiveResponse
@@ -216,6 +283,27 @@ func FormatImport(apiURL, uiURL string, body []byte) (string, error) {
 	return b.String(), nil
 }
 
+func formatManifestMappings(manifest []importManifest) string {
+	if len(manifest) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, item := range manifest {
+		fmt.Fprintf(&b, "Imported eval %s (%s)\n", item.Eval.Identifier, item.Eval.ID)
+		for _, binding := range item.MetricBindings {
+			fmt.Fprintf(
+				&b,
+				"Metric %s/%s -> %s/%s\n",
+				binding.SourceMetricID,
+				binding.SourceScoreName,
+				binding.MetricID,
+				binding.ScoreName,
+			)
+		}
+	}
+	return b.String()
+}
+
 func resourceURL(apiURL, uiURL, uiPath string) string {
 	if strings.HasPrefix(uiPath, "http://") || strings.HasPrefix(uiPath, "https://") {
 		return uiPath
@@ -234,28 +322,46 @@ func resourceURL(apiURL, uiURL, uiPath string) string {
 
 // UploadArchive sends payload and returns the text FormatImport produces.
 func UploadArchive(a *auth.ResolvedAuth, payload []byte, do func(*http.Request) (*http.Response, error)) (string, error) {
-	req, err := NewArchiveRequest(a, payload)
+	result, err := UploadArchiveWithBasePath(a, payload, "", do)
 	if err != nil {
 		return "", err
+	}
+	return result.Text, nil
+}
+
+// UploadArchiveWithBasePath sends the archive and returns both the existing
+// human-readable output and the manifest needed for optional report import.
+func UploadArchiveWithBasePath(a *auth.ResolvedAuth, payload []byte, apiBasePath string, do func(*http.Request) (*http.Response, error)) (ArchiveImportResult, error) {
+	req, err := NewArchiveRequestWithBasePath(a, payload, apiBasePath)
+	if err != nil {
+		return ArchiveImportResult{}, err
 	}
 	if do == nil {
 		do = http.DefaultClient.Do
 	}
 	resp, err := do(req)
 	if err != nil {
-		return "", err
+		return ArchiveImportResult{}, err
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return ArchiveImportResult{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("import-archive returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return ArchiveImportResult{}, fmt.Errorf("import-archive returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	uiURL := ""
 	if a != nil {
 		uiURL = a.UIUrl
 	}
-	return FormatImport(a.APIUrl, uiURL, respBody)
+	text, err := FormatImport(a.APIUrl, uiURL, respBody)
+	if err != nil {
+		return ArchiveImportResult{}, err
+	}
+	var parsed importArchiveResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return ArchiveImportResult{}, fmt.Errorf("reading import response: %w", err)
+	}
+	return ArchiveImportResult{Text: text, Response: parsed}, nil
 }

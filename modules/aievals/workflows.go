@@ -264,11 +264,52 @@ func uploadWorkflow(ctx *cmdctx.Ctx) error {
 	if err := ValidateUploadTree(root); err != nil {
 		return err
 	}
+	persistPath := cmdctx.GetString(ctx.FlagValues, "persist-report")
+	var report map[string]any
+	var err error
+	if persistPath != "" {
+		report, err = ReadPersistReport(persistPath)
+		if err != nil {
+			return err
+		}
+	}
 	payload, err := BuildArchive(repo, DefaultLimits())
 	if err != nil {
 		return err
 	}
-	text, err := UploadArchive(ctx.ScopedAuth(), payload, nil)
+	apiAuth := ctx.ScopedAuth()
+	apiURL := cmdctx.GetString(ctx.FlagValues, "api-url")
+	apiBasePath := cmdctx.GetString(ctx.FlagValues, "api-base-path")
+	if apiURL != "" || apiBasePath != "" {
+		scoped := *apiAuth
+		if apiURL != "" {
+			scoped.APIUrl = apiURL
+		}
+		apiAuth = &scoped
+	}
+	imported, err := UploadArchiveWithBasePath(apiAuth, payload, apiBasePath, nil)
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(os.Stdout, imported.Text)
+	if persistPath == "" {
+		fmt.Fprint(os.Stdout, formatManifestMappings(imported.Response.Manifest))
+		return nil
+	}
+	prepared, err := PrepareReportImport(
+		payload,
+		imported.Response,
+		cmdctx.GetString(ctx.FlagValues, "eval-identifier"),
+		report,
+	)
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(os.Stdout, formatManifestMappings([]importManifest{{
+		Eval:           importedResource{Identifier: prepared.EvalIdentifier, ID: prepared.EvalID},
+		MetricBindings: prepared.Mapping,
+	}}))
+	text, err := PersistReport(apiAuth, prepared.EvalID, prepared.Body, apiBasePath, nil)
 	if err != nil {
 		return err
 	}
