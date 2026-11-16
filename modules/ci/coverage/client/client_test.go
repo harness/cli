@@ -68,16 +68,17 @@ func TestCoverageEnsureRepoAndExcludeText(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ctx := testCtx(t, server.URL, "account")
+	// The auth account differs on purpose: the account passed in wins.
+	ctx := testCtx(t, server.URL, "auth-account")
 	scope := Scope{AccountID: "account", OrgID: "org", ProjectID: "project"}
-	repoID, err := EnsureRepo(ctx, scope, "github", "owner", "repo")
+	repoID, err := EnsureRepo(ctx, "account", scope, "github", "owner", "repo")
 	if err != nil {
 		t.Fatalf("EnsureRepo() error = %v", err)
 	}
 	if repoID != 42 {
 		t.Fatalf("EnsureRepo() = %d, want 42", repoID)
 	}
-	excludeText, err := ExcludeText(ctx, scope, repoID)
+	excludeText, err := ExcludeText(ctx, "account", scope, repoID)
 	if err != nil {
 		t.Fatalf("ExcludeText() error = %v", err)
 	}
@@ -93,7 +94,7 @@ func TestCoverageEnsureRepoFails(t *testing.T) {
 	defer server.Close()
 
 	ctx := testCtx(t, server.URL, "account")
-	if _, err := EnsureRepo(ctx, Scope{}, "github", "owner", "repo"); err == nil {
+	if _, err := EnsureRepo(ctx, "account", Scope{}, "github", "owner", "repo"); err == nil {
 		t.Fatal("EnsureRepo() expected an error")
 	}
 }
@@ -112,11 +113,11 @@ func TestCoverageExcludeTextHTTPErrorAfterEnsure(t *testing.T) {
 	defer server.Close()
 
 	ctx := testCtx(t, server.URL, "account")
-	repoID, err := EnsureRepo(ctx, Scope{}, "github", "owner", "repo")
+	repoID, err := EnsureRepo(ctx, "account", Scope{}, "github", "owner", "repo")
 	if err != nil {
 		t.Fatalf("EnsureRepo() error = %v", err)
 	}
-	if _, err := ExcludeText(ctx, Scope{}, repoID); err == nil {
+	if _, err := ExcludeText(ctx, "account", Scope{}, repoID); err == nil {
 		t.Fatal("ExcludeText() expected an error")
 	} else if !strings.Contains(err.Error(), "403") {
 		t.Fatalf("ExcludeText() error = %v, want it to mention HTTP 403", err)

@@ -22,8 +22,7 @@ func scopedQuery(scope Scope, accountID string) map[string]string {
 // EnsureRepo is lookup-or-create for the coverage repository upload
 // writes to. Connectors are not sent from here; they are configured in the
 // coverage UI.
-func EnsureRepo(ctx *cmdctx.Ctx, scope Scope, provider, owner, identifier string) (int64, error) {
-	accountID := ctx.Auth.AccountID
+func EnsureRepo(ctx *cmdctx.Ctx, accountID string, scope Scope, provider, owner, identifier string) (int64, error) {
 	raw, _, err := client.New(ctx).DoRequest(client.Request{
 		Method:      "POST",
 		Path:        EnsureRepoPath(accountID),
@@ -48,8 +47,7 @@ func EnsureRepo(ctx *cmdctx.Ctx, scope Scope, provider, owner, identifier string
 }
 
 // ExcludeText loads exclude_text for an already ensured coverage repository.
-func ExcludeText(ctx *cmdctx.Ctx, scope Scope, repoID int64) (*string, error) {
-	accountID := ctx.Auth.AccountID
+func ExcludeText(ctx *cmdctx.Ctx, accountID string, scope Scope, repoID int64) (*string, error) {
 	raw, _, err := client.New(ctx).DoRequest(client.Request{
 		Method:      "GET",
 		Path:        RepoSettingsPath(accountID, repoID),
