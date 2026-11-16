@@ -135,6 +135,7 @@ func Lookup(files ...string) ([]File, error) {
 			return nil, fmt.Errorf("no valid coverage files found in: %v", files)
 		}
 
+		logFoundFiles("", found)
 		return found, nil
 	}
 
@@ -191,7 +192,7 @@ func Lookup(files ...string) ([]File, error) {
 	}
 
 	if len(found) > 0 {
-		hlog.Debug("found coverage files in common directories", "count", len(found))
+		logFoundFiles(" in common directories", found)
 		return found, nil
 	}
 
@@ -229,4 +230,16 @@ func Lookup(files ...string) ([]File, error) {
 	}
 
 	return found, nil
+}
+
+func logFoundFiles(where string, found []File) {
+	label := "coverage files"
+	if len(found) == 1 {
+		label = "coverage file"
+	}
+	parts := make([]string, len(found))
+	for i, f := range found {
+		parts[i] = f.Path + " format=" + f.Format
+	}
+	hlog.Info("Found " + label + where + ": " + strings.Join(parts, ", "))
 }

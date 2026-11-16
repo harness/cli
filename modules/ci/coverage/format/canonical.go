@@ -49,6 +49,7 @@ func (c *RepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool
 		if c.opts.Patch {
 			return "", fmt.Errorf("patch coverage path %q escapes the repository", raw)
 		}
+		c.noteDropped(raw)
 		hlog.Warn("coverage path escapes the repository; dropping the file", "path", raw)
 		return "", nil
 	}
@@ -73,6 +74,7 @@ func (c *RepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool
 			return c.unresolved(raw, stored)
 		}
 		if exact := c.opts.Tree.ResolveExact(rel); exact != "" {
+			c.noteExact()
 			return exact, nil
 		}
 		// Under the git root but untracked: keep the git-relative path, not a
@@ -88,9 +90,13 @@ func (c *RepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool
 	}
 
 	if exact := c.opts.Tree.ResolveExact(normalized); exact != "" {
+		c.noteExact()
 		return exact, nil
 	}
 	if exact, err := c.matchGoModule(normalized); err != nil || exact != "" {
+		if err == nil && exact != "" {
+			c.noteExact()
+		}
 		return exact, err
 	}
 	// A non-empty module directory is authoritative. A miss must not unique-suffix
@@ -98,6 +104,9 @@ func (c *RepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool
 	if prefixed := nonEmptyManifestRels(c.manifestRels); len(prefixed) > 0 {
 		exact, err := c.matchManifestPrefixes(raw, normalized, prefixed)
 		if err != nil || exact != "" {
+			if err == nil && exact != "" {
+				c.noteExact()
+			}
 			return exact, err
 		}
 		if stopOnManifestMiss {
@@ -107,6 +116,7 @@ func (c *RepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool
 
 	switch resolution := c.opts.Tree.ResolveWithOutcome(normalized); resolution.Kind {
 	case env.PathResolutionExact:
+		c.noteExact()
 		return resolution.Path, nil
 	case env.PathResolutionUnique:
 		// A bare basename can unique-match the wrong file in a monorepo.
@@ -117,11 +127,10 @@ func (c *RepositoryPathResolver) resolvePath(raw string, stopOnManifestMiss bool
 					raw, resolution.Path,
 				)
 			}
-			hlog.Warn("coverage path matched by basename only; refusing unique-suffix match",
-				"path", raw, "matched", resolution.Path, "stored", normalized)
+			c.noteBasename(raw, resolution.Path, normalized)
 			return normalized, nil
 		}
-		hlog.Warn("coverage path matched by unique suffix", "path", raw, "matched", resolution.Path)
+		c.noteSuffix(raw, resolution.Path)
 		return resolution.Path, nil
 	case env.PathResolutionAmbiguous:
 		return "", ambiguousPathError(raw, resolution.Candidates)
@@ -134,7 +143,7 @@ func (c *RepositoryPathResolver) unresolved(raw, stored string) (string, error) 
 	if c.opts.Patch {
 		return "", fmt.Errorf("patch coverage path %q was not found in the repository", raw)
 	}
-	hlog.Warn("coverage path was not found in the repository", "path", raw, "stored", stored)
+	c.noteNotFound(raw, stored)
 	return stored, nil
 }
 
@@ -165,6 +174,18 @@ type RepositoryPathResolver struct {
 	choices      map[string]cachedChoice
 	goModules    []goModule
 	manifestRels []string
+	stats        pathResolutionStats
+}
+
+// pathResolutionStats counts one report's path outcomes. The customer-visible
+// summary is logged once; per-file detail stays at debug.
+type pathResolutionStats struct {
+	exact    int
+	suffix   int
+	notFound int
+	basename int
+	dropped  int
+	examples []string
 }
 
 type cachedChoice struct {
@@ -192,6 +213,125 @@ func (c *RepositoryPathResolver) Resolve(raw string, extra ...string) (string, e
 		return "", err
 	}
 	return choice.Path, nil
+}
+
+const pathResolutionExampleLimit = 5
+
+func (c *RepositoryPathResolver) noteExact() {
+	c.stats.exact++
+}
+
+func (c *RepositoryPathResolver) noteSuffix(raw, resolved string) {
+	c.stats.suffix++
+	hlog.Debug("coverage path matched by unique suffix", "path", raw, "matched", resolved)
+	c.noteExample(raw)
+}
+
+func (c *RepositoryPathResolver) noteNotFound(raw, stored string) {
+	c.stats.notFound++
+	hlog.Debug("coverage path was not found in the repository", "path", raw, "stored", stored)
+	c.noteExample(raw)
+}
+
+func (c *RepositoryPathResolver) noteBasename(raw, matched, stored string) {
+	c.stats.basename++
+	hlog.Debug("coverage path matched by basename only; refusing unique-suffix match",
+		"path", raw, "matched", matched, "stored", stored)
+	c.noteExample(raw)
+}
+
+func (c *RepositoryPathResolver) noteDropped(raw string) {
+	c.stats.dropped++
+	c.noteExample(raw)
+}
+
+func (c *RepositoryPathResolver) noteExample(raw string) {
+	if len(c.stats.examples) >= pathResolutionExampleLimit {
+		return
+	}
+	c.stats.examples = append(c.stats.examples, raw)
+}
+
+// PathResolution is one report's path-resolution counts.
+type PathResolution struct {
+	stats pathResolutionStats
+}
+
+// PathResolution returns a copy of this report's path counts.
+func (c *RepositoryPathResolver) PathResolution() PathResolution {
+	return PathResolution{stats: c.stats}
+}
+
+// Log prints one line for this report's path outcomes.
+// file is the coverage report. externalID is set once presign has returned one.
+// succeeded is true only when this report finished. The reassurance that the
+// upload continued is printed only then, and only when nothing was dropped.
+// An all-exact report stays at debug. Each dropped path is warned on its own line.
+func (p PathResolution) Log(file, externalID string, succeeded bool) {
+	message, quiet := p.summary(file, externalID, succeeded)
+	switch {
+	case message == "":
+	case quiet:
+		hlog.Debug(message)
+	default:
+		hlog.Info(message)
+	}
+}
+
+// summary builds the Log line. quiet means it belongs at debug, not info.
+func (p PathResolution) summary(file, externalID string, succeeded bool) (message string, quiet bool) {
+	stats := p.stats
+	if stats.exact+stats.suffix+stats.notFound+stats.basename+stats.dropped == 0 {
+		return "", true
+	}
+	exact := pathCount(stats.exact, "matched the repository exactly", "matched the repository exactly")
+	if stats.suffix == 0 && stats.notFound == 0 && stats.basename == 0 && stats.dropped == 0 {
+		return pathResolutionLine(file, externalID, exact), true
+	}
+
+	parts := []string{exact}
+	if stats.suffix > 0 {
+		parts = append(parts, pathCount(stats.suffix, "matched by path suffix", "matched by path suffix"))
+	}
+	if stats.notFound > 0 {
+		parts = append(parts, pathCount(stats.notFound,
+			"was not in the repository and was stored as reported",
+			"were not in the repository and were stored as reported"))
+	}
+	if stats.basename > 0 {
+		parts = append(parts, pathCount(stats.basename,
+			"matched only by filename and was stored as reported",
+			"matched only by filename and were stored as reported"))
+	}
+	if stats.dropped > 0 {
+		parts = append(parts, pathCount(stats.dropped, "was dropped", "were dropped"))
+	}
+	message = pathResolutionLine(file, externalID, strings.Join(parts, ", "))
+	if len(stats.examples) > 0 {
+		message += ". Examples: " + strings.Join(stats.examples, ", ")
+	}
+	if succeeded && stats.dropped == 0 {
+		message += ". The coverage upload was not stopped because of these paths"
+	}
+	return message, false
+}
+
+func pathResolutionLine(file, externalID, body string) string {
+	line := "Coverage file paths: "
+	if file != "" {
+		line += "file=" + file + " "
+	}
+	if externalID != "" {
+		line += "external_id=" + externalID + " "
+	}
+	return line + body
+}
+
+func pathCount(n int, singular, plural string) string {
+	if n == 1 {
+		return "1 " + singular
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }
 
 // Select resolves raw and applies excludes before an ambiguity failure.
@@ -224,6 +364,7 @@ func (c *RepositoryPathResolver) selectUncached(
 		if c.opts.Patch {
 			return pathChoice{}, fmt.Errorf("patch coverage path %q escapes the repository", raw)
 		}
+		c.noteDropped(raw)
 		hlog.Warn("coverage path escapes the repository; dropping the file", "path", raw)
 		return pathChoice{Skip: true}, nil
 	}
@@ -258,6 +399,7 @@ func (c *RepositoryPathResolver) selectSourceCandidates(
 				sawExcluded = true
 				continue
 			}
+			c.noteExact()
 			return pathChoice{Path: tracked}, nil
 		}
 		if sawExcluded {
@@ -331,6 +473,7 @@ func (c *RepositoryPathResolver) selectNamedCandidates(
 			sawExcluded = true
 			continue
 		}
+		c.noteExact()
 		return pathChoice{Path: exact}, nil
 	}
 	for _, candidate := range nonEmptySourceRootSuffixes(normalized) {
@@ -444,7 +587,9 @@ func (c *RepositoryPathResolver) matchSourceRoot(
 			return pathChoice{Skip: true}, nil, true
 		}
 		if resolution.Kind == env.PathResolutionUnique {
-			hlog.Warn("coverage path matched by unique suffix", "path", raw, "matched", resolution.Path)
+			c.noteSuffix(raw, resolution.Path)
+		} else {
+			c.noteExact()
 		}
 		return pathChoice{Path: resolution.Path}, nil, false
 	case env.PathResolutionAmbiguous:
@@ -453,6 +598,7 @@ func (c *RepositoryPathResolver) matchSourceRoot(
 		case 0:
 			return pathChoice{Skip: true}, nil, true
 		case 1:
+			c.noteExact()
 			return pathChoice{Path: kept[0]}, nil, false
 		default:
 			return pathChoice{}, ambiguousPathError(raw, kept), false
@@ -501,7 +647,11 @@ func (c *RepositoryPathResolver) finishChoice(
 ) (pathChoice, error) {
 	if err != nil {
 		if !c.opts.Patch && isAmbiguousPath(err) {
-			hlog.Warn("dropping the file from full coverage", "err", err.Error())
+			var ambiguous *ambiguousPathsError
+			if errors.As(err, &ambiguous) {
+				c.noteDropped(ambiguous.raw)
+			}
+			hlog.Warn("dropping the file", "err", err.Error())
 			return pathChoice{Skip: true}, nil
 		}
 		return pathChoice{}, err

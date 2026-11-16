@@ -6,6 +6,7 @@ package format
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/harness/cli/v3/modules/ci/coverage/env"
@@ -191,5 +192,80 @@ func TestCoverageRepositoryPathResolver_GoModuleResolvesImportPath(t *testing.T)
 	}
 	if choice != "pkg/foo/bar.go" {
 		t.Fatalf("choice = %q, want pkg/foo/bar.go (import path resolved via go.mod module name)", choice)
+	}
+}
+
+func TestPathResolutionSummary_ImperfectMatchesAreOneLine(t *testing.T) {
+	paths := NewRepositoryPathResolver(RepositoryPathOptions{Tree: env.NewTree([]string{
+		"moda/temp.go",
+		"ti-service/pkg/bar/service.go",
+	})})
+	for raw, want := range map[string]string{
+		"moda/temp.go":        "moda/temp.go",
+		"pkg/bar/service.go":  "ti-service/pkg/bar/service.go",
+		"missing.go":          "missing.go",
+		"also/missing/foo.go": "also/missing/foo.go",
+	} {
+		if got, err := paths.Resolve(raw); err != nil || got != want {
+			t.Fatalf("Resolve(%q) = %q, %v; want %q", raw, got, err, want)
+		}
+	}
+
+	msg, quiet := paths.PathResolution().summary("cover.out", "ext-1", true)
+	if quiet {
+		t.Fatal("imperfect matches must be logged above debug")
+	}
+	for _, want := range []string{
+		"file=cover.out", "external_id=ext-1",
+		"1 matched the repository exactly",
+		"1 matched by path suffix",
+		"2 were not in the repository and were stored as reported",
+		"Examples: ", "pkg/bar/service.go", "missing.go",
+		"The coverage upload was not stopped because of these paths",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("summary %q missing %q", msg, want)
+		}
+	}
+}
+
+func TestPathResolutionSummary_DroppedAndFailedOmitReassurance(t *testing.T) {
+	paths := NewRepositoryPathResolver(RepositoryPathOptions{Tree: env.NewTree([]string{
+		"moda/temp.go",
+		"modb/temp.go",
+	})})
+	for _, raw := range []string{"temp.go", "../secret.go"} {
+		if got, err := paths.Resolve(raw); err != nil || got != "" {
+			t.Fatalf("Resolve(%q) = %q, %v; want dropped", raw, got, err)
+		}
+	}
+	msg, quiet := paths.PathResolution().summary("", "", true)
+	if quiet || !strings.Contains(msg, "2 were dropped") {
+		t.Fatalf("summary = %q (quiet=%v), want it to report 2 dropped", msg, quiet)
+	}
+	if strings.Contains(msg, "was not stopped") {
+		t.Errorf("a report that dropped files must not be reassured: %q", msg)
+	}
+
+	missing := NewRepositoryPathResolver(RepositoryPathOptions{Tree: env.NewTree([]string{"moda/temp.go"})})
+	if _, err := missing.Resolve("missing.go"); err != nil {
+		t.Fatal(err)
+	}
+	msg, _ = missing.PathResolution().summary("cover.out", "ext-1", false)
+	if strings.Contains(msg, "was not stopped") {
+		t.Errorf("a failed report must not be reassured: %q", msg)
+	}
+}
+
+func TestPathResolutionSummary_ExactOnlyStaysQuiet(t *testing.T) {
+	paths := NewRepositoryPathResolver(RepositoryPathOptions{Tree: env.NewTree([]string{"moda/temp.go"})})
+	if _, err := paths.Resolve("moda/temp.go"); err != nil {
+		t.Fatal(err)
+	}
+	if _, quiet := paths.PathResolution().summary("", "", true); !quiet {
+		t.Error("an all-exact report must log at debug only")
+	}
+	if msg, _ := NewRepositoryPathResolver(RepositoryPathOptions{}).PathResolution().summary("", "", true); msg != "" {
+		t.Errorf("a report with no paths must log nothing, got %q", msg)
 	}
 }

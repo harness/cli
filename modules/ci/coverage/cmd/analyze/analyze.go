@@ -130,7 +130,7 @@ func analyze(files, excludePatterns []string, patch bool, base, head string) (*a
 			continue
 		}
 
-		parseErr := parseCoverageFileInto(
+		resolution, parseErr := parseCoverageFileInto(
 			fileInfo.Format,
 			f,
 			filepath.Dir(fileInfo.Path),
@@ -141,6 +141,7 @@ func analyze(files, excludePatterns []string, patch bool, base, head string) (*a
 			accumulator,
 		)
 		_ = f.Close()
+		resolution.Log(fileInfo.Path, "", parseErr == nil)
 		if parseErr != nil {
 			return nil, fmt.Errorf("failed to parse coverage file %s: %w", fileInfo.Path, parseErr)
 		}
@@ -207,15 +208,15 @@ func parseCoverageFileInto(
 	patch bool,
 	excludes []format.ExcludePattern,
 	accumulator *analysisAccumulator,
-) error {
+) (format.PathResolution, error) {
 	parser, err := format.NewParser(formatType)
 	if err != nil {
-		return err
+		return format.PathResolution{}, err
 	}
 
 	lines, err := parser.Parse(reader)
 	if err != nil {
-		return err
+		return format.PathResolution{}, err
 	}
 
 	gitRoot, rootErr := env.RepositoryRoot()
@@ -268,9 +269,9 @@ func parseCoverageFileInto(
 	}
 
 	if err := parser.Err(); err != nil {
-		return fmt.Errorf("failed to parse %s coverage report: %w", formatType, err)
+		return paths.PathResolution(), fmt.Errorf("failed to parse %s coverage report: %w", formatType, err)
 	}
-	return format.JoinPathErrors(pathErrs)
+	return paths.PathResolution(), format.JoinPathErrors(pathErrs)
 }
 
 func adjustLineCounts(stats *fileStats, lineType format.LineType, delta int, inPatch bool) {

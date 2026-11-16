@@ -24,6 +24,8 @@ type EncodeResult struct {
 	Format      string
 	SkippedKeys []string
 	DiffByFile  map[string][]uint32
+	// Paths is this report's path-resolution summary. Callers log it with the report file.
+	Paths PathResolution
 }
 
 // parquetEncode builds the result for the Parquet format.
@@ -148,7 +150,14 @@ func writeParquet(
 	r io.Reader,
 	w io.Writer,
 	options *writeOptions,
-) (EncodeResult, error) {
+) (result EncodeResult, err error) {
+	var paths *RepositoryPathResolver
+	defer func() {
+		if paths != nil {
+			result.Paths = paths.PathResolution()
+		}
+	}()
+
 	parser, err := NewParser(format)
 	if err != nil {
 		return EncodeResult{}, err
@@ -187,7 +196,7 @@ func writeParquet(
 	if rootErr != nil {
 		gitRoot = ""
 	}
-	paths := NewRepositoryPathResolver(RepositoryPathOptions{
+	paths = NewRepositoryPathResolver(RepositoryPathOptions{
 		Tree:     options.pathResolver,
 		HintDirs: options.hintDirs,
 		GitRoot:  gitRoot,

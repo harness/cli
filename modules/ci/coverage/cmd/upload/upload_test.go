@@ -599,3 +599,19 @@ func testCtx(t *testing.T, srvURL, accountID string) *cmdctx.Ctx {
 		},
 	}
 }
+
+func TestPutReportBytes_TransportErrorOmitsPresignedURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	location := srv.URL + "/blob?X-Signature=secret-signature"
+	srv.Close() // connection refused: net/http reports a *url.Error that embeds the URL
+
+	err := putReportBytes(context.Background(), location, []byte("data"))
+	if err == nil {
+		t.Fatal("putReportBytes() expected a transport error")
+	}
+	for _, leaked := range []string{"secret-signature", "X-Signature", srv.URL} {
+		if strings.Contains(err.Error(), leaked) {
+			t.Errorf("error leaks the presigned URL (%q): %v", leaked, err)
+		}
+	}
+}
