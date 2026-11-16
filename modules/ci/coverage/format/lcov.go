@@ -28,7 +28,7 @@ func (p *lcovParser) Parse(reader io.Reader) (iter.Seq[LineRecord], error) {
 		scanner := bufio.NewScanner(reader)
 		currFile := ""
 		for scanner.Scan() {
-			line := scanner.Text()
+			line := strings.TrimSpace(scanner.Text())
 			switch {
 			case strings.HasPrefix(line, "SF:"):
 				currFile = strings.TrimPrefix(line, "SF:")

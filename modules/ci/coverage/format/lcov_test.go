@@ -165,3 +165,19 @@ func collectCoverageLcov(t *testing.T, input string) []LineRecord {
 	}
 	return records
 }
+
+func TestCoverageLcovParser_ParseTrimsLineWhitespace(t *testing.T) {
+	input := "SF:foo.go  \r\nDA:1,1\r\n  DA:2,0\t\r\nend_of_record\r\n"
+	records := collectCoverageLcov(t, input)
+	if len(records) != 2 {
+		t.Fatalf("got %d records, want 2: %+v", len(records), records)
+	}
+	for _, r := range records {
+		if r.FilePath != "foo.go" {
+			t.Errorf("FilePath = %q, want %q", r.FilePath, "foo.go")
+		}
+	}
+	if records[0].LineType != LineCovered || records[1].LineType != LineUncovered {
+		t.Errorf("line types = %v, %v; want covered, uncovered", records[0].LineType, records[1].LineType)
+	}
+}
