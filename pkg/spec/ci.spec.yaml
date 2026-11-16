@@ -270,8 +270,8 @@ commands:
       token_envvar: HARNESS_COVERAGE_SERVICE_TOKEN
       apiurl_envvar: HARNESS_COVERAGE_SERVICE_ENDPOINT
       headers:
-        X-Api-Key: token
-        x-harness-token: token
+        X-Api-Key: b64decode(token)
+        x-harness-token: b64decode(token)
     handler_type: workflow
     workflow_id: execute_coverage_upload
     flags:
@@ -340,8 +340,8 @@ commands:
       token_envvar: HARNESS_COVERAGE_SERVICE_TOKEN
       apiurl_envvar: HARNESS_COVERAGE_SERVICE_ENDPOINT
       headers:
-        X-Api-Key: token
-        x-harness-token: token
+        X-Api-Key: b64decode(token)
+        x-harness-token: b64decode(token)
     handler_type: workflow
     workflow_id: execute_coverage_wait_until
     flags:
