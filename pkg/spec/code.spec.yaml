@@ -779,7 +779,7 @@ commands:
   - command: delete repository
     verb: delete
     noun: repository
-    confirm_mode: prompt
+    confirm_mode: confirm_id
     short: "Delete a repository: harness delete repository <repo_id>"
     handler_type: endpoint
     endpoint:
