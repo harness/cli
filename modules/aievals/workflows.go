@@ -14,6 +14,7 @@ import (
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/hbase"
+	"go.yaml.in/yaml/v3"
 )
 
 const (
@@ -60,9 +61,43 @@ func Setup(opts SetupOptions) (int, error) {
 }
 
 // RunAgent verifies the pinned runner and invokes onboard-run.
+// RunnerV1Remediation is the exact failure when the pinned runner cannot
+// execute an onboarding/v1 tree. The tree is left unchanged.
+func RunnerV1Remediation() string {
+	return fmt.Sprintf("ai-evals-runner %s (schema %s) does not support onboarding/v1. The staged tree was not modified. Query parameters and auth headers were not removed. Install a runner that reports schema %s. Do not edit the candidate to satisfy this runner.", RunnerVersion, SchemaVersion, SchemaVersionV1)
+}
+
+func treeRequiresV1Runner(root string) (bool, error) {
+	matches, err := filepath.Glob(filepath.Join(root, "agents", "*", "agent.yaml"))
+	if err != nil {
+		return false, err
+	}
+	for _, path := range matches {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return false, err
+		}
+		var doc map[string]any
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return false, err
+		}
+		if doc["schema_version"] == SchemaVersionV1 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func RunAgent(home, root, agent, environment string, resolved *auth.ResolvedAuth, stderr io.Writer, run CommandFunc) (int, error) {
 	if run == nil {
 		run = defaultCommand
+	}
+	v1Tree, err := treeRequiresV1Runner(root)
+	if err != nil {
+		return 1, err
+	}
+	if v1Tree && SchemaVersion != SchemaVersionV1 {
+		return 2, &StatusError{Code: 2, Msg: RunnerV1Remediation()}
 	}
 	layout, err := VerifyRunner(home, run)
 	if err != nil {
@@ -215,6 +250,13 @@ func uploadWorkflow(ctx *cmdctx.Ctx) error {
 		root = filepath.Join(wd, root)
 	}
 	repo := filepath.Dir(filepath.Dir(root))
+	v1Tree, err := treeRequiresV1Runner(root)
+	if err != nil {
+		return err
+	}
+	if v1Tree && SchemaVersion != SchemaVersionV1 {
+		return fmt.Errorf("%s", RunnerV1Remediation())
+	}
 	layout, err := VerifyRunner(RunnerHome(), nil)
 	if err != nil {
 		return err

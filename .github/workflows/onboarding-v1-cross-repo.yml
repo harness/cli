@@ -1,0 +1,23 @@
+name: Onboarding v1 cross-repo
+
+# Not part of normal D4 CI. Run this only when a D2 checkout is available.
+# It fails if D2_ONBOARDING_ROOT is absent.
+on:
+  workflow_dispatch:
+
+jobs:
+  compatibility:
+    name: Load the D4 fixture with D2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require the D2 checkout
+        env:
+          D2_ONBOARDING_ROOT: ${{ vars.D2_ONBOARDING_ROOT }}
+        run: |
+          if [ -z "${D2_ONBOARDING_ROOT}" ]; then
+            echo "D2_ONBOARDING_ROOT is absent. This cross-repo check fails closed."
+            exit 1
+          fi
+          ./scripts/check_d4_onboarding_v1.sh

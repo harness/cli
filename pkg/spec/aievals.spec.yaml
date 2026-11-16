@@ -2344,9 +2344,11 @@ commands:
       TODO(onboarding-schema): provisional command.
       Verifies the pinned ai-evals-runner, then invokes
       `ai-evals onboard-run --root <root> --agent <identifier> --environment local`.
-      local is the default. A PAT or SAT is passed to the runner. An SSO session
-      is not. Use --profile <name> or HARNESS_PROFILE to select an existing
-      profile; this command never changes profiles.
+      local is the default. An onboarding/v1 tree fails closed when the pinned
+      runner schema is not onboarding/v1. The files are not modified and query
+      or auth fields are not removed. A PAT or SAT is passed to the runner. An
+      SSO session is not. Use --profile <name> or HARNESS_PROFILE to select an
+      existing profile; this command never changes profiles.
     handler_type: workflow
     workflow_id: run
     flags:
@@ -2368,7 +2370,9 @@ commands:
     short: "Validate and upload .harness/evals: harness upload eval_onboarding"
     long: |
       TODO(onboarding-schema): provisional command.
-      Validates the tree with the pinned runner, builds a deterministic zip, and
+      An onboarding/v1 tree fails closed when the pinned runner schema is not
+      onboarding/v1. The files are not modified. Otherwise validates the tree
+      with the pinned runner, builds a deterministic zip, and
       POSTs it to the import-archive endpoint using the active profile scope.
       Prints the server-returned Agent and Eval paths. Use --profile <name> or
       HARNESS_PROFILE to select an existing profile; this command never changes

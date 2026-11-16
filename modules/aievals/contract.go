@@ -59,6 +59,12 @@ var gluedCredentialAliases = map[string]bool{
 
 var confidenceLabels = map[string]bool{"high": true, "medium": true, "low": true}
 
+// structuralContainers are document keys whose names overlap credential tokens.
+var structuralContainers = map[string]bool{
+	"auth_headers": true,
+	"secrets":      true,
+}
+
 var executableFields = map[string]bool{
 	"code": true, "command": true, "commands": true, "entrypoint": true, "eval": true,
 	"exec": true, "module_path": true, "payload": true, "program": true, "python": true,
@@ -186,12 +192,11 @@ func validateV1Document(doc map[string]any) error {
 	}
 	for key := range doc {
 		if !v1DocumentFields[key] {
-			return absentSchemaVersion(fmt.Sprintf("Field %q is not part of %s. Use target.request_template value sources (literal, input, env, harness_secret), target.query_params, and target.auth_headers.", key, SchemaVersionV1))
+			return rejectUnknown("candidate." + publicKey(key))
 		}
 	}
-	identifier, _ := doc["identifier"].(string)
-	if !identifierPattern.MatchString(strings.TrimSpace(identifier)) {
-		return fmt.Errorf("identifier must be a stable identifier")
+	if _, err := requireIdentifier(doc["identifier"], "identifier"); err != nil {
+		return err
 	}
 	name, _ := doc["name"].(string)
 	if strings.TrimSpace(name) == "" {
@@ -207,10 +212,11 @@ func validateV1Document(doc map[string]any) error {
 	if err := validateV1Environments(doc["environments"]); err != nil {
 		return err
 	}
-	if err := validateV1Evals(doc["evals"]); err != nil {
+	evalIDs, err := validateV1Evals(doc["evals"])
+	if err != nil {
 		return err
 	}
-	if err := validateV1Suite(doc["suite"]); err != nil {
+	if err := validateV1Suite(doc["suite"], evalIDs); err != nil {
 		return err
 	}
 	if _, ok := doc["candidate"]; ok {
@@ -218,23 +224,29 @@ func validateV1Document(doc map[string]any) error {
 			return err
 		}
 	}
-	return nil
+	if err := validateStagingMetrics(doc["metrics"]); err != nil {
+		return err
+	}
+	if err := validateStagingCases(doc["cases"]); err != nil {
+		return err
+	}
+	return scanStagedValue(doc, "candidate")
 }
 
 func validateV1Target(target map[string]any) error {
 	for key := range target {
 		if !v1TargetFields[key] {
-			return fmt.Errorf("target.%s is not part of %s", key, SchemaVersionV1)
+			return rejectUnknown("target." + publicKey(key))
 		}
 	}
 	method, _ := target["method"].(string)
-	method = strings.ToUpper(strings.TrimSpace(method))
 	if method == "" {
 		method = "POST"
 	}
+	method = strings.ToUpper(method)
 	target["method"] = method
 	if !v1Methods[method] {
-		return fmt.Errorf("target.method %s is not supported by %s. Use GET, POST, PUT, PATCH, or DELETE.", method, SchemaVersionV1)
+		return fmt.Errorf("target.method %s is not supported by %s. Use GET, POST, PUT, PATCH, or DELETE.", publicKey(method), SchemaVersionV1)
 	}
 	template, ok := target["request_template"].(map[string]any)
 	if !ok || len(template) == 0 {
@@ -244,8 +256,8 @@ func validateV1Target(target map[string]any) error {
 		return err
 	}
 	response, _ := target["response_path"].(string)
-	if strings.TrimSpace(response) == "" {
-		return fmt.Errorf("target.response_path is required")
+	if response == "" || inputSelector.FindString(response) != response {
+		return fmt.Errorf("target.response_path must be a dotted or indexed selector such as output.text")
 	}
 	if headers, ok := target["headers"]; ok && headers != nil {
 		headerMap, ok := headers.(map[string]any)
@@ -279,7 +291,10 @@ func validateV1Target(target map[string]any) error {
 
 func validateV1Headers(headers map[string]any, label string) error {
 	for name, value := range headers {
-		headerLabel := label + "." + name
+		headerLabel := label + "." + publicKey(name)
+		if headerNamePattern.FindString(name) != name {
+			return fmt.Errorf("%s must be an HTTP header name", headerLabel)
+		}
 		if isCredentialName(name) && !approvedSecretSource(value) {
 			return fmt.Errorf("%s cannot carry a literal credential. Use source env or source harness_secret. The literal value is not accepted.", headerLabel)
 		}
@@ -425,7 +440,11 @@ func validateTemplateString(value any, label string) error {
 	for _, match := range matches {
 		body := strings.TrimSpace(match[1])
 		if placeholderBody.FindString(body) != body {
-			return fmt.Errorf("%s placeholder %q is not supported. Use {{input}}, {{input.<selector>}}, {{metadata.<selector>}}, or {{env.<name>}}.", label, match[0])
+			shown := match[0]
+			if secretShaped(shown) {
+				shown = "<redacted>"
+			}
+			return fmt.Errorf("%s placeholder %q is not supported. Use {{input}}, {{input.<selector>}}, {{metadata.<selector>}}, or {{env.<name>}}.", label, shown)
 		}
 	}
 	return nil
@@ -565,7 +584,7 @@ func validateAuthHeaders(raw any, label string, existing map[string]any) error {
 	}
 	for name, value := range object {
 		if headerNamePattern.FindString(name) != name {
-			return fmt.Errorf("%s key %q must be an HTTP header name", label, name)
+			return fmt.Errorf("%s.%s must be an HTTP header name", label, publicKey(name))
 		}
 		folded := strings.ToLower(name)
 		if previous, ok := occupied[folded]; ok {
@@ -708,97 +727,167 @@ func validateV1Environments(raw any) error {
 	if !ok {
 		return fmt.Errorf("environments is required")
 	}
-	local, ok := envs["local"].(map[string]any)
-	if !ok {
+	if _, ok := envs["local"].(map[string]any); !ok {
 		return fmt.Errorf("environments.local is required")
 	}
 	for name, body := range envs {
-		if !identifierPattern.MatchString(name) {
-			return fmt.Errorf("environment name must be a stable identifier")
+		if _, err := requireIdentifier(name, "environment name"); err != nil {
+			return err
 		}
 		spec, ok := body.(map[string]any)
 		if !ok {
-			return fmt.Errorf("environments.%s is required", name)
+			return fmt.Errorf("environments.%s is required", publicKey(name))
+		}
+		for key := range spec {
+			switch key {
+			case "endpoint", "secrets", "kind":
+			default:
+				return rejectUnknown("environments." + publicKey(name) + "." + publicKey(key))
+			}
 		}
 		endpoint, _ := spec["endpoint"].(string)
-		if endpoint == "" {
-			return fmt.Errorf("environments.%s.endpoint is required", name)
+		if err := validateEndpoint(endpoint, "environments."+publicKey(name)+".endpoint"); err != nil {
+			return err
 		}
-		parsed, err := url.Parse(endpoint)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
-			return fmt.Errorf("environments.%s.endpoint must be an http(s) URL", name)
-		}
-		if parsed.User != nil {
-			return fmt.Errorf("environments.%s.endpoint must not embed credentials", name)
-		}
-		for key := range parsed.Query() {
-			if isCredentialName(key) {
-				return fmt.Errorf("environments.%s.endpoint includes credential query parameter %q. Remove it from the endpoint and declare it under auth_headers with source env or source harness_secret. The value is not accepted.", name, key)
+		kind, hasKind := spec["kind"]
+		if name == "local" {
+			if hasKind && kind != nil && kind != "local" {
+				return fmt.Errorf("environments.local cannot be a live environment")
 			}
+		} else if hasKind && kind != nil && kind != "live" {
+			return fmt.Errorf("environments.%s.kind must be live", publicKey(name))
 		}
 		if secrets, ok := spec["secrets"]; ok && secrets != nil {
 			secretMap, ok := secrets.(map[string]any)
 			if !ok {
-				return fmt.Errorf("environments.%s.secrets must be a mapping", name)
+				return fmt.Errorf("environments.%s.secrets must be a mapping", publicKey(name))
 			}
 			for ref, target := range secretMap {
-				if secretRefPattern.FindString(ref) != ref {
-					return fmt.Errorf("environments.%s.secrets key must be a Harness secret reference", name)
+				refLabel := "environments." + publicKey(name) + ".secrets." + publicKey(ref)
+				if secretRefPattern.FindString(ref) != ref || secretShaped(ref) {
+					return fmt.Errorf("%s must be a Harness secret reference", refLabel)
 				}
 				switch mapping := target.(type) {
 				case string:
 					if envNamePattern.FindString(mapping) != mapping {
-						return fmt.Errorf("environments.%s.secrets.%s must be an environment variable name", name, ref)
+						return fmt.Errorf("%s must be an environment variable name", refLabel)
 					}
 				case map[string]any:
+					for key := range mapping {
+						if key != "env" {
+							return rejectUnknown(refLabel + "." + publicKey(key))
+						}
+					}
 					if _, hasValue := mapping["value"]; hasValue {
-						return fmt.Errorf("environments.%s.secrets.%s cannot contain a value. Map the Harness secret to an environment variable name.", name, ref)
+						return fmt.Errorf("%s cannot contain a value. Map the Harness secret to an environment variable name.", refLabel)
 					}
 					env, _ := mapping["env"].(string)
 					if envNamePattern.FindString(env) != env {
-						return fmt.Errorf("environments.%s.secrets.%s.env must be an environment variable name", name, ref)
+						return fmt.Errorf("%s.env must be an environment variable name", refLabel)
 					}
 				default:
-					return fmt.Errorf("environments.%s.secrets.%s must map to an environment variable name", name, ref)
+					return fmt.Errorf("%s must map to an environment variable name", refLabel)
 				}
 			}
 		}
-		_ = local
 	}
 	return nil
 }
 
-func validateV1Evals(raw any) error {
+func validateEndpoint(endpoint, label string) error {
+	if endpoint == "" || secretShaped(endpoint) {
+		return fmt.Errorf("%s must be an http(s) URL", label)
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return fmt.Errorf("%s must be an http(s) URL", label)
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("%s must not embed credentials", label)
+	}
+	for key := range parsed.Query() {
+		if isCredentialName(key) || secretShaped(key) {
+			return fmt.Errorf("%s includes a credential query parameter. Remove it from the endpoint and declare it under auth_headers with source env or source harness_secret. The value is not accepted.", label)
+		}
+	}
+	return nil
+}
+
+func validateV1Evals(raw any) (map[string]bool, error) {
 	evals, ok := raw.([]any)
 	if !ok || len(evals) == 0 {
-		return fmt.Errorf("evals must be a non-empty list")
+		return nil, fmt.Errorf("evals must be a non-empty list")
 	}
+	ids := map[string]bool{}
 	for index, item := range evals {
+		label := fmt.Sprintf("evals[%d]", index)
 		body, ok := item.(map[string]any)
 		if !ok {
-			return fmt.Errorf("evals[%d] must be a mapping", index)
+			return nil, fmt.Errorf("%s must be a mapping", label)
 		}
-		id, _ := body["identifier"].(string)
-		if !identifierPattern.MatchString(id) {
-			return fmt.Errorf("evals[%d].identifier must be a stable identifier", index)
+		for key := range body {
+			switch key {
+			case "identifier", "name", "dataset", "dataset_identifier", "metric_set", "required":
+			default:
+				return nil, rejectUnknown(label + "." + publicKey(key))
+			}
+		}
+		id, err := requireIdentifier(body["identifier"], label+".identifier")
+		if err != nil {
+			return nil, err
+		}
+		if ids[id] {
+			return nil, fmt.Errorf("duplicate eval identifier %s", publicKey(id))
+		}
+		ids[id] = true
+		if name, ok := body["name"]; ok {
+			text, _ := name.(string)
+			if strings.TrimSpace(text) == "" {
+				return nil, fmt.Errorf("%s.name is invalid", label)
+			}
 		}
 		dataset, _ := body["dataset"].(string)
 		metricSet, _ := body["metric_set"].(string)
-		if strings.TrimSpace(dataset) == "" || strings.TrimSpace(metricSet) == "" {
-			return fmt.Errorf("evals[%d] dataset and metric_set are required", index)
+		if err := requireRelativePath(dataset, label+".dataset", ".jsonl"); err != nil {
+			return nil, err
+		}
+		if err := requireRelativePath(metricSet, label+".metric_set", ".yaml", ".yml"); err != nil {
+			return nil, err
+		}
+		if rawID, ok := body["dataset_identifier"]; ok {
+			if _, err := requireIdentifier(rawID, label+".dataset_identifier"); err != nil {
+				return nil, err
+			}
+		}
+		if rawRequired, ok := body["required"]; ok {
+			if _, ok := rawRequired.(bool); !ok {
+				return nil, fmt.Errorf("%s.required must be a boolean", label)
+			}
 		}
 	}
-	return nil
+	return ids, nil
 }
 
-func validateV1Suite(raw any) error {
+func validateV1Suite(raw any, evalIDs map[string]bool) error {
 	suite, ok := raw.(map[string]any)
 	if !ok {
 		return fmt.Errorf("suite is required")
 	}
-	id, _ := suite["identifier"].(string)
-	if !identifierPattern.MatchString(id) {
-		return fmt.Errorf("suite.identifier must be a stable identifier")
+	for key := range suite {
+		switch key {
+		case "identifier", "name", "pass_strategy", "pass_threshold", "evals":
+		default:
+			return rejectUnknown("suite." + publicKey(key))
+		}
+	}
+	if _, err := requireIdentifier(suite["identifier"], "suite.identifier"); err != nil {
+		return err
+	}
+	if name, ok := suite["name"]; ok {
+		text, _ := name.(string)
+		if strings.TrimSpace(text) == "" {
+			return fmt.Errorf("suite.name is invalid")
+		}
 	}
 	strategy, _ := suite["pass_strategy"].(string)
 	if strategy == "" {
@@ -807,11 +896,228 @@ func validateV1Suite(raw any) error {
 	if strategy != "all_must_pass" && strategy != "threshold" {
 		return fmt.Errorf("suite.pass_strategy is not supported")
 	}
+	if strategy == "threshold" {
+		switch typed := suite["pass_threshold"].(type) {
+		case bool:
+			return fmt.Errorf("suite.pass_threshold is required for threshold")
+		case int, int64:
+		case float64:
+			if math.IsNaN(typed) || math.IsInf(typed, 0) {
+				return fmt.Errorf("suite.pass_threshold is required for threshold")
+			}
+		default:
+			return fmt.Errorf("suite.pass_threshold is required for threshold")
+		}
+	}
 	evals, ok := suite["evals"].([]any)
 	if !ok || len(evals) == 0 {
 		return fmt.Errorf("suite.evals must list eval identifiers")
 	}
+	seen := map[string]bool{}
+	for _, item := range evals {
+		var ref string
+		switch typed := item.(type) {
+		case string:
+			id, err := requireIdentifier(typed, "suite.evals entry")
+			if err != nil {
+				return err
+			}
+			ref = id
+		case map[string]any:
+			for key := range typed {
+				switch key {
+				case "identifier", "required":
+				default:
+					return rejectUnknown("suite.evals." + publicKey(key))
+				}
+			}
+			id, err := requireIdentifier(typed["identifier"], "suite.evals.identifier")
+			if err != nil {
+				return err
+			}
+			if rawRequired, ok := typed["required"]; ok {
+				if _, ok := rawRequired.(bool); !ok {
+					return fmt.Errorf("suite.evals.required must be a boolean")
+				}
+			}
+			ref = id
+		default:
+			return fmt.Errorf("suite.evals entry must be an identifier")
+		}
+		if seen[ref] {
+			return fmt.Errorf("duplicate suite eval reference %s", publicKey(ref))
+		}
+		if !evalIDs[ref] {
+			return fmt.Errorf("unresolved suite eval reference %s", publicKey(ref))
+		}
+		seen[ref] = true
+	}
 	return nil
+}
+
+func validateStagingMetrics(raw any) error {
+	if raw == nil {
+		return nil
+	}
+	metrics, ok := raw.([]any)
+	if !ok || len(metrics) == 0 {
+		return fmt.Errorf("metrics must be a non-empty list when provided")
+	}
+	for index, item := range metrics {
+		label := fmt.Sprintf("metrics[%d]", index)
+		body, ok := item.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s must be a mapping", label)
+		}
+		for key := range body {
+			switch key {
+			case "kind", "threshold", "score_name", "options", "config":
+			default:
+				return rejectUnknown(label + "." + publicKey(key))
+			}
+		}
+		kind, _ := body["kind"].(string)
+		if kind == "" || secretShaped(kind) {
+			return fmt.Errorf("%s.kind is required", label)
+		}
+		if score, ok := body["score_name"]; ok && score != nil {
+			if _, err := requireIdentifier(score, label+".score_name"); err != nil {
+				return err
+			}
+		}
+		if threshold, ok := body["threshold"]; ok && threshold != nil {
+			switch typed := threshold.(type) {
+			case bool:
+				return fmt.Errorf("%s.threshold must be a finite number", label)
+			case int, int64:
+			case float64:
+				if math.IsNaN(typed) || math.IsInf(typed, 0) {
+					return fmt.Errorf("%s.threshold must be a finite number", label)
+				}
+			default:
+				return fmt.Errorf("%s.threshold must be a finite number", label)
+			}
+		}
+		if config, ok := body["config"]; ok && config != nil {
+			fields, ok := config.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s.config must be a mapping", label)
+			}
+			for key := range fields {
+				switch key {
+				case "metadata", "criteria", "rubric", "prompt_instructions", "allowed_topics", "role_description":
+				default:
+					return rejectUnknown(label + ".config." + publicKey(key))
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateStagingCases(raw any) error {
+	if raw == nil {
+		return nil
+	}
+	cases, ok := raw.([]any)
+	if !ok {
+		return fmt.Errorf("cases must be a list")
+	}
+	allowed := map[string]bool{
+		"id": true, "input": true, "expected": true, "context": true,
+		"expected_tools": true, "expected_tool_calls": true, "tags": true, "metadata": true,
+	}
+	for index, item := range cases {
+		label := fmt.Sprintf("cases[%d]", index)
+		body, ok := item.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s must be a mapping", label)
+		}
+		for key := range body {
+			if !allowed[key] {
+				return rejectUnknown(label + "." + publicKey(key))
+			}
+		}
+		id, _ := body["id"].(string)
+		if strings.TrimSpace(id) == "" || secretShaped(id) {
+			return fmt.Errorf("%s.id is required", label)
+		}
+	}
+	return nil
+}
+
+func requireIdentifier(value any, label string) (string, error) {
+	text, ok := value.(string)
+	if !ok || identifierPattern.FindString(text) != text {
+		return "", fmt.Errorf("%s must be a stable identifier", label)
+	}
+	return text, nil
+}
+
+func requireRelativePath(raw, label string, suffixes ...string) error {
+	if raw == "" || raw != strings.TrimSpace(raw) || strings.Contains(raw, "\\") || strings.HasPrefix(raw, "/") || strings.Contains(raw, "..") {
+		return fmt.Errorf("%s must be a relative path inside .harness/evals", label)
+	}
+	lower := strings.ToLower(raw)
+	ok := false
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(lower, suffix) {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return fmt.Errorf("%s must be a relative path inside .harness/evals", label)
+	}
+	return nil
+}
+
+func rejectUnknown(path string) error {
+	return fmt.Errorf("%s: unknown_field: field is not accepted", path)
+}
+
+func publicKey(key string) string {
+	if secretShaped(key) || strings.ContainsAny(key, " \t\r\n") {
+		return "<redacted>"
+	}
+	return key
+}
+
+func scanStagedValue(value any, label string) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		// Secret-ref keys are names. Their values are env names, not literals.
+		secretRefs := strings.HasSuffix(label, ".secrets")
+		for key, child := range typed {
+			childLabel := label + "." + publicKey(key)
+			if secretShaped(key) {
+				return rejectSecretShaped(label + ".<redacted>")
+			}
+			// Schema names such as secrets and auth_headers tokenize as credential
+			// words. They are containers, not literal secret fields.
+			if !secretRefs && !structuralContainers[key] && isCredentialName(key) && !approvedSecretSource(child) {
+				return rejectLiteralCredential(childLabel)
+			}
+			if err := scanStagedValue(child, childLabel); err != nil {
+				return err
+			}
+		}
+		return nil
+	case []any:
+		for index, child := range typed {
+			if err := scanStagedValue(child, fmt.Sprintf("%s[%d]", label, index)); err != nil {
+				return err
+			}
+		}
+		return nil
+	case string:
+		if secretShaped(typed) {
+			return rejectSecretShaped(label)
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 func hasKey(node map[string]any, key string) bool {
@@ -859,6 +1165,89 @@ func subsetKeys(node map[string]any, keys ...string) bool {
 func isString(value any) bool {
 	_, ok := value.(string)
 	return ok
+}
+
+// CanonicalOnboardingV1Candidate is the document the golden fixture serializes.
+// Scan of the Java support fixture must use the same text and auth source shape
+// where those fields overlap.
+func CanonicalOnboardingV1Candidate() map[string]any {
+	return map[string]any{
+		"schema_version": SchemaVersionV1,
+		"identifier":     "support-agent",
+		"name":           "Support Agent",
+		"candidate": map[string]any{
+			"id":         "support-agent",
+			"confidence": "high",
+			"evidence": []any{
+				map[string]any{
+					"source":     "src/chat.py",
+					"summary":    "POST /chat returns JSON",
+					"locator":    "chat:40",
+					"confidence": 0.9,
+				},
+			},
+		},
+		"target": map[string]any{
+			"method":        "POST",
+			"response_path": "output.text",
+			"headers": map[string]any{
+				"Content-Type": map[string]any{"source": "literal", "value": "application/json"},
+			},
+			"request_template": map[string]any{
+				"message": map[string]any{"source": "input", "selector": "items.0"},
+				"region":  map[string]any{"source": "env", "name": "REGION"},
+				"text":    map[string]any{"source": "input", "selector": "text"},
+				"nested": map[string]any{"source": "literal", "value": map[string]any{
+					"flag":     true,
+					"count":    2,
+					"empty":    nil,
+					"items":    []any{1, "task-name", false},
+					"child":    map[string]any{"ok": true, "author": "ada", "keyboard": "keys"},
+					"passage":  "text",
+					"deskLamp": "desk-lamp",
+				}},
+			},
+			"query_params": map[string]any{
+				"q":      map[string]any{"source": "literal", "value": "hello world"},
+				"flag":   map[string]any{"source": "literal", "value": true},
+				"empty":  map[string]any{"source": "literal", "value": nil},
+				"region": map[string]any{"source": "env", "name": "REGION"},
+			},
+			"auth_headers": map[string]any{
+				"Authorization": map[string]any{"source": "harness_secret", "ref": "account.supportToken", "env": "SUPPORT_TOKEN"},
+				"X-Request-Id":  map[string]any{"source": "env", "name": "REQUEST_ID"},
+			},
+		},
+		"environments": map[string]any{
+			"local": map[string]any{
+				"endpoint": "https://agent.example/chat",
+				"secrets":  map[string]any{"account.supportToken": "SUPPORT_TOKEN"},
+			},
+		},
+		"evals": []any{
+			map[string]any{
+				"identifier": "answer-quality",
+				"name":       "Answer Quality",
+				"dataset":    "datasets/answers.jsonl",
+				"metric_set": "metric-sets/quality.yaml",
+			},
+		},
+		"suite": map[string]any{
+			"identifier":    "support-suite",
+			"name":          "Support Suite",
+			"pass_strategy": "all_must_pass",
+			"evals":         []any{"answer-quality"},
+		},
+	}
+}
+
+// SerializeOnboardingV1Candidate is the stable JSON spelling of the canonical candidate.
+func SerializeOnboardingV1Candidate() ([]byte, error) {
+	encoded, err := json.MarshalIndent(CanonicalOnboardingV1Candidate(), "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
 }
 
 func renderInputPlaceholder(node map[string]any) (string, error) {

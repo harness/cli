@@ -413,61 +413,40 @@ func (c Candidate) WithOverrides(override Candidate) Candidate {
 	return c
 }
 
-// WriteCandidate validates the candidate, runs the pinned onboarding validator,
-// and writes only a tree the validator accepts. A valid candidate that is not
-// confirmed returns before the validator and before any file is written.
+// WriteCandidate validates a v1 candidate and writes that document.
+// Legacy flags are accepted only after they map onto the same document.
+// The pinned runner is not asked to accept the tree and the tree is not rewritten.
 func WriteCandidate(opts WriteOptions) (int, error) {
-	if opts.Candidate.Wire != nil {
-		return writeV1Candidate(opts)
-	}
-	stdout := opts.Stdout
-	if stdout == nil {
-		stdout = os.Stdout
-	}
-	candidate, err := normalizeCandidate(opts.Candidate)
-	if err != nil {
-		return 2, err
-	}
-	if !opts.Confirm {
-		return 2, &StatusError{Code: 2, Msg: stageConfirmMessage}
-	}
-	inf := candidateInference(opts.Repo, candidate)
-	files := ApplyFiles(inf, true, nil)
-	stampV1Candidate(files, inf.AgentID)
-	if len(files) == 0 {
-		return 2, &StatusError{Code: 2, Msg: "candidate did not produce a tree"}
-	}
-	if err := applySampleCases(files, inf.AgentID, candidate.Cases); err != nil {
-		return 2, err
-	}
-	python := opts.Python
-	if python == "" {
-		layout, err := EnsureRunner(RunnerHome(), nil, opts.Run)
+	if opts.Candidate.Wire == nil {
+		normalized, err := normalizeCandidate(opts.Candidate)
 		if err != nil {
-			return 1, err
-		}
-		python = layout.Python
-	}
-	if len(candidate.Metrics) > 0 {
-		catalog, err := ReadMetricCatalog(python, opts.Run)
-		if err != nil {
-			return 1, err
-		}
-		if err := applySelectedMetrics(files, inf.AgentID, candidate.Metrics, catalog); err != nil {
 			return 2, err
 		}
+		document, err := legacyCandidateDocument(opts.Repo, normalized)
+		if err != nil {
+			return 2, err
+		}
+		if len(normalized.Cases) == 0 && (normalized.InputText != "" || normalized.Expected != "") {
+			fields := requestFieldList(normalized.RequestField, normalized.RequestFields)
+			input := map[string]string{}
+			for _, field := range fields {
+				if field == normalized.RequestField || len(fields) == 1 {
+					input[field] = normalized.InputText
+				} else {
+					input[field] = ""
+				}
+			}
+			raw, err := json.Marshal(input)
+			if err != nil {
+				return 2, err
+			}
+			normalized.Cases = []SampleCase{{ID: "case-1", Input: raw, Expected: normalized.Expected}}
+		}
+		opts.Candidate.Wire = document
+		opts.Candidate.Cases = normalized.Cases
+		opts.Candidate.Metrics = normalized.Metrics
 	}
-	result, err := Stage(opts.Repo, files, python, opts.Run)
-	if err != nil {
-		return 1, err
-	}
-	for _, rel := range result.Wrote {
-		fmt.Fprintf(stdout, "wrote %s\n", rel)
-	}
-	for _, rel := range result.Identical {
-		fmt.Fprintf(stdout, "identical %s\n", rel)
-	}
-	return 0, nil
+	return writeV1Candidate(opts)
 }
 
 func normalizeCandidate(candidate Candidate) (Candidate, error) {
@@ -498,7 +477,7 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 	if strings.EqualFold(header, "none") || strings.EqualFold(header, "no") {
 		header = ""
 	}
-	if header != "" && (strings.Contains(header, " ") || strings.Contains(header, ":")) {
+	if header != "" && headerNamePattern.FindString(header) != header {
 		return Candidate{}, &StatusError{Code: 2, Msg: "auth_header must be a header name, not a secret value"}
 	}
 	envName := strings.TrimSpace(candidate.AuthEnv)
@@ -510,8 +489,19 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 	if candidate.RequestField == "" && candidate.RequestFields != "" {
 		candidate.RequestField = strings.TrimSpace(strings.Split(candidate.RequestFields, ",")[0])
 	}
+	for _, field := range requestFieldList(candidate.RequestField, candidate.RequestFields) {
+		if inputSelector.FindString(field) != field {
+			return Candidate{}, &StatusError{Code: 2, Msg: "request_field does not map to onboarding/v1. Use a selector such as text or items.0, or set target.request_template with source input."}
+		}
+	}
 	if candidate.EndpointURL == "" || candidate.Method == "" || candidate.ResponsePath == "" || candidate.RequestField == "" {
-		return Candidate{}, &StatusError{Code: 2, Msg: "endpoint_url, method, request_field, and response_path are required"}
+		return Candidate{}, &StatusError{Code: 2, Msg: "endpoint_url, method, request_field, and response_path are required. Set schema_version to 'onboarding/v1' and use target.request_template, target.response_path, and environments.local.endpoint."}
+	}
+	if err := validateEndpoint(candidate.EndpointURL, "endpoint_url"); err != nil {
+		return Candidate{}, &StatusError{Code: 2, Msg: "endpoint_url does not map to onboarding/v1. " + err.Error()}
+	}
+	if inputSelector.FindString(candidate.ResponsePath) != candidate.ResponsePath {
+		return Candidate{}, &StatusError{Code: 2, Msg: "response_path does not map to onboarding/v1. Use a dotted or indexed selector such as output.text."}
 	}
 	if candidate.Method == "HEAD" {
 		return Candidate{}, &StatusError{Code: 2, Msg: "method HEAD is not supported by onboarding/v1. Use GET, POST, PUT, PATCH, or DELETE."}
@@ -594,17 +584,59 @@ func applySampleCases(files map[string]string, agent string, cases []SampleCase)
 	return nil
 }
 
-func stampV1Candidate(files map[string]string, agentID string) {
-	if len(files) == 0 || agentID == "" {
-		return
+func legacyCandidateDocument(repo string, candidate Candidate) (map[string]any, error) {
+	agent := candidate.AgentID
+	if agent == "" {
+		agent = agentFromDir(repo)
 	}
-	rel := fmt.Sprintf("agents/%s/agent.yaml", agentID)
-	body, ok := files[rel]
-	if !ok || strings.Contains(body, "schema_version:") {
-		return
+	if _, err := requireIdentifier(agent, "agent_id"); err != nil {
+		return nil, &StatusError{Code: 2, Msg: "agent_id does not map to onboarding/v1. Use a stable identifier, or set identifier on an onboarding/v1 document."}
 	}
-	files[rel] = fmt.Sprintf("schema_version: %s\ncandidate:\n  id: %s\n  confidence: high\n  evidence:\n    - source: %s\n      summary: %s\n%s",
-		SchemaVersionV1, yamlString(agentID), yamlString("cli"), yamlString("confirmed onboarding candidate"), body)
+	fields := requestFieldList(candidate.RequestField, candidate.RequestFields)
+	template := map[string]any{}
+	for _, field := range fields {
+		template[field] = map[string]any{"source": "input", "selector": field}
+	}
+	target := map[string]any{
+		"method":           candidate.Method,
+		"response_path":    candidate.ResponsePath,
+		"request_template": template,
+	}
+	if candidate.AuthHeader != "" {
+		target["auth_headers"] = map[string]any{
+			candidate.AuthHeader: map[string]any{"source": "env", "name": candidate.AuthEnv},
+		}
+	}
+	evalID := agent + "-eval"
+	return map[string]any{
+		"schema_version": SchemaVersionV1,
+		"identifier":     agent,
+		"name":           displayName(agent),
+		"candidate": map[string]any{
+			"id":         agent,
+			"confidence": "high",
+			"evidence": []any{map[string]any{
+				"source":  "cli",
+				"summary": "confirmed onboarding candidate",
+			}},
+		},
+		"target": target,
+		"environments": map[string]any{
+			"local": map[string]any{"endpoint": candidate.EndpointURL, "secrets": map[string]any{}},
+		},
+		"evals": []any{map[string]any{
+			"identifier": evalID,
+			"name":       displayName(agent),
+			"dataset":    "datasets/" + agent + ".jsonl",
+			"metric_set": "metric-sets/" + agent + ".yaml",
+		}},
+		"suite": map[string]any{
+			"identifier":    agent + "-suite",
+			"name":          displayName(agent),
+			"pass_strategy": "all_must_pass",
+			"evals":         []any{evalID},
+		},
+	}, nil
 }
 
 func writeV1Candidate(opts WriteOptions) (int, error) {
@@ -615,22 +647,51 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 	if err := validateV1Document(opts.Candidate.Wire); err != nil {
 		return 2, err
 	}
+	if len(opts.Candidate.Metrics) > 0 {
+		encoded, err := json.Marshal(opts.Candidate.Metrics)
+		if err != nil {
+			return 2, err
+		}
+		decoded, err := decodeJSONValue(encoded)
+		if err != nil {
+			return 2, err
+		}
+		if err := validateStagingMetrics(decoded); err != nil {
+			return 2, err
+		}
+		if err := scanStagedValue(decoded, "metrics"); err != nil {
+			return 2, err
+		}
+	}
+	if len(opts.Candidate.Cases) > 0 {
+		encoded, err := json.Marshal(opts.Candidate.Cases)
+		if err != nil {
+			return 2, err
+		}
+		decoded, err := decodeJSONValue(encoded)
+		if err != nil {
+			return 2, err
+		}
+		if err := scanStagedValue(decoded, "cases"); err != nil {
+			return 2, err
+		}
+	}
 	if !opts.Confirm {
 		return 2, &StatusError{Code: 2, Msg: stageConfirmMessage}
 	}
-	wire, pinned, err := v1TreeFiles(opts.Candidate)
+	files, err := v1TreeFiles(opts.Candidate)
 	if err != nil {
 		return 2, err
 	}
-	python := opts.Python
-	if python == "" {
-		layout, err := EnsureRunner(RunnerHome(), nil, opts.Run)
-		if err != nil {
-			return 1, err
-		}
-		python = layout.Python
-	}
 	if len(opts.Candidate.Metrics) > 0 {
+		python := opts.Python
+		if python == "" {
+			layout, err := EnsureRunner(RunnerHome(), nil, opts.Run)
+			if err != nil {
+				return 1, err
+			}
+			python = layout.Python
+		}
 		agent, _ := opts.Candidate.Wire["identifier"].(string)
 		catalog, err := ReadMetricCatalog(python, opts.Run)
 		if err != nil {
@@ -640,13 +701,25 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 		if err := applySelectedMetrics(side, agent, opts.Candidate.Metrics, catalog); err != nil {
 			return 2, err
 		}
+		byKind := map[string]MetricCatalogEntry{}
+		for _, entry := range catalog {
+			byKind[entry.Kind] = entry
+		}
+		for _, selection := range opts.Candidate.Metrics {
+			entry, ok := byKind[selection.Kind]
+			if !ok {
+				return 2, fmt.Errorf("metric kind %q is not in the installed SDK catalog; run harness scan eval_onboarding --metrics", selection.Kind)
+			}
+			if err := validateConstructorOptions(python, opts.Run, entry, selection); err != nil {
+				return 2, err
+			}
+		}
 		body := side[fmt.Sprintf("metric-sets/%s.yaml", agent)]
 		for _, rel := range metricRefs(opts.Candidate.Wire) {
-			wire[rel] = body
-			pinned[rel] = body
+			files[rel] = body
 		}
 	}
-	result, err := stageCommitted(opts.Repo, wire, pinned, python, opts.Run)
+	result, err := commitFiles(filepath.Join(opts.Repo, ".harness", "evals"), files)
 	if err != nil {
 		return 1, err
 	}
@@ -659,51 +732,57 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 	return 0, nil
 }
 
-func v1TreeFiles(candidate Candidate) (map[string]string, map[string]string, error) {
+func v1TreeFiles(candidate Candidate) (map[string]string, error) {
 	doc, ok := cloneValue(candidate.Wire).(map[string]any)
 	if !ok {
-		return nil, nil, fmt.Errorf("candidate file must be a JSON object")
+		return nil, fmt.Errorf("candidate file must be a JSON object")
 	}
 	delete(doc, "metrics")
 	delete(doc, "cases")
 	agent, _ := doc["identifier"].(string)
 	encoded, err := yaml.Marshal(doc)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	agentRel := fmt.Sprintf("agents/%s/agent.yaml", agent)
-	wire := map[string]string{agentRel: string(encoded)}
-	pinnedDoc := projectAgentDocument(doc)
-	pinnedYAML, err := yaml.Marshal(pinnedDoc)
+	files := map[string]string{fmt.Sprintf("agents/%s/agent.yaml", agent): string(encoded)}
+	body, err := datasetBody(candidate.Cases, candidate.Wire)
 	if err != nil {
-		return nil, nil, err
-	}
-	pinned := map[string]string{agentRel: string(pinnedYAML)}
-	datasetBody, err := datasetBody(candidate.Cases)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for _, rel := range datasetRefs(doc) {
 		if err := relativeTreePath(rel); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		wire[rel] = datasetBody
-		pinned[rel] = datasetBody
+		files[rel] = body
 	}
 	metricBody := exactMatchMetric(agent)
 	for _, rel := range metricRefs(doc) {
 		if err := relativeTreePath(rel); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		wire[rel] = metricBody
-		pinned[rel] = metricBody
+		files[rel] = metricBody
 	}
-	return wire, pinned, nil
+	return files, nil
 }
 
-func datasetBody(cases []SampleCase) (string, error) {
+func datasetBody(cases []SampleCase, doc map[string]any) (string, error) {
 	if len(cases) == 0 {
-		return "{\"id\":\"case-1\",\"input\":{},\"expected\":\"\"}\n", nil
+		input := map[string]string{}
+		if target, ok := doc["target"].(map[string]any); ok {
+			if template, ok := target["request_template"].(map[string]any); ok {
+				for field := range template {
+					input[field] = ""
+				}
+			}
+		}
+		if len(input) == 0 {
+			input["text"] = ""
+		}
+		row, err := json.Marshal(map[string]any{"id": "case-1", "input": input, "expected": ""})
+		if err != nil {
+			return "", err
+		}
+		return string(row) + "\n", nil
 	}
 	var body strings.Builder
 	for _, item := range cases {
@@ -765,59 +844,6 @@ func relativeTreePath(rel string) error {
 		return fmt.Errorf("candidate path escapes the tree: %s", rel)
 	}
 	return nil
-}
-
-func projectAgentDocument(doc map[string]any) map[string]any {
-	cloned, _ := cloneValue(doc).(map[string]any)
-	target, _ := cloned["target"].(map[string]any)
-	if target == nil {
-		return cloned
-	}
-	if template, ok := target["request_template"]; ok {
-		target["request_template"] = projectTemplateNode(template)
-	}
-	if headers, ok := target["headers"]; ok {
-		target["headers"] = projectTemplateNode(headers)
-	}
-	return cloned
-}
-
-// projectTemplateNode rewrites v1 sources the pinned 0.7.7 loader rejects.
-// input becomes the same placeholder D2 renders. A literal becomes its JSON
-// value. env and harness_secret stay named sources. Query params and auth
-// headers are left for D2; 0.7.7 does not walk those maps.
-func projectTemplateNode(node any) any {
-	object, ok := node.(map[string]any)
-	if !ok {
-		list, ok := node.([]any)
-		if !ok {
-			return node
-		}
-		out := make([]any, len(list))
-		for i, item := range list {
-			out[i] = projectTemplateNode(item)
-		}
-		return out
-	}
-	source, _ := object["source"].(string)
-	switch source {
-	case "input":
-		text, err := renderInputPlaceholder(object)
-		if err != nil {
-			return object
-		}
-		return text
-	case "literal":
-		return object["value"]
-	case "env", "harness_secret":
-		return object
-	default:
-		out := make(map[string]any, len(object))
-		for key, value := range object {
-			out[key] = projectTemplateNode(value)
-		}
-		return out
-	}
 }
 
 func cloneValue(value any) any {

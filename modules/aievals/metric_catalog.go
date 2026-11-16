@@ -173,6 +173,38 @@ func applySelectedMetrics(files map[string]string, agent string, selections []Me
 	return nil
 }
 
+func validateConstructorOptions(python string, run CommandFunc, entry MetricCatalogEntry, selection MetricSelection) error {
+	if run == nil {
+		run = defaultCommand
+	}
+	options := map[string]any{}
+	for key, value := range selection.Options {
+		options[key] = value
+	}
+	for _, key := range []string{"criteria", "rubric", "prompt_instructions", "allowed_topics", "role_description"} {
+		if value, ok := selection.Config[key]; ok {
+			options[key] = value
+		}
+	}
+	schema, err := json.Marshal(entry.OptionsSchema)
+	if err != nil {
+		return fmt.Errorf("invalid or missing constructor options for metric %s", entry.Kind)
+	}
+	instance, err := json.Marshal(options)
+	if err != nil {
+		return fmt.Errorf("invalid or missing constructor options for metric %s", entry.Kind)
+	}
+	snippet := "import json,sys\nfrom jsonschema import Draft202012Validator\nschema=json.loads(sys.argv[1])\ninstance=json.loads(sys.argv[2])\nerr=next(Draft202012Validator(schema).iter_errors(instance), None)\nif err:\n    raise SystemExit('invalid or missing constructor options for metric')\n"
+	result, err := run(python, []string{"-I", "-c", snippet, string(schema), string(instance)}, nil, "")
+	if err != nil {
+		return err
+	}
+	if result.Code != 0 {
+		return fmt.Errorf("invalid or missing constructor options for metric %s", entry.Kind)
+	}
+	return nil
+}
+
 func validateProviderMetadata(value any) error {
 	metadata, ok := value.(map[string]any)
 	if !ok {

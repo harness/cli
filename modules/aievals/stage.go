@@ -49,18 +49,11 @@ type StageResult struct {
 }
 
 // Stage copies files into a temporary .harness/evals tree, runs the validator,
-// and writes only missing or identical destination files.
+// and writes only missing or identical destination files. It validates the
+// same bytes it writes. v1 candidates are committed by WriteCandidate after
+// the Go grammar check and are not rewritten for the pinned runner.
 func Stage(repo string, files map[string]string, python string, run CommandFunc) (StageResult, error) {
-	return stageCommitted(repo, files, files, python, run)
-}
-
-// stageCommitted validates validateFiles with the pinned runner and writes
-// commitFilesMap. v1 documents keep source nodes in the committed tree. The
-// temporary copy may render input and non-string literal sources into the
-// subset ai-evals-runner 0.7.7 already accepts. release-runtime replaces that
-// runner; this function does not change the pin.
-func stageCommitted(repo string, commitFilesMap, validateFiles map[string]string, python string, run CommandFunc) (StageResult, error) {
-	if len(commitFilesMap) == 0 {
+	if len(files) == 0 {
 		return StageResult{}, fmt.Errorf("no candidate files to stage")
 	}
 	if run == nil {
@@ -72,7 +65,7 @@ func stageCommitted(repo string, commitFilesMap, validateFiles map[string]string
 	}
 	defer os.RemoveAll(tmp)
 	evals := filepath.Join(tmp, "repo", ".harness", "evals")
-	for rel, body := range validateFiles {
+	for rel, body := range files {
 		if err := writeTreeFile(evals, rel, []byte(body)); err != nil {
 			return StageResult{}, err
 		}
@@ -89,7 +82,7 @@ func stageCommitted(repo string, commitFilesMap, validateFiles map[string]string
 		}
 		return StageResult{}, fmt.Errorf("onboarding validator failed: %s", msg)
 	}
-	return commitFiles(filepath.Join(repo, ".harness", "evals"), commitFilesMap)
+	return commitFiles(filepath.Join(repo, ".harness", "evals"), files)
 }
 
 func writeTreeFile(root, rel string, data []byte) error {

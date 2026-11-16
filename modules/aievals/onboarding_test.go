@@ -1810,7 +1810,7 @@ func TestNoSignalGuideThenStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	if strings.Contains(text, "onboard-guide-draft") || !strings.Contains(text, `method: "POST"`) || !strings.Contains(text, `response_path: "reasoning"`) || !strings.Contains(text, "/api/chat") {
+	if strings.Contains(text, "onboard-guide-draft") || !strings.Contains(text, "onboarding/v1") || !strings.Contains(text, "POST") || !strings.Contains(text, "reasoning") || !strings.Contains(text, "/api/chat") {
 		t.Fatalf("final agent:\n%s", text)
 	}
 	if strings.Contains(text, "Authorization:") {

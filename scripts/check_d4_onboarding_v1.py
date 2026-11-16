@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Load a D4 onboarding/v1 candidate with D2's loader and translator.
+"""Load the committed D4 onboarding/v1 candidate with D2's loader and translator.
 
-Run this with the D2 worktree's Poetry environment. It builds a temporary
-.harness/evals tree from the generated JSON document and checks typed values
-after load_onboarding_tree and translate. String comparison of the file is
-not the check.
+Run this with the D2 worktree's Poetry environment via
+scripts/check_d4_onboarding_v1.sh. That command fails when D2_ONBOARDING_ROOT
+is absent. Normal D4 CI compares the golden fixture in Go and does not call
+this script.
 """
 
 from __future__ import annotations

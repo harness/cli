@@ -36,13 +36,6 @@ jobs:
       - name: Unit tests
         run: go test ./... -race -count=1
 
-      # D2_ONBOARDING_ROOT points at the ai-evals worktree that owns
-      # onboarding/v1. The script skips when that checkout is not present.
-      - name: Onboarding v1 candidate compatibility
-        run: ./scripts/check_d4_onboarding_v1.sh
-        env:
-          D2_ONBOARDING_ROOT: ${{ vars.D2_ONBOARDING_ROOT }}
-
       - name: Build
         run: task build
 

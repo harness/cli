@@ -185,9 +185,9 @@ func TestSelectedMetricErrorsDoNotWriteFiles(t *testing.T) {
 		{"wrong option type", `[{"kind":"contains","options":{"case_sensitive":"false"}}]`, "invalid or missing constructor options"},
 		{"missing judge criteria", `[{"kind":"conversational_geval"}]`, "invalid or missing constructor options"},
 		{"duplicate score", `[{"kind":"contains"},{"kind":"contains"}]`, "unique stable identifier"},
-		{"reserved config", `[{"kind":"contains","config":{"kind":"exact_match"}}]`, "config key"},
+		{"reserved config", `[{"kind":"contains","config":{"kind":"exact_match"}}]`, "unknown_field"},
 		{"credential URL", `[{"kind":"geval","config":{"metadata":{"base_url":"https://user:password@example.invalid/api"}}}]`, "without credentials"},
-		{"unknown provider field", `[{"kind":"geval","config":{"metadata":{"token_value":"test-value"}}}]`, "provider setting"},
+		{"unknown provider field", `[{"kind":"geval","config":{"metadata":{"token_value":"test-value"}}}]`, "credential field"},
 		{"empty selection", `[]`, "non-empty list"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -239,15 +239,17 @@ func TestStagedMetricsUseSelectedOptionsWhenScoring(t *testing.T) {
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
-	script := `import sys
-from ai_evals.onboarding.load import load_onboarding_tree
+	script := `import json, sys
+from pathlib import Path
+import yaml
 from harness_evals import EvalCase
 from harness_evals.metrics.factory import build_metric
-tree = load_onboarding_tree(sys.argv[1])
-evaluation = tree.agents["chat"].evals["chat-eval"]
-metrics = [build_metric(m.metric_type, {**m.config, "kind": m.kind}, score_name=m.score_name,
-                       threshold=m.threshold, allow_code_loading=False) for m in evaluation.metric_set.entries]
-row = evaluation.dataset.items[0]
+root = Path(sys.argv[1])
+document = yaml.safe_load((root / "metric-sets" / "chat.yaml").read_text())
+metrics = [build_metric(entry["metric"]["type"], {**entry.get("config", {}), "kind": entry["metric"]["kind"]},
+                       score_name=entry["score_name"], threshold=entry["threshold"], allow_code_loading=False)
+           for entry in document["entries"]]
+row = json.loads((root / "datasets" / "chat.jsonl").read_text().splitlines()[0])
 case = EvalCase(input=row["input"], expected=row["expected"], output="Service=healthy (verified)")
 assert [metric.measure(case).value for metric in metrics] == [1.0, 1.0]
 case.output = "Service=healthy INTERNAL-ONLY"

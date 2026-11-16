@@ -1,0 +1,114 @@
+{
+  "candidate": {
+    "confidence": "high",
+    "evidence": [
+      {
+        "confidence": 0.9,
+        "locator": "chat:40",
+        "source": "src/chat.py",
+        "summary": "POST /chat returns JSON"
+      }
+    ],
+    "id": "support-agent"
+  },
+  "environments": {
+    "local": {
+      "endpoint": "https://agent.example/chat",
+      "secrets": {
+        "account.supportToken": "SUPPORT_TOKEN"
+      }
+    }
+  },
+  "evals": [
+    {
+      "dataset": "datasets/answers.jsonl",
+      "identifier": "answer-quality",
+      "metric_set": "metric-sets/quality.yaml",
+      "name": "Answer Quality"
+    }
+  ],
+  "identifier": "support-agent",
+  "name": "Support Agent",
+  "schema_version": "onboarding/v1",
+  "suite": {
+    "evals": [
+      "answer-quality"
+    ],
+    "identifier": "support-suite",
+    "name": "Support Suite",
+    "pass_strategy": "all_must_pass"
+  },
+  "target": {
+    "auth_headers": {
+      "Authorization": {
+        "env": "SUPPORT_TOKEN",
+        "ref": "account.supportToken",
+        "source": "harness_secret"
+      },
+      "X-Request-Id": {
+        "name": "REQUEST_ID",
+        "source": "env"
+      }
+    },
+    "headers": {
+      "Content-Type": {
+        "source": "literal",
+        "value": "application/json"
+      }
+    },
+    "method": "POST",
+    "query_params": {
+      "empty": {
+        "source": "literal",
+        "value": null
+      },
+      "flag": {
+        "source": "literal",
+        "value": true
+      },
+      "q": {
+        "source": "literal",
+        "value": "hello world"
+      },
+      "region": {
+        "name": "REGION",
+        "source": "env"
+      }
+    },
+    "request_template": {
+      "message": {
+        "selector": "items.0",
+        "source": "input"
+      },
+      "nested": {
+        "source": "literal",
+        "value": {
+          "child": {
+            "author": "ada",
+            "keyboard": "keys",
+            "ok": true
+          },
+          "count": 2,
+          "deskLamp": "desk-lamp",
+          "empty": null,
+          "flag": true,
+          "items": [
+            1,
+            "task-name",
+            false
+          ],
+          "passage": "text"
+        }
+      },
+      "region": {
+        "name": "REGION",
+        "source": "env"
+      },
+      "text": {
+        "selector": "text",
+        "source": "input"
+      }
+    },
+    "response_path": "output.text"
+  }
+}
