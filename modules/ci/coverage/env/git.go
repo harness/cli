@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -21,6 +22,24 @@ func RefExists(ref string) bool {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", ref)
 	err := cmd.Run()
 	return err == nil
+}
+
+// netrcGitArgs returns git "-c" args that install an inline credential helper for
+// https://$DRONE_NETRC_MACHINE, reading the Harness-injected DRONE_NETRC_* env vars.
+// The secret is read by git's helper from the environment, so it never appears in argv.
+// Returns nil when any of machine/username/password is unset (e.g. public repo, SSH).
+func netrcGitArgs() []string {
+	machine := os.Getenv("DRONE_NETRC_MACHINE")
+	if machine == "" || os.Getenv("DRONE_NETRC_USERNAME") == "" || os.Getenv("DRONE_NETRC_PASSWORD") == "" {
+		return nil
+	}
+	hlog.Debug("using DRONE_NETRC credentials for git fetch", "machine", machine)
+	key := "credential.https://" + machine + ".helper"
+	return []string{
+		"-c", key + "=", // reset inherited helpers
+		// printf, not echo: dash's echo expands backslash escapes and would mangle the password.
+		"-c", key + `=!f() { printf 'username=%s\n' "$DRONE_NETRC_USERNAME"; printf 'password=%s\n' "$DRONE_NETRC_PASSWORD"; }; f`,
+	}
 }
 
 // EnsureRefFetched ensures a ref is available locally, fetching it from
@@ -57,7 +76,8 @@ func EnsureRefFetched(ref string) string {
 
 	// Fetch the ref from origin
 	hlog.Debug("running git fetch", "ref", fetchRef)
-	cmd := exec.CommandContext(ctx, "git", "fetch", "origin", fetchRef)
+	args := append(netrcGitArgs(), "fetch", "origin", fetchRef)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		hlog.Debug("git fetch output", "output", string(out))
