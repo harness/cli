@@ -97,7 +97,7 @@ func TestCoverageParseCoverageFileInto_MergesSameLineAcrossReports(t *testing.T)
 		"TN:\nSF:src/service.ts\nDA:10,0\nend_of_record\n",
 	}
 	for _, report := range reports {
-		err := parseCoverageFileInto(
+		_, err := parseCoverageFileInto(
 			format.FormatLCOV,
 			strings.NewReader(report),
 			".",

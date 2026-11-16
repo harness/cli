@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -313,6 +315,7 @@ func upload(ctx *cmdctx.Ctx, f uploadFlags) error {
 	if err != nil {
 		return err
 	}
+	logUploadContext(params)
 
 	lookupFiles, err := covfile.Lookup(f.files...)
 	if err != nil {
@@ -331,12 +334,32 @@ func upload(ctx *cmdctx.Ctx, f uploadFlags) error {
 	for _, file := range lookupFiles {
 		errGroup.Go(func() error {
 			if err := processUploadFile(ctx, params, repoRef, file, excludePatterns, pathResolver); err != nil {
+				hlog.Error("failed to upload coverage file", "path", file.Path, "err", err)
 				return fmt.Errorf("failed to upload coverage file %s: %w", file.Path, err)
 			}
 			return nil
 		})
 	}
 	return errGroup.Wait()
+}
+
+// logUploadContext prints the identity of this upload. commit_before is the CI
+// commit-before SHA when that value is used. It is empty when presign derives
+// the comparison from base.
+func logUploadContext(params *uploadParams) {
+	hlog.Info("coverage upload context",
+		"repo_ref", path.Join(params.owner, params.identifier),
+		"provider", params.provider,
+		"commit", params.commitID,
+		"branch", params.branch,
+		"base", params.base,
+		"commit_before", params.commitBefore,
+		"execution_id", params.executionID,
+		"pipeline_id", params.pipelineID,
+		"scope", params.resolvedScope.SpacePath(),
+		"pr", params.pullReqID,
+		"patch", params.patch,
+	)
 }
 
 func processUploadFile(
@@ -347,9 +370,6 @@ func processUploadFile(
 	excludePatterns []format.ExcludePattern,
 	pathResolver *env.Tree,
 ) error {
-	hlog.Info("processing coverage file", "path", file.Path)
-	defer hlog.Info("finished processing coverage file", "path", file.Path)
-
 	baseRef := ""
 	if params.base != "" {
 		baseRef = env.EnsureRefFetched(params.base)
@@ -360,7 +380,7 @@ func processUploadFile(
 		return err
 	}
 
-	return uploadCoverageReport(ctx, params, baseRef, reportData, enc)
+	return uploadCoverageReport(ctx, params, baseRef, reportData, enc, file.Path)
 }
 
 func buildReport(
@@ -399,6 +419,7 @@ func buildReport(
 
 	enc, err := format.Write(repoRef, file.Format, f, buf, writeOpts...)
 	if err != nil {
+		enc.Paths.Log(file.Path, "", false)
 		return nil, format.EncodeResult{}, fmt.Errorf("failed to parse coverage file: %w", err)
 	}
 
@@ -410,21 +431,37 @@ func buildReport(
 // PUT carries no Harness auth header: the presigned URL embeds its own.
 func uploadCoverageReport(
 	ctx *cmdctx.Ctx, params *uploadParams, baseRef string, reportData []byte, enc format.EncodeResult,
-) error {
+	sourcePath string,
+) (err error) {
+	var externalID string
+	defer func() {
+		enc.Paths.Log(sourcePath, externalID, err == nil)
+	}()
+
 	urlResp, err := getPresignedURL(ctx, params, baseRef, enc)
 	if err != nil {
 		return fmt.Errorf("presign failed: %w", err)
 	}
+	externalID = urlResp.ExternalID
 
-	hlog.Info("uploading coverage report")
+	// Location is a bearer-equivalent credential: it must not be logged here,
+	// and putReportBytes strips it from transport errors.
+	hlog.Info("uploading coverage report",
+		"external_id", urlResp.ExternalID, "file", sourcePath, "format", enc.Format, "bytes", len(reportData))
+	started := time.Now()
 	if err := putReportBytes(ctx.Context, urlResp.Location, reportData); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
+	hlog.Info("coverage report uploaded",
+		"external_id", urlResp.ExternalID, "file", sourcePath, "format", enc.Format,
+		"bytes", len(reportData), "duration_ms", time.Since(started).Milliseconds())
 
-	hlog.Info("marking coverage report as complete")
+	hlog.Info("marking coverage report as complete", "external_id", urlResp.ExternalID)
 	if err := completeReport(ctx, urlResp.ExternalID); err != nil {
-		return fmt.Errorf("complete failed: %w", err)
+		return fmt.Errorf("coverage report uploaded but not registered external_id=%s; re-upload the report: %w",
+			urlResp.ExternalID, err)
 	}
+	hlog.Info("coverage report marked as complete", "external_id", urlResp.ExternalID)
 
 	return nil
 }
@@ -494,11 +531,11 @@ func getPresignedURL(
 func putReportBytes(ctx context.Context, location string, data []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, location, bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("building storage upload request: %w", err)
+		return fmt.Errorf("building storage upload request: %w", stripRequestURL(err))
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("uploading coverage report: %w", err)
+		return fmt.Errorf("uploading coverage report: %w", stripRequestURL(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -521,4 +558,20 @@ func completeReport(ctx *cmdctx.Ctx, externalID string) error {
 		NoAccountID: true,
 	})
 	return err
+}
+
+// stripRequestURL removes a *url.Error's URL from err. The presigned storage
+// URL is a bearer credential and net/http embeds it in transport errors.
+func stripRequestURL(err error) error {
+	var urlErr *url.Error
+	if err == nil || !errors.As(err, &urlErr) || urlErr.URL == "" {
+		return err
+	}
+	inner := urlErr.Err
+	if inner == nil {
+		inner = errors.New(urlErr.Op)
+	}
+	redacted := strings.ReplaceAll(err.Error(), urlErr.Error(), inner.Error())
+	redacted = strings.ReplaceAll(redacted, urlErr.URL, "")
+	return errors.New(redacted)
 }
