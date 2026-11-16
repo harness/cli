@@ -13,8 +13,8 @@ import (
 	"strings"
 )
 
-// SchemaVersionV1 is the generic onboarding document D2 loads in contract.py.
-// The runner handshake in SchemaVersion stays provisional until release-runtime.
+// SchemaVersionV1 is the generic onboarding document D2 loads in contract.py
+// and the schema recorded in the runner handshake.
 const SchemaVersionV1 = "onboarding/v1"
 
 // stageConfirmMessage is the reason a valid candidate does not write.

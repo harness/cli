@@ -14,12 +14,10 @@ const (
 	SkillRuleStage      = "Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`."
 	SkillRuleMCP        = "Check once whether the Harness MCP server is connected, and reuse that choice for the platform stages. Do not invent MCP tool names."
 
-	// RunnerPackage is the distribution selected for this phase: an isolated
-	// pinned uv or pipx environment. A signed artifact and a runner bundled
-	// inside the CLI module were not selected.
+	// RunnerPackage is installed into an isolated uv or pipx environment.
 	RunnerPackage  = "ai-evals-runner"
-	RunnerVersion  = "0.7.7"
-	SchemaVersion  = "provisional-onboarding-1"
+	RunnerVersion  = "0.7.9"
+	SchemaVersion  = SchemaVersionV1
 	OnboardCommand = "onboard-run"
 
 	// SkillSourcePath is the canonical skill file. The CLI embeds it, the UI

@@ -1491,11 +1491,6 @@ func TestStageCollisionIdempotenceAndValidatorArgs(t *testing.T) {
 }
 
 func TestStageUsesPinnedSchemaBeforeWriting(t *testing.T) {
-	t.Setenv(hbase.EnvCLIHome, "")
-	layout, err := VerifyRunner(RunnerHome(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	inf := inferFixture(t, "java-support")
 	files := make(map[string]string, len(inf.Files))
 	for path, body := range inf.Files {
@@ -1504,7 +1499,10 @@ func TestStageUsesPinnedSchemaBeforeWriting(t *testing.T) {
 	agentPath := "agents/support/agent.yaml"
 	files[agentPath] = strings.Replace(files[agentPath], "      ref: support-token\n", "", 1)
 	repo := t.TempDir()
-	if _, err := Stage(repo, files, layout.Python, nil); err == nil || !strings.Contains(err.Error(), "harness_secret source requires ref") {
+	run := func(string, []string, []string, string) (CommandResult, error) {
+		return CommandResult{Code: 1, Stderr: "harness_secret source requires ref"}, nil
+	}
+	if _, err := Stage(repo, files, "validator", run); err == nil || !strings.Contains(err.Error(), "harness_secret source requires ref") {
 		t.Fatalf("pinned schema validation error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".harness", "evals", agentPath)); !os.IsNotExist(err) {
@@ -1513,20 +1511,20 @@ func TestStageUsesPinnedSchemaBeforeWriting(t *testing.T) {
 }
 
 func TestSetupDoesNotWriteEvalFiles(t *testing.T) {
+	t.Setenv(hbase.EnvCLIHome, t.TempDir())
 	repo := copyFixture(t, "java-support")
 	code, err := Setup(SetupOptions{Repo: repo, Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil || code != 0 {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
 	assertNoEvalFiles(t, repo)
+	if _, err := os.Stat(filepath.Join(hbase.GetHarnessHomeDir(), "aievals-runner")); !os.IsNotExist(err) {
+		t.Fatalf("default setup created a runner home: %v", err)
+	}
 }
 
 func TestWriteCandidateValidatesAndWrites(t *testing.T) {
-	t.Setenv(hbase.EnvCLIHome, "")
-	layout, err := VerifyRunner(RunnerHome(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	layout := testRunnerLayout(t)
 	repo := copyFixture(t, "java-support")
 	report, code, err := Scan(repo, "")
 	if err != nil || code != 0 || len(report.Candidates) != 1 {
@@ -1552,11 +1550,7 @@ func TestWriteCandidateValidatesAndWrites(t *testing.T) {
 }
 
 func TestExplicitJavaRouteSelectionStagesPinnedSchemaTree(t *testing.T) {
-	t.Setenv(hbase.EnvCLIHome, "")
-	layout, err := VerifyRunner(RunnerHome(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	layout := testRunnerLayout(t)
 	repo := copyFixture(t, "java-multi-route")
 	report, code, err := Scan(repo, "POST /api/v1/incidents/analyze")
 	if err != nil || code != 0 || len(report.Candidates) != 1 {
@@ -1592,11 +1586,7 @@ func TestMethodQualifiedRouteSelectionIsRequired(t *testing.T) {
 }
 
 func TestSpringAndMicronautFixturesStageWithPinnedRunner(t *testing.T) {
-	t.Setenv(hbase.EnvCLIHome, "")
-	layout, err := VerifyRunner(RunnerHome(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	layout := testRunnerLayout(t)
 	for _, fixture := range []string{"java-spring-params", "java-micronaut-params"} {
 		t.Run(fixture, func(t *testing.T) {
 			repo := copyFixture(t, fixture)
@@ -1622,11 +1612,7 @@ func TestSpringAndMicronautFixturesStageWithPinnedRunner(t *testing.T) {
 }
 
 func TestWriteCandidateKeepsDatasetJSONValid(t *testing.T) {
-	t.Setenv(hbase.EnvCLIHome, "")
-	layout, err := VerifyRunner(RunnerHome(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	layout := testRunnerLayout(t)
 	repo := t.TempDir()
 	code, err := WriteCandidate(WriteOptions{
 		Repo: repo,
@@ -1779,11 +1765,7 @@ func TestPortAndPathStringsRequireGuide(t *testing.T) {
 }
 
 func TestNoSignalGuideThenStage(t *testing.T) {
-	t.Setenv(hbase.EnvCLIHome, "")
-	layout, err := VerifyRunner(RunnerHome(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	layout := testRunnerLayout(t)
 	repo := copyFixture(t, "no-agent")
 	report, code, err := Scan(repo, "")
 	if err != nil || code != 0 || report.HasSignal {
@@ -1919,6 +1901,11 @@ func TestRunnerBootstrapAndOnboardArgs(t *testing.T) {
 			if args[0] == "venv" {
 				touch(t, filepath.Join(args[1], "bin", "python"))
 				touch(t, filepath.Join(args[1], "bin", "ai-evals"))
+			} else if args[0] == "pip" {
+				want := RunnerPackage + "==" + RunnerVersion
+				if len(args) != 5 || args[1] != "install" || args[4] != want || filepath.IsAbs(args[4]) {
+					t.Fatalf("package bootstrap args = %#v", args)
+				}
 			}
 			return CommandResult{}, nil
 		}
@@ -2009,6 +1996,250 @@ func TestRunnerBootstrapAndOnboardArgs(t *testing.T) {
 	satEnv, satNotice := RunnerProcessEnv(satAuth())
 	if satNotice != "" || !containsString(satEnv, "HARNESS_API_KEY=sat.acct.id.secret") {
 		t.Fatalf("sat env=%v notice=%s", satEnv, satNotice)
+	}
+}
+
+func TestPackageBootstrapDoesNotUseLocalSourceFallback(t *testing.T) {
+	home := t.TempDir()
+	var installed string
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		if name == "uv" && len(args) > 0 && args[0] == "venv" {
+			touch(t, filepath.Join(args[1], "bin", "python"))
+			touch(t, filepath.Join(args[1], "bin", "ai-evals"))
+			return CommandResult{}, nil
+		}
+		if name == "uv" && len(args) > 0 && args[0] == "pip" {
+			installed = args[len(args)-1]
+			return CommandResult{}, nil
+		}
+		if filepath.Base(name) == "python" {
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		}
+		return CommandResult{}, nil
+	}
+	look := func(name string) (string, error) {
+		if name == "uv" {
+			return "/usr/bin/uv", nil
+		}
+		return "", os.ErrNotExist
+	}
+	if _, err := EnsureRunner(home, look, run); err != nil {
+		t.Fatal(err)
+	}
+	if installed != RunnerPackage+"=="+RunnerVersion {
+		t.Fatalf("package bootstrap selected local source %q", installed)
+	}
+}
+
+func TestSourceRunnerBootstrapCopiesSourceAndWritesHandshake(t *testing.T) {
+	home := t.TempDir()
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+
+	var installedSource string
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case name == "uv" && len(args) > 0 && args[0] == "venv":
+			touch(t, filepath.Join(args[1], "bin", "python"))
+			touch(t, filepath.Join(args[1], "bin", "ai-evals"))
+			return CommandResult{}, nil
+		case name == "uv" && len(args) > 0 && args[0] == "pip":
+			if len(args) != 5 || args[1] != "install" || args[2] != "--python" {
+				t.Fatalf("source install args = %#v", args)
+			}
+			installedSource = args[4]
+			return CommandResult{}, nil
+		case filepath.Base(name) == "python":
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case filepath.Base(name) == "ai-evals":
+			return CommandResult{}, nil
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+			return CommandResult{}, nil
+		}
+	}
+	look := func(name string) (string, error) {
+		if name == "uv" {
+			return "/usr/bin/uv", nil
+		}
+		return "", os.ErrNotExist
+	}
+
+	layout, err := EnsureRunnerFromSource(home, source, look, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := installedSource, filepath.Join(home, "source"); got != want {
+		t.Fatalf("installed source = %q, want copied source %q", got, want)
+	}
+	copied := filepath.Join(home, "source", "service", "ai_evals", "onboarding", "contract.py")
+	info, err := os.Lstat(copied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("copied source is a symlink: %s", copied)
+	}
+	if layout.Home != home || layout.Python != filepath.Join(home, "bin", "python") {
+		t.Fatalf("layout = %+v", layout)
+	}
+	if got, err := readHandshake(home); err != nil {
+		t.Fatal(err)
+	} else if got != wantedHandshake() {
+		t.Fatalf("handshake = %+v, want %+v", got, wantedHandshake())
+	}
+}
+
+func TestSourceRunnerBootstrapRejectsInvalidSourceBeforeWritingHome(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(string)
+		want   string
+	}{
+		{
+			name: "missing manifest",
+			mutate: func(source string) {
+				if err := os.Remove(filepath.Join(source, "pyproject.runner.toml")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "pyproject.runner.toml",
+		},
+		{
+			name: "wrong package version",
+			mutate: func(source string) {
+				path := filepath.Join(source, "pyproject.runner.toml")
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(strings.Replace(string(data), `version = "0.7.9"`, `version = "0.7.8"`, 1)), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "version 0.7.8 is not supported",
+		},
+		{
+			name: "wrong schema",
+			mutate: func(source string) {
+				path := filepath.Join(source, "service", "ai_evals", "onboarding", "contract.py")
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(strings.Replace(string(data), SchemaVersionV1, "onboarding/v0", 1)), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "schema onboarding/v0 is not supported",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := t.TempDir()
+			writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+			test.mutate(source)
+			home := filepath.Join(t.TempDir(), "aievals-runner")
+			_, err := EnsureRunnerFromSource(home, source, nil, nil)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("err = %v, want substring %q", err, test.want)
+			}
+			if _, statErr := os.Stat(home); !os.IsNotExist(statErr) {
+				t.Fatalf("invalid source created runner home: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestSourceRunnerBootstrapRejectsOlderInstalledHandshake(t *testing.T) {
+	home := t.TempDir()
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+	touch(t, filepath.Join(home, "bin", "python"))
+	touch(t, filepath.Join(home, "bin", "ai-evals"))
+	old := wantedHandshake()
+	old.Version = "0.7.8"
+	old.Schema = "provisional-onboarding-1"
+	data, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handshakePath(home), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(string, []string, []string, string) (CommandResult, error) {
+		t.Fatal("older installed handshake attempted a source replacement")
+		return CommandResult{}, nil
+	}
+	_, err = EnsureRunnerFromSource(home, source, nil, run)
+	if err == nil || err.Error() != PinMismatchRemediation(home, old.Version) {
+		t.Fatalf("err = %v, want %q", err, PinMismatchRemediation(home, old.Version))
+	}
+}
+
+func TestRunAcceptsV1RunnerAndPreservesTree(t *testing.T) {
+	home := t.TempDir()
+	touch(t, filepath.Join(home, "bin", "python"))
+	touch(t, filepath.Join(home, "bin", "ai-evals"))
+	if err := writeHandshake(home); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	files := map[string]string{
+		"agents/support/agent.yaml": "schema_version: onboarding/v1\n",
+		"datasets/support.jsonl":    "{\"id\":\"case-1\"}\n",
+	}
+	for rel, body := range files {
+		if err := writeTreeFile(filepath.Join(repo, ".harness", "evals"), rel, []byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := filepath.Join(repo, ".harness", "evals")
+	before, err := os.ReadFile(filepath.Join(root, "agents", "support", "agent.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onboardArgs []string
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case filepath.Base(name) == "python":
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case filepath.Base(name) == "ai-evals" && len(args) == 2 && args[0] == OnboardCommand && args[1] == "--help":
+			return CommandResult{}, nil
+		case filepath.Base(name) == "ai-evals":
+			onboardArgs = append([]string{name}, args...)
+			return CommandResult{Code: 0}, nil
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+			return CommandResult{}, nil
+		}
+	}
+	code, err := RunAgent(home, root, "support", "local", nil, io.Discard, run)
+	if code != 0 || err != nil {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	if got, want := onboardArgs, OnboardArgs(filepath.Join(home, "bin", "ai-evals"), root, "support", "local"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("onboard args = %#v, want %#v", got, want)
+	}
+	after, err := os.ReadFile(filepath.Join(root, "agents", "support", "agent.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("run modified the onboarding/v1 tree")
+	}
+}
+
+func TestSetupSourceBootstrapRequiresExplicitCLIHome(t *testing.T) {
+	for _, home := range []string{"", hbase.HarnessHome} {
+		t.Run(home, func(t *testing.T) {
+			t.Setenv(hbase.EnvCLIHome, home)
+			code, err := Setup(SetupOptions{Repo: t.TempDir(), RunnerSource: t.TempDir(), Stdout: io.Discard, Stderr: io.Discard})
+			if code != 1 || err == nil || !strings.Contains(err.Error(), "HARNESS_CLI_HOME") {
+				t.Fatalf("code=%d err=%v", code, err)
+			}
+		})
 	}
 }
 
@@ -2171,6 +2402,14 @@ func TestProvisionalCommandsRegister(t *testing.T) {
 			t.Fatalf("%s is missing the provisional marker", verb)
 		}
 	}
+	setup := reg.GetSpec("setup", "eval_onboarding")
+	foundRunnerSource := false
+	for _, flag := range setup.Flags {
+		foundRunnerSource = foundRunnerSource || flag.Name == "runner-source"
+	}
+	if !foundRunnerSource {
+		t.Fatal("setup eval_onboarding is missing the opt-in --runner-source flag")
+	}
 }
 
 func assertNoEvalFiles(t *testing.T, repo string) {
@@ -2288,6 +2527,26 @@ func touch(t *testing.T, path string) {
 	}
 }
 
+func testRunnerLayout(t *testing.T) RunnerLayout {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv(hbase.EnvCLIHome, home)
+	python := filepath.Join(home, "bin", "python")
+	aiEvals := filepath.Join(home, "bin", "ai-evals")
+	if err := os.MkdirAll(filepath.Dir(python), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{python, aiEvals} {
+		if err := os.WriteFile(path, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writeHandshake(home); err != nil {
+		t.Fatal(err)
+	}
+	return RunnerLayout{Home: home, Python: python, AIEvals: aiEvals}
+}
+
 func writeFixtureFile(t *testing.T, root, relative, body string) {
 	t.Helper()
 	path := filepath.Join(root, relative)
@@ -2306,6 +2565,25 @@ func ensureMissing(home string) error {
 	}
 	_, err := EnsureRunner(home, look, run)
 	return err
+}
+
+func writeRunnerSourceFixture(t *testing.T, root, version, schema string) {
+	t.Helper()
+	writeFixtureFile(t, root, "pyproject.runner.toml", fmt.Sprintf(`[tool.poetry]
+name = "ai-evals-runner"
+version = "%s"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+ai-evals = "ai_evals.runner.cli:app"
+`, version))
+	writeFixtureFile(t, root, "service/ai_evals/onboarding/contract.py", fmt.Sprintf(`SCHEMA_VERSION_V1 = "%s"
+`, schema))
+	writeFixtureFile(t, root, "service/ai_evals/onboarding/load.py", "def load_onboarding_tree(root):\n    return root\n")
+	writeFixtureFile(t, root, "service/ai_evals/onboarding/runner.py", "async def run_onboarding(root, agent, environment='local'):\n    return None\n")
 }
 
 func patAuth() *auth.ResolvedAuth {

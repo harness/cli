@@ -18,7 +18,9 @@ import (
 
 func metricTestPython(t *testing.T) string {
 	t.Helper()
-	t.Setenv(hbase.EnvCLIHome, "")
+	if os.Getenv(hbase.EnvCLIHome) == "" {
+		t.Skipf("set %s to an isolated 0.7.9 runner home for SDK catalog tests", hbase.EnvCLIHome)
+	}
 	layout, err := VerifyRunner(RunnerHome(), nil)
 	if err != nil {
 		t.Fatal(err)
