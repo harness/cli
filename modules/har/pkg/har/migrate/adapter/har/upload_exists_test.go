@@ -64,15 +64,6 @@ func TestUploadExistsPaths(t *testing.T) {
 			wantPath: base + "conan/v2/conans/demo/1.0/_/_/revisions/r1/packages/p1/revisions/r2/files/" +
 				"conan_package.tgz",
 		},
-		{
-			name:         "debian source file in lib pool",
-			artifactType: types.DEBIAN,
-			file:         &types.File{Uri: "pool/libdemo_1.0.orig.tar.gz"},
-			metadata: map[string]interface{}{"distribution": "stable", "component": "main", "fileType": "src",
-				"packageName": "libdemo", "version": "1.0"},
-			wantMethod: http.MethodGet,
-			wantPath:   base + "debian/pool/main/libd/libdemo/1.0/libdemo_1.0.orig.tar.gz",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -131,6 +122,8 @@ func TestDebianFileExistsUsesDistributionIndex(t *testing.T) {
 			"Filename: pool/main/o/other/2.0/other_2.0_amd64.deb\n",
 		dists + "stable/main/source/Sources": "Package: demo\nVersion: 1.0\nFiles:\n" +
 			" 0123 10 demo_1.0.dsc\n 4567 20 demo_1.0.orig.tar.gz\nChecksums-Sha256:\n 89ab 10 demo_1.0.dsc\n",
+		dists + "testing/main/source/Sources": "Package: demo\nVersion: 1.0\nFiles:\n 0123 10 demo_1.0.dsc\n",
+		"/pkg/acct1/reg/debian/pool/main/d/demo/1.0/demo_1.0.orig.tar.gz": "orig",
 	}
 	requests := map[string]int{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +147,9 @@ func TestDebianFileExistsUsesDistributionIndex(t *testing.T) {
 		{"deb not listed", "demo_2.0_amd64.deb", "stable", "deb", false},
 		{"pool shared but other distribution has no index", "demo_1.0_amd64.deb", "testing", "deb", false},
 		{"dsc listed in Sources", "demo_1.0.dsc", "stable", "dsc", true},
+		{"source file attached in this distribution", "demo_1.0.orig.tar.gz", "stable", "src", true},
+		{"source file in pool but not attached to this distribution", "demo_1.0.orig.tar.gz", "testing", "src",
+			false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

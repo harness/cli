@@ -111,7 +111,8 @@ func conanFilePath(metadata map[string]interface{}) string {
 
 // debianFileExists looks the file up in its distribution's index rather than in the
 // pool, which HAR shares across distributions: a pool hit does not mean the file is
-// published in this distribution.
+// published in this distribution. Source files are listed under their .dsc's Sources
+// entry only once attached to that distribution's .dsc.
 func (c *client) debianFileExists(
 	ctx context.Context,
 	base, fileName string,
@@ -122,16 +123,7 @@ func (c *client) debianFileExists(
 	fileType, _ := metadata["fileType"].(string)
 	var rel string
 	switch fileType {
-	case "src":
-		packageName, _ := metadata["packageName"].(string)
-		version, _ := metadata["version"].(string)
-		if packageName == "" {
-			return false, fmt.Errorf("missing package name for debian source file %q", fileName)
-		}
-		rel = fmt.Sprintf("debian/pool/%s/%s/%s/%s/%s", component, debianPoolPrefix(packageName), packageName, version,
-			fileName)
-		return c.existsAt(ctx, http2.MethodGet, base, rel, nil)
-	case "dsc":
+	case "dsc", "src":
 		rel = fmt.Sprintf("debian/dists/%s/%s/source/Sources", distribution, component)
 	case "", "deb":
 		stem := strings.TrimSuffix(fileName, ".deb")
@@ -145,14 +137,6 @@ func (c *client) debianFileExists(
 		return false, err
 	}
 	return files[fileName], nil
-}
-
-// debianPoolPrefix must match the HAR server's pool layout (getBinaryFilepath).
-func debianPoolPrefix(packageName string) string {
-	if len(packageName) > 3 && strings.HasPrefix(packageName, "lib") {
-		return packageName[:4]
-	}
-	return packageName[:1]
 }
 
 type debianIndex struct {
