@@ -335,6 +335,9 @@ func validateTemplateNode(node any, label string, header bool) error {
 				return err
 			}
 		}
+		if header {
+			return fmt.Errorf("%s must be a string", label)
+		}
 		return nil
 	}
 	if list, ok := node.([]any); ok {
@@ -342,6 +345,15 @@ func validateTemplateNode(node any, label string, header bool) error {
 			if err := validateTemplateNode(value, fmt.Sprintf("%s[%d]", label, index), header); err != nil {
 				return err
 			}
+		}
+		if header {
+			return fmt.Errorf("%s must be a string", label)
+		}
+		return nil
+	}
+	if header {
+		if _, ok := node.(string); !ok {
+			return fmt.Errorf("%s must be a string", label)
 		}
 		return nil
 	}
@@ -588,17 +600,17 @@ func validateAuthHeaders(raw any, label string, existing map[string]any) error {
 		}
 		folded := strings.ToLower(name)
 		if previous, ok := occupied[folded]; ok {
-			return fmt.Errorf("%s.%s duplicates header %q. Name each auth header once.", label, name, previous)
+			return fmt.Errorf("%s.%s duplicates header %q. Name each auth header once.", label, publicKey(name), publicKey(previous))
 		}
 		body, ok := value.(map[string]any)
 		if !ok {
-			return fmt.Errorf("%s.%s must reference an environment variable or a named Harness secret, not a literal value.", label, name)
+			return fmt.Errorf("%s.%s must reference an environment variable or a named Harness secret, not a literal value.", label, publicKey(name))
 		}
 		source, _ := body["source"].(string)
 		if source != "env" && source != "harness_secret" {
-			return fmt.Errorf("%s.%s must reference an environment variable or a named Harness secret, not a literal value.", label, name)
+			return fmt.Errorf("%s.%s must reference an environment variable or a named Harness secret, not a literal value.", label, publicKey(name))
 		}
-		if err := validateSource(body, label+"."+name, true); err != nil {
+		if err := validateSource(body, label+"."+publicKey(name), true); err != nil {
 			return err
 		}
 		occupied[folded] = name

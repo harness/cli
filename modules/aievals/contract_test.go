@@ -5,6 +5,7 @@ package aievals
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -223,6 +224,102 @@ func TestStageRejectsSchemaGrammarAndSecretsBeforeWrite(t *testing.T) {
 		t.Fatalf("legacy code=%d err=%v", code, err)
 	}
 	assertNoEvalFiles(t, repo)
+}
+
+func TestV1HeadersMatchD2TranslationContract(t *testing.T) {
+	repo := t.TempDir()
+	run := func(string, []string, []string, string) (CommandResult, error) {
+		t.Fatal("rejected candidate invoked the validator")
+		return CommandResult{}, nil
+	}
+	t.Run("ordinary headers render strings", func(t *testing.T) {
+		for _, value := range []any{true, int64(42), nil, map[string]any{"nested": "value"}} {
+			t.Run(fmt.Sprintf("%T", value), func(t *testing.T) {
+				doc := onboardingV1FixtureDocument()
+				target := doc["target"].(map[string]any)
+				target["headers"].(map[string]any)["X-Request-Id"] = value
+				code, err := WriteCandidate(WriteOptions{
+					Repo: repo, Candidate: Candidate{Wire: doc}, Confirm: true,
+					Python: "validator", Run: run, Stdout: io.Discard, Stderr: io.Discard,
+				})
+				if code != 2 || err == nil || err.Error() != "target.headers.X-Request-Id must be a string" {
+					t.Fatalf("value=%#v code=%d err=%v", value, code, err)
+				}
+				assertNoEvalFiles(t, repo)
+			})
+		}
+	})
+	t.Run("ordinary literal sources render strings", func(t *testing.T) {
+		doc := onboardingV1FixtureDocument()
+		target := doc["target"].(map[string]any)
+		target["headers"].(map[string]any)["X-Request-Id"] = map[string]any{
+			"source": "literal",
+			"value":  42,
+		}
+		code, err := WriteCandidate(WriteOptions{
+			Repo: repo, Candidate: Candidate{Wire: doc}, Confirm: true,
+			Python: "validator", Run: run, Stdout: io.Discard, Stderr: io.Discard,
+		})
+		if code != 2 || err == nil || err.Error() != "target.headers.X-Request-Id literal value must be a string" {
+			t.Fatalf("code=%d err=%v", code, err)
+		}
+		assertNoEvalFiles(t, repo)
+	})
+	t.Run("auth headers accept only named sources", func(t *testing.T) {
+		for _, source := range []string{"literal", "input"} {
+			t.Run(source, func(t *testing.T) {
+				doc := onboardingV1FixtureDocument()
+				target := doc["target"].(map[string]any)
+				target["auth_headers"].(map[string]any)["X-Request-Id"] = map[string]any{
+					"source": source,
+					"value":  "literal-token",
+				}
+				code, err := WriteCandidate(WriteOptions{
+					Repo: repo, Candidate: Candidate{Wire: doc}, Confirm: true,
+					Python: "validator", Run: run, Stdout: io.Discard, Stderr: io.Discard,
+				})
+				if code != 2 || err == nil || !strings.Contains(err.Error(), "must reference an environment variable or a named Harness secret") {
+					t.Fatalf("source=%s code=%d err=%v", source, code, err)
+				}
+				if strings.Contains(err.Error(), "literal-token") {
+					t.Fatalf("auth error echoed literal: %v", err)
+				}
+				assertNoEvalFiles(t, repo)
+			})
+		}
+	})
+	t.Run("secret-shaped values use a redacted path", func(t *testing.T) {
+		doc := onboardingV1FixtureDocument()
+		target := doc["target"].(map[string]any)
+		target["headers"].(map[string]any)["X-Trace-Id"] = "Bearer sk-live-header-secret"
+		code, err := WriteCandidate(WriteOptions{
+			Repo: repo, Candidate: Candidate{Wire: doc}, Confirm: true,
+			Python: "validator", Run: run, Stdout: io.Discard, Stderr: io.Discard,
+		})
+		if code != 2 || err == nil || !strings.Contains(err.Error(), "target.headers.X-Trace-Id: credential_value") {
+			t.Fatalf("code=%d err=%v", code, err)
+		}
+		if strings.Contains(err.Error(), "sk-live-header-secret") {
+			t.Fatalf("header error echoed secret: %v", err)
+		}
+		assertNoEvalFiles(t, repo)
+	})
+	t.Run("secret-shaped header names are redacted", func(t *testing.T) {
+		doc := onboardingV1FixtureDocument()
+		target := doc["target"].(map[string]any)
+		target["headers"].(map[string]any)["sk-live"] = true
+		code, err := WriteCandidate(WriteOptions{
+			Repo: repo, Candidate: Candidate{Wire: doc}, Confirm: true,
+			Python: "validator", Run: run, Stdout: io.Discard, Stderr: io.Discard,
+		})
+		if code != 2 || err == nil || err.Error() != "target.headers.<redacted> must be a string" {
+			t.Fatalf("code=%d err=%v", code, err)
+		}
+		if strings.Contains(err.Error(), "sk-live") {
+			t.Fatalf("header error echoed secret-shaped name: %v", err)
+		}
+		assertNoEvalFiles(t, repo)
+	})
 }
 
 func TestV1StageWritesFieldsAndRunFailsClosed(t *testing.T) {
