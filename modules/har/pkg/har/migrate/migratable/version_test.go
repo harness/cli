@@ -50,6 +50,10 @@ func (noopIndexAdapter) VersionExists(context.Context, types.Package, string, st
 func (noopIndexAdapter) FileExists(context.Context, string, string, string, *types.File, types.ArtifactType) (bool, error) {
 	return false, nil
 }
+
+func (noopIndexAdapter) UploadExists(context.Context, string, *types.File, string, string, types.ArtifactType, map[string]interface{}) (bool, error) {
+	return false, nil
+}
 func (noopIndexAdapter) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
 	return nil, nil
 }

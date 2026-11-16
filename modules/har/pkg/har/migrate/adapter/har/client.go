@@ -112,6 +112,9 @@ type client struct {
 	password  string
 	pkgClient *ar_pkg.ClientWithResponses
 	accountID string
+
+	debianIndexesMu sync.Mutex
+	debianIndexes   map[string]*debianIndex
 }
 
 // uploadGenericFile, headRawFile, and uploadRawFile build the request URL manually
@@ -212,23 +215,17 @@ func (c *client) terraformFileExists(ctx context.Context, registryRef, pkg, vers
 	return c.downloadExists(ctx, base, rel)
 }
 
-// downloadExists reports whether a GET on base+rel resolves. Redirects (to blob
-// storage) are not followed: a 3xx already means the file exists. Errors name only
-// rel, so host and account do not end up in logs and result files.
 func (c *client) downloadExists(ctx context.Context, base, rel string) (bool, error) {
-	req, err := http2.NewRequestWithContext(ctx, http2.MethodGet, base+rel, nil)
+	return c.existsAt(ctx, http2.MethodGet, base, rel, nil)
+}
+
+// existsAt reports whether base+rel resolves. Redirects (to blob storage) are not
+// followed: a 3xx already means the file exists. Errors name only rel, so host and
+// account do not end up in logs and result files.
+func (c *client) existsAt(ctx context.Context, method, base, rel string, header http2.Header) (bool, error) {
+	resp, err := c.doWithoutRedirect(ctx, method, base, rel, header)
 	if err != nil {
-		return false, fmt.Errorf("failed to create request for '%s': %w", rel, err)
-	}
-	noRedirect := *c.client
-	noRedirect.CheckRedirect = func(*http2.Request, []*http2.Request) error { return http2.ErrUseLastResponse }
-	resp, err := noRedirect.Do(req)
-	if err != nil {
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
-			err = urlErr.Err
-		}
-		return false, fmt.Errorf("failed to check '%s': %w", rel, err)
+		return false, err
 	}
 	defer resp.Body.Close()
 	switch {
@@ -239,6 +236,36 @@ func (c *client) downloadExists(ctx context.Context, base, rel string) (bool, er
 	default:
 		return false, types.NewStatusError(resp.StatusCode, "unexpected status code %d checking '%s'", resp.StatusCode, rel)
 	}
+}
+
+func (c *client) doWithoutRedirect(
+	ctx context.Context,
+	method, base, rel string,
+	header http2.Header,
+) (*http2.Response, error) {
+	req, err := http2.NewRequestWithContext(ctx, method, base+rel, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for '%s': %w", rel, err)
+	}
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	noRedirect := *c.client
+	noRedirect.CheckRedirect = func(*http2.Request, []*http2.Request) error { return http2.ErrUseLastResponse }
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check '%s': %w", rel, unwrapURLError(err))
+	}
+	return resp, nil
+}
+
+// unwrapURLError drops the *url.Error wrapper, whose message repeats the full URL.
+func unwrapURLError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
 }
 
 func (c *client) uploadRawFile(registry string, f *types.File, file io.ReadCloser) error {

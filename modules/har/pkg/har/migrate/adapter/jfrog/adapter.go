@@ -1473,6 +1473,11 @@ func (a *adapter) VersionExists(
 	return false, fmt.Errorf("not implemented")
 }
 
+func (a *adapter) UploadExists(_ context.Context, _ string, _ *types.File, _, _ string, _ types.ArtifactType,
+	_ map[string]interface{}) (bool, error) {
+	return false, fmt.Errorf("not implemented")
+}
+
 func (a *adapter) FileExists(
 	ctx context.Context,
 	registryRef, pkg, version string,

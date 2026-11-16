@@ -117,10 +117,11 @@ func (r *Version) Pre(ctx context.Context) error {
 	// If an upfront index was built by registry.go, skip the per-version API
 	// call entirely — the index already has everything. Fall back to the
 	// per-version lookup only when no index is available.
-	// TERRAFORM is checked per file in Migrate: HAR's version APIs cannot address its
-	// "ns/name/provider" package names.
+	// TERRAFORM and RUBY are checked per file in Migrate: HAR's version APIs cannot
+	// address Terraform's "ns/name/provider" names and list no files for gems.
 	if !r.config.Overwrite && (r.artifactType != types.MAVEN && r.artifactType != types.NPM &&
-		r.artifactType != types.TERRAFORM && r.pkg.Name != "" && r.version.Name != "") {
+		r.artifactType != types.TERRAFORM && r.artifactType != types.RUBY &&
+		r.pkg.Name != "" && r.version.Name != "") {
 		if r.existingIndex == nil {
 			existingFiles, err := checkExistsWithRetry(ctx, logger, func() ([]string, error) {
 				return r.getAllExistingFilesForThisVersion(ctx)
@@ -266,12 +267,13 @@ func (r *Version) Migrate(ctx context.Context) error {
 			// nested JFrog folders (e.g. NuGet's ambiguous package layouts).
 			alreadyExists := false
 			switch {
-			case r.artifactType == types.TERRAFORM && !r.config.Overwrite && !r.config.DryRun:
+			case (r.artifactType == types.TERRAFORM || r.artifactType == types.RUBY) &&
+				!r.config.Overwrite && !r.config.DryRun:
 				exists, err := checkExistsWithRetry(ctx, logger, func() (bool, error) {
 					return r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, r.version.Name, file, r.artifactType)
 				})
 				if err != nil {
-					logger.Error().Err(err).Msgf("Failed to check if terraform file %s exists", file.Uri)
+					logger.Error().Err(err).Msgf("Failed to check if file %s exists", file.Uri)
 					util.AddFileErrorToStat(r.stats, file, r.srcRegistry, existenceCheckError(err))
 					continue
 				}

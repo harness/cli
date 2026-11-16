@@ -53,6 +53,10 @@ func (noopCranAdapter) VersionExists(context.Context, types.Package, string, str
 func (noopCranAdapter) FileExists(context.Context, string, string, string, *types.File, types.ArtifactType) (bool, error) {
 	return false, nil
 }
+
+func (noopCranAdapter) UploadExists(context.Context, string, *types.File, string, string, types.ArtifactType, map[string]interface{}) (bool, error) {
+	return false, nil
+}
 func (noopCranAdapter) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
 	return nil, nil
 }

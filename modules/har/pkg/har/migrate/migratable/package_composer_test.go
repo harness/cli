@@ -49,6 +49,9 @@ func (noopComposerAdapter) VersionExists(context.Context, types.Package, string,
 func (noopComposerAdapter) FileExists(context.Context, string, string, string, *types.File, types.ArtifactType) (bool, error) {
 	return false, nil
 }
+func (noopComposerAdapter) UploadExists(context.Context, string, *types.File, string, string, types.ArtifactType, map[string]interface{}) (bool, error) {
+	return false, nil
+}
 func (noopComposerAdapter) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
 	return nil, nil
 }

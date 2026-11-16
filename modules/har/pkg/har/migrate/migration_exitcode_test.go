@@ -66,6 +66,10 @@ func (f *fakeDestAdapter) VersionExists(context.Context, types.Package, string, 
 func (f *fakeDestAdapter) FileExists(context.Context, string, string, string, *types.File, types.ArtifactType) (bool, error) {
 	return false, nil
 }
+
+func (*fakeDestAdapter) UploadExists(context.Context, string, *types.File, string, string, types.ArtifactType, map[string]interface{}) (bool, error) {
+	return false, nil
+}
 func (f *fakeDestAdapter) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
 	return nil, nil
 }

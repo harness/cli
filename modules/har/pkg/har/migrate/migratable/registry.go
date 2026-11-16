@@ -324,7 +324,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 	indexApplicable := func(t types.ArtifactType) bool {
 		switch t {
 		case types.GENERIC, types.RAW, types.MAVEN, types.PYTHON,
-			types.NUGET, types.NPM, types.DART, types.PUPPET, types.RUBY:
+			types.NUGET, types.NPM, types.DART, types.PUPPET:
 			return true
 		}
 		return false
