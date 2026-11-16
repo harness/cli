@@ -296,11 +296,11 @@ func completePath(accountID, externalID string) string {
 func loadUploadExcludePatterns(
 	ctx *cmdctx.Ctx, params *uploadParams, cliPatterns []string,
 ) ([]format.ExcludePattern, error) {
-	repoID, err := covclient.EnsureRepo(ctx, params.resolvedScope, params.provider, params.owner, params.identifier)
+	repoID, err := covclient.EnsureRepo(ctx, params.accountID, params.resolvedScope, params.provider, params.owner, params.identifier)
 	if err != nil {
 		return nil, fmt.Errorf("resolve exclude settings repository: %w", err)
 	}
-	excludeText, err := covclient.ExcludeText(ctx, params.resolvedScope, repoID)
+	excludeText, err := covclient.ExcludeText(ctx, params.accountID, params.resolvedScope, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("load coverage repository exclude settings: %w", err)
 	}
@@ -457,7 +457,7 @@ func uploadCoverageReport(
 		"bytes", len(reportData), "duration_ms", time.Since(started).Milliseconds())
 
 	hlog.Info("marking coverage report as complete", "external_id", urlResp.ExternalID)
-	if err := completeReport(ctx, urlResp.ExternalID); err != nil {
+	if err := completeReport(ctx, params.accountID, urlResp.ExternalID); err != nil {
 		return fmt.Errorf("coverage report uploaded but not registered external_id=%s; re-upload the report: %w",
 			urlResp.ExternalID, err)
 	}
@@ -503,7 +503,7 @@ func getPresignedURL(
 		DiffByFile:    enc.DiffByFile,
 	}
 
-	accountID := ctx.Auth.AccountID
+	accountID := params.accountID
 	raw, _, err := client.New(ctx).DoRequest(client.Request{
 		Method: "POST",
 		Path:   uploadPath(accountID),
@@ -546,8 +546,7 @@ func putReportBytes(ctx context.Context, location string, data []byte) error {
 	return nil
 }
 
-func completeReport(ctx *cmdctx.Ctx, externalID string) error {
-	accountID := ctx.Auth.AccountID
+func completeReport(ctx *cmdctx.Ctx, accountID, externalID string) error {
 	_, _, err := client.New(ctx).DoRequest(client.Request{
 		Method: "PUT",
 		Path:   completePath(accountID, externalID),

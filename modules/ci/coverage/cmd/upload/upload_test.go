@@ -502,13 +502,11 @@ func TestCoverageUpload_StorageUploadFailureStopsBeforeComplete(t *testing.T) {
 	}
 }
 
-// TestCoverageUpload_AllCallsUseTheAuthAccountID is a regression test for a
-// bug where completeReport keyed its URL off the CI-vendor/flag
-// account instead of ctx.Auth.AccountID, diverging from ensure-repo/settings/
-// presign. f.accountID is deliberately set to a different value than
-// ctx.Auth.AccountID: every handler is registered only under the auth
-// account's path, so a stray params.accountID reference 404s.
-func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
+// TestCoverageUpload_AllCallsUseTheAccountFlag checks that every call in the
+// upload sequence is keyed off the resolved account (--account), not
+// ctx.Auth.AccountID: the handlers are registered only under the flag
+// account's path, so a stray ctx.Auth.AccountID reference 404s.
+func TestCoverageUpload_AllCallsUseTheAccountFlag(t *testing.T) {
 	withGitRemote(t, "https://example.com/test-owner/test-repo.git")
 	coverFile := uploadTestCoverageFile(t)
 
@@ -518,23 +516,23 @@ func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
 	defer server.Close()
 	storageURL := server.URL + "/storage/upload"
 
-	mux.HandleFunc(covclient.EnsureRepoPath("auth-acct"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(covclient.EnsureRepoPath("flag-acct"), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "ensure")
 		w.WriteHeader(http.StatusCreated)
 		writeCoverageJSON(t, w, covclient.EnsureRepoResponse{Repository: &covclient.Repository{ID: 7}})
 	})
-	mux.HandleFunc(covclient.RepoSettingsPath("auth-acct", 7), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(covclient.RepoSettingsPath("flag-acct", 7), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "settings")
 		writeCoverageJSON(t, w, covclient.RepoSettings{})
 	})
-	mux.HandleFunc(uploadPath("auth-acct"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(uploadPath("flag-acct"), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "presign")
 		writeCoverageJSON(t, w, signURLResponse{ExternalID: "ext-1", Location: storageURL})
 	})
 	mux.HandleFunc("/storage/upload", func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "put")
 	})
-	mux.HandleFunc(completePath("auth-acct", "ext-1"), func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(completePath("flag-acct", "ext-1"), func(w http.ResponseWriter, _ *http.Request) {
 		calls = append(calls, "complete")
 		w.WriteHeader(http.StatusOK)
 	})
@@ -545,7 +543,7 @@ func TestCoverageUpload_AllCallsUseTheAuthAccountID(t *testing.T) {
 	f.files = []string{coverFile}
 
 	if err := upload(ctx, f); err != nil {
-		t.Fatalf("upload() error = %v (a stray params.accountID reference 404s against this server)", err)
+		t.Fatalf("upload() error = %v (a stray ctx.Auth.AccountID reference 404s against this server)", err)
 	}
 
 	want := []string{"ensure", "settings", "presign", "put", "complete"}
