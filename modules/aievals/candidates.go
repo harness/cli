@@ -349,9 +349,6 @@ func attachStagingSupplements(candidate *Candidate, raw map[string]any) error {
 		if string(encoded) == "null" || string(encoded) == "[]" {
 			return fmt.Errorf("metrics must be a non-empty list when provided")
 		}
-		if err := rejectMetricSecrets(encoded); err != nil {
-			return err
-		}
 		decoder := json.NewDecoder(bytes.NewReader(encoded))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&candidate.Metrics); err != nil {

@@ -33,6 +33,7 @@ var (
 	camelBoundary      = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 	tokenSplit         = regexp.MustCompile(`[^a-z0-9]+`)
 	queryInputTemplate = regexp.MustCompile(`\{\{\s*(?:input|metadata)\b`)
+	templateDelimiter  = regexp.MustCompile(`\{\{|\}\}`)
 	secretShapedValue  = regexp.MustCompile(`(?i)(?:` +
 		`\bbearer\s+\S+|\bbasic\s+\S+|\bakia[0-9a-z]{16}|\basia[0-9a-z]{16}|` +
 		`\bsk-[A-Za-z0-9]|\bsk_live_[A-Za-z0-9]|\bghp_[A-Za-z0-9]|\bxox[baprs]-[A-Za-z0-9]|` +
@@ -138,7 +139,11 @@ func rejectSecretShaped(label string) error {
 }
 
 func rejectLiteralCredential(label string) error {
-	return fmt.Errorf("%s is a credential field. Use source env or source harness_secret. The literal value is not accepted.", label)
+	return fmt.Errorf("%s: credential_field: credential field is not accepted. Use source env or source harness_secret.", label)
+}
+
+func rejectLiteralTemplate(label string) error {
+	return fmt.Errorf("%s: literal_template: literal values cannot contain template delimiters. Use the relevant source/template form instead of literal.", label)
 }
 
 // decodeJSONValue preserves integers. encoding/json would otherwise turn every
@@ -374,7 +379,7 @@ func validateSource(node map[string]any, label string, header bool) error {
 		if header && !isString(value) {
 			return fmt.Errorf("%s literal value must be a string", label)
 		}
-		return ensureJSONValue(value, label+".value")
+		return validateLiteralValue(value, label+".value")
 	case "input":
 		if _, both := node["template"]; both {
 			if _, also := node["selector"]; also {
@@ -508,6 +513,76 @@ func ensureJSONValue(value any, label string) error {
 	}
 }
 
+func validateLiteralValue(value any, label string) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			childLabel := label + "." + key
+			if isCredentialName(key) || secretShaped(key) {
+				return rejectLiteralCredential(childLabel)
+			}
+			if err := validateLiteralValue(child, childLabel); err != nil {
+				return err
+			}
+		}
+		return nil
+	case []any:
+		for index, child := range typed {
+			if err := validateLiteralValue(child, fmt.Sprintf("%s[%d]", label, index)); err != nil {
+				return err
+			}
+		}
+		return nil
+	case string:
+		if secretShaped(typed) {
+			return rejectSecretShaped(label)
+		}
+		if templateDelimiter.MatchString(typed) {
+			return rejectLiteralTemplate(label)
+		}
+		return nil
+	default:
+		return ensureJSONScalar(value, label)
+	}
+}
+
+func validateMetricConfig(value any, label string) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		if typed["source"] == "literal" {
+			if literal, ok := typed["value"]; ok {
+				if err := validateLiteralValue(literal, label+".value"); err != nil {
+					return err
+				}
+			}
+		}
+		for key, child := range typed {
+			childLabel := label + "." + key
+			if isCredentialName(key) || secretShaped(key) {
+				return rejectLiteralCredential(childLabel)
+			}
+			if err := validateMetricConfig(child, childLabel); err != nil {
+				return err
+			}
+		}
+		return nil
+	case []any:
+		for index, child := range typed {
+			if err := validateMetricConfig(child, fmt.Sprintf("%s[%d]", label, index)); err != nil {
+				return err
+			}
+		}
+		return nil
+	case string:
+		if secretShaped(typed) {
+			return rejectSecretShaped(label)
+		}
+		return nil
+	default:
+		return ensureJSONScalar(value, label)
+	}
+}
+
 func validateQueryParams(raw any, label string) error {
 	if raw == nil {
 		return nil
@@ -548,10 +623,7 @@ func validateQueryValue(value any, label string) error {
 					return fmt.Errorf("%s literal source requires only source and value", label)
 				}
 				literal := object["value"]
-				if text, ok := literal.(string); ok && queryInputTemplate.MatchString(text) {
-					return queryTemplateError(label)
-				}
-				if err := ensureJSONValue(literal, label+".value"); err != nil {
+				if err := validateLiteralValue(literal, label+".value"); err != nil {
 					return err
 				}
 				return ensureQueryScalar(literal, label+".value")
@@ -1010,17 +1082,32 @@ func validateStagingMetrics(raw any) error {
 				return fmt.Errorf("%s.threshold must be a finite number", label)
 			}
 		}
+		if options, ok := body["options"]; ok && options != nil {
+			fields, ok := options.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s.options must be a mapping", label)
+			}
+			if err := validateMetricConfig(fields, label+".options"); err != nil {
+				return err
+			}
+		}
 		if config, ok := body["config"]; ok && config != nil {
 			fields, ok := config.(map[string]any)
 			if !ok {
 				return fmt.Errorf("%s.config must be a mapping", label)
 			}
 			for key := range fields {
+				if isCredentialName(key) || secretShaped(key) {
+					return rejectLiteralCredential(label + ".config." + key)
+				}
 				switch key {
 				case "metadata", "criteria", "rubric", "prompt_instructions", "allowed_topics", "role_description":
 				default:
 					return rejectUnknown(label + ".config." + publicKey(key))
 				}
+			}
+			if err := validateMetricConfig(fields, label+".config"); err != nil {
+				return err
 			}
 		}
 	}

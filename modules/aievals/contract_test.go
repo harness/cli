@@ -429,6 +429,222 @@ func TestStrictNestedSecretsAndLegacyRejection(t *testing.T) {
 	assertNoEvalFiles(t, repo)
 }
 
+func TestV1LiteralTemplateDelimitersAreRejectedByPathAndCode(t *testing.T) {
+	const template = "{{env.ONBOARDING_SECRET}}"
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+		want   string
+	}{
+		{
+			name: "body",
+			mutate: func(doc map[string]any) {
+				target := doc["target"].(map[string]any)
+				target["request_template"] = map[string]any{
+					"payload": map[string]any{
+						"source": "literal",
+						"value":  map[string]any{"nested": template},
+					},
+				}
+			},
+			want: "target.request_template.payload.value.nested",
+		},
+		{
+			name: "header",
+			mutate: func(doc map[string]any) {
+				target := doc["target"].(map[string]any)
+				target["headers"] = map[string]any{
+					"X-Request-Id": map[string]any{"source": "literal", "value": template},
+				}
+				target["auth_headers"] = map[string]any{}
+			},
+			want: "target.headers.X-Request-Id.value",
+		},
+		{
+			name: "query",
+			mutate: func(doc map[string]any) {
+				target := doc["target"].(map[string]any)
+				target["query_params"] = map[string]any{
+					"q": map[string]any{"source": "literal", "value": template},
+				}
+			},
+			want: "target.query_params.q.value",
+		},
+		{
+			name: "metric",
+			mutate: func(doc map[string]any) {
+				doc["metrics"] = []any{
+					map[string]any{
+						"kind": "answer_relevance",
+						"options": map[string]any{
+							"provider": map[string]any{
+								"source": "literal",
+								"value":  template,
+							},
+						},
+					},
+				}
+			},
+			want: "metrics[0].options.provider.value",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			doc := onboardingV1FixtureDocument()
+			test.mutate(doc)
+			err := validateV1Document(doc)
+			if err == nil {
+				t.Fatal("expected literal template rejection")
+			}
+			want := test.want + ": literal_template: literal values cannot contain template delimiters. Use the relevant source/template form instead of literal."
+			if err.Error() != want {
+				t.Fatalf("error = %q, want %q", err, want)
+			}
+			if strings.Contains(err.Error(), template) {
+				t.Fatalf("error echoed template value: %v", err)
+			}
+		})
+	}
+}
+
+func TestV1MetricConfigRejectsNestedSensitiveKeysAndValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   string
+	}{
+		{
+			name: "options key",
+			config: map[string]any{
+				"api_key": "ordinary-placeholder",
+			},
+			want: "metrics[0].options.api_key: credential_field: credential field is not accepted. Use source env or source harness_secret.",
+		},
+		{
+			name: "criteria key",
+			config: map[string]any{
+				"criteria": map[string]any{"token": "ordinary-placeholder"},
+			},
+			want: "metrics[0].options.criteria.token: credential_field: credential field is not accepted. Use source env or source harness_secret.",
+		},
+		{
+			name: "provider metadata key",
+			config: map[string]any{
+				"provider": map[string]any{
+					"metadata": map[string]any{"client_secret": "ordinary-placeholder"},
+				},
+			},
+			want: "metrics[0].options.provider.metadata.client_secret: credential_field: credential field is not accepted. Use source env or source harness_secret.",
+		},
+		{
+			name: "nested value",
+			config: map[string]any{
+				"provider": map[string]any{
+					"metadata": map[string]any{"region": "Bearer sk-live-metric-secret"},
+				},
+			},
+			want: "metrics[0].options.provider.metadata.region: credential_value: credential value is not accepted",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			doc := onboardingV1FixtureDocument()
+			doc["metrics"] = []any{
+				map[string]any{
+					"kind":    "answer_relevance",
+					"options": test.config,
+				},
+			}
+			err := validateV1Document(doc)
+			if err == nil {
+				t.Fatal("expected metric configuration rejection")
+			}
+			if err.Error() != test.want {
+				t.Fatalf("error = %q, want %q", err, test.want)
+			}
+			if strings.Contains(err.Error(), "ordinary-placeholder") ||
+				strings.Contains(err.Error(), "sk-live-metric-secret") {
+				t.Fatalf("error echoed sensitive value: %v", err)
+			}
+		})
+	}
+
+	doc := onboardingV1FixtureDocument()
+	doc["metrics"] = []any{
+		map[string]any{
+			"kind": "answer_relevance",
+			"config": map[string]any{
+				"criteria": map[string]any{"password": "ordinary-placeholder"},
+			},
+		},
+	}
+	err := validateV1Document(doc)
+	if err == nil {
+		t.Fatal("expected sensitive metric config rejection")
+	}
+	want := "metrics[0].config.criteria.password: credential_field: credential field is not accepted. Use source env or source harness_secret."
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
+	}
+	if strings.Contains(err.Error(), "ordinary-placeholder") {
+		t.Fatalf("error echoed sensitive value: %v", err)
+	}
+}
+
+func TestV1InputAndEnvSourcesRemainValidBesideLiteralPolicy(t *testing.T) {
+	doc := onboardingV1FixtureDocument()
+	target := doc["target"].(map[string]any)
+	target["request_template"] = map[string]any{
+		"input": map[string]any{"source": "input", "selector": "items.0"},
+		"env":   map[string]any{"source": "env", "name": "REGION"},
+	}
+	target["headers"] = map[string]any{
+		"X-Request-Id": map[string]any{"source": "env", "name": "REQUEST_ID"},
+	}
+	target["auth_headers"] = map[string]any{}
+	target["query_params"] = map[string]any{
+		"region": map[string]any{"source": "env", "name": "REGION"},
+	}
+	if err := validateV1Document(doc); err != nil {
+		t.Fatalf("valid input/env sources rejected: %v", err)
+	}
+}
+
+func TestLoadV1CandidateUsesRedactedMetricPolicyErrors(t *testing.T) {
+	doc := onboardingV1FixtureDocument()
+	doc["metrics"] = []any{
+		map[string]any{
+			"kind": "answer_relevance",
+			"options": map[string]any{
+				"provider": map[string]any{
+					"metadata": map[string]any{"api_key": "ordinary-placeholder"},
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "candidate.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = LoadCandidateFile(path)
+	if err == nil {
+		t.Fatal("expected sensitive metric configuration rejection")
+	}
+	want := "metrics[0].options.provider.metadata.api_key: credential_field: credential field is not accepted. Use source env or source harness_secret."
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
+	}
+	if strings.Contains(err.Error(), "ordinary-placeholder") {
+		t.Fatalf("error echoed sensitive value: %v", err)
+	}
+}
+
 func TestGoldenCandidateSerialization(t *testing.T) {
 	got, err := SerializeOnboardingV1Candidate()
 	if err != nil {
