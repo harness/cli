@@ -2,7 +2,9 @@ package har
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"io"
 	http2 "net/http"
@@ -50,8 +52,17 @@ func (c *client) uploadExists(
 		if !ok {
 			return false, fmt.Errorf("cannot parse RPM file name %q", fileName)
 		}
-		return c.existsAt(ctx, http2.MethodGet, base,
+		exists, err := c.existsAt(ctx, http2.MethodGet, base,
 			fmt.Sprintf("rpm/package/%s/%s/%s/%s", name, versionRelease, arch, fileName), nil)
+		if err != nil || exists {
+			return exists, err
+		}
+		// HAR's version and download path include the epoch, which the file name lacks.
+		files, err := c.rpmRepodataFiles(ctx, base)
+		if err != nil {
+			return false, err
+		}
+		return files[fileName], nil
 	case types.CONAN:
 		return c.existsAt(ctx, http2.MethodGet, base, conanFilePath(metadata), nil)
 	case types.DEBIAN:
@@ -111,8 +122,9 @@ func conanFilePath(metadata map[string]interface{}) string {
 
 // debianFileExists looks the file up in its distribution's index rather than in the
 // pool, which HAR shares across distributions: a pool hit does not mean the file is
-// published in this distribution. Source files are listed under their .dsc's Sources
-// entry only once attached to that distribution's .dsc.
+// published in this distribution. A source file is matched within its own .dsc's
+// Sources entry: an .orig tarball shared by several revisions is attached to each
+// revision's .dsc separately.
 func (c *client) debianFileExists(
 	ctx context.Context,
 	base, fileName string,
@@ -122,8 +134,17 @@ func (c *client) debianFileExists(
 	component, _ := metadata["component"].(string)
 	fileType, _ := metadata["fileType"].(string)
 	var rel string
+	key := fileName
 	switch fileType {
-	case "dsc", "src":
+	case "src":
+		packageName, _ := metadata["packageName"].(string)
+		sourceVersion, _ := metadata["sourceVersion"].(string)
+		if packageName == "" || sourceVersion == "" {
+			return false, fmt.Errorf("missing package name or version for debian source file %q", fileName)
+		}
+		key = debianSourceKey(packageName, sourceVersion, fileName)
+		rel = fmt.Sprintf("debian/dists/%s/%s/source/Sources", distribution, component)
+	case "dsc":
 		rel = fmt.Sprintf("debian/dists/%s/%s/source/Sources", distribution, component)
 	case "", "deb":
 		stem := strings.TrimSuffix(fileName, ".deb")
@@ -136,68 +157,194 @@ func (c *client) debianFileExists(
 	if err != nil {
 		return false, err
 	}
-	return files[fileName], nil
+	return files[key], nil
 }
 
-type debianIndex struct {
+func debianSourceKey(packageName, version, fileName string) string {
+	return packageName + "\x00" + version + "\x00" + fileName
+}
+
+type packageIndex struct {
 	mu    sync.Mutex
 	files map[string]bool
 }
 
-// debianIndexFiles returns the file names listed in a Packages or Sources index,
-// fetched once per run. Failed fetches are not cached so a retry refetches.
-func (c *client) debianIndexFiles(ctx context.Context, base, rel string) (map[string]bool, error) {
-	c.debianIndexesMu.Lock()
-	if c.debianIndexes == nil {
-		c.debianIndexes = map[string]*debianIndex{}
+// cachedIndex loads a destination index once per run. Failed loads are not cached
+// so a retry reloads.
+func (c *client) cachedIndex(key string, load func() (map[string]bool, error)) (map[string]bool, error) {
+	c.indexesMu.Lock()
+	if c.indexes == nil {
+		c.indexes = map[string]*packageIndex{}
 	}
-	idx := c.debianIndexes[base+rel]
+	idx := c.indexes[key]
 	if idx == nil {
-		idx = &debianIndex{}
-		c.debianIndexes[base+rel] = idx
+		idx = &packageIndex{}
+		c.indexes[key] = idx
 	}
-	c.debianIndexesMu.Unlock()
+	c.indexesMu.Unlock()
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	if idx.files != nil {
 		return idx.files, nil
 	}
-	body, found, err := c.fetchWithoutLeakingAuth(ctx, base, rel)
+	files, err := load()
 	if err != nil {
 		return nil, err
-	}
-	files := map[string]bool{}
-	if found {
-		defer body.Close()
-		if err := parseDebianIndex(body, files); err != nil {
-			return nil, fmt.Errorf("failed to read '%s': %w", rel, err)
-		}
 	}
 	idx.files = files
 	return files, nil
 }
 
+// debianIndexFiles returns the file names listed in a Packages or Sources index.
+func (c *client) debianIndexFiles(ctx context.Context, base, rel string) (map[string]bool, error) {
+	return c.cachedIndex(base+rel, func() (map[string]bool, error) {
+		body, found, err := c.fetchWithoutLeakingAuth(ctx, base, rel)
+		if err != nil {
+			return nil, err
+		}
+		files := map[string]bool{}
+		if found {
+			defer body.Close()
+			if err := parseDebianIndex(body, files); err != nil {
+				return nil, fmt.Errorf("failed to read '%s': %w", rel, err)
+			}
+		}
+		return files, nil
+	})
+}
+
+// rpmRepodataFiles returns "<name>-<version>-<release>.<arch>.rpm" for every package
+// in the registry's primary repodata, whatever its epoch.
+func (c *client) rpmRepodataFiles(ctx context.Context, base string) (map[string]bool, error) {
+	return c.cachedIndex(base+"rpm/repodata", func() (map[string]bool, error) {
+		primary, err := c.rpmPrimaryLocation(ctx, base)
+		if err != nil || primary == "" {
+			return map[string]bool{}, err
+		}
+		body, found, err := c.fetchWithoutLeakingAuth(ctx, base, "rpm/"+primary)
+		if err != nil {
+			return nil, err
+		}
+		files := map[string]bool{}
+		if found {
+			defer body.Close()
+			if err := parseRPMPrimary(body, files); err != nil {
+				return nil, fmt.Errorf("failed to read '%s': %w", primary, err)
+			}
+		}
+		return files, nil
+	})
+}
+
+func (c *client) rpmPrimaryLocation(ctx context.Context, base string) (string, error) {
+	body, found, err := c.fetchWithoutLeakingAuth(ctx, base, "rpm/repodata/repomd.xml")
+	if err != nil || !found {
+		return "", err
+	}
+	defer body.Close()
+	var repomd struct {
+		Data []struct {
+			Type     string `xml:"type,attr"`
+			Location struct {
+				Href string `xml:"href,attr"`
+			} `xml:"location"`
+		} `xml:"data"`
+	}
+	if err := xml.NewDecoder(body).Decode(&repomd); err != nil {
+		return "", fmt.Errorf("failed to read repomd.xml: %w", err)
+	}
+	for _, d := range repomd.Data {
+		if d.Type == "primary" {
+			return d.Location.Href, nil
+		}
+	}
+	return "", nil
+}
+
+// parseRPMPrimary accepts gzip or plain XML: HAR serves primary.xml.gz uncompressed.
+func parseRPMPrimary(r io.Reader, files map[string]bool) error {
+	br := bufio.NewReader(r)
+	if magic, _ := br.Peek(2); len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		gz, err := gzip.NewReader(br)
+		if err != nil {
+			return err
+		}
+		defer gz.Close()
+		r = gz
+	} else {
+		r = br
+	}
+	decoder := xml.NewDecoder(r)
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || start.Name.Local != "package" {
+			continue
+		}
+		var pkg struct {
+			Name    string `xml:"name"`
+			Arch    string `xml:"arch"`
+			Version struct {
+				Ver string `xml:"ver,attr"`
+				Rel string `xml:"rel,attr"`
+			} `xml:"version"`
+		}
+		if err := decoder.DecodeElement(&pkg, &start); err != nil {
+			return err
+		}
+		files[fmt.Sprintf("%s-%s-%s.%s.rpm", pkg.Name, pkg.Version.Ver, pkg.Version.Rel, pkg.Arch)] = true
+	}
+}
+
 // parseDebianIndex collects file names from "Filename:" fields (Packages) and from
-// the Files/Checksums sections (Sources).
+// the Files/Checksums sections (Sources). Sources files are also recorded under
+// debianSourceKey for their entry's package and version.
 func parseDebianIndex(r io.Reader, files map[string]bool) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	var packageName, version string
+	var entryFiles []string
+	flush := func() {
+		for _, name := range entryFiles {
+			files[name] = true
+			files[debianSourceKey(packageName, version, name)] = true
+		}
+		packageName, version, entryFiles = "", "", nil
+	}
 	inFileList := false
 	for scanner.Scan() {
 		line := scanner.Text()
-		if line != "" && line[0] != ' ' && line[0] != '\t' {
+		if line == "" {
+			flush()
+			inFileList = false
+			continue
+		}
+		if line[0] != ' ' && line[0] != '\t' {
 			field, value, _ := strings.Cut(line, ":")
+			value = strings.TrimSpace(value)
 			inFileList = field == "Files" || strings.HasPrefix(field, "Checksums-")
-			if field == "Filename" {
-				files[path.Base(strings.TrimSpace(value))] = true
+			switch field {
+			case "Filename":
+				files[path.Base(value)] = true
+			case "Package":
+				packageName = value
+			case "Version":
+				version = value
 			}
 			continue
 		}
 		if fields := strings.Fields(line); inFileList && len(fields) >= 3 {
-			files[fields[2]] = true
+			entryFiles = append(entryFiles, fields[2])
 		}
 	}
+	flush()
 	return scanner.Err()
 }
 

@@ -1,6 +1,8 @@
 package har
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -120,9 +122,10 @@ func TestDebianFileExistsUsesDistributionIndex(t *testing.T) {
 		dists + "stable/main/binary-amd64/Packages": "Package: demo\nVersion: 1.0\n" +
 			"Filename: pool/main/d/demo/1.0/demo_1.0_amd64.deb\n\nPackage: other\n" +
 			"Filename: pool/main/o/other/2.0/other_2.0_amd64.deb\n",
-		dists + "stable/main/source/Sources": "Package: demo\nVersion: 1.0\nFiles:\n" +
-			" 0123 10 demo_1.0.dsc\n 4567 20 demo_1.0.orig.tar.gz\nChecksums-Sha256:\n 89ab 10 demo_1.0.dsc\n",
-		dists + "testing/main/source/Sources": "Package: demo\nVersion: 1.0\nFiles:\n 0123 10 demo_1.0.dsc\n",
+		dists + "stable/main/source/Sources": "Package: demo\nVersion: 1.0-1\nFiles:\n" +
+			" 0123 10 demo_1.0-1.dsc\n 4567 20 demo_1.0.orig.tar.gz\nChecksums-Sha256:\n 89ab 10 demo_1.0-1.dsc\n\n" +
+			"Package: demo\nVersion: 1.0-2\nFiles:\n 0124 10 demo_1.0-2.dsc\n",
+		dists + "testing/main/source/Sources":                             "Package: demo\nVersion: 1.0-1\nFiles:\n 0123 10 demo_1.0-1.dsc\n",
 		"/pkg/acct1/reg/debian/pool/main/d/demo/1.0/demo_1.0.orig.tar.gz": "orig",
 	}
 	requests := map[string]int{}
@@ -139,21 +142,23 @@ func TestDebianFileExistsUsesDistributionIndex(t *testing.T) {
 	c := &client{client: &http.Client{}, url: srv.URL, accountID: "acct1"}
 
 	tests := []struct {
-		name, file, dist, fileType string
-		want                       bool
+		name, file, dist, fileType, srcVersion string
+		want                                   bool
 	}{
-		{"deb listed", "demo_1.0_amd64.deb", "stable", "deb", true},
-		{"deb in same index", "other_2.0_amd64.deb", "stable", "deb", true},
-		{"deb not listed", "demo_2.0_amd64.deb", "stable", "deb", false},
-		{"pool shared but other distribution has no index", "demo_1.0_amd64.deb", "testing", "deb", false},
-		{"dsc listed in Sources", "demo_1.0.dsc", "stable", "dsc", true},
-		{"source file attached in this distribution", "demo_1.0.orig.tar.gz", "stable", "src", true},
+		{"deb listed", "demo_1.0_amd64.deb", "stable", "deb", "", true},
+		{"deb in same index", "other_2.0_amd64.deb", "stable", "deb", "", true},
+		{"deb not listed", "demo_2.0_amd64.deb", "stable", "deb", "", false},
+		{"pool shared but other distribution has no index", "demo_1.0_amd64.deb", "testing", "deb", "", false},
+		{"dsc listed in Sources", "demo_1.0-2.dsc", "stable", "dsc", "", true},
+		{"source file attached to its own revision", "demo_1.0.orig.tar.gz", "stable", "src", "1.0-1", true},
+		{"orig attached only to another revision", "demo_1.0.orig.tar.gz", "stable", "src", "1.0-2", false},
 		{"source file in pool but not attached to this distribution", "demo_1.0.orig.tar.gz", "testing", "src",
-			false},
+			"1.0-1", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta := map[string]interface{}{"distribution": tt.dist, "component": "main", "fileType": tt.fileType}
+			meta := map[string]interface{}{"distribution": tt.dist, "component": "main", "fileType": tt.fileType,
+				"packageName": "demo", "sourceVersion": tt.srcVersion}
 			got, err := c.uploadExists(context.Background(), "reg", &types.File{Uri: "pool/" + tt.file}, tt.file,
 				tt.file, types.DEBIAN, meta)
 			if err != nil {
@@ -166,6 +171,42 @@ func TestDebianFileExistsUsesDistributionIndex(t *testing.T) {
 	}
 	if n := requests[dists+"stable/main/binary-amd64/Packages"]; n != 1 {
 		t.Errorf("Packages fetched %d times, want 1", n)
+	}
+}
+
+func TestRPMExistsWithEpochUsesRepodata(t *testing.T) {
+	const primary = `<metadata><package type="rpm"><name>demo</name><arch>x86_64</arch>` +
+		`<version epoch="2" ver="1.0" rel="1"/></package></metadata>`
+	var gz bytes.Buffer
+	w := gzip.NewWriter(&gz)
+	_, _ = w.Write([]byte(primary))
+	_ = w.Close()
+
+	for name, body := range map[string][]byte{"plain": []byte(primary), "gzip": gz.Bytes()} {
+		t.Run(name, func(t *testing.T) {
+			const repo = "/pkg/acct1/reg/rpm/"
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case repo + "repodata/repomd.xml":
+					_, _ = w.Write([]byte(`<repomd><data type="primary">` +
+						`<location href="repodata/abc-primary.xml.gz"/></data></repomd>`))
+				case repo + "repodata/abc-primary.xml.gz":
+					_, _ = w.Write(body)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer srv.Close()
+			c := &client{client: &http.Client{}, url: srv.URL, accountID: "acct1"}
+
+			for file, want := range map[string]bool{"demo-1.0-1.x86_64.rpm": true, "demo-1.0-2.x86_64.rpm": false} {
+				got, err := c.uploadExists(context.Background(), "reg", &types.File{Uri: "x86_64/" + file}, "", "",
+					types.RPM, nil)
+				if err != nil || got != want {
+					t.Errorf("%s: exists = %v, err = %v; want %v", file, got, err, want)
+				}
+			}
+		})
 	}
 }
 

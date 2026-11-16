@@ -113,8 +113,8 @@ type client struct {
 	pkgClient *ar_pkg.ClientWithResponses
 	accountID string
 
-	debianIndexesMu sync.Mutex
-	debianIndexes   map[string]*debianIndex
+	indexesMu sync.Mutex
+	indexes   map[string]*packageIndex
 }
 
 // uploadGenericFile, headRawFile, and uploadRawFile build the request URL manually

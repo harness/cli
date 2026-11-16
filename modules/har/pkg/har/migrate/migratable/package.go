@@ -1309,6 +1309,7 @@ func (r *Package) migrateDebianSourceFiles(ctx context.Context) {
 			"packageName":  r.pkg.Metadata["packageName"],
 		}
 		fullVersion := r.pkg.Metadata["fullVersion"]
+		srcMeta["sourceVersion"] = fullVersion
 		if strings.Contains(srcFileName, ".orig.tar.") {
 			srcMeta["version"] = extractUpstreamVersion(fullVersion)
 		} else {

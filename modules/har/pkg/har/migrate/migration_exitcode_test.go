@@ -24,6 +24,7 @@ type fakeDestAdapter struct {
 	uploads  []string         // URIs successfully uploaded
 	failWith map[string]error // uri -> error to return from UploadFile
 	failAll  error            // when non-nil, every upload fails
+	indexErr error            // returned by BuildExistingIndex
 }
 
 func (f *fakeDestAdapter) GetKeyChain(string) (authn.Keychain, error) { return nil, nil }
@@ -74,7 +75,7 @@ func (f *fakeDestAdapter) GetAllFilesForVersion(context.Context, string, string,
 	return nil, nil
 }
 func (f *fakeDestAdapter) BuildExistingIndex(context.Context, string, int) (*types.ExistingIndex, error) {
-	return nil, nil
+	return nil, f.indexErr
 }
 func (f *fakeDestAdapter) CreateVersion(string, string, string, types.ArtifactType, []*types.PackageFiles, map[string]interface{}) error {
 	return nil
@@ -146,6 +147,36 @@ func TestRunSucceedsOnCleanMigration(t *testing.T) {
 	uploads := dest.uploadedURIs()
 	if len(uploads) != 3 {
 		t.Fatalf("expected 3 uploads, got %d: %v", len(uploads), uploads)
+	}
+}
+
+func TestRunIndexFailure(t *testing.T) {
+	tests := []struct {
+		artifactType types.ArtifactType
+		srcReg       string
+		wantErr      bool
+	}{
+		{types.MAVEN, "maven-local", true},
+		{types.NPM, "npm-local", true},
+		{types.NUGET, "nuget-local", false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.artifactType), func(t *testing.T) {
+			cfg := &types.Config{
+				Concurrency: 1,
+				Mappings:    []types.RegistryMapping{baseMapping(tt.artifactType, tt.srcReg)},
+			}
+			dest := &fakeDestAdapter{indexErr: types.NewStatusError(http.StatusForbidden, "forbidden")}
+
+			err := newMockBackedService(cfg, dest).Run(context.Background())
+			uploads := dest.uploadedURIs()
+			if tt.wantErr && (err == nil || len(uploads) != 0) {
+				t.Fatalf("err = %v, uploads = %v; want an error and no uploads", err, uploads)
+			}
+			if !tt.wantErr && (err != nil || len(uploads) == 0) {
+				t.Fatalf("err = %v, uploads = %v; want per-version fallback to migrate", err, uploads)
+			}
+		})
 	}
 }
 

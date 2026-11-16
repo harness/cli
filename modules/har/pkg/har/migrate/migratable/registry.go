@@ -332,12 +332,23 @@ func (r *Registry) Migrate(ctx context.Context) error {
 	var existingIndex *types.ExistingIndex
 	if !r.config.DryRun && !r.config.Overwrite && indexApplicable(r.artifactType) {
 		indexProgress := console.StartStage(fmt.Sprintf("Indexing artifacts already in destination registry %s", r.registry.Path))
-		idx, idxErr := r.destAdapter.BuildExistingIndex(ctx, r.registry.Path, r.config.Concurrency)
-		if idxErr != nil {
+		idx, idxErr := checkExistsWithRetry(ctx, logger, func() (*types.ExistingIndex, error) {
+			return r.destAdapter.BuildExistingIndex(ctx, r.registry.Path, r.config.Concurrency)
+		})
+		switch {
+		case idxErr != nil && (r.artifactType == types.MAVEN || r.artifactType == types.NPM):
+			// Version.Pre has no per-version lookup for these types, so the index is their only check.
+			err := existenceCheckError(fmt.Errorf("index destination registry %s: %w", r.registry.Path, idxErr))
+			indexProgress.Fail(fmt.Sprintf("Could not index destination registry %s; not migrating %s",
+				r.registry.Path, r.srcRegistry))
+			logger.Error().Err(idxErr).Msg("Failed to build existing index")
+			util.AddRegistryErrorToStat(r.stats, r.srcRegistry, err)
+			return err
+		case idxErr != nil:
 			indexProgress.Warn(fmt.Sprintf(
 				"Could not index destination registry %s; falling back to per-version lookups", r.registry.Path))
 			logger.Warn().Err(idxErr).Msg("Failed to build existing index, falling back to per-version checks")
-		} else {
+		default:
 			existingIndex = idx
 			indexedPkgs, indexedVersions, indexedFiles := idx.Stats()
 			indexedMsg := fmt.Sprintf(
