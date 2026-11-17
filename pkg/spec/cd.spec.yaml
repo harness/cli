@@ -298,6 +298,50 @@ commands:
       method: DELETE
       path: /ng/api/environmentsV2/{{ctx.id}}
 
+  - command: execute environment:move_configs
+    verb: execute
+    noun: environment
+    noun_variant: move_configs
+    short: "Move an environment's YAML between inline and Git: harness execute environment:move_configs <env_id> --move-type INLINE_TO_REMOTE --repo <repo> --branch <branch> --file-path <path> (--connector <ref> | --harness-code)"
+    handler_type: endpoint
+    flags:
+      - name: move-type
+        description: "Direction of the move: INLINE_TO_REMOTE or REMOTE_TO_INLINE"
+        required: true
+      - name: connector
+        description: Git connector reference (not needed with --harness-code)
+        completion_noun: connector
+      - name: repo
+        description: Repository name
+      - name: branch
+        description: Branch to write to
+      - name: file-path
+        description: File path in the repository
+      - name: commit-msg
+        description: Commit message
+      - name: new-branch
+        is_bool: true
+        description: Create the branch instead of using an existing one
+      - name: base-branch
+        description: Base branch to create --branch from
+      - name: harness-code
+        is_bool: true
+        description: Store in a Harness Code repository
+    endpoint:
+      method: POST
+      path: /ng/api/environmentsV2/move-config/{{ctx.id}}
+      item_expr: it.data
+      query_params:
+        moveConfigType: flags["move-type"]
+        connectorRef: 'flags.connector != "" ? flags.connector : nil'
+        repoName: 'flags.repo != "" ? flags.repo : nil'
+        branch: 'flags.branch != "" ? flags.branch : nil'
+        filePath: 'flags["file-path"] != "" ? flags["file-path"] : nil'
+        commitMsg: 'flags["commit-msg"] != "" ? flags["commit-msg"] : nil'
+        isNewBranch: 'flags["new-branch"] ? "true" : nil'
+        baseBranch: 'flags["base-branch"] != "" ? flags["base-branch"] : nil'
+        isHarnessCodeRepo: 'flags["harness-code"] ? "true" : nil'
+
   # ── infrastructure ────────────────────────────────────────────────────────────
 
   - command: list infrastructure
@@ -406,6 +450,54 @@ commands:
       path: /ng/api/infrastructures/{{ctx.id}}
       query_params:
         environmentIdentifier: flags.env
+
+  - command: execute infrastructure:move_configs
+    verb: execute
+    noun: infrastructure
+    noun_variant: move_configs
+    short: "Move an infrastructure's YAML between inline and Git: harness execute infrastructure:move_configs <infra_id> --env <environment_id> --move-type INLINE_TO_REMOTE --repo <repo> --branch <branch> --file-path <path> (--connector <ref> | --harness-code)"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+      - name: move-type
+        description: "Direction of the move: INLINE_TO_REMOTE or REMOTE_TO_INLINE"
+        required: true
+      - name: connector
+        description: Git connector reference (not needed with --harness-code)
+        completion_noun: connector
+      - name: repo
+        description: Repository name
+      - name: branch
+        description: Branch to write to
+      - name: file-path
+        description: File path in the repository
+      - name: commit-msg
+        description: Commit message
+      - name: new-branch
+        is_bool: true
+        description: Create the branch instead of using an existing one
+      - name: base-branch
+        description: Base branch to create --branch from
+      - name: harness-code
+        is_bool: true
+        description: Store in a Harness Code repository
+    endpoint:
+      method: POST
+      path: /ng/api/infrastructures/move-config/{{ctx.id}}
+      item_expr: it.data
+      query_params:
+        environmentIdentifier: flags.env
+        moveConfigType: flags["move-type"]
+        connectorRef: 'flags.connector != "" ? flags.connector : nil'
+        repoName: 'flags.repo != "" ? flags.repo : nil'
+        branch: 'flags.branch != "" ? flags.branch : nil'
+        filePath: 'flags["file-path"] != "" ? flags["file-path"] : nil'
+        commitMsg: 'flags["commit-msg"] != "" ? flags["commit-msg"] : nil'
+        isNewBranch: 'flags["new-branch"] ? "true" : nil'
+        baseBranch: 'flags["base-branch"] != "" ? flags["base-branch"] : nil'
+        isHarnessCodeRepo: 'flags["harness-code"] ? "true" : nil'
 
   # ── service_override ──────────────────────────────────────────────────────────
 
