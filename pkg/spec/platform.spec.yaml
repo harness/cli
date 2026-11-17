@@ -1125,12 +1125,12 @@ commands:
       - name: principal
         description: "Filter by principal (email, service account/user group identifier, or Harness UID)"
         flag_resolve_fn: resolve_principal_id
-      - name: principal_type
+      - name: principal-type
         description: "Filter by principal type: USER, USER_GROUP, SERVICE_ACCOUNT"
         completion_values: [USER, USER_GROUP, SERVICE_ACCOUNT]
       - name: role
         description: Filter by role identifier
-      - name: resource_group
+      - name: resource-group
         description: Filter by resource group identifier
     endpoint:
       method: POST
@@ -1142,10 +1142,10 @@ commands:
         id_expr: it.roleAssignment.identifier
         name_expr: it.roleAssignment.identifier
       body_params:
-        principalFilter: "!isBlank(flags.principal) ? [{identifier: flags.principal, type: flags.principal_type}] : nil"
-        principalTypeFilter: "isBlank(flags.principal) && !isBlank(flags.principal_type) ? [flags.principal_type] : nil"
+        principalFilter: '!isBlank(flags.principal) ? [{identifier: flags.principal, type: flags["principal-type"]}] : nil'
+        principalTypeFilter: 'isBlank(flags.principal) && !isBlank(flags["principal-type"]) ? [flags["principal-type"]] : nil'
         roleFilter: "!isBlank(flags.role) ? [flags.role] : nil"
-        resourceGroupFilter: "!isBlank(flags.resource_group) ? [flags.resource_group] : nil"
+        resourceGroupFilter: '!isBlank(flags["resource-group"]) ? [flags["resource-group"]] : nil'
       paging:
         paging_strategy: page_index
         countable: true
