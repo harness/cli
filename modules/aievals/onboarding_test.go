@@ -82,8 +82,12 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 		"Never omit `metrics` in this workflow",
 		"harness stage eval_onboarding",
 		"harness run eval_onboarding",
+		"--report-json <absolute-path>",
+		"prints the report path only after a successful runner exit",
+		"does not upload or persist anything",
 		"harness upload eval_onboarding",
 		"--persist-report <path>",
+		"### Optional Stage 5. Persist Results",
 		"Persist this completed local result in Harness?",
 		"--api-base-path /",
 		"--profile <name>",
@@ -2018,6 +2022,11 @@ func TestRunnerBootstrapAndOnboardArgs(t *testing.T) {
 	if !containsString(seen, want) {
 		t.Fatalf("commands = %v\nwant %s", seen, want)
 	}
+	for _, command := range seen {
+		if strings.Contains(command, "--report-json") {
+			t.Fatalf("report flag was forwarded without a report path: %s", command)
+		}
+	}
 	if !containsString(seenEnv, "HARNESS_API_KEY=pat.acct.id.secret") || !containsString(seenEnv, "HARNESS_ORG_ID=myorg") || !containsString(seenEnv, "HARNESS_PROJECT_ID=myproj") {
 		t.Fatalf("env = %v", seenEnv)
 	}
@@ -2045,6 +2054,109 @@ func TestRunnerBootstrapAndOnboardArgs(t *testing.T) {
 	satEnv, satNotice := RunnerProcessEnv(satAuth())
 	if satNotice != "" || !containsString(satEnv, "HARNESS_API_KEY=sat.acct.id.secret") {
 		t.Fatalf("sat env=%v notice=%s", satEnv, satNotice)
+	}
+}
+
+func TestRunAgentForwardsReportJSONUnchanged(t *testing.T) {
+	home := t.TempDir()
+	touch(t, filepath.Join(home, "bin", "python"))
+	touch(t, filepath.Join(home, "bin", "ai-evals"))
+	if err := writeHandshake(home); err != nil {
+		t.Fatal(err)
+	}
+	root := writeV1RunTree(t)
+	reportPath := filepath.Join(t.TempDir(), "local-report.json")
+	var actual []string
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case filepath.Base(name) == "python":
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case filepath.Base(name) == "ai-evals" && len(args) == 2 && args[0] == OnboardCommand && args[1] == "--help":
+			return CommandResult{}, nil
+		case filepath.Base(name) == "ai-evals":
+			actual = append([]string{name}, args...)
+			if err := os.WriteFile(reportPath, []byte(`{"status":"completed"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return CommandResult{}, nil
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+			return CommandResult{}, nil
+		}
+	}
+	var stdout bytes.Buffer
+	code, err := RunAgentWithReport(home, root, "support", "local", reportPath, nil, io.Discard, &stdout, run)
+	if code != 0 || err != nil {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	want := OnboardArgsWithReport(filepath.Join(home, "bin", "ai-evals"), root, "support", "local", reportPath)
+	if !reflect.DeepEqual(actual, want) {
+		t.Fatalf("onboard args = %#v, want %#v", actual, want)
+	}
+	if stdout.String() != "Report "+reportPath+"\n" {
+		t.Fatalf("report announcement = %q", stdout.String())
+	}
+}
+
+func TestRunAgentWithReportRejectsSourceTreePathBeforeRunner(t *testing.T) {
+	root := writeV1RunTree(t)
+	reportPath := filepath.Join(filepath.Dir(filepath.Dir(root)), "local-report.json")
+	invoked := false
+	run := func(string, []string, []string, string) (CommandResult, error) {
+		invoked = true
+		return CommandResult{}, nil
+	}
+	code, err := RunAgentWithReport(
+		t.TempDir(),
+		root,
+		"support",
+		"local",
+		reportPath,
+		nil,
+		io.Discard,
+		io.Discard,
+		run,
+	)
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "outside the repository source tree") {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	if invoked {
+		t.Fatal("unsafe report path invoked the runner")
+	}
+}
+
+func TestRunAgentWithReportDoesNotClaimFailedReport(t *testing.T) {
+	home := t.TempDir()
+	touch(t, filepath.Join(home, "bin", "python"))
+	touch(t, filepath.Join(home, "bin", "ai-evals"))
+	if err := writeHandshake(home); err != nil {
+		t.Fatal(err)
+	}
+	root := writeV1RunTree(t)
+	reportPath := filepath.Join(t.TempDir(), "local-report.json")
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case filepath.Base(name) == "python":
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case filepath.Base(name) == "ai-evals" && len(args) == 2 && args[0] == OnboardCommand && args[1] == "--help":
+			return CommandResult{}, nil
+		case filepath.Base(name) == "ai-evals":
+			return CommandResult{Code: 1, Stdout: "local evaluation failed"}, nil
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+			return CommandResult{}, nil
+		}
+	}
+	var stdout bytes.Buffer
+	code, err := RunAgentWithReport(home, root, "support", "local", reportPath, nil, io.Discard, &stdout, run)
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "local evaluation failed") {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("failed run announced a report: %q", stdout.String())
+	}
+	if _, statErr := os.Stat(reportPath); !os.IsNotExist(statErr) {
+		t.Fatalf("failed run created report: %v", statErr)
 	}
 }
 
@@ -2136,6 +2248,56 @@ func TestSourceRunnerBootstrapCopiesSourceAndWritesHandshake(t *testing.T) {
 		t.Fatal(err)
 	} else if got != wantedHandshake() {
 		t.Fatalf("handshake = %+v, want %+v", got, wantedHandshake())
+	}
+}
+
+func TestSourceRunnerBootstrapForwardsReportJSON(t *testing.T) {
+	home := t.TempDir()
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+	root := writeV1RunTree(t)
+	reportPath := filepath.Join(t.TempDir(), "source-report.json")
+	var actual []string
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case name == "uv" && len(args) > 0 && args[0] == "venv":
+			touch(t, filepath.Join(args[1], "bin", "python"))
+			touch(t, filepath.Join(args[1], "bin", "ai-evals"))
+			return CommandResult{}, nil
+		case name == "uv" && len(args) > 0 && args[0] == "pip":
+			return CommandResult{}, nil
+		case filepath.Base(name) == "python":
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case filepath.Base(name) == "ai-evals" && len(args) == 2 && args[0] == OnboardCommand && args[1] == "--help":
+			return CommandResult{}, nil
+		case filepath.Base(name) == "ai-evals":
+			actual = append([]string{name}, args...)
+			if err := os.WriteFile(reportPath, []byte(`{"status":"completed"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return CommandResult{}, nil
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+			return CommandResult{}, nil
+		}
+	}
+	look := func(name string) (string, error) {
+		if name == "uv" {
+			return "/usr/bin/uv", nil
+		}
+		return "", os.ErrNotExist
+	}
+	layout, err := EnsureRunnerFromSource(home, source, look, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := RunAgentWithReport(home, root, "support", "local", reportPath, nil, io.Discard, io.Discard, run)
+	if code != 0 || err != nil {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	want := OnboardArgsWithReport(layout.AIEvals, root, "support", "local", reportPath)
+	if !reflect.DeepEqual(actual, want) {
+		t.Fatalf("source runner args = %#v, want %#v", actual, want)
 	}
 }
 
@@ -2459,6 +2621,14 @@ func TestProvisionalCommandsRegister(t *testing.T) {
 	if !foundRunnerSource {
 		t.Fatal("setup eval_onboarding is missing the opt-in --runner-source flag")
 	}
+	run := reg.GetSpec("run", "eval_onboarding")
+	foundReportJSON := false
+	for _, flag := range run.Flags {
+		foundReportJSON = foundReportJSON || flag.Name == "report-json"
+	}
+	if !foundReportJSON {
+		t.Fatal("run eval_onboarding is missing the optional --report-json flag")
+	}
 }
 
 func assertNoEvalFiles(t *testing.T, repo string) {
@@ -2633,6 +2803,16 @@ ai-evals = "ai_evals.runner.cli:app"
 `, schema))
 	writeFixtureFile(t, root, "service/ai_evals/onboarding/load.py", "def load_onboarding_tree(root):\n    return root\n")
 	writeFixtureFile(t, root, "service/ai_evals/onboarding/runner.py", "async def run_onboarding(root, agent, environment='local'):\n    return None\n")
+}
+
+func writeV1RunTree(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	root := filepath.Join(repo, ".harness", "evals")
+	if err := writeTreeFile(root, "agents/support/agent.yaml", []byte("schema_version: onboarding/v1\n")); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
 
 func patAuth() *auth.ResolvedAuth {
