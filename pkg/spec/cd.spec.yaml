@@ -298,11 +298,11 @@ commands:
       method: DELETE
       path: /ng/api/environmentsV2/{{ctx.id}}
 
-  - command: execute environment:move_configs
+  - command: execute environment:move_config
     verb: execute
     noun: environment
-    noun_variant: move_configs
-    short: "Move an environment's YAML between inline and Git: harness execute environment:move_configs <env_id> --move-type INLINE_TO_REMOTE --repo <repo> --branch <branch> --file-path <path> (--connector <ref> | --harness-code)"
+    noun_variant: move_config
+    short: "Move an environment's YAML between inline and Git: harness execute environment:move_config <env_id> --move-type INLINE_TO_REMOTE --repo <repo> --branch <branch> --file-path <path> (--connector <ref> | --harness-code)"
     handler_type: endpoint
     flags:
       - name: move-type
@@ -330,7 +330,8 @@ commands:
     endpoint:
       method: POST
       path: /ng/api/environmentsV2/move-config/{{ctx.id}}
-      item_expr: it.data
+      text_header: "\nMoved environment {{ctx.id}}\n"
+      no_fields: true
       query_params:
         moveConfigType: flags["move-type"]
         connectorRef: 'flags.connector != "" ? flags.connector : nil'
@@ -451,11 +452,11 @@ commands:
       query_params:
         environmentIdentifier: flags.env
 
-  - command: execute infrastructure:move_configs
+  - command: execute infrastructure:move_config
     verb: execute
     noun: infrastructure
-    noun_variant: move_configs
-    short: "Move an infrastructure's YAML between inline and Git: harness execute infrastructure:move_configs <infra_id> --env <environment_id> --move-type INLINE_TO_REMOTE --repo <repo> --branch <branch> --file-path <path> (--connector <ref> | --harness-code)"
+    noun_variant: move_config
+    short: "Move an infrastructure's YAML between inline and Git: harness execute infrastructure:move_config <infra_id> --env <environment_id> --move-type INLINE_TO_REMOTE --repo <repo> --branch <branch> --file-path <path> (--connector <ref> | --harness-code)"
     handler_type: endpoint
     flags:
       - name: env
@@ -486,7 +487,8 @@ commands:
     endpoint:
       method: POST
       path: /ng/api/infrastructures/move-config/{{ctx.id}}
-      item_expr: it.data
+      text_header: "\nMoved infrastructure {{ctx.id}}\n"
+      no_fields: true
       query_params:
         environmentIdentifier: flags.env
         moveConfigType: flags["move-type"]
