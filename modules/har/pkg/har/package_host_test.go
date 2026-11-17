@@ -52,8 +52,21 @@ func TestWithPackageHost(t *testing.T) {
 			registryURL: hbase.DefaultRegistryURL, wantURL: hbase.DefaultRegistryURL,
 		},
 		{
-			name: "pipeline auth is left alone", registryURL: hbase.DefaultRegistryURL, source: auth.SourcePipeline,
+			name: "pipeline host is kept", registryURL: hbase.DefaultRegistryURL, source: auth.SourcePipeline,
 			wantURL: hbase.DefaultRegistryURL,
+		},
+		{
+			name: "pipeline host without a scheme gets https", registryURL: "pkg.custom.example.com",
+			source: auth.SourcePipeline, wantURL: "https://pkg.custom.example.com",
+		},
+		{
+			name: "empty pipeline host is looked up", registryURL: "", source: auth.SourcePipeline,
+			status: http.StatusOK, body: `{"data":{"registryUrl":"` + derived + `"}}`, wantLookup: true, wantURL: derived,
+		},
+		{
+			name: "failed lookup in pipeline mode says the step gave no host", registryURL: "",
+			source: auth.SourcePipeline, status: http.StatusInternalServerError, body: `{}`, wantLookup: true,
+			wantErr: "pipeline step did not provide",
 		},
 		{
 			name: "failed lookup in env mode points at the env var", registryURL: hbase.DefaultRegistryURL,
