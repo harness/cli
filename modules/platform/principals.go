@@ -38,13 +38,13 @@ func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult,
 			return nil, err
 		}
 		hlog.Debug("resolvePrincipalID: resolved email to user UUID", "raw", raw, "uuid", uuid)
-		return &cmdctx.FlagResolveResult{Value: uuid, Defaults: map[string]string{"principal_type": "USER"}}, nil
+		return &cmdctx.FlagResolveResult{Value: uuid, Defaults: principalTypeDefaults("USER")}, nil
 	}
 	if harnessUIDRe.MatchString(raw) {
 		hlog.Debug("resolvePrincipalID: raw matches Harness UID shape, treating as USER", "raw", raw)
-		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal_type": "USER"}}, nil
+		return &cmdctx.FlagResolveResult{Value: raw, Defaults: principalTypeDefaults("USER")}, nil
 	}
-	if principalType, _ := ctx.FlagValues["principal_type"].(string); principalType != "" {
+	if principalType := explicitPrincipalType(ctx); principalType != "" {
 		hlog.Debug("resolvePrincipalID: --principal_type already set, skipping probe", "raw", raw, "principal_type", principalType)
 		return &cmdctx.FlagResolveResult{Value: raw}, nil
 	}
@@ -64,13 +64,28 @@ func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult,
 		return nil, fmt.Errorf("%q matches both a service account and a user group; set --principal_type to disambiguate", raw)
 	case isServiceAccount:
 		warnIfBroaderScope(ctx, raw, "SERVICE_ACCOUNT", saScope)
-		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal_type": "SERVICE_ACCOUNT"}}, nil
+		return &cmdctx.FlagResolveResult{Value: raw, Defaults: principalTypeDefaults("SERVICE_ACCOUNT")}, nil
 	case isUserGroup:
 		warnIfBroaderScope(ctx, raw, "USER_GROUP", ugScope)
-		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal_type": "USER_GROUP"}}, nil
+		return &cmdctx.FlagResolveResult{Value: raw, Defaults: principalTypeDefaults("USER_GROUP")}, nil
 	default:
 		return nil, fmt.Errorf("no service account or user group found with identifier %q; set --principal_type to specify it explicitly", raw)
 	}
+}
+
+// principalTypeDefaults sets the principal type under both flag spellings:
+// list role_assignment declares --principal_type, create role_assignment --principal-type.
+func principalTypeDefaults(t string) map[string]string {
+	return map[string]string{"principal_type": t, "principal-type": t}
+}
+
+func explicitPrincipalType(ctx *cmdctx.Ctx) string {
+	for _, k := range []string{"principal_type", "principal-type"} {
+		if v, _ := ctx.FlagValues[k].(string); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // warnIfBroaderScope prints a note to stderr when raw was only found at a

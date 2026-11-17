@@ -1177,14 +1177,14 @@ commands:
         description: "Principal (user email, service account/user group identifier, or Harness UID)"
         required: true
         flag_resolve_fn: resolve_principal_id
-      - name: principal_type
+      - name: principal-type
         description: "Principal type: USER, USER_GROUP, SERVICE_ACCOUNT (inferred from --principal when omitted)"
         completion_values: [USER, USER_GROUP, SERVICE_ACCOUNT]
       - name: role
         description: Role identifier
         required: true
         completion_noun: role
-      - name: resource_group
+      - name: resource-group
         description: Resource group identifier
         required: true
         completion_noun: resource_group
@@ -1195,9 +1195,9 @@ commands:
       text_header: "\nCreated role assignment {{it.roleAssignment.identifier}}\n"
       body_params:
         roleIdentifier: flags.role
-        resourceGroupIdentifier: flags.resource_group
+        resourceGroupIdentifier: flags["resource-group"]
         principal.identifier: flags.principal
-        principal.type: flags.principal_type
+        principal.type: flags["principal-type"]
 
   - command: delete role_assignment
     verb: delete
