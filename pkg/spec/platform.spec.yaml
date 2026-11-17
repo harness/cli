@@ -207,6 +207,7 @@ nouns:
         mutable_path: name
       - id: email
         expr: it.email
+        mutable_path: email
       - id: description
         expr: it.description
         mutable_path: description
@@ -1082,7 +1083,7 @@ commands:
       create_body_init:
         identifier: ctx.id
         name: coalesce(ctx.setArgs.name, ctx.id)
-        allowedScopeLevels: '[ctx.level == "" ? "project" : ctx.level]'
+        allowedScopeLevels: '[ctx.level == "org" ? "organization" : (ctx.level == "" ? "project" : ctx.level)]'
       item_expr: it.data
       text_header: "\nCreated role {{ctx.id}}\n"
 
@@ -1169,21 +1170,21 @@ commands:
     verb: create
     noun: role_assignment
     no_id: true
-    short: "Grant a role to a principal: harness create role_assignment --principal <id> --principal-type USER --role <role_id> --resource-group <rg_id>"
+    short: "Grant a role to a principal: harness create role_assignment --principal <email|id> --role <role_id> --resource-group <rg_id>"
     handler_type: endpoint
     flags:
       - name: principal
-        description: Principal identifier (user email, user group id or service account id)
+        description: "Principal (user email, service account/user group identifier, or Harness UID)"
         required: true
-      - name: principal-type
-        description: "Principal type: USER, USER_GROUP, SERVICE_ACCOUNT"
-        required: true
+        flag_resolve_fn: resolve_principal_id
+      - name: principal_type
+        description: "Principal type: USER, USER_GROUP, SERVICE_ACCOUNT (inferred from --principal when omitted)"
         completion_values: [USER, USER_GROUP, SERVICE_ACCOUNT]
       - name: role
         description: Role identifier
         required: true
         completion_noun: role
-      - name: resource-group
+      - name: resource_group
         description: Resource group identifier
         required: true
         completion_noun: resource_group
@@ -1194,9 +1195,9 @@ commands:
       text_header: "\nCreated role assignment {{it.roleAssignment.identifier}}\n"
       body_params:
         roleIdentifier: flags.role
-        resourceGroupIdentifier: flags["resource-group"]
+        resourceGroupIdentifier: flags.resource_group
         principal.identifier: flags.principal
-        principal.type: flags["principal-type"]
+        principal.type: flags.principal_type
 
   - command: delete role_assignment
     verb: delete
