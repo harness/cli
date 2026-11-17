@@ -2230,8 +2230,8 @@ func TestSourceRunnerBootstrapCopiesSourceAndWritesHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := installedSource, filepath.Join(home, "source"); got != want {
-		t.Fatalf("installed source = %q, want copied source %q", got, want)
+	if installedSource == "" || filepath.Base(installedSource) != "source" || installedSource == filepath.Join(source, "source") {
+		t.Fatalf("installed source = %q, want a staged source snapshot", installedSource)
 	}
 	copied := filepath.Join(home, "source", "service", "ai_evals", "onboarding", "contract.py")
 	info, err := os.Lstat(copied)
@@ -2246,8 +2246,247 @@ func TestSourceRunnerBootstrapCopiesSourceAndWritesHandshake(t *testing.T) {
 	}
 	if got, err := readHandshake(home); err != nil {
 		t.Fatal(err)
-	} else if got != wantedHandshake() {
-		t.Fatalf("handshake = %+v, want %+v", got, wantedHandshake())
+	} else if !compatibleHandshake(got, wantedHandshake()) || got.SourceDigest == "" {
+		t.Fatalf("handshake = %+v, want compatible source handshake", got)
+	}
+}
+
+func TestSourceRunnerBootstrapIsIdempotentForSameSource(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "runner")
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+
+	venvCalls, installCalls := 0, 0
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case name == "uv" && len(args) > 0 && args[0] == "venv":
+			venvCalls++
+			touch(t, filepath.Join(args[1], "bin", "python"))
+			touch(t, filepath.Join(args[1], "bin", "ai-evals"))
+		case name == "uv" && len(args) > 0 && args[0] == "pip":
+			installCalls++
+		case filepath.Base(name) == "python":
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case filepath.Base(name) == "ai-evals":
+			if len(args) != 2 || args[0] != OnboardCommand || args[1] != "--help" {
+				t.Fatalf("unexpected runner command: %q %#v", name, args)
+			}
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+		}
+		return CommandResult{}, nil
+	}
+	look := func(name string) (string, error) {
+		if name == "uv" {
+			return "/usr/bin/uv", nil
+		}
+		return "", os.ErrNotExist
+	}
+
+	if _, err := EnsureRunnerFromSource(home, source, look, run); err != nil {
+		t.Fatal(err)
+	}
+	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.9\\n'\n")
+	writeExecutable(t, filepath.Join(home, "bin", "ai-evals"), "#!/bin/sh\nexit 0\n")
+	if err := writeHandshake(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureRunnerFromSource(home, source, look, nil); err != nil {
+		t.Fatal(err)
+	}
+	if venvCalls != 1 || installCalls != 1 {
+		t.Fatalf("source bootstrap repeated installation: venv=%d install=%d", venvCalls, installCalls)
+	}
+}
+
+func TestSetupSourceBootstrapReportsAlreadyCompatible(t *testing.T) {
+	cliHome := t.TempDir()
+	t.Setenv(hbase.EnvCLIHome, cliHome)
+	home := filepath.Join(cliHome, "aievals-runner")
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case name == "uv" && len(args) > 0 && args[0] == "venv":
+			touch(t, filepath.Join(args[1], "bin", "python"))
+			touch(t, filepath.Join(args[1], "bin", "ai-evals"))
+		case name == "uv" && len(args) > 0 && args[0] == "pip":
+		case filepath.Base(name) == "python":
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case filepath.Base(name) == "ai-evals":
+			return CommandResult{}, nil
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+		}
+		return CommandResult{}, nil
+	}
+	look := func(name string) (string, error) {
+		if name == "uv" {
+			return "/usr/bin/uv", nil
+		}
+		return "", os.ErrNotExist
+	}
+	if _, err := EnsureRunnerFromSource(home, source, look, run); err != nil {
+		t.Fatal(err)
+	}
+	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.9\\n'\n")
+	writeExecutable(t, filepath.Join(home, "bin", "ai-evals"), "#!/bin/sh\nexit 0\n")
+	if err := writeHandshake(home); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	code, err := Setup(SetupOptions{
+		Repo:         t.TempDir(),
+		SkillDir:     filepath.Join(t.TempDir(), "skill"),
+		RunnerSource: source,
+		Stdout:       &stdout,
+		Stderr:       io.Discard,
+	})
+	if code != 0 || err != nil {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	if !strings.Contains(stdout.String(), "already compatible") {
+		t.Fatalf("setup output = %q", stdout.String())
+	}
+}
+
+func TestSourceRunnerBootstrapRejectsDifferentSourceWithoutMutation(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "runner")
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case name == "uv" && len(args) > 0 && args[0] == "venv":
+			touch(t, filepath.Join(args[1], "bin", "python"))
+			touch(t, filepath.Join(args[1], "bin", "ai-evals"))
+		case name == "uv" && len(args) > 0 && args[0] == "pip":
+			return CommandResult{}, nil
+		case filepath.Base(name) == "python":
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case filepath.Base(name) == "ai-evals":
+			return CommandResult{}, nil
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+		}
+		return CommandResult{}, nil
+	}
+	look := func(name string) (string, error) {
+		if name == "uv" {
+			return "/usr/bin/uv", nil
+		}
+		return "", os.ErrNotExist
+	}
+	if _, err := EnsureRunnerFromSource(home, source, look, run); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(home, "source", "service", "ai_evals", "onboarding", "runner.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFile(t, source, "service/ai_evals/onboarding/runner.py", "async def changed_runner(root, agent):\n    return None\n")
+
+	called := false
+	reject := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		called = true
+		return CommandResult{}, fmt.Errorf("installer must not run")
+	}
+	_, err = EnsureRunnerFromSource(home, source, look, reject)
+	if err == nil || !strings.Contains(err.Error(), "runner source") || !strings.Contains(err.Error(), "refusing to replace") {
+		t.Fatalf("source mismatch error = %v", err)
+	}
+	if called {
+		t.Fatal("source mismatch invoked a command")
+	}
+	after, err := os.ReadFile(filepath.Join(home, "source", "service", "ai_evals", "onboarding", "runner.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("source mismatch replaced the installed source")
+	}
+}
+
+func TestSourceRunnerBootstrapRejectsCorruptHandshakeWithoutPanic(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "runner")
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+	touch(t, filepath.Join(home, "bin", "python"))
+	touch(t, filepath.Join(home, "bin", "ai-evals"))
+	if err := os.WriteFile(handshakePath(home), []byte("{not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		called = true
+		return CommandResult{}, fmt.Errorf("corrupt handshake invoked a command")
+	}
+	_, err := EnsureRunnerFromSource(home, source, nil, run)
+	if err == nil || !strings.Contains(err.Error(), "is not installed") {
+		t.Fatalf("corrupt handshake error = %v", err)
+	}
+	if called {
+		t.Fatal("corrupt handshake invoked a command")
+	}
+}
+
+func TestSourceRunnerBootstrapRejectsInterruptedHomeWithRemediation(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "runner")
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+	writeFixtureFile(t, home, "source/partial.txt", "partial")
+
+	_, err := EnsureRunnerFromSource(home, source, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "incomplete") || !strings.Contains(err.Error(), "remove it") {
+		t.Fatalf("partial home error = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "source", "partial.txt")); statErr != nil {
+		t.Fatalf("partial home was modified: %v", statErr)
+	}
+}
+
+func TestSourceRunnerBootstrapCleansFailedStaging(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "runner")
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+
+	run := func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		switch {
+		case name == "uv" && len(args) > 0 && args[0] == "venv":
+			touch(t, filepath.Join(args[1], "bin", "python"))
+			touch(t, filepath.Join(args[1], "bin", "ai-evals"))
+		case name == "uv" && len(args) > 0 && args[0] == "pip":
+			return CommandResult{Code: 1, Stderr: "install interrupted"}, nil
+		default:
+			t.Fatalf("unexpected command %q %#v", name, args)
+		}
+		return CommandResult{}, nil
+	}
+	look := func(name string) (string, error) {
+		if name == "uv" {
+			return "/usr/bin/uv", nil
+		}
+		return "", os.ErrNotExist
+	}
+	_, err := EnsureRunnerFromSource(home, source, look, run)
+	if err == nil || !strings.Contains(err.Error(), "install interrupted") {
+		t.Fatalf("failed source install error = %v", err)
+	}
+	if _, statErr := os.Stat(home); !os.IsNotExist(statErr) {
+		t.Fatalf("failed source install left runner home: %v", statErr)
+	}
+}
+
+func TestSourceRunnerBootstrapRejectsGlobalHome(t *testing.T) {
+	source := t.TempDir()
+	writeRunnerSourceFixture(t, source, RunnerVersion, SchemaVersionV1)
+	home := filepath.Join(hbase.ExpandHomeDir(hbase.HarnessHome), "aievals-runner")
+	_, err := EnsureRunnerFromSource(home, source, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "isolated HARNESS_CLI_HOME") {
+		t.Fatalf("global home error = %v", err)
 	}
 }
 
@@ -2742,6 +2981,16 @@ func touch(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeExecutable(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }

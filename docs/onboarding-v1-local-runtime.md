@@ -19,6 +19,11 @@ export HARNESS_CLI_ENABLED_MODULES=aievals
 `$HARNESS_CLI_HOME/aievals-runner`, and records the handshake. The copied
 source is persistent; it is not a symlink or a temporary checkout.
 
+Retrying the same command against the same isolated home verifies the
+recorded source, version, and schema, reports that the runner is already
+compatible, and does not reinstall it. A different source or a corrupt or
+partial home is rejected with remediation instead of being overwritten.
+
 For a staged tree, run the normal local workflow:
 
 ```bash

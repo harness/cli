@@ -4,6 +4,7 @@
 package aievals
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,10 +25,11 @@ type RunnerLayout struct {
 }
 
 type handshake struct {
-	Package string `json:"package"`
-	Version string `json:"version"`
-	Schema  string `json:"schema"`
-	Command string `json:"command"`
+	Package      string `json:"package"`
+	Version      string `json:"version"`
+	Schema       string `json:"schema"`
+	Command      string `json:"command"`
+	SourceDigest string `json:"source_digest,omitempty"`
 }
 
 func wantedHandshake() handshake {
@@ -70,36 +72,18 @@ func PinMismatchRemediation(home, found string) string {
 // checkout. It is intentionally separate from EnsureRunner so package-index
 // bootstrap cannot silently resolve a developer path.
 func EnsureRunnerFromSource(home, source string, look func(string) (string, error), run CommandFunc) (RunnerLayout, error) {
+	layout, _, err := ensureRunnerFromSource(home, source, look, run)
+	return layout, err
+}
+
+func ensureRunnerFromSource(home, source string, look func(string) (string, error), run CommandFunc) (RunnerLayout, bool, error) {
 	defaultHome := filepath.Join(hbase.ExpandHomeDir(hbase.HarnessHome), "aievals-runner")
 	if filepath.Clean(home) == filepath.Clean(defaultHome) {
-		return RunnerLayout{}, fmt.Errorf("--runner-source requires an isolated HARNESS_CLI_HOME; refusing to modify %s", defaultHome)
+		return RunnerLayout{}, false, fmt.Errorf("--runner-source requires an isolated HARNESS_CLI_HOME; refusing to modify %s", defaultHome)
 	}
 	manifest, err := validateRunnerSource(source)
 	if err != nil {
-		return RunnerLayout{}, err
-	}
-	if layout, ok := installedLayout(home); ok {
-		if err := verifyHandshake(home); err != nil {
-			return RunnerLayout{}, err
-		}
-		if err := requirePinned(home, layout, run); err != nil {
-			return RunnerLayout{}, err
-		}
-		return layout, nil
-	}
-	if info, err := os.Stat(home); err == nil {
-		if !info.IsDir() {
-			return RunnerLayout{}, fmt.Errorf("runner home %s exists but is not a directory", home)
-		}
-		entries, readErr := os.ReadDir(home)
-		if readErr != nil {
-			return RunnerLayout{}, readErr
-		}
-		if len(entries) > 0 {
-			return RunnerLayout{}, fmt.Errorf("runner home %s is incomplete; remove it before using --runner-source", home)
-		}
-	} else if !os.IsNotExist(err) {
-		return RunnerLayout{}, err
+		return RunnerLayout{}, false, err
 	}
 	if look == nil {
 		look = exec.LookPath
@@ -107,41 +91,104 @@ func EnsureRunnerFromSource(home, source string, look func(string) (string, erro
 	if run == nil {
 		run = defaultCommand
 	}
+	if layout, ok := installedLayout(home); ok {
+		if err := verifySourceRunner(home, manifest); err != nil {
+			return RunnerLayout{}, false, err
+		}
+		if err := requirePinned(home, layout, run); err != nil {
+			return RunnerLayout{}, false, err
+		}
+		return layout, true, nil
+	}
+	if info, err := os.Lstat(home); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return RunnerLayout{}, false, fmt.Errorf("runner home %s is a symlink; remove it before using --runner-source", home)
+		}
+		if !info.IsDir() {
+			return RunnerLayout{}, false, fmt.Errorf("runner home %s exists but is not a directory", home)
+		}
+		entries, readErr := os.ReadDir(home)
+		if readErr != nil {
+			return RunnerLayout{}, false, readErr
+		}
+		if len(entries) > 0 {
+			return RunnerLayout{}, false, incompleteRunnerHomeError(home)
+		}
+	} else if !os.IsNotExist(err) {
+		return RunnerLayout{}, false, err
+	}
 	if _, err := look("uv"); err != nil {
-		return RunnerLayout{}, fmt.Errorf("source bootstrap requires uv on PATH; install uv, then retry --runner-source %s", source)
+		return RunnerLayout{}, false, fmt.Errorf("source bootstrap requires uv on PATH; install uv, then retry --runner-source %s", source)
 	}
 
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return RunnerLayout{}, err
+	parent := filepath.Dir(home)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return RunnerLayout{}, false, err
 	}
-	if err := runRunnerCommand(run, "uv", []string{"venv", home}, nil, ""); err != nil {
-		return RunnerLayout{}, err
+	staging, err := os.MkdirTemp(parent, ".aievals-runner-")
+	if err != nil {
+		return RunnerLayout{}, false, err
 	}
-	snapshot := filepath.Join(home, "source")
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(staging)
+		}
+	}()
+
+	if err := runRunnerCommand(run, "uv", []string{"venv", staging}, nil, ""); err != nil {
+		return RunnerLayout{}, false, err
+	}
+	snapshot := filepath.Join(staging, "source")
 	if err := copyRunnerSource(source, snapshot, manifest); err != nil {
-		return RunnerLayout{}, err
+		return RunnerLayout{}, false, err
 	}
-	if err := runRunnerCommand(run, "uv", []string{"pip", "install", "--python", pythonBin(home), snapshot}, nil, ""); err != nil {
-		return RunnerLayout{}, err
+	if err := runRunnerCommand(run, "uv", []string{"pip", "install", "--python", pythonBin(staging), snapshot}, nil, ""); err != nil {
+		return RunnerLayout{}, false, err
 	}
-	layout, ok := installedLayout(home)
+	layout, ok := installedLayout(staging)
 	if !ok {
-		return RunnerLayout{}, fmt.Errorf("%s", Remediation(home))
+		return RunnerLayout{}, false, fmt.Errorf("%s", Remediation(home))
 	}
 	if err := requirePinned(home, layout, run); err != nil {
-		return RunnerLayout{}, err
+		return RunnerLayout{}, false, err
 	}
 	help, err := run(layout.AIEvals, []string{OnboardCommand, "--help"}, nil, "")
 	if err != nil {
-		return RunnerLayout{}, err
+		return RunnerLayout{}, false, err
 	}
 	if help.Code != 0 {
-		return RunnerLayout{}, fmt.Errorf("source %s %s does not provide %s\n%s", RunnerPackage, RunnerVersion, OnboardCommand, Remediation(home))
+		return RunnerLayout{}, false, fmt.Errorf("source %s %s does not provide %s\n%s", RunnerPackage, RunnerVersion, OnboardCommand, Remediation(home))
 	}
-	if err := writeHandshake(home); err != nil {
-		return RunnerLayout{}, err
+	if err := writeSourceHandshake(staging, manifest.Fingerprint); err != nil {
+		return RunnerLayout{}, false, err
 	}
-	return layout, nil
+	if info, err := os.Lstat(home); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return RunnerLayout{}, false, fmt.Errorf("runner home %s became a symlink; refusing to replace it", home)
+		}
+		entries, readErr := os.ReadDir(home)
+		if readErr != nil {
+			return RunnerLayout{}, false, readErr
+		}
+		if len(entries) != 0 {
+			return RunnerLayout{}, false, incompleteRunnerHomeError(home)
+		}
+		if err := os.Remove(home); err != nil {
+			return RunnerLayout{}, false, err
+		}
+	} else if !os.IsNotExist(err) {
+		return RunnerLayout{}, false, err
+	}
+	if err := os.Rename(staging, home); err != nil {
+		return RunnerLayout{}, false, fmt.Errorf("runner bootstrap could not install atomically at %s: %w; remove the isolated home and retry --runner-source %s", home, err, source)
+	}
+	committed = true
+	layout, ok = installedLayout(home)
+	if !ok {
+		return RunnerLayout{}, false, fmt.Errorf("%s", Remediation(home))
+	}
+	return layout, false, nil
 }
 
 // EnsureRunner installs the pinned package once. A different installed version
@@ -199,7 +246,7 @@ func EnsureRunner(home string, look func(string) (string, error), run CommandFun
 
 func recordHandshake(home string) error {
 	recorded, err := readHandshake(home)
-	if err == nil && recorded == wantedHandshake() {
+	if err == nil && compatibleHandshake(recorded, wantedHandshake()) {
 		return nil
 	}
 	return writeHandshake(home)
@@ -236,10 +283,50 @@ func verifyHandshake(home string) error {
 	if err != nil {
 		return fmt.Errorf("%s", Remediation(home))
 	}
-	if recorded != wantedHandshake() {
+	if !compatibleHandshake(recorded, wantedHandshake()) {
 		return fmt.Errorf("%s", PinMismatchRemediation(home, recorded.Version))
 	}
 	return nil
+}
+
+func verifySourceRunner(home string, manifest runnerSourceManifest) error {
+	if err := verifyHandshake(home); err != nil {
+		return err
+	}
+	recorded, err := readHandshake(home)
+	if err != nil {
+		return fmt.Errorf("%s", Remediation(home))
+	}
+	if recorded.SourceDigest != "" && recorded.SourceDigest != manifest.Fingerprint {
+		return fmt.Errorf("%s", SourceMismatchRemediation(home))
+	}
+	actual, err := runnerSourceFingerprint(filepath.Join(home, "source"), manifest.Contents)
+	if err != nil || actual != manifest.Fingerprint {
+		return fmt.Errorf("%s", SourceMismatchRemediation(home))
+	}
+	if recorded.SourceDigest == "" {
+		if err := writeSourceHandshake(home, manifest.Fingerprint); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func compatibleHandshake(got, want handshake) bool {
+	return got.Package == want.Package &&
+		got.Version == want.Version &&
+		got.Schema == want.Schema &&
+		got.Command == want.Command
+}
+
+// SourceMismatchRemediation explains how to replace an isolated source
+// installation without allowing an in-place overwrite of a working runner.
+func SourceMismatchRemediation(home string) string {
+	return fmt.Sprintf("runner source in %s is not compatible with the requested source; refusing to replace it. Remove this isolated home and retry --runner-source.", home)
+}
+
+func incompleteRunnerHomeError(home string) error {
+	return fmt.Errorf("runner home %s is incomplete; remove it before using --runner-source", home)
 }
 
 func requirePinned(home string, layout RunnerLayout, run CommandFunc) error {
@@ -276,7 +363,8 @@ func runRunnerCommand(run CommandFunc, name string, args, env []string, dir stri
 }
 
 type runnerSourceManifest struct {
-	Contents []byte
+	Contents    []byte
+	Fingerprint string
 }
 
 func validateRunnerSource(source string) (runnerSourceManifest, error) {
@@ -329,7 +417,11 @@ func validateRunnerSource(source string) (runnerSourceManifest, error) {
 	if err := rejectRunnerSourceSymlinks(source); err != nil {
 		return runnerSourceManifest{}, err
 	}
-	return runnerSourceManifest{Contents: manifest}, nil
+	fingerprint, err := runnerSourceFingerprint(source, manifest)
+	if err != nil {
+		return runnerSourceManifest{}, err
+	}
+	return runnerSourceManifest{Contents: manifest, Fingerprint: fingerprint}, nil
 }
 
 func runnerPoetryField(manifest, field string) (string, bool) {
@@ -418,6 +510,65 @@ func copyRunnerSource(source, destination string, manifest runnerSourceManifest)
 	return writeAtomic(filepath.Join(destination, "pyproject.toml"), manifest.Contents)
 }
 
+func runnerSourceFingerprint(root string, manifest []byte) (string, error) {
+	digest := sha256.New()
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if runnerSourceExcluded(rel) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if rel == "pyproject.toml" {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("runner source contains a symlink: %s", filepath.ToSlash(path))
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("runner source contains unsupported file: %s", filepath.ToSlash(path))
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if _, err := digest.Write([]byte(filepath.ToSlash(rel) + "\x00")); err != nil {
+			return err
+		}
+		if _, err := digest.Write(data); err != nil {
+			return err
+		}
+		_, err = digest.Write([]byte{0})
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	if _, err := digest.Write([]byte("pyproject.toml\x00")); err != nil {
+		return "", err
+	}
+	if _, err := digest.Write(manifest); err != nil {
+		return "", err
+	}
+	if _, err := digest.Write([]byte{0}); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", digest.Sum(nil)), nil
+}
+
 func runnerSourceExcluded(path string) bool {
 	base := filepath.Base(path)
 	switch base {
@@ -468,7 +619,17 @@ func handshakePath(home string) string {
 }
 
 func writeHandshake(home string) error {
-	data, err := json.Marshal(wantedHandshake())
+	return writeHandshakeValue(home, wantedHandshake())
+}
+
+func writeSourceHandshake(home, sourceFingerprint string) error {
+	recorded := wantedHandshake()
+	recorded.SourceDigest = sourceFingerprint
+	return writeHandshakeValue(home, recorded)
+}
+
+func writeHandshakeValue(home string, recorded handshake) error {
+	data, err := json.Marshal(recorded)
 	if err != nil {
 		return err
 	}

@@ -60,8 +60,12 @@ func Setup(opts SetupOptions) (int, error) {
 		if os.Getenv(hbase.EnvCLIHome) == "" || filepath.Clean(cliHome) == filepath.Clean(hbase.ExpandHomeDir(hbase.HarnessHome)) {
 			return 1, fmt.Errorf("--runner-source requires %s to be set to an isolated developer home; it will not use ~/.harness", hbase.EnvCLIHome)
 		}
-		if _, err := EnsureRunnerFromSource(RunnerHome(), opts.RunnerSource, nil, nil); err != nil {
+		_, alreadyCompatible, err := ensureRunnerFromSource(RunnerHome(), opts.RunnerSource, nil, nil)
+		if err != nil {
 			return 1, err
+		}
+		if alreadyCompatible && opts.Stdout != nil {
+			fmt.Fprintf(opts.Stdout, "ai-evals-runner %s (schema %s) is already compatible; reusing the isolated source installation.\n", RunnerVersion, SchemaVersion)
 		}
 	}
 	if _, err := PlaceSkill(opts.Repo, opts.SkillDir, opts.Stdout); err != nil {
