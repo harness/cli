@@ -586,6 +586,53 @@ commands:
         branch: flags.branch
         filePath: flags["file-path"]
 
+  - command: create pipeline:import
+    verb: create
+    noun: pipeline
+    noun_variant: import
+    no_id: true
+    short: "Register a pipeline that already exists in Git: harness create pipeline:import --repo <repo> --branch <branch> --file-path <path> (--connector <ref> | --harness-code)"
+    handler_type: endpoint
+    flags:
+      - name: repo
+        description: Git repository name
+        required: true
+      - name: branch
+        description: Branch holding the pipeline YAML
+        required: true
+      - name: file-path
+        description: Path to the pipeline YAML in the repo, e.g. .harness/my_pipeline.yaml
+        required: true
+      - name: connector
+        description: Git connector reference ID (external Git; not needed with --harness-code)
+        completion_noun: connector
+      - name: harness-code
+        is_bool: true
+        description: The repository is hosted in Harness Code
+      - name: force-import
+        is_bool: true
+        description: Overwrite the pipeline if it was already imported
+      - name: name
+        description: Pipeline name
+      - name: description
+        description: Pipeline description
+    endpoint:
+      method: POST
+      path: /pipeline/api/pipelines/import
+      item_expr: it.data
+      text_header: "\nImported pipeline {{it.identifier}} in org [{{auth.org}}] project [{{auth.project}}]\n"
+      text_footer: "{{url(it)}}\n"
+      query_params:
+        connectorRef: 'flags.connector != "" ? flags.connector : nil'
+        repoName: flags.repo
+        branch: flags.branch
+        filePath: flags["file-path"]
+        isHarnessCodeRepo: 'flags["harness-code"] ? "true" : nil'
+        isForceImport: 'flags["force-import"] ? "true" : nil'
+      body_params:
+        pipelineName: flags.name
+        pipelineDescription: flags.description
+
   - command: update pipeline
     verb: update
     noun: pipeline
