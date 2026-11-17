@@ -204,10 +204,12 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: name
       - id: email
         expr: it.email
       - id: description
         expr: it.description
+        mutable_path: description
       - id: tags
         expr: formatTagDisplay(it.tags)
         field_type: tags
@@ -285,8 +287,10 @@ nouns:
         expr: it.resourceGroup.identifier
       - id: name
         expr: it.resourceGroup.name
+        mutable_path: name
       - id: description
         expr: it.resourceGroup.description
+        mutable_path: description
       - id: harness_managed
         expr: it.harnessManaged
       - id: allowed_scope_levels
@@ -450,6 +454,25 @@ nouns:
         expr: it.connectivityStatus
       - id: version
         expr: it.activelyConnected
+
+  - noun: connector_catalogue
+    short_desc: Connector types available in the account, grouped by category.
+    noun_aliases: [connector_catalogues]
+    fields:
+      - id: category
+        expr: it.category
+      - id: connectors
+        expr: jsonArray(it.connectors)
+        width_max: 100
+
+  - noun: llm_model
+    short_desc: A model offered by an LLM provider, discovered for draft connector authentication.
+    noun_aliases: [llm_models]
+    fields:
+      - id: value
+        expr: it.value
+      - id: name
+        expr: it.displayName
 
   - noun: delegate_token
     short_desc: An authentication token used by delegates to connect to Harness.
@@ -741,6 +764,80 @@ commands:
       item_expr: it.data
       yaml_pick_expr: it.data.user
 
+  - command: list connector_catalogue
+    verb: list
+    noun: connector_catalogue
+    short: List the connector types available, grouped by category
+    handler_type: endpoint
+    endpoint:
+      path: /ng/api/connectors/catalogue
+      items_expr: it.data.catalogue
+      columns: [category, connectors]
+      get_id_expr: it.category
+      paging:
+        paging_strategy: flat_list
+
+  - command: list llm_model
+    verb: list
+    noun: llm_model
+    short: "Discover the models of an LLM provider: harness list llm_model --provider ANTHROPIC [--url <url>] [--region <region>]"
+    handler_type: endpoint
+    flags:
+      - name: provider
+        description: "LLM provider: ANTHROPIC, OPENAI, GITHUB_COPILOT, HARNESS_OPENAI, HARNESS_ANTHROPIC"
+        required: true
+        completion_values: [ANTHROPIC, OPENAI, GITHUB_COPILOT, HARNESS_OPENAI, HARNESS_ANTHROPIC]
+      - name: url
+        description: Custom provider base URL
+      - name: region
+        description: Provider region (e.g. for Bedrock or Vertex)
+    endpoint:
+      method: POST
+      path: /ng/api/llm-connector/models
+      items_expr: it.data
+      columns: [value, name]
+      get_id_expr: it.value
+      paging:
+        paging_strategy: flat_list
+      body_params:
+        provider: flags.provider
+        url: 'flags.url != "" ? flags.url : nil'
+        region: 'flags.region != "" ? flags.region : nil'
+
+  - command: execute user:invite
+    verb: execute
+    noun: user
+    noun_variant: invite
+    no_id: true
+    short: "Invite users by email: harness execute user:invite --email a@x.com,b@x.com [--role <role_id> --resource-group <rg_id>] [--user-group <id>]"
+    long: |
+      Sends an invitation email to each address. --role and --resource-group together define the
+      role binding the invitee receives; without them the invite carries no role binding.
+    handler_type: endpoint
+    flags:
+      - name: email
+        description: Comma-separated email addresses to invite
+        required: true
+        is_array: true
+      - name: role
+        description: Role identifier to grant
+      - name: resource-group
+        description: Resource group identifier for the role binding
+        default: _all_resources_including_child_scopes
+      - name: user-group
+        description: Comma-separated user group identifiers to add the invitee to
+        is_array: true
+    endpoint:
+      method: POST
+      path: /ng/api/user/users
+      item_expr: it.data
+      no_fields: true
+      text_header: "\nInvitation request sent\n"
+      body_params:
+        emails: flags.email
+        userGroups: 'len(flags["user-group"]) > 0 ? flags["user-group"] : nil'
+        roleBindings: 'flags.role != "" ? [{"roleIdentifier": flags.role, "resourceGroupIdentifier": flags["resource-group"]}] : nil'
+
   - command: list user_group
     verb: list
     noun: user_group
@@ -784,6 +881,55 @@ commands:
       item_expr: it.data
       yaml_pick_expr: it.data
 
+  - command: create user_group
+    verb: create
+    noun: user_group
+    requires_id: true
+    short: "Create a user group: harness create user_group <id> --set name=<name> --set users.<user_id>"
+    flags_builtin:
+      set: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      file_body: optional
+      path: /ng/api/user-groups
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      item_expr: it.data
+      text_header: "\nCreated user group {{ctx.id}}\n"
+
+  - command: update user_group
+    verb: update
+    noun: user_group
+    short: Update a user group (name, description, tags, users)
+    flags_builtin:
+      set: true
+      del: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      file_body: optional
+      path: /ng/api/user-groups
+      get_path: /ng/api/user-groups/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: it.data
+      item_expr: it.data
+      text_header: "\nUpdated user group {{ctx.id}}\n"
+
+  - command: delete user_group
+    verb: delete
+    noun: user_group
+    confirm_mode: prompt
+    short: Delete a user group
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/user-groups/{{ctx.id}}
+
   - command: list service_account
     verb: list
     noun: service_account
@@ -811,6 +957,57 @@ commands:
       path: /ng/api/serviceaccount/aggregate/{{ctx.id}}
       item_expr: it.data.serviceAccount
       yaml_pick_expr: it.data.serviceAccount
+
+  - command: create service_account
+    verb: create
+    noun: service_account
+    requires_id: true
+    short: "Create a service account: harness create service_account <id> --set name=<name> --set email=<email>"
+    flags_builtin:
+      set: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      file_body: optional
+      path: /ng/api/serviceaccount
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+        email: coalesce(ctx.setArgs.email, ctx.id + "@service.harness.io")
+        accountIdentifier: auth.account
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      item_expr: it.data
+      text_header: "\nCreated service account {{ctx.id}}\n"
+
+  - command: update service_account
+    verb: update
+    noun: service_account
+    short: Update a service account (name, description, tags)
+    flags_builtin:
+      set: true
+      del: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      file_body: optional
+      path: /ng/api/serviceaccount/{{ctx.id}}
+      get_path: /ng/api/serviceaccount/aggregate/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: it.data.serviceAccount
+      item_expr: it.data
+      text_header: "\nUpdated service account {{ctx.id}}\n"
+
+  - command: delete service_account
+    verb: delete
+    noun: service_account
+    confirm_mode: prompt
+    short: Delete a service account
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/serviceaccount/{{ctx.id}}
 
   - command: list role
     verb: list
@@ -869,6 +1066,54 @@ commands:
       item_expr: it.data
       yaml_pick_expr: it.data.role
 
+  - command: create role
+    verb: create
+    noun: role
+    requires_id: true
+    short: "Create a role: harness create role <id> --set name=<name> --set permissions.<permission> ..."
+    flags_builtin:
+      set: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      file_body: optional
+      path: /authz/api/roles
+      create_strategy: set-fields
+      create_body_init:
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+        allowedScopeLevels: '[ctx.level == "" ? "project" : ctx.level]'
+      item_expr: it.data
+      text_header: "\nCreated role {{ctx.id}}\n"
+
+  - command: update role
+    verb: update
+    noun: role
+    short: Update a role (name, description, permissions, scopes)
+    flags_builtin:
+      set: true
+      del: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      file_body: optional
+      path: /authz/api/roles/{{ctx.id}}
+      get_path: /authz/api/roles/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: it.data.role
+      item_expr: it.data
+      text_header: "\nUpdated role {{ctx.id}}\n"
+
+  - command: delete role
+    verb: delete
+    noun: role
+    confirm_mode: prompt
+    short: Delete a role
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /authz/api/roles/{{ctx.id}}
+
   - command: list role_assignment
     verb: list
     noun: role_assignment
@@ -920,6 +1165,49 @@ commands:
       item_expr: it.data
       yaml_pick_expr: it.data.roleAssignment
 
+  - command: create role_assignment
+    verb: create
+    noun: role_assignment
+    no_id: true
+    short: "Grant a role to a principal: harness create role_assignment --principal <id> --principal-type USER --role <role_id> --resource-group <rg_id>"
+    handler_type: endpoint
+    flags:
+      - name: principal
+        description: Principal identifier (user email, user group id or service account id)
+        required: true
+      - name: principal-type
+        description: "Principal type: USER, USER_GROUP, SERVICE_ACCOUNT"
+        required: true
+        completion_values: [USER, USER_GROUP, SERVICE_ACCOUNT]
+      - name: role
+        description: Role identifier
+        required: true
+        completion_noun: role
+      - name: resource-group
+        description: Resource group identifier
+        required: true
+        completion_noun: resource_group
+    endpoint:
+      method: POST
+      path: /authz/api/roleassignments
+      item_expr: it.data
+      text_header: "\nCreated role assignment {{it.roleAssignment.identifier}}\n"
+      body_params:
+        roleIdentifier: flags.role
+        resourceGroupIdentifier: flags["resource-group"]
+        principal.identifier: flags.principal
+        principal.type: flags["principal-type"]
+
+  - command: delete role_assignment
+    verb: delete
+    noun: role_assignment
+    confirm_mode: prompt
+    short: Delete a role assignment
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /authz/api/roleassignments/{{ctx.id}}
+
   - command: list resource_group
     verb: list
     noun: resource_group
@@ -958,6 +1246,58 @@ commands:
       path: /authz/api/v2/resourcegroup/{{ctx.id}}
       item_expr: it.data
       yaml_pick_expr: it.data.resourceGroup
+
+  - command: create resource_group
+    verb: create
+    noun: resource_group
+    requires_id: true
+    short: "Create a resource group: harness create resource_group <id> -f resource_group.yaml"
+    flags_builtin:
+      set: true
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      file_body: optional
+      path: /authz/api/v2/resourcegroup
+      create_strategy: set-fields
+      create_body_init:
+        accountIdentifier: auth.account
+        orgIdentifier: 'ctx.level == "account" ? nil : (auth.org != "" ? auth.org : nil)'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+        identifier: ctx.id
+        name: coalesce(ctx.setArgs.name, ctx.id)
+      create_body_wrap: resourceGroup
+      item_expr: it.data
+      text_header: "\nCreated resource group {{ctx.id}}\n"
+
+  - command: update resource_group
+    verb: update
+    noun: resource_group
+    short: Update a resource group (name, description)
+    flags_builtin:
+      set: true
+      del: true
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      file_body: optional
+      path: /authz/api/v2/resourcegroup/{{ctx.id}}
+      get_path: /authz/api/v2/resourcegroup/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: it.data.resourceGroup
+      update_body_wrap: resourceGroup
+      item_expr: it.data
+      text_header: "\nUpdated resource group {{ctx.id}}\n"
+
+  - command: delete resource_group
+    verb: delete
+    noun: resource_group
+    confirm_mode: prompt
+    short: Delete a resource group
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /authz/api/v2/resourcegroup/{{ctx.id}}
 
   - command: list permission
     verb: list
@@ -1347,6 +1687,32 @@ commands:
       item_expr: it.resource
       text_header: "\nCreated delegate token {{it.name}}\n"
 
+  - command: get delegate_token
+    verb: get
+    noun: delegate_token
+    short: "Get a delegate token by name: harness get delegate_token <name>"
+    handler_type: endpoint
+    endpoint:
+      path: /ng/api/delegate-token-ng
+      query_params:
+        name: ctx.id
+      item_expr: it.resource[0]
+
+  - command: execute delegate_token:revoke
+    verb: execute
+    noun: delegate_token
+    noun_variant: revoke
+    confirm_mode: prompt
+    short: "Revoke a delegate token: harness execute delegate_token:revoke <name>"
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /ng/api/delegate-token-ng
+      query_params:
+        tokenName: ctx.id
+      item_expr: it.resource
+      text_header: "\nRevoked delegate token {{ctx.id}}\n"
+
   - command: delete delegate_token
     verb: delete
     noun: delegate_token
@@ -1355,7 +1721,9 @@ commands:
     handler_type: endpoint
     endpoint:
       method: DELETE
-      path: /ng/api/delegate-token-ng/{{ctx.id}}
+      path: /ng/api/delegate-token-ng
+      query_params:
+        tokenName: ctx.id
 
   - command: list agent
     verb: list
@@ -1438,6 +1806,21 @@ commands:
       path: /gateway/agents/api/v1/agents/{{ctx.id}}
       item_expr: it
       text_header: "\nUpdated agent {{ctx.id}}\n"
+      query_params:
+        accountIdentifier: auth.account
+        orgIdentifier: auth.org
+        projectIdentifier: auth.project
+
+  - command: delete agent
+    verb: delete
+    noun: agent
+    confirm_mode: prompt
+    short: Delete a custom AI agent
+    completion_noun: agent
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /gateway/agents/api/v1/agents/{{ctx.id}}
       query_params:
         accountIdentifier: auth.account
         orgIdentifier: auth.org
