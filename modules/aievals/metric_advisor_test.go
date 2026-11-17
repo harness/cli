@@ -5,6 +5,9 @@ package aievals
 
 import (
 	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -93,5 +96,25 @@ func TestAdviseMetricsDoesNotLeadWithExactMatchForFreeTextExpected(t *testing.T)
 	}
 	if report.Recommendations[0].Kind != "levenshtein" {
 		t.Fatalf("free-text expected values should not default to exact match: %#v", report.Recommendations)
+	}
+}
+
+func TestV1CandidateFileRequiresExplicitMetricSelection(t *testing.T) {
+	doc := onboardingV1FixtureDocument()
+	path := filepath.Join(t.TempDir(), "candidate.json")
+	body, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := LoadCandidateFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := WriteCandidate(WriteOptions{Repo: t.TempDir(), Candidate: candidate, Confirm: true, Stdout: io.Discard, Stderr: io.Discard})
+	if code != 2 || err == nil || err.Error() != "metrics: missing_metrics: select at least one evidence-eligible metric before staging; do not substitute exact match" {
+		t.Fatalf("code=%d err=%v", code, err)
 	}
 }

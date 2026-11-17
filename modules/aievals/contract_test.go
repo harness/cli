@@ -146,6 +146,10 @@ func TestD2DatasetCaseShapesAndFieldsSurviveStaging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This fixture isolates D2 dataset shape translation. Metric selection is
+	// covered by the advisor/staging tests, so bypass the user-facing v1 metric
+	// gate for this narrow projection test.
+	candidate.requireMetrics = false
 	code, err := WriteCandidate(WriteOptions{
 		Repo:      repo,
 		Candidate: candidate,
