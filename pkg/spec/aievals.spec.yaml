@@ -2279,8 +2279,13 @@ commands:
       candidate.
       A route that is not an exact supported hint is rejected.
       --metrics prints the complete installed SDK metric catalog instead,
-      including options, thresholds, provider needs, and onboarding support.
-      This checks the pinned runner without installing or upgrading it.
+      including reviewed configured-contract status, required evidence,
+      execution scope, options, thresholds, provider needs, and onboarding
+      support. With --candidate it returns an evidence-aware recommendation:
+      eligible, blocked, missing-prerequisite, and up to four ranked choices.
+      --allow-llm and --allow-embedding are explicit consent for provider-backed
+      choices; they never configure a provider or send data. This checks the
+      pinned runner without installing or upgrading it.
     handler_type: workflow
     workflow_id: scan
     flags:
@@ -2291,6 +2296,16 @@ commands:
       - name: metrics
         is_bool: true
         description: Read the full metric catalog from the pinned runner's Harness Evals SDK (no repository scan)
+      - name: candidate
+        description: Confirmed onboarding/v1 candidate JSON to assess against the metric catalog; requires --metrics
+      - name: goals
+        description: Optional comma-separated goals such as correctness,safety,latency used only to explain ranking; requires --metrics --candidate
+      - name: allow-llm
+        is_bool: true
+        description: Explicit consent to include LLM-judge metrics in recommendations; requires --metrics --candidate
+      - name: allow-embedding
+        is_bool: true
+        description: Explicit consent to include embedding metrics in recommendations; requires --metrics --candidate
 
   # TODO(onboarding-schema): provisional verb, noun, and flags until the CLI owner approves them.
   - command: stage eval_onboarding
