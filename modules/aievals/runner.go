@@ -130,9 +130,13 @@ func ensureRunnerFromSource(home, source string, look func(string) (string, erro
 		return RunnerLayout{}, false, err
 	}
 	committed := false
+	moved := false
 	defer func() {
 		if !committed {
 			_ = os.RemoveAll(staging)
+			if moved {
+				_ = os.RemoveAll(home)
+			}
 		}
 	}()
 
@@ -183,11 +187,35 @@ func ensureRunnerFromSource(home, source string, look func(string) (string, erro
 	if err := os.Rename(staging, home); err != nil {
 		return RunnerLayout{}, false, fmt.Errorf("runner bootstrap could not install atomically at %s: %w; remove the isolated home and retry --runner-source %s", home, err, source)
 	}
-	committed = true
+	moved = true
+	// Console scripts generated inside the staging virtualenv embed that
+	// interpreter path in their shebang. uv's --reinstall can retain the
+	// existing entry-point script for a local directory install, so remove the
+	// package first and install the copied source in the final home.
+	if err := runRunnerCommand(run, "uv", []string{"pip", "uninstall", "--python", pythonBin(home), RunnerPackage}, nil, ""); err != nil {
+		return RunnerLayout{}, false, err
+	}
+	if err := runRunnerCommand(run, "uv", []string{"pip", "install", "--python", pythonBin(home), filepath.Join(home, "source")}, nil, ""); err != nil {
+		return RunnerLayout{}, false, err
+	}
 	layout, ok = installedLayout(home)
 	if !ok {
 		return RunnerLayout{}, false, fmt.Errorf("%s", Remediation(home))
 	}
+	if err := requirePinned(home, layout, run); err != nil {
+		return RunnerLayout{}, false, err
+	}
+	help, err = run(layout.AIEvals, []string{OnboardCommand, "--help"}, nil, "")
+	if err != nil {
+		return RunnerLayout{}, false, err
+	}
+	if help.Code != 0 {
+		return RunnerLayout{}, false, fmt.Errorf("source %s %s does not provide %s\n%s", RunnerPackage, RunnerVersion, OnboardCommand, Remediation(home))
+	}
+	if err := writeSourceHandshake(home, manifest.Fingerprint); err != nil {
+		return RunnerLayout{}, false, err
+	}
+	committed = true
 	return layout, false, nil
 }
 

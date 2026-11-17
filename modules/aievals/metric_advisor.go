@@ -72,7 +72,7 @@ func AdviseMetrics(candidate Candidate, catalog []MetricCatalogEntry, opts Metri
 		report.Eligible = append(report.Eligible, advice)
 	}
 	sort.SliceStable(report.Eligible, func(i, j int) bool {
-		return adviceScore(report.Eligible[i], opts) > adviceScore(report.Eligible[j], opts)
+		return adviceScore(report.Eligible[i], opts, evidence) > adviceScore(report.Eligible[j], opts, evidence)
 	})
 	for i := range report.Eligible {
 		report.Eligible[i].Rank = i + 1
@@ -127,7 +127,7 @@ func requiredOptions(schema map[string]any) []string {
 	return out
 }
 
-func adviceScore(advice MetricAdvice, opts MetricAdviceOptions) int {
+func adviceScore(advice MetricAdvice, opts MetricAdviceOptions, evidence map[string]bool) int {
 	score := 100
 	if advice.MetricType == "heuristic" {
 		score += 30
@@ -138,6 +138,16 @@ func adviceScore(advice MetricAdvice, opts MetricAdviceOptions) int {
 	goals := strings.ToLower(strings.Join(opts.Goals, " "))
 	if goals != "" && (strings.Contains(goals, strings.ToLower(advice.Dimension)) || strings.Contains(goals, strings.ToLower(advice.Category)) || strings.Contains(goals, strings.ToLower(advice.Kind))) {
 		score += 20
+	}
+	if evidence["expected"] {
+		switch advice.Kind {
+		case "levenshtein", "rouge", "bleu", "answer_similarity":
+			score += 15
+		case "exact_match", "contains", "list_contains", "regex":
+			// These are useful for stable protocols, but a plain text expected
+			// value alone is not evidence that exact wording is the user's goal.
+			score -= 25
+		}
 	}
 	return score
 }

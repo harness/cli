@@ -2204,11 +2204,13 @@ func TestSourceRunnerBootstrapCopiesSourceAndWritesHandshake(t *testing.T) {
 			touch(t, filepath.Join(args[1], "bin", "python"))
 			touch(t, filepath.Join(args[1], "bin", "ai-evals"))
 			return CommandResult{}, nil
+		case name == "uv" && len(args) > 0 && args[0] == "pip" && args[1] == "uninstall":
+			return CommandResult{}, nil
 		case name == "uv" && len(args) > 0 && args[0] == "pip":
-			if len(args) != 5 || args[1] != "install" || args[2] != "--python" {
+			if len(args) != 5 && len(args) != 6 || args[1] != "install" {
 				t.Fatalf("source install args = %#v", args)
 			}
-			installedSource = args[4]
+			installedSource = args[len(args)-1]
 			return CommandResult{}, nil
 		case filepath.Base(name) == "python":
 			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
@@ -2294,7 +2296,10 @@ func TestSourceRunnerBootstrapIsIdempotentForSameSource(t *testing.T) {
 	if _, err := EnsureRunnerFromSource(home, source, look, nil); err != nil {
 		t.Fatal(err)
 	}
-	if venvCalls != 1 || installCalls != 1 {
+	// The first install occurs in staging; uninstall/install repairs
+	// console-script shebangs after the atomic move. A compatible retry
+	// performs none of those operations.
+	if venvCalls != 1 || installCalls != 3 {
 		t.Fatalf("source bootstrap repeated installation: venv=%d install=%d", venvCalls, installCalls)
 	}
 }

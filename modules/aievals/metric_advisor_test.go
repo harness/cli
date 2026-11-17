@@ -82,3 +82,16 @@ func TestAdviseMetricsBlocksUnsupportedExecutionScope(t *testing.T) {
 		t.Fatalf("report=%#v", report)
 	}
 }
+
+func TestAdviseMetricsDoesNotLeadWithExactMatchForFreeTextExpected(t *testing.T) {
+	candidate := adviceCandidate(t, true)
+	exact := testMetric("exact_match", "heuristic", "output", "expected")
+	similarity := testMetric("levenshtein", "heuristic", "output", "expected")
+	report := AdviseMetrics(candidate, []MetricCatalogEntry{exact, similarity}, MetricAdviceOptions{Goals: []string{"correctness"}})
+	if len(report.Recommendations) != 2 {
+		t.Fatalf("recommendations=%#v", report.Recommendations)
+	}
+	if report.Recommendations[0].Kind != "levenshtein" {
+		t.Fatalf("free-text expected values should not default to exact match: %#v", report.Recommendations)
+	}
+}
