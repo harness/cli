@@ -21,15 +21,15 @@ var harnessUIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
 
 // resolvePrincipalID resolves a --principal flag value to the identifier the
 // NG RBAC APIs (e.g. the role_assignment principal filter) expect, and infers
-// --principal_type when it can be.
+// --principal-type when it can be.
 //
 // An email resolves to the user's UUID (unambiguously USER; service accounts
 // have no email-lookup API, so an email that isn't a user is an error). A
 // bare Harness UID passes through unchanged (unambiguously USER). Anything
 // else passes through unchanged, but service accounts and user groups use
 // their plain identifier as-is with no UUID translation, so when the caller
-// hasn't set --principal_type we probe both by identifier (cheap, single-item
-// lookups) to infer it; an explicit --principal_type always skips the probe.
+// hasn't set --principal-type we probe both by identifier (cheap, single-item
+// lookups) to infer it; an explicit --principal-type always skips the probe.
 func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult, error) {
 	if strings.Contains(raw, "@") {
 		hlog.Debug("resolvePrincipalID: raw looks like an email, resolving via user lookup", "raw", raw)
@@ -38,14 +38,14 @@ func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult,
 			return nil, err
 		}
 		hlog.Debug("resolvePrincipalID: resolved email to user UUID", "raw", raw, "uuid", uuid)
-		return &cmdctx.FlagResolveResult{Value: uuid, Defaults: map[string]string{"principal_type": "USER"}}, nil
+		return &cmdctx.FlagResolveResult{Value: uuid, Defaults: map[string]string{"principal-type": "USER"}}, nil
 	}
 	if harnessUIDRe.MatchString(raw) {
 		hlog.Debug("resolvePrincipalID: raw matches Harness UID shape, treating as USER", "raw", raw)
-		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal_type": "USER"}}, nil
+		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal-type": "USER"}}, nil
 	}
-	if principalType, _ := ctx.FlagValues["principal_type"].(string); principalType != "" {
-		hlog.Debug("resolvePrincipalID: --principal_type already set, skipping probe", "raw", raw, "principal_type", principalType)
+	if principalType, _ := ctx.FlagValues["principal-type"].(string); principalType != "" {
+		hlog.Debug("resolvePrincipalID: --principal-type already set, skipping probe", "raw", raw, "principal_type", principalType)
 		return &cmdctx.FlagResolveResult{Value: raw}, nil
 	}
 
@@ -61,15 +61,15 @@ func resolvePrincipalID(ctx *cmdctx.Ctx, raw string) (*cmdctx.FlagResolveResult,
 	hlog.Debug("resolvePrincipalID: probe results", "raw", raw, "isServiceAccount", isServiceAccount, "isUserGroup", isUserGroup)
 	switch {
 	case isServiceAccount && isUserGroup:
-		return nil, fmt.Errorf("%q matches both a service account and a user group; set --principal_type to disambiguate", raw)
+		return nil, fmt.Errorf("%q matches both a service account and a user group; set --principal-type to disambiguate", raw)
 	case isServiceAccount:
 		warnIfBroaderScope(ctx, raw, "SERVICE_ACCOUNT", saScope)
-		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal_type": "SERVICE_ACCOUNT"}}, nil
+		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal-type": "SERVICE_ACCOUNT"}}, nil
 	case isUserGroup:
 		warnIfBroaderScope(ctx, raw, "USER_GROUP", ugScope)
-		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal_type": "USER_GROUP"}}, nil
+		return &cmdctx.FlagResolveResult{Value: raw, Defaults: map[string]string{"principal-type": "USER_GROUP"}}, nil
 	default:
-		return nil, fmt.Errorf("no service account or user group found with identifier %q; set --principal_type to specify it explicitly", raw)
+		return nil, fmt.Errorf("no service account or user group found with identifier %q; set --principal-type to specify it explicitly", raw)
 	}
 }
 
