@@ -810,13 +810,13 @@ commands:
     noun: user
     noun_variant: invite
     no_id: true
-    short: "Invite users by email: harness execute user:invite --email a@x.com,b@x.com [--role <role_id> --resource-group <rg_id>] [--user-group <id>]"
+    short: "Invite users by email: harness execute user:invite --emails a@x.com,b@x.com [--role <role_id> --resource-group <rg_id>] [--user-groups <id>]"
     long: |
       Sends an invitation email to each address. --role and --resource-group together define the
       role binding the invitee receives; without them the invite carries no role binding.
     handler_type: endpoint
     flags:
-      - name: email
+      - name: emails
         description: Comma-separated email addresses to invite
         required: true
         is_array: true
@@ -825,7 +825,7 @@ commands:
       - name: resource-group
         description: Resource group identifier for the role binding
         default: _all_resources_including_child_scopes
-      - name: user-group
+      - name: user-groups
         description: Comma-separated user group identifiers to add the invitee to
         is_array: true
     endpoint:
@@ -835,8 +835,8 @@ commands:
       no_fields: true
       text_header: "\nInvitation request sent\n"
       body_params:
-        emails: flags.email
-        userGroups: 'len(flags["user-group"]) > 0 ? flags["user-group"] : nil'
+        emails: flags.emails
+        userGroups: 'len(flags["user-groups"]) > 0 ? flags["user-groups"] : nil'
         roleBindings: 'flags.role != "" ? [{"roleIdentifier": flags.role, "resourceGroupIdentifier": flags["resource-group"]}] : nil'
 
   - command: list user_group
