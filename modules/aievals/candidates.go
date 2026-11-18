@@ -54,7 +54,7 @@ type ScanCandidate struct {
 	expected      string
 }
 
-// ScanReport is the stdout of `harness scan eval_onboarding`.
+// ScanReport is the stdout of `harness execute eval_onboarding:scan`.
 type ScanReport struct {
 	SchemaVersion string          `json:"schema_version"`
 	HasSignal     bool            `json:"has_signal"`
@@ -237,7 +237,7 @@ type Candidate struct {
 }
 
 // WriteOptions validates a candidate and writes the .harness/evals tree.
-// Confirm must be set, from `harness stage eval_onboarding --confirm`, or the
+// Confirm must be set, from `harness execute eval_onboarding:stage --confirm`, or the
 // command writes nothing.
 type WriteOptions struct {
 	Repo           string
