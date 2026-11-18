@@ -1570,7 +1570,7 @@ commands:
     short: "Run an action on a resource of an application: harness execute gitops_application:run_resource_action <agent/app> --namespace <ns> --resource-name <name> --kind <kind> --action <action> [--group <g>] [--version <v>]"
     long: |
       Runs a resource action such as restart (Deployment) or pause/resume/promote-full (Rollout).
-      List the actions a resource supports with: harness get gitops_action <agent/app> --namespace ... --resource-name ... --kind ...
+      List the actions a resource supports with: harness list gitops_action <agent/app> --namespace ... --resource-name ... --kind ...
     handler_type: endpoint
     flags:
       - name: namespace
