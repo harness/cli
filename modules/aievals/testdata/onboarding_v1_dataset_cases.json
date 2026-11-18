@@ -1,0 +1,51 @@
+[
+  {
+    "id": "scalar-input",
+    "input": "hello",
+    "expected": null,
+    "expected_output": {
+      "accepted": true
+    },
+    "precomputed_output": 0
+  },
+  {
+    "id": "list-input",
+    "input": [
+      1,
+      "two",
+      false
+    ],
+    "expected": [
+      "x",
+      {
+        "y": null
+      }
+    ],
+    "precomputed_output": [
+      "one",
+      2,
+      null
+    ]
+  },
+  {
+    "id": "object-input",
+    "input": {
+      "nested": [
+        1,
+        null
+      ]
+    },
+    "expected": {
+      "answer": 42
+    },
+    "precomputed_output": {
+      "output": "ready"
+    }
+  },
+  {
+    "id": "null-input",
+    "input": null,
+    "expected_output": null,
+    "precomputed_output": null
+  }
+]
