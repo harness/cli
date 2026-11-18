@@ -53,6 +53,10 @@ func (noopCranAdapter) VersionExists(context.Context, types.Package, string, str
 func (noopCranAdapter) FileExists(context.Context, string, string, string, *types.File, types.ArtifactType) (bool, error) {
 	return false, nil
 }
+
+func (noopCranAdapter) UploadExists(context.Context, string, *types.File, string, string, types.ArtifactType, map[string]interface{}) (bool, error) {
+	return false, nil
+}
 func (noopCranAdapter) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
 	return nil, nil
 }
@@ -281,7 +285,8 @@ func TestPackageMigrateCRANSkipsWhenHeadExists(t *testing.T) {
 	}
 }
 
-func TestPackageMigrateCRANProceedsWhenHeadErrors(t *testing.T) {
+func TestPackageMigrateCRANFailsWithoutUploadWhenExistenceCheckErrors(t *testing.T) {
+	disableExistenceBackoff(t)
 	srcURI := "/src/contrib/jsonlite_1.8.0.tar.gz"
 	node := cranFileTree(srcURI)
 	src := &cranFakeSrc{content: map[string][]byte{srcURI: []byte("pkg")}}
@@ -292,7 +297,10 @@ func TestPackageMigrateCRANProceedsWhenHeadErrors(t *testing.T) {
 	if err := job.migrateCran(context.Background()); err != nil {
 		t.Fatalf("migrateCran() error: %v", err)
 	}
-	if len(dest.uploadedUris) != 1 {
-		t.Errorf("expected upload after HEAD error, got %v", dest.uploadedUris)
+	if len(dest.uploadedUris) != 0 {
+		t.Errorf("expected no upload after existence check error, got %v", dest.uploadedUris)
+	}
+	if len(stats.FileStats) != 1 || stats.FileStats[0].Status != types.StatusFail {
+		t.Errorf("expected one failed stat, got %+v", stats.FileStats)
 	}
 }

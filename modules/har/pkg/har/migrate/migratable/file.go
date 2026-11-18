@@ -121,10 +121,13 @@ func (r *File) Pre(ctx context.Context) error {
 
 	// For RAW artifacts, use HEAD to check if file already exists at destination
 	if r.artifactType == types.RAW && !r.config.Overwrite && !r.config.DryRun {
-		exists, err := r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, r.version.Name, r.file,
-			r.artifactType)
+		exists, err := checkExistsWithRetry(ctx, logger, func() (bool, error) {
+			return r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, r.version.Name, r.file, r.artifactType)
+		})
 		if err != nil {
-			logger.Warn().Err(err).Msgf("Failed to HEAD raw file %s, will proceed with migration", r.file.Uri)
+			logger.Error().Err(err).Msgf("Failed to check if raw file %s exists", r.file.Uri)
+			r.skipMigration = true
+			util.AddFileErrorToStat(r.stats, r.file, r.srcRegistry, existenceCheckError(err))
 		} else if exists {
 			logger.Info().Msgf("Skipping raw file %s as it already exists in destination (HEAD 200)", r.file.Uri)
 			r.skipMigration = true

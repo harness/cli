@@ -53,6 +53,7 @@ type Package struct {
 	node                  *types.TreeNode
 	stats                 *types.TransferStats
 	skipMigration         bool
+	skipReason            string
 	mapping               *types.RegistryMapping
 	config                *types.Config
 	registry              types.RegistryInfo
@@ -136,19 +137,33 @@ func (r *Package) Pre(ctx context.Context) error {
 	}
 
 	if !r.config.Overwrite && ((r.artifactType == types.HELM_LEGACY || r.artifactType == types.HELM_HTTP) && r.pkg.Name != "" && r.pkg.Version != "") {
-		exists, err := r.destAdapter.VersionExists(ctx, r.pkg,
-			r.registry.Path, r.pkg.Name, r.pkg.Version,
-			r.artifactType)
+		exists, err := checkExistsWithRetry(ctx, logger, func() (bool, error) {
+			if r.artifactType == types.HELM_LEGACY {
+				return r.helmChartTagExists(ctx)
+			}
+			return r.destAdapter.VersionExists(ctx, r.pkg, r.registry.Path, r.pkg.Name, r.pkg.Version, r.artifactType)
+		})
 		if err != nil {
-			log.Error().Err(err).Msgf("Failed to check if version exists Registry [%s], Package [%s/%s]",
+			logger.Error().Err(err).Msgf("Failed to check if version exists Registry [%s], Package [%s/%s]",
 				r.destRegistry,
 				r.pkg.Name, r.pkg.Version)
+			r.skipMigration = true
+			r.skipReason = "destination existence check failed"
+			r.stats.Add(types.FileStat{
+				Name:     r.pkg.Name,
+				Registry: r.srcRegistry,
+				Uri:      r.pkg.Version,
+				Size:     int64(r.pkg.Size),
+				Status:   types.StatusFail,
+				Error:    existenceCheckError(err).Error(),
+			})
 			return nil
 		}
 		if exists {
 			util.GetSkipPrinter().Println(fmt.Sprintf("Registry [%s], Package [%s/%s] already exists", r.destRegistry,
 				r.pkg.Name, r.pkg.Version))
 			r.skipMigration = true
+			r.skipReason = "version already exists in destination registry"
 			stat := types.FileStat{
 				Name:     r.pkg.Name,
 				Registry: r.srcRegistry,
@@ -238,7 +253,7 @@ func (r *Package) Migrate(ctx context.Context) error {
 	startTime := time.Now()
 
 	if r.skipMigration {
-		logger.Info().Msg("Skipping migration as version already exists in destination registry")
+		logger.Info().Msgf("Skipping migration: %s", r.skipReason)
 		return nil
 	}
 
@@ -603,6 +618,36 @@ func isStaleSourceManifestErr(err error, srcHost string) bool {
 	return false
 }
 
+// helmChartTagExists HEADs <chart>:<version> at the destination. HAR lists OCI
+// versions by manifest digest, so the version-list lookup never matches a chart tag.
+func (r *Package) helmChartTagExists(ctx context.Context) (bool, error) {
+	image, err := r.destAdapter.GetOCIImagePath(r.destRegistry, r.sourcePackageHostname, r.pkg.Name)
+	if err != nil {
+		return false, err
+	}
+	ref, err := name.ParseReference(image+":"+r.pkg.Version, name.WeakValidation)
+	if err != nil {
+		return false, err
+	}
+	keyChain, err := lib.CreateCraneKeychain(r.srcAdapter, r.destAdapter, r.sourcePackageHostname)
+	if err != nil {
+		return false, err
+	}
+	_, err = remote.Head(ref,
+		remote.WithContext(ctx),
+		remote.WithAuthFromKeychain(keyChain),
+		remote.WithUserAgent(util.UserAgentString()),
+	)
+	if err == nil {
+		return true, nil
+	}
+	var terr *transport.Error
+	if errors.As(err, &terr) && terr.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	return false, err
+}
+
 func (r *Package) migrateLegacyHelm(ctx context.Context) error {
 	if r.config.DryRun {
 		log.Info().Ctx(ctx).Msgf("Dry-run: would migrate legacy helm chart %s", r.pkg.URL)
@@ -661,11 +706,54 @@ func (r *Package) migrateLegacyHelm(ctx context.Context) error {
 	return nil
 }
 
+// checkUploaded runs the destination check for an upload made with the same arguments.
+// On a hit or a failed check it records stat as Skipped or Failed and returns that
+// status; it returns "" when the caller should upload.
+func (r *Package) checkUploaded(
+	ctx context.Context,
+	stat types.FileStat,
+	f *types.File,
+	artifactName, version string,
+	metadata map[string]interface{},
+) types.Status {
+	if r.config.Overwrite {
+		return ""
+	}
+	exists, err := checkExistsWithRetry(ctx, r.logger, func() (bool, error) {
+		return r.destAdapter.UploadExists(ctx, r.destRegistry, f, artifactName, version, r.artifactType, metadata)
+	})
+	if err != nil {
+		r.logger.Error().Err(err).Msgf("Failed to check if %s exists", stat.Name)
+		stat.Status = types.StatusFail
+		stat.Error = existenceCheckError(err).Error()
+		r.stats.Add(stat)
+		return stat.Status
+	}
+	if !exists {
+		return ""
+	}
+	r.logger.Info().Msgf("Skipping %s as it already exists in destination", stat.Name)
+	util.GetSkipPrinter().Println(fmt.Sprintf("%s already exists, skipping", stat.Name))
+	stat.Status = types.StatusSkip
+	stat.Reason = types.SkipReasonAlreadyExists
+	r.stats.Add(stat)
+	return stat.Status
+}
+
 func (r *Package) migrateConda(ctx context.Context) error {
 	if r.config.DryRun {
 		log.Info().Ctx(ctx).Msgf("Dry-run: would migrate conda package %s", r.pkg.Path)
 		return nil
 	}
+	metadata := make(map[string]interface{})
+	metadata["X-File-Name"] = path.Base(r.pkg.Path)
+	metadata["X-Subdir"] = strings.Split(r.pkg.Version, "/")[0]
+	uploadFile := &types.File{Uri: r.pkg.Path}
+	checkStat := types.FileStat{Name: r.pkg.Name, Registry: r.srcRegistry, Uri: r.pkg.URL, Size: int64(r.pkg.Size)}
+	if r.checkUploaded(ctx, checkStat, uploadFile, r.pkg.Name, r.pkg.Version, metadata) != "" {
+		return nil
+	}
+
 	file, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, r.pkg.Path)
 	if err != nil {
 		log.Error().Ctx(ctx).Err(err).Msgf("Failed to download conda package %s", r.pkg.Path)
@@ -674,16 +762,12 @@ func (r *Package) migrateConda(ctx context.Context) error {
 	}
 	defer file.Close()
 
-	metadata := make(map[string]interface{})
-	metadata["X-File-Name"] = path.Base(r.pkg.Path)
-	metadata["X-Subdir"] = strings.Split(r.pkg.Version, "/")[0]
-
 	title := fmt.Sprintf("%s (%s)", r.pkg.Name, sizeutil.GetSize(int64(r.pkg.Size)))
 	pterm.Info.Println(fmt.Sprintf("Copying file %s from %s to %s", r.pkg.Name, r.srcRegistry, r.destRegistry))
 	err = r.destAdapter.UploadFile(
 		r.destRegistry,
 		file,
-		&types.File{Uri: r.pkg.Path},
+		uploadFile,
 		header,
 		r.pkg.Name,
 		r.pkg.Version,
@@ -714,6 +798,11 @@ func (r *Package) migrateRPM(ctx context.Context) error {
 		log.Info().Ctx(ctx).Msgf("Dry-run: would migrate RPM package %s", r.pkg.URL)
 		return nil
 	}
+	uploadFile := &types.File{Uri: r.pkg.URL}
+	checkStat := types.FileStat{Name: r.pkg.Name, Registry: r.srcRegistry, Uri: r.pkg.URL, Size: int64(r.pkg.Size)}
+	if r.checkUploaded(ctx, checkStat, uploadFile, r.pkg.Name, r.pkg.Name, nil) != "" {
+		return nil
+	}
 	file, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, r.pkg.URL)
 	if err != nil {
 		log.Error().Ctx(ctx).Err(err).Msgf("Failed to download RPM package %s", r.pkg.URL)
@@ -724,7 +813,7 @@ func (r *Package) migrateRPM(ctx context.Context) error {
 
 	title := fmt.Sprintf("%s (%s)", r.pkg.Name, sizeutil.GetSize(int64(r.pkg.Size)))
 	pterm.Info.Println(fmt.Sprintf("Copying file %s from %s to %s", r.pkg.Name, r.srcRegistry, r.destRegistry))
-	err = r.destAdapter.UploadFile(r.destRegistry, file, &types.File{Uri: r.pkg.URL}, header, r.pkg.Name, r.pkg.Name,
+	err = r.destAdapter.UploadFile(r.destRegistry, file, uploadFile, header, r.pkg.Name, r.pkg.Name,
 		r.artifactType, nil)
 	stat := types.FileStat{
 		Name:     r.pkg.Name,
@@ -774,6 +863,11 @@ func (r *Package) migrateComposer(ctx context.Context) error {
 
 func (r *Package) migrateComposerVersion(ctx context.Context, v types.Version) error {
 	zipName := util.ComposerZipBasename(v.Path)
+	uploadFile := &types.File{Uri: v.Path, Name: zipName}
+	checkStat := types.FileStat{Name: zipName, Registry: r.srcRegistry, Uri: v.Path, Size: int64(v.Size)}
+	if r.checkUploaded(ctx, checkStat, uploadFile, r.pkg.Name, v.Name, nil) != "" {
+		return nil
+	}
 	file, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, v.Path)
 	if err != nil {
 		log.Error().Ctx(ctx).Err(err).Msgf("Failed to download Composer package %s at %s", r.pkg.Name, v.Path)
@@ -792,7 +886,7 @@ func (r *Package) migrateComposerVersion(ctx context.Context, v types.Version) e
 
 	title := fmt.Sprintf("%s@%s (%s)", r.pkg.Name, v.Name, sizeutil.GetSize(int64(v.Size)))
 	pterm.Info.Println(fmt.Sprintf("Copying file %s from %s to %s", zipName, r.srcRegistry, r.destRegistry))
-	err = r.destAdapter.UploadFile(r.destRegistry, file, &types.File{Uri: v.Path, Name: zipName}, header, r.pkg.Name, v.Name,
+	err = r.destAdapter.UploadFile(r.destRegistry, file, uploadFile, header, r.pkg.Name, v.Name,
 		r.artifactType, nil)
 	stat := types.FileStat{
 		Name:     zipName,
@@ -824,6 +918,11 @@ func (r *Package) migrateSwift(ctx context.Context) error {
 		log.Info().Ctx(ctx).Msgf("Dry-run: would migrate Swift package %s", r.pkg.URL)
 		return nil
 	}
+	uploadFile := &types.File{Uri: r.pkg.URL}
+	checkStat := types.FileStat{Name: r.pkg.Name, Registry: r.srcRegistry, Uri: r.pkg.URL, Size: int64(r.pkg.Size)}
+	if r.checkUploaded(ctx, checkStat, uploadFile, r.pkg.Name, r.pkg.Version, nil) != "" {
+		return nil
+	}
 	file, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, r.pkg.URL)
 	if err != nil {
 		log.Error().Ctx(ctx).Err(err).Msgf("Failed to download Swift package %s", r.pkg.URL)
@@ -834,7 +933,7 @@ func (r *Package) migrateSwift(ctx context.Context) error {
 
 	title := fmt.Sprintf("%s (%s)", r.pkg.Name, sizeutil.GetSize(int64(r.pkg.Size)))
 	pterm.Info.Println(fmt.Sprintf("Copying file %s from %s to %s", r.pkg.Name, r.srcRegistry, r.destRegistry))
-	err = r.destAdapter.UploadFile(r.destRegistry, file, &types.File{Uri: r.pkg.URL}, header, r.pkg.Name, r.pkg.Version,
+	err = r.destAdapter.UploadFile(r.destRegistry, file, uploadFile, header, r.pkg.Name, r.pkg.Version,
 		r.artifactType, nil)
 	stat := types.FileStat{
 		Name:     r.pkg.Name,
@@ -1123,25 +1222,6 @@ func (r *Package) migrateDebian(ctx context.Context) error {
 		log.Info().Ctx(ctx).Msgf("Dry-run: would migrate Debian package %s", r.pkg.URL)
 		return nil
 	}
-	file, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, r.pkg.URL)
-	if err != nil {
-		log.Error().Ctx(ctx).Err(err).Msgf("Failed to download Debian package %s", r.pkg.URL)
-		pterm.Error.Println(fmt.Sprintf("Failed to download Debian package %s", r.pkg.URL))
-		r.stats.Add(types.FileStat{
-			Name:     r.pkg.Name,
-			Registry: r.srcRegistry,
-			Uri:      r.pkg.URL,
-			Size:     int64(r.pkg.Size),
-			Status:   types.StatusFail,
-			Error:    err.Error(),
-		})
-		return err
-	}
-	defer file.Close()
-
-	title := fmt.Sprintf("%s (%s)", r.pkg.Name, sizeutil.GetSize(int64(r.pkg.Size)))
-	pterm.Info.Println(fmt.Sprintf("Copying file %s from %s to %s", r.pkg.Name, r.srcRegistry, r.destRegistry))
-
 	metadata := map[string]interface{}{
 		"distribution": r.pkg.Metadata["distribution"],
 		"component":    r.pkg.Metadata["component"],
@@ -1155,16 +1235,40 @@ func (r *Package) migrateDebian(ctx context.Context) error {
 	} else {
 		metadata["fileType"] = "deb"
 	}
-
-	err = r.destAdapter.UploadFile(r.destRegistry, file, &types.File{Uri: r.pkg.URL}, header,
-		r.pkg.Name, r.pkg.Name, r.artifactType, metadata)
+	uploadFile := &types.File{Uri: r.pkg.URL}
 	stat := types.FileStat{
 		Name:     r.pkg.Name,
 		Registry: r.srcRegistry,
 		Uri:      r.pkg.URL,
 		Size:     int64(r.pkg.Size),
-		Status:   types.StatusSuccess,
 	}
+
+	switch r.checkUploaded(ctx, stat, uploadFile, r.pkg.Name, r.pkg.Name, metadata) {
+	case types.StatusFail:
+		return nil
+	case types.StatusSkip:
+		if isDscFile {
+			r.migrateDebianSourceFiles(ctx)
+		}
+		return nil
+	}
+
+	file, header, err := r.srcAdapter.DownloadFile(r.srcRegistry, r.pkg.URL)
+	if err != nil {
+		log.Error().Ctx(ctx).Err(err).Msgf("Failed to download Debian package %s", r.pkg.URL)
+		pterm.Error.Println(fmt.Sprintf("Failed to download Debian package %s", r.pkg.URL))
+		stat.Status = types.StatusFail
+		stat.Error = err.Error()
+		r.stats.Add(stat)
+		return err
+	}
+	defer file.Close()
+
+	title := fmt.Sprintf("%s (%s)", r.pkg.Name, sizeutil.GetSize(int64(r.pkg.Size)))
+	pterm.Info.Println(fmt.Sprintf("Copying file %s from %s to %s", r.pkg.Name, r.srcRegistry, r.destRegistry))
+	err = r.destAdapter.UploadFile(r.destRegistry, file, uploadFile, header,
+		r.pkg.Name, r.pkg.Name, r.artifactType, metadata)
+	stat.Status = types.StatusSuccess
 	if err != nil {
 		r.logger.Error().Err(err).Msg("Failed to upload debian file")
 		stat.Status = types.StatusFail
@@ -1176,65 +1280,74 @@ func (r *Package) migrateDebian(ctx context.Context) error {
 	r.stats.Add(stat)
 
 	if isDscFile && err == nil {
-		if sourceFilesStr, ok := r.pkg.Metadata["sourceFiles"]; ok && sourceFilesStr != "" {
-			directory := r.pkg.Metadata["directory"]
-			for _, srcFileName := range strings.Split(sourceFilesStr, ",") {
-				srcFileName = strings.TrimSpace(srcFileName)
-				if srcFileName == "" {
-					continue
-				}
-				srcFilePath := srcFileName
-				if directory != "" {
-					srcFilePath = directory + "/" + srcFileName
-				}
-				srcFile, srcHeader, dlErr := r.srcAdapter.DownloadFile(r.srcRegistry, srcFilePath)
-				if dlErr != nil {
-					log.Error().Ctx(ctx).Err(dlErr).Msgf("Failed to download source file %s", srcFilePath)
-					pterm.Error.Println(fmt.Sprintf("Failed to download source file %s", srcFilePath))
-					r.stats.Add(types.FileStat{
-						Name:     srcFileName,
-						Registry: r.srcRegistry,
-						Uri:      srcFilePath,
-						Status:   types.StatusFail,
-						Error:    dlErr.Error(),
-					})
-					continue
-				}
-				srcMeta := map[string]interface{}{
-					"distribution": r.pkg.Metadata["distribution"],
-					"component":    r.pkg.Metadata["component"],
-					"fileType":     "src",
-					"packageName":  r.pkg.Metadata["packageName"],
-				}
-				fullVersion := r.pkg.Metadata["fullVersion"]
-				if strings.Contains(srcFileName, ".orig.tar.") {
-					srcMeta["version"] = extractUpstreamVersion(fullVersion)
-				} else {
-					srcMeta["version"] = fullVersion
-				}
-				ulErr := r.destAdapter.UploadFile(r.destRegistry, srcFile,
-					&types.File{Name: srcFileName, Uri: srcFilePath}, srcHeader,
-					srcFileName, srcFileName, r.artifactType, srcMeta)
-				srcFile.Close()
-				srcStat := types.FileStat{
-					Name:     srcFileName,
-					Registry: r.srcRegistry,
-					Uri:      srcFilePath,
-					Status:   types.StatusSuccess,
-				}
-				if ulErr != nil {
-					r.logger.Error().Err(ulErr).Msgf("Failed to upload source file %s", srcFileName)
-					srcStat.Status = types.StatusFail
-					srcStat.Error = ulErr.Error()
-					pterm.Error.Println(fmt.Sprintf("source file %s", srcFileName))
-				} else {
-					pterm.Success.Println(fmt.Sprintf("source file %s", srcFileName))
-				}
-				r.stats.Add(srcStat)
-			}
-		}
+		r.migrateDebianSourceFiles(ctx)
 	}
 	return nil
+}
+
+// migrateDebianSourceFiles uploads the files a .dsc lists. HAR attaches them to the
+// already uploaded .dsc, so this must run only once the .dsc is at the destination.
+func (r *Package) migrateDebianSourceFiles(ctx context.Context) {
+	sourceFilesStr := r.pkg.Metadata["sourceFiles"]
+	if sourceFilesStr == "" {
+		return
+	}
+	directory := r.pkg.Metadata["directory"]
+	for _, srcFileName := range strings.Split(sourceFilesStr, ",") {
+		srcFileName = strings.TrimSpace(srcFileName)
+		if srcFileName == "" {
+			continue
+		}
+		srcFilePath := srcFileName
+		if directory != "" {
+			srcFilePath = directory + "/" + srcFileName
+		}
+		srcMeta := map[string]interface{}{
+			"distribution": r.pkg.Metadata["distribution"],
+			"component":    r.pkg.Metadata["component"],
+			"fileType":     "src",
+			"packageName":  r.pkg.Metadata["packageName"],
+		}
+		fullVersion := r.pkg.Metadata["fullVersion"]
+		srcMeta["sourceVersion"] = fullVersion
+		if strings.Contains(srcFileName, ".orig.tar.") {
+			srcMeta["version"] = extractUpstreamVersion(fullVersion)
+		} else {
+			srcMeta["version"] = fullVersion
+		}
+		uploadFile := &types.File{Name: srcFileName, Uri: srcFilePath}
+		srcStat := types.FileStat{
+			Name:     srcFileName,
+			Registry: r.srcRegistry,
+			Uri:      srcFilePath,
+		}
+		if r.checkUploaded(ctx, srcStat, uploadFile, srcFileName, srcFileName, srcMeta) != "" {
+			continue
+		}
+
+		srcFile, srcHeader, dlErr := r.srcAdapter.DownloadFile(r.srcRegistry, srcFilePath)
+		if dlErr != nil {
+			log.Error().Ctx(ctx).Err(dlErr).Msgf("Failed to download source file %s", srcFilePath)
+			pterm.Error.Println(fmt.Sprintf("Failed to download source file %s", srcFilePath))
+			srcStat.Status = types.StatusFail
+			srcStat.Error = dlErr.Error()
+			r.stats.Add(srcStat)
+			continue
+		}
+		ulErr := r.destAdapter.UploadFile(r.destRegistry, srcFile, uploadFile, srcHeader,
+			srcFileName, srcFileName, r.artifactType, srcMeta)
+		srcFile.Close()
+		srcStat.Status = types.StatusSuccess
+		if ulErr != nil {
+			r.logger.Error().Err(ulErr).Msgf("Failed to upload source file %s", srcFileName)
+			srcStat.Status = types.StatusFail
+			srcStat.Error = ulErr.Error()
+			pterm.Error.Println(fmt.Sprintf("source file %s", srcFileName))
+		} else {
+			pterm.Success.Println(fmt.Sprintf("source file %s", srcFileName))
+		}
+		r.stats.Add(srcStat)
+	}
 }
 
 func (r *Package) migrateConan(ctx context.Context) error {
@@ -1253,6 +1366,23 @@ func (r *Package) migrateConan(ctx context.Context) error {
 		return nil
 	}
 	for _, entry := range entries {
+		metadata := map[string]interface{}{
+			"layer":    string(entry.Layer),
+			"name":     entry.Reference.Name,
+			"version":  entry.Reference.Version,
+			"user":     entry.Reference.User,
+			"channel":  entry.Reference.Channel,
+			"rrev":     entry.RRev,
+			"pkgid":    entry.PkgID,
+			"prev":     entry.PRev,
+			"filename": entry.FileName,
+			"sha1":     entry.SHA1,
+		}
+		uploadFile := &types.File{Name: entry.FileName, Uri: entry.Uri}
+		checkStat := types.FileStat{Name: entry.FileName, Registry: r.srcRegistry, Uri: entry.Uri, Size: int64(entry.Size)}
+		if r.checkUploaded(ctx, checkStat, uploadFile, entry.Reference.Name, entry.Reference.Version, metadata) != "" {
+			continue
+		}
 		file, header, dlErr := r.srcAdapter.DownloadFile(r.srcRegistry, entry.Uri)
 		if dlErr != nil {
 			log.Error().Ctx(ctx).Err(dlErr).Msgf("Failed to download Conan file %s", entry.Uri)
@@ -1267,22 +1397,9 @@ func (r *Package) migrateConan(ctx context.Context) error {
 			})
 			continue
 		}
-		metadata := map[string]interface{}{
-			"layer":    string(entry.Layer),
-			"name":     entry.Reference.Name,
-			"version":  entry.Reference.Version,
-			"user":     entry.Reference.User,
-			"channel":  entry.Reference.Channel,
-			"rrev":     entry.RRev,
-			"pkgid":    entry.PkgID,
-			"prev":     entry.PRev,
-			"filename": entry.FileName,
-			"sha1":     entry.SHA1,
-		}
 		title := fmt.Sprintf("%s (%s)", entry.FileName, sizeutil.GetSize(int64(entry.Size)))
 		pterm.Info.Println(fmt.Sprintf("Copying Conan file %s from %s to %s", entry.FileName, r.srcRegistry, r.destRegistry))
-		ulErr := r.destAdapter.UploadFile(r.destRegistry, file,
-			&types.File{Name: entry.FileName, Uri: entry.Uri}, header,
+		ulErr := r.destAdapter.UploadFile(r.destRegistry, file, uploadFile, header,
 			entry.Reference.Name, entry.Reference.Version, types.CONAN, metadata)
 		stat := types.FileStat{
 			Name:     entry.FileName,
@@ -1344,11 +1461,16 @@ func (r *Package) migrateCran(ctx context.Context) error {
 
 		if !r.config.Overwrite {
 			checkFile := &types.File{Uri: destPath}
-			exists, headErr := r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, version, checkFile, types.CRAN)
-			if headErr != nil {
-				r.logger.Warn().Err(headErr).Msgf("Failed to HEAD file %s, will proceed with migration", destPath)
-			} else if exists {
-				r.logger.Info().Msgf("Skipping file %s as it already exists in destination (HEAD 200)", destPath)
+			exists, checkErr := checkExistsWithRetry(ctx, r.logger, func() (bool, error) {
+				return r.destAdapter.FileExists(ctx, r.registry.Path, r.pkg.Name, version, checkFile, types.CRAN)
+			})
+			if checkErr != nil {
+				r.logger.Error().Err(checkErr).Msgf("Failed to check if CRAN file %s exists", destPath)
+				util.AddFileErrorToStat(r.stats, &file, r.srcRegistry, existenceCheckError(checkErr))
+				continue
+			}
+			if exists {
+				r.logger.Info().Msgf("Skipping file %s as it already exists in destination", destPath)
 				r.stats.Add(types.FileStat{
 					Name:     file.Name,
 					Registry: r.srcRegistry,

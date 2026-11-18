@@ -47,6 +47,10 @@ func (noopTerraformAdapter) VersionExists(context.Context, types.Package, string
 func (noopTerraformAdapter) FileExists(context.Context, string, string, string, *types.File, types.ArtifactType) (bool, error) {
 	return false, nil
 }
+
+func (noopTerraformAdapter) UploadExists(context.Context, string, *types.File, string, string, types.ArtifactType, map[string]interface{}) (bool, error) {
+	return false, nil
+}
 func (noopTerraformAdapter) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
 	return nil, nil
 }
