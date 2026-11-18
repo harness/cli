@@ -2260,6 +2260,7 @@ commands:
       - name: skill-dir
         description: Explicit file or directory for the AI Evals skill
       - name: runner-source
+        hidden: true
         description: Developer-only D2 runner checkout to copy and install into an isolated HARNESS_CLI_HOME
 
   # Stable eval_onboarding command definition.
