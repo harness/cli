@@ -353,6 +353,7 @@ nouns:
 
   - noun: global_freeze
     short_desc: An account-wide or org-wide deployment freeze that halts all deployments.
+    multi_level: true
     fields:
       - id: identifier
         expr: it.identifier
