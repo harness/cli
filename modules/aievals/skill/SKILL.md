@@ -18,7 +18,7 @@ Do not create eval.yaml.
 
 The hosted Harness MCP server (https://mcp.harness.io/mcp) cannot read this repository, call localhost, build the upload zip, or call import-archive. Discover, Stage files, Local run, a live run against an endpoint that is not public, and Upload stay on the coding agent and the Harness CLI. Use the Harness CLI command named for each of those steps.
 
-When the prompt header includes a `harness auth login` command, use that command for this account, organization, and project. If no header was provided, ask for the account, organization, and project before authenticating. Do not change profiles automatically. To use an existing profile such as `qa`, pass `--profile <name>` on commands that need Harness credentials, or set `HARNESS_PROFILE`. An explicit `--profile` takes precedence over `HARNESS_PROFILE`.
+When the prompt header includes a `harness auth login` command, use that command for this account, organization, and project. If no header was provided, ask for the account, organization, and project before authenticating. Do not change profiles automatically. To use an existing profile, pass `--profile <name>` on commands that need Harness credentials, or set `HARNESS_PROFILE`. An explicit `--profile` takes precedence over `HARNESS_PROFILE`.
 
 ## Commands
 
@@ -35,7 +35,7 @@ Metric selections go in the candidate file's `metrics` list. Each selection has 
 
 Cases preserve D2 JSON shapes for `input`, `expected`, `expected_output`, and `precomputed_output`: each may be a scalar, list, object, or null. They can also carry `context`, `expected_tools`, `expected_tool_calls`, `tags`, and `metadata`; these are preserved in JSONL. Use `cases` instead of `input_text`/`expected` when a metric needs these fields or there is more than one case. A dataset field is useful only if the runner maps it to the SDK field the metric reads; check that mapping before recommending trace, conversation, or telemetry metrics.
 
-Example candidate file, illustrating the `onboarding/v1` shape only (not a default agent, endpoint, case, or metric recommendation):
+Example candidate file, illustrating the `onboarding/v1` shape only. Replace the example endpoint with the confirmed agent URL; the example is not a default agent, endpoint, case, or metric recommendation:
 
 ```json
 {
@@ -54,7 +54,7 @@ Example candidate file, illustrating the `onboarding/v1` shape only (not a defau
     "query_params": {"region": {"source": "env", "name": "REGION"}},
     "auth_headers": {"Authorization": {"source": "env", "name": "SUPPORT_TOKEN"}}
   },
-  "environments": {"local": {"endpoint": "http://127.0.0.1:8080/api/chat", "secrets": {}}},
+  "environments": {"local": {"endpoint": "https://agent.example.com/api/chat", "secrets": {}}},
   "evals": [{"identifier": "support-eval", "name": "Support", "dataset": "datasets/support.jsonl", "metric_set": "metric-sets/support.yaml"}],
   "suite": {"identifier": "support-suite", "name": "Support", "pass_strategy": "all_must_pass", "evals": ["support-eval"]},
   "cases": [{"id": "case-1", "input": {"text": "hello"}, "expected": "ok"}],
@@ -138,7 +138,7 @@ Only after yes, create the temporary `onboarding/v1` candidate JSON with the con
 
 ## Stage 3. Local run
 
-The current pinned runner may not report `onboarding/v1`. Check the runner result from staging before offering a run. If it does not report `onboarding/v1`, explain that local/live execution is blocked until a compatible runner is installed; do not remove fields or install a replacement without confirmation.
+Use the pinned `onboarding/v1` runner. If the CLI reports an installation or compatibility problem, show its remediation and stop. Do not remove fields or install a replacement without confirmation.
 
 Checkpoint: Run this eval locally with the compatible pinned runner?
 
