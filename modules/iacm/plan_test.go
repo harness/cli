@@ -125,16 +125,25 @@ func TestZipSourceCodeSkipsHeavyAndStateFiles(t *testing.T) {
 }
 
 func TestApplyWorkspaceScopeUpdatesAuth(t *testing.T) {
-	a := &auth.ResolvedAuth{OrgID: "profile-org", ProjectID: "profile-project"}
-	orgID, projectID := applyWorkspaceScope(a, &workspaceConfig{Org: "file-org", Project: "file-project"})
-	if orgID != "file-org" || projectID != "file-project" || a.OrgID != "file-org" || a.ProjectID != "file-project" {
-		t.Fatalf("scope org=%q project=%q auth=%+v", orgID, projectID, a)
+	tests := []struct {
+		name    string
+		cfg     *workspaceConfig
+		wantOrg string
+		wantPrj string
+	}{
+		{name: "both", cfg: &workspaceConfig{Org: "file-org", Project: "file-project"}, wantOrg: "file-org", wantPrj: "file-project"},
+		{name: "neither", cfg: &workspaceConfig{}, wantOrg: "profile-org", wantPrj: "profile-project"},
+		{name: "org only", cfg: &workspaceConfig{Org: "file-org"}, wantOrg: "file-org", wantPrj: "profile-project"},
+		{name: "project only", cfg: &workspaceConfig{Project: "file-project"}, wantOrg: "profile-org", wantPrj: "file-project"},
 	}
-
-	a = &auth.ResolvedAuth{OrgID: "profile-org", ProjectID: "profile-project"}
-	orgID, projectID = applyWorkspaceScope(a, &workspaceConfig{})
-	if orgID != "profile-org" || projectID != "profile-project" {
-		t.Fatalf("empty file should keep the profile scope, got %q %q", orgID, projectID)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &auth.ResolvedAuth{OrgID: "profile-org", ProjectID: "profile-project"}
+			orgID, projectID := applyWorkspaceScope(a, tt.cfg)
+			if orgID != tt.wantOrg || projectID != tt.wantPrj || a.OrgID != tt.wantOrg || a.ProjectID != tt.wantPrj {
+				t.Fatalf("scope org=%q project=%q auth org=%q project=%q", orgID, projectID, a.OrgID, a.ProjectID)
+			}
+		})
 	}
 }
 
