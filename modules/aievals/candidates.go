@@ -143,8 +143,25 @@ func (item *SampleCase) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if encoded, ok := raw["expected_tool_calls"]; ok {
-		if err := json.Unmarshal(encoded, &item.ExpectedToolCalls); err != nil {
+		value, err := decodeJSONValue(encoded)
+		if err != nil {
 			return err
+		}
+		if value == nil {
+			item.ExpectedToolCalls = nil
+		} else {
+			calls, ok := value.([]any)
+			if !ok {
+				return fmt.Errorf("sample case expected_tool_calls must be a list")
+			}
+			item.ExpectedToolCalls = make([]map[string]any, len(calls))
+			for index, call := range calls {
+				body, ok := call.(map[string]any)
+				if !ok {
+					return fmt.Errorf("sample case expected_tool_calls[%d] must be an object", index)
+				}
+				item.ExpectedToolCalls[index] = body
+			}
 		}
 	}
 	if encoded, ok := raw["tags"]; ok {
@@ -214,6 +231,7 @@ type Candidate struct {
 	AuthEnv       string         `json:"auth_env,omitempty"`
 	InputText     string         `json:"input_text,omitempty"`
 	Expected      string         `json:"expected,omitempty"`
+	Metrics       []any          `json:"metrics,omitempty"`
 	Cases         []SampleCase   `json:"cases,omitempty"`
 	Wire          map[string]any `json:"-"`
 }
@@ -247,7 +265,7 @@ func Scan(repo, route string) (ScanReport, int, error) {
 	if strings.TrimSpace(route) != "" {
 		match, ok := selectAdapterRoute(inf.RouteCandidates, route)
 		if !ok {
-			return report, 2, &StatusError{Code: 2, Msg: routeSelectionError(route, inf.RouteCandidates)}
+			return report, 2, fmt.Errorf("%s", routeSelectionError(route, inf.RouteCandidates))
 		}
 		chosen = []RouteCandidate{match}
 	}
@@ -546,6 +564,9 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 	if candidate.RequestField == "" && candidate.RequestFields != "" {
 		candidate.RequestField = strings.TrimSpace(strings.Split(candidate.RequestFields, ",")[0])
 	}
+	if len(candidate.Metrics) == 0 {
+		return Candidate{}, &StatusError{Code: 2, Msg: "metrics are required; choose the metrics to stage instead of defaulting to exact match"}
+	}
 	for _, field := range requestFieldList(candidate.RequestField, candidate.RequestFields) {
 		if inputSelector.FindString(field) != field {
 			return Candidate{}, &StatusError{Code: 2, Msg: "request_field does not map to onboarding/v1. Use a selector such as text or items.0, or set target.request_template with source input."}
@@ -647,6 +668,7 @@ func legacyCandidateDocument(repo string, candidate Candidate) (map[string]any, 
 			"identifier": evalID,
 			"name":       displayName(agent),
 			"dataset":    "datasets/" + agent + ".jsonl",
+			"metric_set": "metric-sets/" + agent + ".yaml",
 		}},
 		"suite": map[string]any{
 			"identifier":    agent + "-suite",
@@ -654,6 +676,7 @@ func legacyCandidateDocument(repo string, candidate Candidate) (map[string]any, 
 			"pass_strategy": "all_must_pass",
 			"evals":         []any{evalID},
 		},
+		"metrics": candidate.Metrics,
 	}, nil
 }
 
@@ -708,6 +731,7 @@ func v1TreeFiles(candidate Candidate) (map[string]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("candidate file must be a JSON object")
 	}
+	rawMetrics, hasMetrics := doc["metrics"]
 	delete(doc, "metrics")
 	delete(doc, "cases")
 	agent, _ := doc["identifier"].(string)
@@ -725,6 +749,18 @@ func v1TreeFiles(candidate Candidate) (map[string]string, error) {
 			return nil, err
 		}
 		files[rel] = body
+	}
+	if hasMetrics && rawMetrics != nil {
+		metricBody, err := metricSetBody(rawMetrics, agent)
+		if err != nil {
+			return nil, err
+		}
+		for _, rel := range metricSetRefs(doc) {
+			if err := relativeTreePath(rel); err != nil {
+				return nil, err
+			}
+			files[rel] = metricBody
+		}
 	}
 	return files, nil
 }
@@ -785,6 +821,54 @@ func sampleCasesValue(cases []SampleCase) (any, error) {
 
 func datasetRefs(doc map[string]any) []string {
 	return evalRefs(doc, "dataset")
+}
+
+func metricSetRefs(doc map[string]any) []string {
+	return evalRefs(doc, "metric_set")
+}
+
+func metricSetBody(raw any, agent string) (string, error) {
+	metrics, ok := raw.([]any)
+	if !ok || len(metrics) == 0 {
+		return "", fmt.Errorf("metrics: empty_metrics: staging requires an explicit non-empty metric list; choose metrics before staging")
+	}
+	entries := make([]any, 0, len(metrics))
+	for index, rawMetric := range metrics {
+		metric, ok := rawMetric.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("metrics[%d] must be a mapping", index)
+		}
+		kind, _ := metric["kind"].(string)
+		if strings.TrimSpace(kind) == "" {
+			return "", fmt.Errorf("metrics[%d].kind is required", index)
+		}
+		metricDefinition := map[string]any{
+			"name": kind,
+			"kind": kind,
+		}
+		for _, key := range []string{"type", "dimension", "config", "options"} {
+			if value, ok := metric[key]; ok {
+				metricDefinition[key] = value
+			}
+		}
+		entry := map[string]any{"metric": metricDefinition}
+		for _, key := range []string{"threshold", "score_name", "weight"} {
+			if value, ok := metric[key]; ok {
+				entry[key] = value
+			}
+		}
+		entries = append(entries, entry)
+	}
+	data := map[string]any{
+		"identifier": agent + "-metrics",
+		"name":       displayName(agent) + " Metrics",
+		"entries":    entries,
+	}
+	encoded, err := yaml.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func evalRefs(doc map[string]any, field string) []string {

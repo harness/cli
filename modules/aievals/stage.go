@@ -4,9 +4,11 @@
 package aievals
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -57,7 +59,7 @@ func Stage(repo string, files map[string]string, python string, run CommandFunc)
 		return StageResult{}, fmt.Errorf("no candidate files to stage")
 	}
 	if run == nil {
-		run = defaultCommand
+		run = stageCommand
 	}
 	tmp, err := os.MkdirTemp("", "aievals-stage-")
 	if err != nil {
@@ -90,17 +92,21 @@ func writeTreeFile(root, rel string, data []byte) error {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
 		return fmt.Errorf("candidate path escapes the tree: %s", rel)
 	}
-	return writeAtomic(filepath.Join(root, clean), data)
+	if err := ensureNoSymlink(root); err != nil {
+		return err
+	}
+	dest := filepath.Join(root, clean)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	if err := ensureNoSymlink(root); err != nil {
+		return err
+	}
+	return writeAtomic(dest, data)
 }
 
 func commitFiles(destRoot string, files map[string]string) (StageResult, error) {
 	var result StageResult
-	draftMarker := filepath.Join(destRoot, ".onboard-guide-draft")
-	_, draftErr := os.Stat(draftMarker)
-	draft := draftErr == nil
-	if draftErr != nil && !os.IsNotExist(draftErr) {
-		return StageResult{}, draftErr
-	}
 	type pending struct {
 		rel  string
 		body string
@@ -126,11 +132,15 @@ func commitFiles(destRoot string, files map[string]string) (StageResult, error) 
 			result.Identical = append(result.Identical, rel)
 			continue
 		}
-		if draft {
-			writes = append(writes, pending{rel, body})
-			continue
-		}
 		result.Collisions = append(result.Collisions, rel)
+	}
+	if len(result.Collisions) > 0 {
+		return result, fmt.Errorf("destination differs and was left unchanged: %s", strings.Join(result.Collisions, ", "))
+	}
+	for _, item := range writes {
+		if err := ensureNoSymlink(filepath.Join(destRoot, filepath.Dir(item.rel))); err != nil {
+			return result, err
+		}
 	}
 	for _, item := range writes {
 		if err := writeTreeFile(destRoot, item.rel, []byte(item.body)); err != nil {
@@ -138,15 +148,55 @@ func commitFiles(destRoot string, files map[string]string) (StageResult, error) 
 		}
 		result.Wrote = append(result.Wrote, item.rel)
 	}
-	if len(result.Collisions) > 0 {
-		return result, fmt.Errorf("destination differs and was left unchanged: %s", strings.Join(result.Collisions, ", "))
+	return result, nil
+}
+
+func ensureNoSymlink(path string) error {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return err
 	}
-	if draft {
-		if _, stagedDraft := files[".onboard-guide-draft"]; !stagedDraft {
-			if err := os.Remove(draftMarker); err != nil && !os.IsNotExist(err) {
-				return result, err
-			}
+	volume := filepath.VolumeName(absolute)
+	current := volume + string(filepath.Separator)
+	rest := strings.TrimPrefix(absolute, current)
+	for _, part := range strings.Split(rest, string(filepath.Separator)) {
+		if part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("staging path contains a symlink: %s", current)
 		}
 	}
-	return result, nil
+	return nil
+}
+
+func stageCommand(name string, args []string, env []string, dir string) (CommandResult, error) {
+	cmd := exec.Command(name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	result := CommandResult{Stdout: stdout.String(), Stderr: stderr.String()}
+	if err == nil {
+		return result, nil
+	}
+	if exit, ok := err.(*exec.ExitError); ok {
+		result.Code = exit.ExitCode()
+		return result, nil
+	}
+	return result, err
 }
