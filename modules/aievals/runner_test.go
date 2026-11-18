@@ -5,8 +5,10 @@ package aievals
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -218,5 +220,106 @@ func TestDefaultCommandContextStopsChildOnCancellation(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("child still running after cancellation")
+	}
+}
+
+func TestEmbeddedMetricCatalogWithHarnessEvals0294(t *testing.T) {
+	python := os.Getenv("AIEVALS_METRIC_CATALOG_PYTHON")
+	if python == "" {
+		t.Skip("set AIEVALS_METRIC_CATALOG_PYTHON to a Python executable with harness-evals==0.29.4 installed")
+	}
+
+	runPython := func(source string) []byte {
+		t.Helper()
+		cmd := exec.Command(python, "-I", "-c", source)
+		cmd.Env = []string{}
+		output, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("configured Python command failed: %v", err)
+		}
+		return output
+	}
+
+	version := strings.TrimSpace(string(runPython(`import importlib.metadata as metadata; print(metadata.version("harness-evals"))`)))
+	if version != "0.29.4" {
+		t.Fatalf("configured Python has harness-evals %q, want 0.29.4", version)
+	}
+
+	type metricEntry struct {
+		Kind              string `json:"kind"`
+		Type              string `json:"type"`
+		Supported         bool   `json:"supported"`
+		UnsupportedReason string `json:"unsupported_reason"`
+		OptionsSchema     struct {
+			Required   []string `json:"required"`
+			Properties map[string]struct {
+				Type  json.RawMessage `json:"type"`
+				Items struct {
+					Type string `json:"type"`
+				} `json:"items"`
+			} `json:"properties"`
+		} `json:"options_schema"`
+	}
+	var entries []metricEntry
+	if err := json.Unmarshal(runPython(metricCatalogSnippet), &entries); err != nil {
+		t.Fatalf("embedded metric_catalog.py returned invalid JSON: %v", err)
+	}
+	byKind := make(map[string]metricEntry, len(entries))
+	for _, entry := range entries {
+		byKind[entry.Kind] = entry
+	}
+
+	for kind, wantType := range map[string]string{"schema_validation": "heuristic", "topic_adherence": "llm"} {
+		entry, ok := byKind[kind]
+		if !ok || !entry.Supported || entry.Type != wantType {
+			t.Fatalf("catalog entry %q = %+v, want supported type %q", kind, entry, wantType)
+		}
+	}
+	jsonSchemaTypes := func(raw json.RawMessage) []string {
+		var types []string
+		if err := json.Unmarshal(raw, &types); err == nil {
+			return types
+		}
+		var single string
+		if err := json.Unmarshal(raw, &single); err == nil && single != "" {
+			return []string{single}
+		}
+		return nil
+	}
+	assertRequiredOption := func(kind, name, wantTypes, wantItemType string) {
+		t.Helper()
+		entry := byKind[kind]
+		required := false
+		for _, option := range entry.OptionsSchema.Required {
+			if option == name {
+				required = true
+				break
+			}
+		}
+		if !required {
+			t.Fatalf("catalog entry %q does not mark constructor option %q required", kind, name)
+		}
+		property, ok := entry.OptionsSchema.Properties[name]
+		if !ok || strings.Join(jsonSchemaTypes(property.Type), ",") != wantTypes {
+			t.Fatalf("catalog entry %q option %q schema = %+v, want type %q", kind, name, property, wantTypes)
+		}
+		if wantItemType != "" && property.Items.Type != wantItemType {
+			t.Fatalf("catalog entry %q option %q item type = %q, want %q", kind, name, property.Items.Type, wantItemType)
+		}
+	}
+	assertRequiredOption("schema_validation", "schema", "object,string", "")
+	assertRequiredOption("topic_adherence", "allowed_topics", "array", "string")
+
+	for kind, want := range map[string]struct {
+		typeName string
+		reason   string
+	}{
+		"decision_choice":        {typeName: "unsupported", reason: "decision provider"},
+		"mcp_trace_completeness": {typeName: "heuristic", reason: "without a persisted JSON representation"},
+	} {
+		entry, ok := byKind[kind]
+		if !ok || entry.Supported || entry.Type != want.typeName || !strings.Contains(entry.UnsupportedReason, want.reason) {
+			t.Fatalf("catalog entry %q = %+v, want unsupported type %q and reason containing %q", kind, entry, want.typeName, want.reason)
+		}
 	}
 }
