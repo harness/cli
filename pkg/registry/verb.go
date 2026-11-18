@@ -13,7 +13,7 @@ const (
 	VerbExecute = "execute"
 )
 
-// TODO(onboarding-schema): provisional names until the CLI owner approves them.
+// Stable onboarding verbs used by the AI Evals interface.
 const (
 	VerbSetup  = "setup"
 	VerbScan   = "scan"
@@ -106,7 +106,7 @@ var verbRegistry = map[string]VerbSpec{
 	VerbDelete:  {Kind: VerbKindCore, Gerund: "deleting", ShortDesc: "Delete a Harness resource", RequiresId: true},
 	VerbExecute: {Kind: VerbKindCore, Gerund: "executing", ShortDesc: "Execute a Harness resource", RequiresId: true},
 
-	// TODO(onboarding-schema): provisional until the CLI owner approves the names.
+	// Stable onboarding verb registry.
 	VerbSetup:  {Kind: VerbKindCore, Gerund: "setting up", ShortDesc: "Set up a local onboarding workflow"},
 	VerbScan:   {Kind: VerbKindCore, Gerund: "scanning", ShortDesc: "Print onboarding candidates without writing files"},
 	VerbStage:  {Kind: VerbKindCore, Gerund: "staging", ShortDesc: "Validate and write a local onboarding tree"},
