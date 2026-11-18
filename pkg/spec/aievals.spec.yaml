@@ -2344,6 +2344,9 @@ commands:
       existing profile; this command never changes profiles.
     handler_type: workflow
     workflow_id: run
+    pipeline_auth:
+      token_envvar: HARNESS_TOKEN
+      apiurl_envvar: HARNESS_BASE_URL
     flags:
       - name: root
         description: Path to the .harness/evals directory
