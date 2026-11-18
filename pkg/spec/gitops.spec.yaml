@@ -422,6 +422,38 @@ nouns:
       - id: repositories
         expr: it.repositoryCount
 
+  - noun: gitops_repocred
+    short_desc: "Repository credential templates configured on GitOps agents."
+    noun_aliases: [gitops_repocreds]
+    multi_level: true
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: agent
+        expr: it.agentIdentifier
+      - id: url
+        label: URL
+        expr: it.credentials.url ?? it.repoCreds.url ?? ""
+        width_max: 60
+      - id: response
+        expr: it
+
+  - noun: gitops_clusterlink
+    short_desc: "Link between a GitOps cluster and a Harness environment (identifiers are raw, not scope-prefixed)."
+    noun_aliases: [gitops_clusterlinks]
+    multi_level: true
+    fields:
+      - id: identifier
+        expr: it.identifier ?? it.name
+      - id: name
+        expr: it.name ?? it.identifier
+      - id: agent
+        expr: it.agentIdentifier ?? ""
+      - id: scope
+        expr: it.scope ?? ""
+      - id: response
+        expr: it
+
 commands:
   - command: list gitops_agent
     verb: list
@@ -1479,3 +1511,251 @@ commands:
     endpoint:
       path: /gitops/api/v1/dashboard/overview
       item_expr: it
+
+  - command: execute gitops_application:bulk_sync
+    verb: execute
+    noun: gitops_application
+    noun_variant: bulk_sync
+    no_id: true
+    confirm_mode: prompt
+    short: "Sync several GitOps applications with the same settings: harness execute gitops_application:bulk_sync --target <agent/app> [--target ...] [--prune] [--dry-run] [--sync-option <opt>]"
+    long: |
+      Applies one set of sync settings to every --target. Agent ids are scope-prefixed
+      (account.<agent>, org.<agent>, or <agent> for project-level); app names are plain.
+      Sync options are Argo CD strings such as CreateNamespace=true or PruneLast=true.
+    handler_type: endpoint
+    flags:
+      - name: target
+        description: "Application to sync as <agent/app> (repeatable)"
+        required: true
+        is_multi: true
+      - name: prune
+        description: Delete resources from the cluster that are not in git
+        is_bool: true
+      - name: dry-run
+        description: Simulate sync without applying changes
+        is_bool: true
+      - name: sync-option
+        description: "Sync option string, e.g. CreateNamespace=true (repeatable)"
+        is_multi: true
+    endpoint:
+      method: POST
+      path: /gitops/api/v1/applications/bulk/sync
+      body_fn: gitops_bulk_sync_body
+      item_expr: it
+      yaml_pick_expr: it
+      text_header: "\nBulk sync triggered\n"
+
+  - command: execute gitops_application:cancel_operation
+    verb: execute
+    noun: gitops_application
+    noun_variant: cancel_operation
+    id_parts: 2
+    id_label: "<agent/app>"
+    confirm_mode: prompt
+    short: "Cancel the running sync or rollback of an application: harness execute gitops_application:cancel_operation <agent/app>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.idParts[0] : (ctx.level == "org" ? "org." + ctx.idParts[0] : ctx.idParts[0])}}/applications/{{ctx.idParts[1]}}/operation'
+      item_expr: it
+      yaml_pick_expr: it
+      text_header: "\nCancel requested for {{ctx.id}}\n"
+
+  - command: execute gitops_application:run_resource_action
+    verb: execute
+    noun: gitops_application
+    noun_variant: run_resource_action
+    id_parts: 2
+    id_label: "<agent/app>"
+    confirm_mode: prompt
+    short: "Run an action on a resource of an application: harness execute gitops_application:run_resource_action <agent/app> --namespace <ns> --resource-name <name> --kind <kind> --action <action> [--group <g>] [--version <v>]"
+    long: |
+      Runs a resource action such as restart (Deployment) or pause/resume/promote-full (Rollout).
+      List the actions a resource supports with: harness list gitops_action <agent/app> --namespace ... --resource-name ... --kind ...
+    handler_type: endpoint
+    flags:
+      - name: namespace
+        description: Kubernetes namespace of the resource
+        required: true
+      - name: resource-name
+        description: Name of the Kubernetes resource
+        required: true
+      - name: kind
+        description: "Kubernetes kind, e.g. Deployment, Rollout, StatefulSet"
+        required: true
+      - name: action
+        description: "Action to run, e.g. restart, pause, resume, retry, abort, promote-full"
+        required: true
+      - name: group
+        description: "Kubernetes API group, e.g. apps (needed for most kinds)"
+      - name: version
+        description: "Kubernetes API version, e.g. v1"
+    endpoint:
+      method: POST
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.idParts[0] : (ctx.level == "org" ? "org." + ctx.idParts[0] : ctx.idParts[0])}}/applications/{{ctx.idParts[1]}}/resource/actions'
+      body_params:
+        namespace: flags.namespace
+        resourceName: flags["resource-name"]
+        kind: flags.kind
+        action: flags.action
+        group: 'flags.group != "" ? flags.group : nil'
+        version: 'flags.version != "" ? flags.version : nil'
+      item_expr: it
+      yaml_pick_expr: it
+      text_header: "\nAction {{flags.action}} requested on {{ctx.id}}\n"
+
+  - command: list gitops_repocred
+    verb: list
+    noun: gitops_repocred
+    short: "List GitOps repository credentials in the current scope: harness list gitops_repocred [--search ...] [--agent ...]"
+    handler_type: endpoint
+    flags:
+      - name: search
+        description: Filter credentials by name or keyword
+      - name: agent
+        description: Filter by scope-prefixed GitOps agent identifier
+    endpoint:
+      method: POST
+      path: /gitops/api/v1/repocreds
+      items_expr: it.content ?? []
+      get_id_expr: it.agentIdentifier + "/" + it.identifier
+      body_params:
+        accountIdentifier: auth.account
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'auth.project != "" ? auth.project : nil'
+        pageSize: "1000"
+        searchTerm: 'flags.search != "" ? flags.search : nil'
+        agentIdentifier: 'flags.agent != "" ? flags.agent : nil'
+      paging:
+        paging_strategy: flat_list
+      columns: [identifier, agent, url]
+
+  - command: get gitops_repocred
+    verb: get
+    noun: gitops_repocred
+    short: "Get a GitOps repository credential: harness get gitops_repocred <agent/credential_id>"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<agent/credential_id>"
+    endpoint:
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.idParts[0] : (ctx.level == "org" ? "org." + ctx.idParts[0] : ctx.idParts[0])}}/repocreds/{{ctx.idParts[1]}}'
+      query_params:
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: delete gitops_repocred
+    verb: delete
+    noun: gitops_repocred
+    id_parts: 2
+    id_label: "<agent/credential_id>"
+    confirm_mode: prompt
+    short: "Delete a GitOps repository credential: harness delete gitops_repocred <agent/credential_id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.idParts[0] : (ctx.level == "org" ? "org." + ctx.idParts[0] : ctx.idParts[0])}}/repocreds/{{ctx.idParts[1]}}'
+      query_params:
+        orgIdentifier: 'auth.org != "" ? auth.org : nil'
+        projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
+      item_expr: it
+      no_fields: true
+      text_header: "\nDeleted repository credential {{ctx.id}}\n"
+
+  - command: list gitops_clusterlink
+    verb: list
+    noun: gitops_clusterlink
+    short: "List GitOps clusters linked to an environment: harness list gitops_clusterlink --environment <env> [--search ...] [--scope ACCOUNT|ORGANIZATION|PROJECT]"
+    handler_type: endpoint
+    flags:
+      - name: environment
+        description: Environment identifier (raw, not scope-prefixed)
+        required: true
+      - name: search
+        description: Filter clusters by name or keyword
+      - name: scope
+        description: Filter by cluster scope
+        completion_values: [ACCOUNT, ORGANIZATION, PROJECT]
+    endpoint:
+      path: /ng/api/gitops/clusters
+      items_expr: it.data.content ?? []
+      get_id_expr: it.identifier ?? it.name
+      query_params:
+        environmentIdentifier: flags.environment
+        searchTerm: 'flags.search != "" ? flags.search : nil'
+        scope: 'flags.scope != "" ? flags.scope : nil'
+      paging:
+        paging_strategy: page_index
+        countable: true
+        page_index_param: page
+        page_size_param: size
+        page_size_default: 50
+        page_size_max: 100
+        total_expr: it.data.totalItems ?? it.data.totalElements ?? 0
+      columns: [name, agent, scope]
+
+  - command: create gitops_clusterlink
+    verb: create
+    noun: gitops_clusterlink
+    no_id: true
+    short: "Link a GitOps cluster to an environment: harness create gitops_clusterlink --cluster <id> --environment <env> --agent <agent> --scope ACCOUNT|ORGANIZATION|PROJECT"
+    long: |
+      All identifiers are raw (use "incluster" and "myagent", not "account.incluster").
+      The cluster scope must be equal to or wider than the environment scope.
+    handler_type: endpoint
+    flags:
+      - name: cluster
+        description: Cluster identifier (raw)
+        required: true
+      - name: environment
+        description: Environment identifier (raw)
+        required: true
+      - name: agent
+        description: GitOps agent identifier (raw)
+        required: true
+      - name: scope
+        description: Scope the cluster is registered at
+        required: true
+        completion_values: [ACCOUNT, ORGANIZATION, PROJECT]
+    endpoint:
+      method: POST
+      path: /ng/api/gitops/clusters
+      body_params:
+        identifier: flags.cluster
+        envRef: flags.environment
+        agentIdentifier: flags.agent
+        scope: flags.scope
+      item_expr: it.data
+      yaml_pick_expr: it
+      text_header: "\nLinked cluster {{flags.cluster}} to environment {{flags.environment}}\n"
+
+  - command: delete gitops_clusterlink
+    verb: delete
+    noun: gitops_clusterlink
+    requires_id: true
+    confirm_mode: prompt
+    short: "Unlink a cluster from an environment: harness delete gitops_clusterlink <cluster> --environment <env> --agent <agent> --scope ACCOUNT|ORGANIZATION|PROJECT"
+    handler_type: endpoint
+    flags:
+      - name: environment
+        description: Environment identifier (raw)
+        required: true
+      - name: agent
+        description: GitOps agent identifier (raw)
+        required: true
+      - name: scope
+        description: Scope the cluster is registered at
+        required: true
+        completion_values: [ACCOUNT, ORGANIZATION, PROJECT]
+    endpoint:
+      method: DELETE
+      path: /ng/api/gitops/clusters/{{ctx.id}}
+      query_params:
+        environmentIdentifier: flags.environment
+        agentIdentifier: flags.agent
+        scope: flags.scope
+      item_expr: it
+      no_fields: true
+      text_header: "\nUnlinked cluster {{ctx.id}}\n"
