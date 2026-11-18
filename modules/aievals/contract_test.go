@@ -5,6 +5,7 @@ package aievals
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,7 +29,7 @@ func TestScanEmitsV1CandidateAndWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.SchemaVersion != SchemaVersionV1 || strings.Contains(string(encoded), SchemaVersion) {
+	if report.SchemaVersion != SchemaVersionV1 || !strings.Contains(string(encoded), SchemaVersion) {
 		t.Fatalf("scan schema = %s json=%s", report.SchemaVersion, encoded)
 	}
 	candidate := report.Candidates[0]
@@ -69,7 +70,7 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 		calls++
 		return CommandResult{}, nil
 	}
-	ensureRunner := func(string, func(string) (string, error), CommandFunc) (RunnerLayout, error) {
+	verifyRunner := func(string, CommandFunc) (RunnerLayout, error) {
 		runnerCalls++
 		return RunnerLayout{}, nil
 	}
@@ -86,7 +87,7 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 		},
 		Python:            "validator",
 		Run:               run,
-		EnsureRunner:      ensureRunner,
+		VerifyRunner:      verifyRunner,
 		ReadMetricCatalog: readCatalog,
 		Stdout:            io.Discard,
 		Stderr:            io.Discard,
@@ -106,7 +107,7 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 		Candidate:         Candidate{Wire: document, Metrics: []MetricSelection{{Kind: "contains"}}},
 		Python:            "",
 		Run:               run,
-		EnsureRunner:      ensureRunner,
+		VerifyRunner:      verifyRunner,
 		ReadMetricCatalog: readCatalog,
 		Stdout:            io.Discard,
 		Stderr:            io.Discard,
@@ -116,6 +117,36 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 	}
 	if calls != 0 || runnerCalls != 0 || catalogCalls != 0 {
 		t.Fatalf("unconfirmed v1 candidate made subprocess=%d runner=%d catalog=%d calls", calls, runnerCalls, catalogCalls)
+	}
+	assertNoEvalFiles(t, repo)
+}
+
+func TestStageSelectedMetricsOnlyVerifiesAnInstalledRunner(t *testing.T) {
+	repo := t.TempDir()
+	verifyCalls := 0
+	catalogCalls := 0
+	verify := func(string, CommandFunc) (RunnerLayout, error) {
+		verifyCalls++
+		return RunnerLayout{}, errors.New("runner is not installed")
+	}
+	catalog := func(string, CommandFunc) ([]MetricCatalogEntry, error) {
+		catalogCalls++
+		return nil, nil
+	}
+	code, err := WriteCandidate(WriteOptions{
+		Repo:              repo,
+		Candidate:         Candidate{Wire: onboardingV1FixtureDocument(), Metrics: []MetricSelection{{Kind: "contains"}}},
+		Confirm:           true,
+		VerifyRunner:      verify,
+		ReadMetricCatalog: catalog,
+		Stdout:            io.Discard,
+		Stderr:            io.Discard,
+	})
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "runner is not installed") {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	if verifyCalls != 1 || catalogCalls != 0 {
+		t.Fatalf("verify=%d catalog=%d; runner installation should never be attempted", verifyCalls, catalogCalls)
 	}
 	assertNoEvalFiles(t, repo)
 }
@@ -743,7 +774,7 @@ func TestV1StageWritesFieldsAndRunFailsClosed(t *testing.T) {
 		return CommandResult{}, nil
 	}
 	code, err = RunAgent(t.TempDir(), filepath.Join(repo, ".harness", "evals"), "support-agent", "local", nil, io.Discard, run)
-	if code != 2 || err == nil || err.Error() != RunnerV1Remediation() {
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "ai-evals-runner 0.7.13 is not installed") {
 		t.Fatalf("run code=%d err=%v", code, err)
 	}
 	after, err := os.ReadFile(agentPath)
