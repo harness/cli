@@ -1676,3 +1676,95 @@ commands:
       path: /ng/api/freeze/getGlobalFreeze
       item_expr: it.data
       yaml_pick_expr: yamlParse(it.data.yaml)
+
+  - command: create freeze_window
+    verb: create
+    noun: freeze_window
+    short: "Create a deployment freeze window: harness create freeze_window -f freeze.yaml"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /ng/api/freeze
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nCreated freeze window\n"
+
+  - command: update freeze_window
+    verb: update
+    noun: freeze_window
+    short: "Replace a deployment freeze window: harness update freeze_window <id> -f freeze.yaml"
+    completion_noun: freeze_window
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /ng/api/freeze/{{ctx.id}}
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nUpdated freeze window {{ctx.id}}\n"
+
+  - command: update freeze_window:enable
+    verb: update
+    noun: freeze_window
+    noun_variant: enable
+    short: "Enable a deployment freeze window (harness update freeze_window:enable <id>)"
+    completion_noun: freeze_window
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /ng/api/freeze/{{ctx.id}}
+      get_path: /ng/api/freeze/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.yaml)
+      content_type: application/yaml
+      body_params:
+        freeze.status: '"Enabled"'
+      no_fields: true
+      text_header: "\nEnabled freeze window {{ctx.id}}\n"
+
+  - command: update freeze_window:disable
+    verb: update
+    noun: freeze_window
+    noun_variant: disable
+    short: "Disable a deployment freeze window (harness update freeze_window:disable <id>)"
+    completion_noun: freeze_window
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /ng/api/freeze/{{ctx.id}}
+      get_path: /ng/api/freeze/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.yaml)
+      content_type: application/yaml
+      body_params:
+        freeze.status: '"Disabled"'
+      no_fields: true
+      text_header: "\nDisabled freeze window {{ctx.id}}\n"
+
+  - command: delete freeze_window
+    verb: delete
+    noun: freeze_window
+    confirm_mode: prompt
+    short: Delete a deployment freeze window (harness delete freeze_window <id>)
+    completion_noun: freeze_window
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/freeze/{{ctx.id}}
+      item_expr: it
+      text_header: "\nDeleted freeze window {{ctx.id}}\n"
+
+  - command: update global_freeze
+    verb: update
+    noun: global_freeze
+    no_id: true
+    short: "Enable or disable the global deployment freeze: harness update global_freeze -f global-freeze.yaml"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /ng/api/freeze/manageGlobalFreeze
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nUpdated global freeze\n"
