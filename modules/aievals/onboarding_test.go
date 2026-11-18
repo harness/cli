@@ -2563,7 +2563,7 @@ func TestSourceRunnerBootstrapRejectsOlderInstalledHandshake(t *testing.T) {
 	touch(t, filepath.Join(home, "bin", "ai-evals"))
 	old := wantedHandshake()
 	old.Version = "0.7.8"
-	old.Schema = "provisional-onboarding-1"
+	old.Schema = "unsupported-onboarding-1"
 	data, err := json.Marshal(old)
 	if err != nil {
 		t.Fatal(err)
