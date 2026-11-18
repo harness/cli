@@ -15,10 +15,11 @@ const (
 
 // Stable onboarding verbs used by the AI Evals interface.
 const (
-	VerbSetup = "setup"
-	VerbScan  = "scan"
-	VerbStage = "stage"
-	VerbRun   = "run"
+	VerbSetup  = "setup"
+	VerbScan   = "scan"
+	VerbStage  = "stage"
+	VerbRun    = "run"
+	VerbUpload = "upload"
 )
 
 // Leaf verbs — standalone commands with no noun and no subcommands.
@@ -82,7 +83,7 @@ type VerbSpec struct {
 var VerbOrder = []string{
 	VerbList, VerbGet, VerbCreate, VerbUpdate, VerbDelete, VerbExecute,
 	VerbInstall, VerbPush, VerbPull, VerbConfigure, VerbMigrate,
-	VerbSetup, VerbScan, VerbStage, VerbRun,
+	VerbSetup, VerbScan, VerbStage, VerbRun, VerbUpload,
 }
 
 // verbRegistry is the authoritative table of every allowed verb.
@@ -106,10 +107,11 @@ var verbRegistry = map[string]VerbSpec{
 	VerbExecute: {Kind: VerbKindCore, Gerund: "executing", ShortDesc: "Execute a Harness resource", RequiresId: true},
 
 	// Stable onboarding verb registry.
-	VerbSetup: {Kind: VerbKindCore, Gerund: "setting up", ShortDesc: "Set up a local onboarding workflow"},
-	VerbScan:  {Kind: VerbKindCore, Gerund: "scanning", ShortDesc: "Print onboarding candidates without writing files"},
-	VerbStage: {Kind: VerbKindCore, Gerund: "staging", ShortDesc: "Validate and write a local onboarding tree"},
-	VerbRun:   {Kind: VerbKindCore, Gerund: "running", ShortDesc: "Run a local onboarding workflow"},
+	VerbSetup:  {Kind: VerbKindCore, Gerund: "setting up", ShortDesc: "Set up a local onboarding workflow"},
+	VerbScan:   {Kind: VerbKindCore, Gerund: "scanning", ShortDesc: "Print onboarding candidates without writing files"},
+	VerbStage:  {Kind: VerbKindCore, Gerund: "staging", ShortDesc: "Validate and write a local onboarding tree"},
+	VerbRun:    {Kind: VerbKindCore, Gerund: "running", ShortDesc: "Run a local onboarding workflow"},
+	VerbUpload: {Kind: VerbKindCore, Gerund: "uploading", ShortDesc: "Upload onboarding files to Harness"},
 
 	// Leaf verbs
 	VerbVersion: {Kind: VerbKindLeaf, SkipSetup: true},
