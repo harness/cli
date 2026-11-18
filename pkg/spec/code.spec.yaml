@@ -2186,11 +2186,10 @@ commands:
     handler_type: endpoint
     id_parts: 3
     id_label: "<repo_id>/<pr_number>/<root_comment_id>"
+    # The comment list includes replies, but status updates require a root ID.
     completion_seq:
       - completion_noun: repository
       - completion_noun: pr
-        keep_order: true
-      - completion_noun: pr_comment
         keep_order: true
     flags:
       - name: status
