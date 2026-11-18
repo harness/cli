@@ -333,37 +333,37 @@ nouns:
       - id: created
         expr: it.createdAt
 
-  - noun: gitops_app_resource_tree
+  - noun: gitops_tree
     short_desc: "Kubernetes resource tree of a GitOps application."
     fields:
       - id: response
         expr: it
 
-  - noun: gitops_app_event
+  - noun: gitops_event
     short_desc: "Events of a GitOps application."
     fields:
       - id: response
         expr: it
 
-  - noun: gitops_pod_log
+  - noun: gitops_log
     short_desc: "Pod logs of a GitOps application."
     fields:
       - id: response
         expr: it
 
-  - noun: gitops_managed_resource
+  - noun: gitops_resource
     short_desc: "Managed resources of a GitOps application."
     fields:
       - id: response
         expr: it
 
-  - noun: gitops_resource_action
+  - noun: gitops_action
     short_desc: "Actions available on a resource of a GitOps application."
     fields:
       - id: response
         expr: it
 
-  - noun: gitops_agent_metrics
+  - noun: gitops_metrics
     short_desc: "Metric samples of a GitOps agent."
     fields:
       - id: response
@@ -1287,10 +1287,10 @@ commands:
       no_fields: true
       text_header: "\nUpdated mapping {{ctx.idParts[1]}} on agent {{ctx.idParts[0]}}\n"
 
-  - command: get gitops_app_resource_tree
+  - command: get gitops_tree
     verb: get
-    noun: gitops_app_resource_tree
-    short: "Get the Kubernetes resource tree of an application: harness get gitops_app_resource_tree <agent/app>"
+    noun: gitops_tree
+    short: "Get the Kubernetes resource tree of an application: harness get gitops_tree <agent/app>"
     handler_type: endpoint
     id_parts: 2
     id_label: "<agent/app>"
@@ -1299,10 +1299,10 @@ commands:
       item_expr: it
       yaml_pick_expr: it
 
-  - command: get gitops_app_event
+  - command: get gitops_event
     verb: get
-    noun: gitops_app_event
-    short: "Get events of an application: harness get gitops_app_event <agent/app>"
+    noun: gitops_event
+    short: "Get events of an application: harness get gitops_event <agent/app>"
     handler_type: endpoint
     id_parts: 2
     id_label: "<agent/app>"
@@ -1311,10 +1311,10 @@ commands:
       item_expr: it
       yaml_pick_expr: it
 
-  - command: get gitops_pod_log
+  - command: get gitops_log
     verb: get
-    noun: gitops_pod_log
-    short: "Get pod logs of an application: harness get gitops_pod_log <agent/app> [--pod-name ...]"
+    noun: gitops_log
+    short: "Get pod logs of an application: harness get gitops_log <agent/app> [--pod-name ...]"
     handler_type: endpoint
     id_parts: 2
     id_label: "<agent/app>"
@@ -1337,10 +1337,10 @@ commands:
         container: 'flags.container != "" ? flags.container : nil'
         tailLines: 'flags["tail-lines"] != "" ? flags["tail-lines"] : nil'
 
-  - command: get gitops_managed_resource
+  - command: get gitops_resource
     verb: get
-    noun: gitops_managed_resource
-    short: "Get managed resources of an application: harness get gitops_managed_resource <agent/app>"
+    noun: gitops_resource
+    short: "Get managed resources of an application: harness get gitops_resource <agent/app>"
     handler_type: endpoint
     id_parts: 2
     id_label: "<agent/app>"
@@ -1349,10 +1349,10 @@ commands:
       item_expr: it
       yaml_pick_expr: it
 
-  - command: get gitops_resource_action
+  - command: get gitops_action
     verb: get
-    noun: gitops_resource_action
-    short: "Get actions available on a resource: harness get gitops_resource_action <agent/app> [--kind ...]"
+    noun: gitops_action
+    short: "Get actions available on a resource: harness get gitops_action <agent/app> [--kind ...]"
     handler_type: endpoint
     id_parts: 2
     id_label: "<agent/app>"
@@ -1378,10 +1378,10 @@ commands:
         request.group: 'flags.group != "" ? flags.group : nil'
         request.version: 'flags.version != "" ? flags.version : nil'
 
-  - command: get gitops_agent_metrics
+  - command: get gitops_metrics
     verb: get
-    noun: gitops_agent_metrics
-    short: "Get metric samples of an agent: harness get gitops_agent_metrics <agent> --start-time <RFC3339> --end-time <RFC3339>"
+    noun: gitops_metrics
+    short: "Get metric samples of an agent: harness get gitops_metrics <agent> --start-time <RFC3339> --end-time <RFC3339>"
     handler_type: endpoint
     id_label: "<agent>"
     flags:
