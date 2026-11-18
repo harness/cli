@@ -44,14 +44,12 @@ help_text: |
 
   ### Onboarding
 
-  The stable onboarding interface is `setup`, `scan`, `stage`, `run`, and `upload`
-  on `eval_onboarding`. Enable this hidden module with
-  `harness install module aievals`.
-  `setup eval_onboarding` installs or prints the AI Evals skill and does not write eval files.
-  `scan eval_onboarding` prints candidate JSON; `scan eval_onboarding --metrics` prints the SDK metric catalog.
-  `stage eval_onboarding` validates candidate values and writes `.harness/evals`.
-  `run eval_onboarding` invokes `ai-evals onboard-run`.
-  `upload eval_onboarding` imports the validated tree into the selected Harness project.
+  Enable this hidden module with `harness install module aievals`.
+  `install eval_onboarding:skill` installs or prints the AI Evals skill and does not write eval files.
+  `execute eval_onboarding:scan` prints candidate JSON; `list eval_onboarding:metrics` prints the SDK metric catalog.
+  `execute eval_onboarding:stage` validates candidate values and writes `.harness/evals`.
+  `execute eval_onboarding:run <agent-id>` invokes `ai-evals onboard-run`.
+  `create eval_onboarding:archive` imports the validated tree into the selected Harness project.
 
   ### Nouns
 
@@ -2235,15 +2233,15 @@ commands:
         Harness-Account: auth.account
       item_expr: it
 
-  # Stable eval_onboarding command definition.
-  - command: setup eval_onboarding
-    verb: setup
+  # ── eval_onboarding ───────────────────────────────────────────────────────────
+
+  - command: install eval_onboarding:skill
+    verb: install
     noun: eval_onboarding
-    no_id: true
+    noun_variant: skill
     no_auth: true
-    short: "Install or print the AI Evals skill: harness setup eval_onboarding"
+    short: Install or print the AI Evals skill
     long: |
-      Stable eval_onboarding command.
       Writes the AI Evals skill to an explicit or detected coding-agent
       directory, or to stdout when neither is available. Does not scan the
       repository and does not write .harness/evals files.
@@ -2255,15 +2253,14 @@ commands:
       - name: skill-dir
         description: Explicit file or directory for the AI Evals skill
 
-  # Stable eval_onboarding command definition.
-  - command: scan eval_onboarding
-    verb: scan
+  - command: execute eval_onboarding:scan
+    verb: execute
     noun: eval_onboarding
+    noun_variant: scan
     no_id: true
     no_auth: true
-    short: "Print onboarding candidates as JSON: harness scan eval_onboarding"
+    short: Scan the repository and print AI Evals onboarding candidates as JSON
     long: |
-      Stable eval_onboarding command.
       Optional hint for the coding agent. Prints onboarding/v1 candidates
       when a matching route adapter is available; otherwise candidates is
       empty. Use guided/manual discovery when no hint is available. Writes
@@ -2276,19 +2273,24 @@ commands:
         description: Repository root to scan (default current directory)
       - name: route
         description: Optional method-qualified hint filter, for example "POST /api/analyze" or "POST /api/analyze [services/billing]"
-      - name: metrics
-        is_bool: true
-        description: Print the metric catalog from the pinned runner instead of scanning (cannot be combined with --route)
 
-  # Stable eval_onboarding command definition.
-  - command: stage eval_onboarding
-    verb: stage
+  - command: list eval_onboarding:metrics
+    verb: list
     noun: eval_onboarding
+    noun_variant: metrics
+    no_auth: true
+    short: List the metric catalog from the pinned AI Evals runner as JSON
+    handler_type: workflow
+    workflow_id: aievals_onboarding_metrics
+
+  - command: execute eval_onboarding:stage
+    verb: execute
+    noun: eval_onboarding
+    noun_variant: stage
     no_id: true
     no_auth: true
-    short: "Validate candidate values and write .harness/evals: harness stage eval_onboarding"
+    short: Validate candidate values and write .harness/evals
     long: |
-      Stable eval_onboarding command.
       Accepts an onboarding/v1 candidate file, or legacy flags that map onto
       that document without ambiguity. --confirm is required. Without it,
       nothing is written. Unsupported schema versions, unknown fields,
@@ -2331,14 +2333,13 @@ commands:
       - name: expected
         description: Sample expected text for the dataset row
 
-  # Stable eval_onboarding command definition.
-  - command: run eval_onboarding
-    verb: run
+  - command: execute eval_onboarding:run
+    verb: execute
     noun: eval_onboarding
-    no_id: true
-    short: "Run a staged agent through ai-evals onboard-run: harness run eval_onboarding --agent <identifier> [--profile <name>]"
+    noun_variant: run
+    id_label: "<agent-id>"
+    short: Run a staged agent through the pinned AI Evals runner
     long: |
-      Stable eval_onboarding command.
       Verifies the pinned ai-evals-runner, then invokes
       `ai-evals onboard-run --root <root> --agent <identifier> --environment local`.
       local is the default. An onboarding/v1 tree fails closed when the pinned
@@ -2357,18 +2358,15 @@ commands:
       - name: root
         description: Path to the .harness/evals directory
         default: .harness/evals
-      - name: agent
-        description: Stable agent identifier from agents/*/agent.yaml
-        required: true
       - name: environment
         description: local (default) or the name of a live environment
         default: local
 
-  - command: upload eval_onboarding
-    verb: upload
+  - command: create eval_onboarding:archive
+    verb: create
     noun: eval_onboarding
-    no_id: true
-    short: Upload a validated AI Evals tree to the selected Harness project
+    noun_variant: archive
+    short: Import a validated AI Evals tree into the selected Harness project
     handler_type: workflow
     workflow_id: upload
     flags:

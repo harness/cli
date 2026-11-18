@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	setupWorkflowID  = "setup"
-	scanWorkflowID   = "scan"
-	stageWorkflowID  = "stage"
-	runWorkflowID    = "run"
-	uploadWorkflowID = "upload"
+	setupWorkflowID   = "setup"
+	scanWorkflowID    = "scan"
+	metricsWorkflowID = "aievals_onboarding_metrics"
+	stageWorkflowID   = "stage"
+	runWorkflowID     = "run"
+	uploadWorkflowID  = "upload"
 )
 
 // SetupOptions controls skill placement. Setup does not scan or write eval files.
@@ -119,6 +120,9 @@ func RunAgentContext(ctx context.Context, home, root, agent, environment string,
 }
 
 func setupWorkflow(ctx *cmdctx.Ctx) error {
+	if ctx.Id != "" {
+		return fmt.Errorf("the AI Evals skill does not accept an ID; use --repo or --skill-dir")
+	}
 	repo := cmdctx.GetString(ctx.FlagValues, "repo")
 	if repo == "" {
 		wd, err := os.Getwd()
@@ -182,29 +186,33 @@ func resolveMetricDefinitions(python string, run CommandFunc) (map[string]Metric
 }
 
 func scanWorkflow(ctx *cmdctx.Ctx) error {
-	route := cmdctx.GetString(ctx.FlagValues, "route")
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if cmdctx.GetBool(ctx.FlagValues, "metrics") {
-		if route != "" {
-			return fmt.Errorf("--metrics cannot be combined with --route")
-		}
-		report, err := metricCatalog(RunnerHome(), runnerCommand(ctx.Context))
-		if err != nil {
-			return err
-		}
-		return encoder.Encode(report)
-	}
 	repo, err := workflowRepo(ctx)
 	if err != nil {
 		return err
 	}
-	report, code, err := Scan(repo, route)
+	report, code, err := Scan(repo, cmdctx.GetString(ctx.FlagValues, "route"))
 	if err != nil {
 		return finish(code, err)
 	}
-	return encoder.Encode(report)
+	return printOnboardingJSON(report)
+}
+
+func metricsWorkflow(ctx *cmdctx.Ctx) error {
+	if ctx.ParentId != "" {
+		return fmt.Errorf("the onboarding metric catalog does not accept a parent ID")
+	}
+	report, err := metricCatalog(RunnerHome(), runnerCommand(ctx.Context))
+	if err != nil {
+		return err
+	}
+	return printOnboardingJSON(report)
+}
+
+func printOnboardingJSON(value any) error {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
 }
 
 func runnerCommand(ctx context.Context) CommandFunc {
@@ -278,7 +286,7 @@ func runWorkflow(ctx *cmdctx.Ctx) error {
 		}
 		root = filepath.Join(wd, root)
 	}
-	code, err := RunAgentContext(ctx.Context, RunnerHome(), root, cmdctx.GetString(ctx.FlagValues, "agent"), cmdctx.GetString(ctx.FlagValues, "environment"), ctx.ScopedAuth(), os.Stderr, nil)
+	code, err := RunAgentContext(ctx.Context, RunnerHome(), root, ctx.Id, cmdctx.GetString(ctx.FlagValues, "environment"), ctx.ScopedAuth(), os.Stderr, nil)
 	return finish(code, err)
 }
 
