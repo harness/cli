@@ -12,6 +12,9 @@ The stable onboarding interface is `harness setup|scan|stage|run|upload eval_onb
 This file is the single AI Evals skill. The Harness CLI embeds it, the product copy-prompt includes it, and a Harness MCP server can serve this same file as a prompt or resource.
 
 The coding agent scans the repository. The slightest sign of an agent counts. Nothing is written, run, or uploaded without the user's yes. Infer secret names only, never values.
+Persisting a completed local result is a separate, optional write. Show the
+archive manifest mapping and ask the user before using
+`harness upload eval_onboarding --persist-report <path>`.
 
 Do not write a standalone Python runner.
 Do not create eval.yaml.
@@ -26,8 +29,9 @@ When the prompt header includes a `harness auth login` command, use that command
 - `harness scan eval_onboarding` is an optional hint. It prints an `onboarding/v1` candidate with id, confidence, evidence, and typed value sources. It writes nothing and does not generate a tree. `--route '<METHOD path>'` narrows the hint. The agent's own reading of the repository is the source of truth. If the hint and the agent disagree, show both and let the user choose.
 - `harness scan eval_onboarding --metrics` reads the full metric catalog from the Harness Evals SDK in the pinned runner. It prints every catalog entry, including descriptions, constructor options and required options, default thresholds, LLM/embedding requirements, execution scope, and onboarding support. It does not scan the repository, install packages, call an agent or judge, or write files. Do not combine it with `--route`.
 - Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`. Pass `--confirm --file <path>` pointing at a temporary JSON file, or pass legacy flags that map unambiguously onto `onboarding/v1`. `--confirm` is required after the user says yes. Without it, the command writes nothing. The file uses `schema_version: "onboarding/v1"`. Value sources are `literal`, `input`, `env`, and `harness_secret` with D2 field names (`name`, `ref`, `env`). Do not use `env_name` or `secret_ref`. Never put a secret value in the file. Flags override the same legacy fields in a legacy file. They cannot be combined with an `onboarding/v1` file. Staging requires an explicit non-empty `cases` list with unique case identities; if scan has no cases, ask the user to confirm or add a sample case before staging.
-- `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>]` runs a staged agent. `local` is the default. The command checks the pinned 0.7.9 runner and does not upgrade it. An older or stale runner handshake fails with exact remediation and leaves the files unchanged. Do not remove query parameters or auth headers to make a runner accept the tree. A PAT or SAT is passed to the runner. An SSO access token is not.
-- `harness upload eval_onboarding` validates locally, uploads `.harness/evals`, and prints Agent and Eval links. Git sync is not applied by the upload.
+- `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>] [--report-json <absolute-path>]` runs a staged agent. `local` is the default. The command checks the pinned 0.7.9 runner and does not upgrade it. An older or stale runner handshake fails with exact remediation and leaves the files unchanged. Do not remove query parameters or auth headers to make a runner accept the tree. A PAT or SAT is passed to the runner. An SSO access token is not. `--report-json` is local-only: it passes the exact path to D2's `ai-evals onboard-run --report-json`, requires an existing parent outside the repository source tree, and prints the report path only after a successful runner exit. It does not upload or persist anything.
+- `harness upload eval_onboarding` validates locally, uploads `.harness/evals`, and prints Agent and Eval links. Git sync is not applied by the upload. Without `--persist-report`, this is import-only.
+- `harness upload eval_onboarding --persist-report <path>` uploads the archive, consumes the D3 manifest, shows the source-to-imported metric mapping, and persists an already-completed D2 `--report-json` result. Use this flag only after asking the user `Persist this completed local result in Harness?`. For a multi-eval archive, pass `--eval-identifier <identifier>`.
 
 `stage` accepts `--confirm` plus `--agent`, `--endpoint`, `--method`, `--request-field`, `--request-fields`, `--response-path`, `--auth-header`, `--auth-env`, `--input-text`, and `--expected` for a legacy file. `--auth-header` is a header name. `--auth-env` is an environment-variable name. Never pass a secret value. A header name without an environment-variable name does not map to `onboarding/v1`, and the command writes nothing.
 
@@ -140,7 +144,7 @@ Only after yes, create the temporary `onboarding/v1` candidate JSON with the con
 
 Checkpoint: Run this eval locally?
 
-Only after yes, run `harness run eval_onboarding --agent <identifier> --environment local`. Explain the result in plain language: what was called, what passed or failed, and any diagnostic the command printed. Do not hide a non-zero exit. Do not rewrite files unless the user asks.
+Only after yes, run `harness run eval_onboarding --agent <identifier> --environment local`. If the user wants to retain the completed local result for the optional persistence stage, agree on an absolute report path outside the repository source tree and add `--report-json <path>`. Explain the result in plain language: what was called, what passed or failed, and any diagnostic the command printed. Do not hide a non-zero exit. Do not rewrite files unless the user asks.
 
 Checkpoint: What should we do next: run against a live agent, upload to Harness, run on the platform, view results, or add cases or metrics?
 
@@ -199,3 +203,51 @@ Read the existing agent, dataset, and metric-set files first and preserve the us
 Checkpoint: Write these updated files?
 
 Then call `harness stage eval_onboarding --confirm` with the full confirmed candidate, including existing and new metrics. The stager does not overwrite non-identical files: if it reports a collision, stop and ask the user how to handle it; do not bypass that protection. Preserve chosen metrics rather than resetting to exact match. Show LLM or embedding provider setup only when those metrics were chosen, and ask again before any subsequent run or upload.
+
+### Optional Stage 5. Persist Results
+
+This stage is optional. It uses a report emitted by the preceding D4 local run
+and does not persist anything automatically. If no report was retained, ask
+before rerunning locally with an absolute path outside the repository source
+tree:
+
+```bash
+harness run eval_onboarding \
+  --agent <identifier> \
+  --environment local \
+  --report-json <absolute-report-path>
+```
+
+The D4 command forwards `<absolute-report-path>` unchanged to D2's
+`ai-evals onboard-run --report-json <absolute-report-path>` and prints the path
+only after a successful runner exit. It does not call the API. Then run the
+archive-only upload:
+
+```bash
+harness upload eval_onboarding
+```
+
+Show the imported eval and the D3 source metric/score-name to persisted
+metric UUID/score-name mapping returned by that upload. Do not guess a missing
+or ambiguous mapping. Then ask exactly:
+
+`Persist this completed local result in Harness?`
+
+Checkpoint: Persist this completed local result in Harness?
+
+Only after the user says yes, invoke:
+
+```bash
+harness upload eval_onboarding --persist-report <path> [--eval-identifier <identifier>]
+```
+
+`<path>` must be the same completed report path printed by the successful D4
+run. The CLI validates report shape and secret safety before network access,
+maps every score using the full
+`(source_metric_id, source_score_name)` pair, preserves D2 item external keys
+and allowed dataset IDs, and retries uncertain report transport with the same
+idempotency key. A 409 requires operator review; a 404 requires re-upload or
+the correct eval; a 422 requires fixing the report or mapping. The server's
+returned run URL is printed on 201/replay success. Hosted API profiles use
+`/gateway`; a raw local API uses an explicit `--api-url http://localhost:<port>
+--api-base-path /`.

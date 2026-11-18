@@ -51,6 +51,8 @@ help_text: |
   `scan eval_onboarding` prints candidate JSON and writes nothing.
   `stage eval_onboarding` validates candidate values and writes `.harness/evals`.
   `run eval_onboarding` invokes `ai-evals onboard-run`.
+  `run eval_onboarding --report-json <path>` also asks the local D2 runner to
+  write its completed report to a safe path outside the repository tree.
   `upload eval_onboarding` imports a deterministic archive.
 
   ### Nouns
@@ -2349,7 +2351,7 @@ commands:
     verb: run
     noun: eval_onboarding
     no_id: true
-    short: "Run a staged agent through ai-evals onboard-run: harness run eval_onboarding --agent <identifier> [--profile <name>]"
+    short: "Run a staged agent through ai-evals onboard-run: harness run eval_onboarding --agent <identifier> [--report-json <path>] [--profile <name>]"
     long: |
       Stable eval_onboarding command.
       Verifies the pinned ai-evals-runner, then invokes
@@ -2358,7 +2360,12 @@ commands:
       runner schema is not onboarding/v1. The files are not modified and query
       or auth fields are not removed. A PAT or SAT is passed to the runner. An
       SSO session is not. Use --profile <name> or HARNESS_PROFILE to select an
-      existing profile; this command never changes profiles.
+      existing profile; this command never changes profiles. With
+      `--report-json <path>`, local runs pass that exact path to D2's
+      `--report-json` option and print the report path only after a successful
+      runner exit. The path must be a clean absolute path whose parent already
+      exists and must be outside the repository source tree. This option is
+      local-only; it does not upload or persist the report.
     handler_type: workflow
     workflow_id: run
     flags:
@@ -2371,6 +2378,8 @@ commands:
       - name: environment
         description: local (default) or the name of a live environment
         default: local
+      - name: report-json
+        description: Optional local D2 report output path; must be an absolute path outside the repository source tree
 
   # Stable eval_onboarding command definition.
   - command: upload eval_onboarding
@@ -2386,10 +2395,27 @@ commands:
       paths. Use --profile <name> or HARNESS_PROFILE to select an existing
       profile; this command never changes profiles. `run` remains fail-closed
       when the pinned runner does not support onboarding/v1.
+      Without --persist-report this is import-only. With the explicit
+      --persist-report <path> flag, it validates a completed D2
+      --report-json file before upload, shows the manifest metric mapping, and
+      then imports the completed result through the normal scoped runs API.
+      The coding agent must ask the user before invoking --persist-report.
+      If the archive contains multiple evals, pass --eval-identifier to select
+      one; otherwise the sole manifest eval is selected. Hosted APIs default to
+      /gateway. For a raw local API, pass --api-url http://localhost:<port>
+      --api-base-path /.
     handler_type: workflow
     workflow_id: upload
     flags:
       - name: root
         description: Path to the .harness/evals directory
         default: .harness/evals
+      - name: persist-report
+        description: Optional completed D2 --report-json path; never use without explicit user confirmation
+      - name: eval-identifier
+        description: Source eval identifier to select from a multi-eval archive manifest
+      - name: api-url
+        description: Explicit API origin override; supports hosted origins and raw local http://localhost origins
+      - name: api-base-path
+        description: Explicit API path prefix; defaults to /gateway, pass / for a raw local API
 

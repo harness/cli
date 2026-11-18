@@ -32,6 +32,26 @@ For a staged tree, run the normal local workflow:
   --agent <AGENT_IDENTIFIER>
 ```
 
+The run remains report-free unless `--report-json` is supplied. To retain a
+completed local result for the optional persistence flow, choose an absolute
+report path whose parent already exists and which is outside
+`<REPOSITORY>`, then run:
+
+```bash
+./bin/harness run eval_onboarding \
+  --root <REPOSITORY>/.harness/evals \
+  --agent <AGENT_IDENTIFIER> \
+  --environment local \
+  --report-json <ABSOLUTE_REPORT_PATH>
+```
+
+D4 forwards `<ABSOLUTE_REPORT_PATH>` unchanged to the verified D2
+`ai-evals onboard-run --report-json` command and prints the path only after a
+successful runner exit. This creates only a local report; it does not upload
+or persist it. Upload the archive first, show its manifest mapping, and ask
+the user separately before invoking
+`./bin/harness upload eval_onboarding --persist-report <ABSOLUTE_REPORT_PATH>`.
+
 The current D2 checkout has a path dependency on the checked-out Harness
 Evals SDK. Its `runner.py` still requires SDK `0.28.2`, while the supplied D1
 worktree is `0.29.3`; therefore bootstrap succeeds, but `run` stops before an
