@@ -13,7 +13,7 @@ const (
 	VerbExecute = "execute"
 )
 
-// Stable onboarding verbs.
+// Stable onboarding verbs used by the AI Evals interface.
 const (
 	VerbSetup  = "setup"
 	VerbScan   = "scan"
