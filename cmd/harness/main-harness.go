@@ -3,9 +3,7 @@
 
 package main
 
-import (
-	"github.com/harness/cli/v3/cmd/harness/harnessapp"
-)
+import "github.com/harness/cli/v3/cmd/harness/harnessapp"
 
 func main() {
 	harnessapp.Run(harnessapp.Options{})
