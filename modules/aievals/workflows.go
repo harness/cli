@@ -40,10 +40,11 @@ func (e *StatusError) Error() string {
 
 // SetupOptions controls skill placement. Setup does not scan or write eval files.
 type SetupOptions struct {
-	Repo     string
-	SkillDir string
-	Stdout   io.Writer
-	Stderr   io.Writer
+	Repo         string
+	SkillDir     string
+	RunnerSource string
+	Stdout       io.Writer
+	Stderr       io.Writer
 	// Deprecated: retained so older callers cannot bypass validation by accident.
 	// Setup no longer stages files, and this flag still fails closed.
 	SkipValidator bool
@@ -53,6 +54,19 @@ type SetupOptions struct {
 func Setup(opts SetupOptions) (int, error) {
 	if opts.SkipValidator {
 		return 1, fmt.Errorf("SkipValidator is deprecated and cannot bypass pinned schema validation")
+	}
+	if opts.RunnerSource != "" {
+		cliHome := hbase.GetHarnessHomeDir()
+		if os.Getenv(hbase.EnvCLIHome) == "" || filepath.Clean(cliHome) == filepath.Clean(hbase.ExpandHomeDir(hbase.HarnessHome)) {
+			return 1, fmt.Errorf("--runner-source requires %s to be set to an isolated developer home; it will not use ~/.harness", hbase.EnvCLIHome)
+		}
+		_, alreadyCompatible, err := ensureRunnerFromSource(RunnerHome(), opts.RunnerSource, nil, nil)
+		if err != nil {
+			return 1, err
+		}
+		if alreadyCompatible && opts.Stdout != nil {
+			fmt.Fprintf(opts.Stdout, "ai-evals-runner %s (schema %s) is already compatible; reusing the isolated source installation.\n", RunnerVersion, SchemaVersion)
+		}
 	}
 	if _, err := PlaceSkill(opts.Repo, opts.SkillDir, opts.Stdout); err != nil {
 		return 1, err
@@ -135,10 +149,11 @@ func setupWorkflow(ctx *cmdctx.Ctx) error {
 		repo = wd
 	}
 	code, err := Setup(SetupOptions{
-		Repo:     repo,
-		SkillDir: cmdctx.GetString(ctx.FlagValues, "skill-dir"),
-		Stdout:   os.Stdout,
-		Stderr:   os.Stderr,
+		Repo:         repo,
+		SkillDir:     cmdctx.GetString(ctx.FlagValues, "skill-dir"),
+		RunnerSource: cmdctx.GetString(ctx.FlagValues, "runner-source"),
+		Stdout:       os.Stdout,
+		Stderr:       os.Stderr,
 	})
 	return finish(code, err)
 }

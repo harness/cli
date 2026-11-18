@@ -2247,6 +2247,11 @@ commands:
       Writes the AI Evals skill to an explicit or detected coding-agent
       directory, or to stdout when neither is available. Does not scan the
       repository and does not write .harness/evals files.
+      `--runner-source <path>` is an explicit developer-local bootstrap:
+      with HARNESS_CLI_HOME set to an isolated directory, it copies and
+      installs the 0.7.9 runner from that checkout and records the
+      onboarding/v1 handshake. Without this flag, setup does not use a local
+      source path.
     handler_type: workflow
     workflow_id: setup
     flags:
@@ -2254,6 +2259,8 @@ commands:
         description: Repository root used to detect a coding-agent skills directory (default current directory)
       - name: skill-dir
         description: Explicit file or directory for the AI Evals skill
+      - name: runner-source
+        description: Developer-only D2 runner checkout to copy and install into an isolated HARNESS_CLI_HOME
 
   # Stable eval_onboarding command definition.
   - command: scan eval_onboarding

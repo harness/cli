@@ -28,7 +28,7 @@ func TestScanEmitsV1CandidateAndWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.SchemaVersion != SchemaVersionV1 || strings.Contains(string(encoded), SchemaVersion) {
+	if report.SchemaVersion != SchemaVersionV1 || !strings.Contains(string(encoded), SchemaVersionV1) {
 		t.Fatalf("scan schema = %s json=%s", report.SchemaVersion, encoded)
 	}
 	candidate := report.Candidates[0]
@@ -703,7 +703,7 @@ func TestV1HeadersMatchD2TranslationContract(t *testing.T) {
 	})
 }
 
-func TestV1StageWritesFieldsAndRunFailsClosed(t *testing.T) {
+func TestV1StageWritesFieldsAndRunRejectsStaleHandshake(t *testing.T) {
 	doc := onboardingV1FixtureDocument()
 	if err := validateV1Document(doc); err != nil {
 		t.Fatal(err)
@@ -738,12 +738,25 @@ func TestV1StageWritesFieldsAndRunFailsClosed(t *testing.T) {
 		}
 	}
 	before := append([]byte(nil), committed...)
+	home := t.TempDir()
+	touch(t, filepath.Join(home, "bin", "python"))
+	touch(t, filepath.Join(home, "bin", "ai-evals"))
+	stale := wantedHandshake()
+	stale.Version = "0.7.8"
+	stale.Schema = "provisional-onboarding-1"
+	staleData, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handshakePath(home), staleData, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	run := func(string, []string, []string, string) (CommandResult, error) {
-		t.Fatal("old runner was invoked for an onboarding/v1 tree")
+		t.Fatal("stale runner was invoked for an onboarding/v1 tree")
 		return CommandResult{}, nil
 	}
-	code, err = RunAgent(t.TempDir(), filepath.Join(repo, ".harness", "evals"), "support-agent", "local", nil, io.Discard, run)
-	if code != 2 || err == nil || err.Error() != RunnerV1Remediation() {
+	code, err = RunAgent(home, filepath.Join(repo, ".harness", "evals"), "support-agent", "local", nil, io.Discard, run)
+	if code != 1 || err == nil || err.Error() != PinMismatchRemediation(home, stale.Version) {
 		t.Fatalf("run code=%d err=%v", code, err)
 	}
 	after, err := os.ReadFile(agentPath)
