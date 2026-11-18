@@ -229,7 +229,7 @@ type WriteOptions struct {
 	Confirm           bool
 	Python            string
 	Run               CommandFunc
-	EnsureRunner      func(string, func(string) (string, error), CommandFunc) (RunnerLayout, error)
+	VerifyRunner      func(string, CommandFunc) (RunnerLayout, error)
 	ReadMetricCatalog func(string, CommandFunc) ([]MetricCatalogEntry, error)
 	Stdout            io.Writer
 	Stderr            io.Writer
@@ -801,11 +801,11 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 	if len(opts.Candidate.Metrics) > 0 {
 		python := opts.Python
 		if python == "" {
-			ensureRunner := opts.EnsureRunner
-			if ensureRunner == nil {
-				ensureRunner = EnsureRunner
+			verifyRunner := opts.VerifyRunner
+			if verifyRunner == nil {
+				verifyRunner = VerifyRunner
 			}
-			layout, err := ensureRunner(RunnerHome(), nil, opts.Run)
+			layout, err := verifyRunner(RunnerHome(), opts.Run)
 			if err != nil {
 				return 1, err
 			}
