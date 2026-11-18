@@ -132,17 +132,11 @@ func VerifyRunner(home string, run CommandFunc) (RunnerLayout, error) {
 		return RunnerLayout{}, fmt.Errorf("%s", Remediation(home))
 	}
 	recorded, err := readHandshake(home)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return RunnerLayout{}, fmt.Errorf("%s", Remediation(home))
-		}
-		if err := recordHandshake(home); err != nil {
-			return RunnerLayout{}, err
-		}
-		recorded = wantedHandshake()
+	missing := os.IsNotExist(err)
+	if err != nil && !missing {
+		return RunnerLayout{}, fmt.Errorf("%s", Remediation(home))
 	}
-	want := wantedHandshake()
-	if recorded != want {
+	if !missing && recorded != wantedHandshake() {
 		return RunnerLayout{}, fmt.Errorf("%s", PinMismatchRemediation(home, recorded.Version))
 	}
 	if err := requirePinned(home, layout, run); err != nil {
@@ -154,6 +148,12 @@ func VerifyRunner(home string, run CommandFunc) (RunnerLayout, error) {
 	}
 	if help.Code != 0 {
 		return RunnerLayout{}, fmt.Errorf("pinned %s %s does not provide %s\n%s", RunnerPackage, RunnerVersion, OnboardCommand, Remediation(home))
+	}
+	// A manually installed runner has no handshake until both probes succeed.
+	if missing {
+		if err := writeHandshake(home); err != nil {
+			return RunnerLayout{}, err
+		}
 	}
 	return layout, nil
 }
@@ -300,6 +300,9 @@ func defaultCommandContext(ctx context.Context, name string, args []string, env 
 	if err == nil {
 		return result, nil
 	}
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
 	if exit, ok := err.(*exec.ExitError); ok {
 		result.Code = exit.ExitCode()
 		result.Stderr = string(exit.Stderr)
@@ -324,7 +327,8 @@ func sanitizedRunnerEnv(extra []string) []string {
 	env := make([]string, 0, len(os.Environ())+len(extra))
 	for _, value := range os.Environ() {
 		name, _, _ := strings.Cut(value, "=")
-		if !sensitive[name] {
+		// Windows environment keys are case-insensitive.
+		if !sensitive[strings.ToUpper(name)] {
 			env = append(env, value)
 		}
 	}

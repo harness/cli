@@ -5,11 +5,13 @@ package aievals
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/harness/cli/v3/pkg/auth"
 )
@@ -36,6 +38,46 @@ func TestVerifyRunnerRejectsVersionMismatchWithFreshHandshake(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "0.7.12") {
 		t.Fatalf("VerifyRunner() error = %v, want stale-handshake rejection", err)
+	}
+}
+
+func TestVerifyRunnerRejectsInstalledMismatchWithMatchingHandshake(t *testing.T) {
+	for _, recorded := range []bool{true, false} {
+		name := "without handshake"
+		if recorded {
+			name = "with matching handshake"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.MkdirAll(filepath.Dir(pythonBin(home)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{pythonBin(home), bin(home, "ai-evals")} {
+				if err := os.WriteFile(path, nil, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if recorded {
+				if err := writeHandshake(home); err != nil {
+					t.Fatal(err)
+				}
+			}
+			const wrongVersion = "999.0.0"
+			_, err := VerifyRunner(home, func(executable string, _ []string, _ []string, _ string) (CommandResult, error) {
+				if executable != pythonBin(home) {
+					t.Fatal("runner invoked despite installed package mismatch")
+				}
+				return CommandResult{Stdout: wrongVersion + "\n"}, nil
+			})
+			if err == nil || !strings.Contains(err.Error(), wrongVersion) {
+				t.Fatalf("VerifyRunner() error = %v, want installed version rejection", err)
+			}
+			if !recorded {
+				if _, err := readHandshake(home); !os.IsNotExist(err) {
+					t.Fatalf("invalid install should not be recorded; read error = %v", err)
+				}
+			}
+		})
 	}
 }
 
@@ -106,10 +148,32 @@ func TestDefaultCommandContextStopsChildOnCancellation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell cancellation probe uses sh")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	marker := filepath.Join(t.TempDir(), "started")
+	done := make(chan error, 1)
+	go func() {
+		_, err := defaultCommandContext(ctx, "sh", []string{"-c", `printf started > "$1"; exec sleep 30`, "sh", marker}, nil, "")
+		done <- err
+	}()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for !fileExists(marker) {
+		select {
+		case err := <-done:
+			t.Fatalf("child exited before startup: %v", err)
+		case <-ctx.Done():
+			t.Fatal("child did not start")
+		case <-tick.C:
+		}
+	}
 	cancel()
-	_, err := defaultCommandContext(ctx, "sh", []string{"-c", "sleep 10"}, nil, "")
-	if err == nil {
-		t.Fatal("defaultCommandContext() returned nil for canceled context")
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("defaultCommandContext() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("child still running after cancellation")
 	}
 }
