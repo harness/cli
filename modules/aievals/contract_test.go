@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestDecodeJSONValueRejectsTrailingJSON(t *testing.T) {
@@ -29,6 +31,34 @@ func TestDecodeJSONValuePreservesLargeInteger(t *testing.T) {
 	}
 }
 
+func TestV1TargetPreservesUnsignedIntegerInYAML(t *testing.T) {
+	const want = uint64(12345678901234567890)
+	decoded, err := decodeJSONValue([]byte(`{"method":"POST","response_path":"output.text",
+		"request_template":{"item_id":12345678901234567890},"query_params":{"item_id":12345678901234567890}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateV1Target(decoded.(map[string]any)); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := yaml.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reloaded map[string]any
+	if err := yaml.Unmarshal(encoded, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateV1Target(reloaded); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"request_template", "query_params"} {
+		if got := reloaded[field].(map[string]any)["item_id"]; got != want {
+			t.Errorf("%s.item_id = %v (%T), want exact unsigned integer", field, got, got)
+		}
+	}
+}
+
 func TestValidateV1TargetRejectsNonStringMethod(t *testing.T) {
 	err := validateV1Target(map[string]any{
 		"method":           true,
@@ -44,6 +74,18 @@ func TestValidateEndpointRejectsSecretQueryValue(t *testing.T) {
 	err := validateEndpoint("https://example.test/chat?note=Bearer%20secret", "environment.endpoint")
 	if err == nil || strings.Contains(err.Error(), "Bearer secret") {
 		t.Fatalf("validateEndpoint() error = %v, want a redacted credential-value error", err)
+	}
+}
+
+func TestValidateEndpointRejectsMalformedQuery(t *testing.T) {
+	for _, query := range []string{"count=1&part=%ZZ", "count=1;part=2"} {
+		err := validateEndpoint("https://example.test/chat?"+query, "environment.endpoint")
+		if err == nil || !strings.Contains(err.Error(), "invalid query string") || strings.Contains(err.Error(), query) {
+			t.Fatalf("validateEndpoint() error = %v, want a sanitized invalid-query error", err)
+		}
+	}
+	if err := validateEndpoint("https://example.test/chat?count=1&part=two", "environment.endpoint"); err != nil {
+		t.Fatal(err)
 	}
 }
 
