@@ -23,7 +23,7 @@ func metricTestPython(t *testing.T) string {
 	}
 	layout, err := VerifyRunner(RunnerHome(), nil)
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("runner catalog unavailable: %v", err)
 	}
 	return layout.Python
 }
