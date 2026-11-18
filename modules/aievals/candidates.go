@@ -240,14 +240,22 @@ type Candidate struct {
 // Confirm must be set, from `harness stage eval_onboarding --confirm`, or the
 // command writes nothing.
 type WriteOptions struct {
-	Repo         string
-	Candidate    Candidate
-	Confirm      bool
-	Python       string
-	Run          CommandFunc
-	VerifyRunner func(string, CommandFunc) (RunnerLayout, error)
-	Stdout       io.Writer
-	Stderr       io.Writer
+	Repo           string
+	Candidate      Candidate
+	Confirm        bool
+	Python         string
+	Run            CommandFunc
+	VerifyRunner   func(string, CommandFunc) (RunnerLayout, error)
+	ResolveMetrics func(string, CommandFunc) (map[string]MetricDefinition, error)
+	Stdout         io.Writer
+	Stderr         io.Writer
+}
+
+// MetricDefinition supplies the installed SDK's classification for staged metrics.
+type MetricDefinition struct {
+	Type      string `json:"type"`
+	Dimension string `json:"dimension"`
+	Supported bool   `json:"supported"`
 }
 
 // Scan prints nothing and writes nothing. A route that is not an exact supported
@@ -709,9 +717,8 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 	if !opts.Confirm {
 		return 2, &StatusError{Code: 2, Msg: stageConfirmMessage}
 	}
-	files, err := v1TreeFiles(opts.Candidate)
-	if err != nil {
-		return 2, err
+	if opts.Candidate.Wire["metrics"] == nil {
+		return 2, fmt.Errorf("metrics are required; choose the metrics to stage instead of defaulting to exact match")
 	}
 	var result StageResult
 	python := opts.Python
@@ -721,6 +728,17 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 			return 1, err
 		}
 		python = layout.Python
+	}
+	var definitions map[string]MetricDefinition
+	if opts.ResolveMetrics != nil {
+		definitions, err = opts.ResolveMetrics(python, opts.Run)
+		if err != nil {
+			return 1, err
+		}
+	}
+	files, err := v1TreeFiles(opts.Candidate, definitions)
+	if err != nil {
+		return 2, err
 	}
 	if python != "" {
 		result, err = Stage(opts.Repo, files, python, opts.Run)
@@ -740,7 +758,7 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 	return 0, nil
 }
 
-func v1TreeFiles(candidate Candidate) (map[string]string, error) {
+func v1TreeFiles(candidate Candidate, definitions map[string]MetricDefinition) (map[string]string, error) {
 	doc, ok := cloneValue(candidate.Wire).(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("candidate file must be a JSON object")
@@ -765,7 +783,7 @@ func v1TreeFiles(candidate Candidate) (map[string]string, error) {
 		files[rel] = body
 	}
 	if hasMetrics && rawMetrics != nil {
-		metricBody, err := metricSetBody(rawMetrics, agent)
+		metricBody, err := metricSetBody(rawMetrics, agent, definitions)
 		if err != nil {
 			return nil, err
 		}
@@ -841,7 +859,7 @@ func metricSetRefs(doc map[string]any) []string {
 	return evalRefs(doc, "metric_set")
 }
 
-func metricSetBody(raw any, agent string) (string, error) {
+func metricSetBody(raw any, agent string, definitions map[string]MetricDefinition) (string, error) {
 	metrics, ok := raw.([]any)
 	if !ok || len(metrics) == 0 {
 		return "", fmt.Errorf("metrics: empty_metrics: staging requires an explicit non-empty metric list; choose metrics before staging")
@@ -860,13 +878,43 @@ func metricSetBody(raw any, agent string) (string, error) {
 			"name": kind,
 			"kind": kind,
 		}
-		for _, key := range []string{"type", "dimension", "config", "options"} {
-			if value, ok := metric[key]; ok {
-				metricDefinition[key] = value
+		if definitions != nil {
+			definition, ok := definitions[kind]
+			if !ok || !definition.Supported {
+				return "", fmt.Errorf("metrics[%d].kind is not supported by the pinned runner", index)
+			}
+			metricDefinition["type"] = definition.Type
+			if definition.Dimension != "" {
+				metricDefinition["dimension"] = definition.Dimension
 			}
 		}
 		entry := map[string]any{"metric": metricDefinition}
-		for _, key := range []string{"threshold", "score_name", "weight"} {
+		// The candidate is flat, but the pinned loader expects options inside the entry config.
+		config := map[string]any{}
+		if fields, ok := metric["config"].(map[string]any); ok {
+			for key, value := range fields {
+				config[key] = value
+			}
+		}
+		if _, exists := config["kind"]; exists {
+			return "", fmt.Errorf("metrics[%d].config.kind cannot override the selected kind", index)
+		}
+		if options, ok := metric["options"].(map[string]any); ok {
+			mergedOptions := map[string]any{}
+			if nested, ok := config["options"].(map[string]any); ok {
+				for key, value := range nested {
+					mergedOptions[key] = value
+				}
+			}
+			for key, value := range options {
+				mergedOptions[key] = value
+			}
+			config["options"] = mergedOptions
+		}
+		if len(config) != 0 {
+			entry["config"] = config
+		}
+		for _, key := range []string{"threshold", "score_name"} {
 			if value, ok := metric[key]; ok {
 				entry[key] = value
 			}

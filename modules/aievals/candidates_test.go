@@ -40,6 +40,7 @@ func TestV1TreeFilesWritesConfirmedMetrics(t *testing.T) {
 			"kind":      "contains",
 			"threshold": 0.8,
 			"options":   map[string]any{"case_sensitive": true},
+			"config":    map[string]any{"options": map[string]any{"case_sensitive": false}},
 		}},
 	}
 	files, err := v1TreeFiles(Candidate{
@@ -48,7 +49,7 @@ func TestV1TreeFilesWritesConfirmedMetrics(t *testing.T) {
 			ID:    "case-1",
 			Input: json.RawMessage(`{"text":"hello"}`),
 		}},
-	})
+	}, map[string]MetricDefinition{"contains": {Type: "heuristic", Dimension: "correctness", Supported: true}})
 	if err != nil {
 		t.Fatalf("v1TreeFiles() error = %v", err)
 	}
@@ -56,8 +57,10 @@ func TestV1TreeFilesWritesConfirmedMetrics(t *testing.T) {
 	if !ok {
 		t.Fatalf("metric-set file missing: %v", files)
 	}
-	if !strings.Contains(metricSet, "kind: contains") {
-		t.Fatalf("metric kind missing from generated metric set: %s", metricSet)
+	for _, fragment := range []string{"kind: contains", "type: heuristic", "dimension: correctness", "- config:\n        options:\n            case_sensitive: true"} {
+		if !strings.Contains(metricSet, fragment) {
+			t.Errorf("missing %q from generated metric set:\n%s", fragment, metricSet)
+		}
 	}
 }
 
