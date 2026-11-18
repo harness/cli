@@ -6,6 +6,9 @@ package aievals
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,12 +19,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/client"
+	"github.com/harness/cli/v3/pkg/httpclient"
 	"go.yaml.in/yaml/v3"
 )
 
-const importArchivePath = "/ai-evals/api/v1/orgs/%s/projects/%s/evals/import-archive"
+const (
+	importArchivePath    = "/ai-evals/api/v1/orgs/%s/projects/%s/evals/import-archive"
+	archiveRetryCount    = 2
+	archiveHTTPTimeout   = 30 * time.Second
+	maxArchiveErrorBytes = 200
+)
 
 // GitSyncRecommendation is printed after a successful archive import.
 // The import path does not sync Git.
@@ -332,24 +343,57 @@ func UploadArchive(a *auth.ResolvedAuth, payload []byte, do func(*http.Request) 
 // UploadArchiveWithBasePath sends the archive and returns both the existing
 // human-readable output and the manifest needed for optional report import.
 func UploadArchiveWithBasePath(a *auth.ResolvedAuth, payload []byte, apiBasePath string, do func(*http.Request) (*http.Response, error)) (ArchiveImportResult, error) {
-	req, err := NewArchiveRequestWithBasePath(a, payload, apiBasePath)
-	if err != nil {
-		return ArchiveImportResult{}, err
-	}
 	if do == nil {
-		do = http.DefaultClient.Do
+		do = func(req *http.Request) (*http.Response, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), archiveHTTPTimeout)
+			defer cancel()
+			req = req.WithContext(ctx)
+			return httpclient.DoWithProxyCheck(&http.Client{Timeout: archiveHTTPTimeout}, req)
+		}
 	}
-	resp, err := do(req)
-	if err != nil {
-		return ArchiveImportResult{}, err
+	key := archiveIdempotencyKey(payload)
+	var resp *http.Response
+	var respBody []byte
+	var err error
+	for attempt := 0; attempt < archiveRetryCount; attempt++ {
+		req, requestErr := NewArchiveRequestWithBasePath(a, payload, apiBasePath)
+		if requestErr != nil {
+			return ArchiveImportResult{}, requestErr
+		}
+		req.Header.Set("Idempotency-Key", key)
+		resp, err = do(req)
+		if err != nil {
+			if attempt+1 < archiveRetryCount {
+				continue
+			}
+			return ArchiveImportResult{}, fmt.Errorf("import-archive request status is uncertain after one retry")
+		}
+		respBody, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if err != nil {
+			if attempt+1 < archiveRetryCount {
+				continue
+			}
+			return ArchiveImportResult{}, fmt.Errorf("reading import-archive response: %w", err)
+		}
+		if (resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests ||
+			resp.StatusCode >= 500) && attempt+1 < archiveRetryCount {
+			continue
+		}
+		break
 	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return ArchiveImportResult{}, err
+	if resp == nil {
+		return ArchiveImportResult{}, fmt.Errorf("import-archive did not return a response")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ArchiveImportResult{}, fmt.Errorf("import-archive returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		message := client.APIErrorMessage(resp.StatusCode, respBody)
+		if a != nil {
+			message = strings.ReplaceAll(message, a.PATToken, "[redacted]")
+		}
+		if len(message) > maxArchiveErrorBytes {
+			message = message[:maxArchiveErrorBytes] + "..."
+		}
+		return ArchiveImportResult{}, fmt.Errorf("import-archive returned %d: %s", resp.StatusCode, message)
 	}
 	uiURL := ""
 	if a != nil {
@@ -364,4 +408,9 @@ func UploadArchiveWithBasePath(a *auth.ResolvedAuth, payload []byte, apiBasePath
 		return ArchiveImportResult{}, fmt.Errorf("reading import response: %w", err)
 	}
 	return ArchiveImportResult{Text: text, Response: parsed}, nil
+}
+
+func archiveIdempotencyKey(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return "onboarding-archive-" + hex.EncodeToString(sum[:])
 }

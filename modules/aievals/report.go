@@ -5,6 +5,7 @@ package aievals
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,15 +17,18 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/httpclient"
 )
 
 const (
-	reportImportPath = "/ai-evals/api/v1/orgs/%s/projects/%s/evals/%s/runs/import-report"
-	maxReportBytes   = 10 * 1024 * 1024
-	reportRetryCount = 2
-	reportKeyPrefix  = "onboarding-report-"
+	reportImportPath  = "/ai-evals/api/v1/orgs/%s/projects/%s/evals/%s/runs/import-report"
+	maxReportBytes    = 10 * 1024 * 1024
+	reportRetryCount  = 2
+	reportKeyPrefix   = "onboarding-report-"
+	reportHTTPTimeout = 30 * time.Second
 )
 
 var (
@@ -570,7 +574,12 @@ type reportImportResponse struct {
 // body and therefore the same D3 idempotency key.
 func PersistReport(a *auth.ResolvedAuth, evalID string, body []byte, apiBasePath string, do func(*http.Request) (*http.Response, error)) (string, error) {
 	if do == nil {
-		do = http.DefaultClient.Do
+		do = func(req *http.Request) (*http.Response, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), reportHTTPTimeout)
+			defer cancel()
+			req = req.WithContext(ctx)
+			return httpclient.DoWithProxyCheck(&http.Client{Timeout: reportHTTPTimeout}, req)
+		}
 	}
 	for attempt := 0; attempt < reportRetryCount; attempt++ {
 		req, err := NewReportImportRequest(a, evalID, body, apiBasePath)
