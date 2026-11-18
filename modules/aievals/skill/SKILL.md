@@ -106,6 +106,19 @@ Restate the values you will use, including any the user just gave.
 
 Checkpoint: Use this endpoint, pick another candidate, or set one up?
 
+## Generic local-agent prerequisite check
+
+After the candidate is confirmed and before proposing a local run, check local prerequisites one at a time. Do not start a service, authenticate, or change a profile while checking them.
+
+1. Confirm that the selected local service is already reachable at the confirmed endpoint. Use a documented, non-mutating readiness check when one exists; otherwise ask the user to confirm reachability. Never infer reachability from source code.
+2. For every required query or path parameter, present the parameter name and its source mapping. Ask the user to confirm the environment-variable names that will supply dynamic values. Never ask for or print the values.
+3. If authentication is required, present the evidenced header name. If the source only indicates an authentication annotation, ask whether a named header is required and which environment-variable name supplies it, or whether no header should be sent. A source annotation is not proof of a header mapping.
+4. If the target or a selected metric needs an external LLM, confirm the provider/model or gateway setting and the required environment-variable names. Explain that credentials stay in the user's environment and are never entered into chat, command arguments, candidate files, or the repository.
+
+Ask exactly one prerequisite question at a time and wait for the answer before asking the next. A successful readiness check does not authorize a write, run, upload, or report persistence. After all prerequisite answers, present the complete candidate and request confirmation again before any of those actions.
+
+Checkpoint: Are the local service, environment-variable names, optional auth header mapping, and external LLM prerequisite ready?
+
 ### Choose metrics for the confirmed agent
 
 Before proposing files, run `harness scan eval_onboarding --metrics`. Inspect the complete returned catalog, not just the first entries or a remembered shortlist. Summarize available categories and how many entries are supported by onboarding. Entries marked unsupported remain visible, but explain their limitation rather than recommending them as runnable.

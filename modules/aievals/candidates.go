@@ -326,6 +326,9 @@ func scanCandidateFrom(candidate RouteCandidate, inf Inference) ScanCandidate {
 	if ev, ok := inf.ByField("required_query_params"); ok && ev.Value != "" {
 		summary += "; required query parameters " + ev.Value
 	}
+	if candidate.AuthRequired {
+		summary += "; @HarnessAuth detected; confirm the named header and environment mapping"
+	}
 	out.Evidence = []EvidenceRecord{{
 		Source:     source,
 		Summary:    summary,

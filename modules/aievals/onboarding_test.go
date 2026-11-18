@@ -47,6 +47,9 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 		"Where is the reply text in the response?",
 		"Is an auth header name required? Reply with the header name, or none. Do not send a secret value.",
 		"Checkpoint: Use this endpoint, pick another candidate, or set one up?",
+		"## Generic local-agent prerequisite check",
+		"Ask exactly one prerequisite question at a time",
+		"Checkpoint: Are the local service, environment-variable names, optional auth header mapping, and external LLM prerequisite ready?",
 		"Checkpoint: Which metrics and thresholds should we use, and are you comfortable with any listed provider requirements?",
 		"Checkpoint: Write these files?",
 		"Checkpoint: Run this eval locally?",
@@ -260,6 +263,49 @@ func TestJavaRecordRouteKeepsDTOsParamsAndAuthLocal(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(inf.Notes, "\n"), "@HarnessAuth") {
 		t.Fatalf("missing safe auth configuration guidance: %v", inf.Notes)
+	}
+}
+
+func TestJaxRSConformanceFixturePresentsTypedEvidence(t *testing.T) {
+	fixture := filepath.Join("testdata", "java-jaxrs-conformance")
+	inf := inferFixture(t, "java-jaxrs-conformance")
+	requireHigh(t, inf, "endpoint_path", "/api/v1/analysis/analyze")
+	requireHigh(t, inf, "method", "POST")
+	requireHigh(t, inf, "request_fields", "mode,query,validServices,validEnvironments,impactedServices,incidentContext,baseTime,currentTheories,includeChanges,includeAlerts,includeFlags,toolResults")
+	requireHigh(t, inf, "response_path", "reasoning")
+	requireHigh(t, inf, "required_query_params", "accountId,orgId,projectId")
+	if _, ok := inf.ByField("auth_header"); ok {
+		t.Fatalf("@HarnessAuth must not invent a header mapping: %+v", inf.Evidence)
+	}
+	if !strings.Contains(strings.Join(inf.Notes, "\n"), "@HarnessAuth") {
+		t.Fatalf("missing route-local auth evidence: %v", inf.Notes)
+	}
+
+	report, code, err := Scan(fixture, "POST /api/v1/analysis/analyze")
+	if err != nil || code != 0 || len(report.Candidates) != 1 {
+		t.Fatalf("code=%d err=%v candidates=%d", code, err, len(report.Candidates))
+	}
+	candidate := report.Candidates[0]
+	if candidate.Target.ResponsePath != "reasoning" {
+		t.Fatalf("response path = %q", candidate.Target.ResponsePath)
+	}
+	for _, field := range strings.Split("mode,query,validServices,validEnvironments,impactedServices,incidentContext,baseTime,currentTheories,includeChanges,includeAlerts,includeFlags,toolResults", ",") {
+		if _, ok := candidate.Target.RequestTemplate[field]; !ok {
+			t.Fatalf("request template omitted typed field %q: %#v", field, candidate.Target.RequestTemplate)
+		}
+	}
+	if len(candidate.Target.AuthHeaders) != 0 {
+		t.Fatalf("auth mapping was invented: %#v", candidate.Target.AuthHeaders)
+	}
+	summary := candidate.Evidence[0].Summary
+	for _, evidence := range []string{
+		"POST /api/v1/analysis/analyze",
+		"required query parameters accountId,orgId,projectId",
+		"@HarnessAuth detected",
+	} {
+		if !strings.Contains(summary, evidence) {
+			t.Fatalf("candidate summary omitted %q: %q", evidence, summary)
+		}
 	}
 }
 
