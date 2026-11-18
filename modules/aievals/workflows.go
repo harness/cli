@@ -4,6 +4,7 @@
 package aievals
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,19 +25,6 @@ const (
 	runWorkflowID    = "run"
 	uploadWorkflowID = "upload"
 )
-
-// StatusError carries a process exit code from the runner or a batched question.
-type StatusError struct {
-	Code int
-	Msg  string
-}
-
-func (e *StatusError) Error() string {
-	if e.Msg != "" {
-		return e.Msg
-	}
-	return fmt.Sprintf("exit %d", e.Code)
-}
 
 // SetupOptions controls skill placement. Setup does not scan or write eval files.
 type SetupOptions struct {
@@ -89,8 +77,14 @@ func treeRequiresV1Runner(root string) (bool, error) {
 }
 
 func RunAgent(home, root, agent, environment string, resolved *auth.ResolvedAuth, stderr io.Writer, run CommandFunc) (int, error) {
+	return RunAgentContext(context.Background(), home, root, agent, environment, resolved, stderr, run)
+}
+
+func RunAgentContext(ctx context.Context, home, root, agent, environment string, resolved *auth.ResolvedAuth, stderr io.Writer, run CommandFunc) (int, error) {
 	if run == nil {
-		run = defaultCommand
+		run = func(name string, args []string, env []string, dir string) (CommandResult, error) {
+			return defaultCommandContext(ctx, name, args, env, dir)
+		}
 	}
 	v1Tree, err := treeRequiresV1Runner(root)
 	if err != nil {
@@ -221,7 +215,7 @@ func runWorkflow(ctx *cmdctx.Ctx) error {
 		}
 		root = filepath.Join(wd, root)
 	}
-	code, err := RunAgent(RunnerHome(), root, cmdctx.GetString(ctx.FlagValues, "agent"), cmdctx.GetString(ctx.FlagValues, "environment"), ctx.ScopedAuth(), os.Stderr, nil)
+	code, err := RunAgentContext(ctx.Context, RunnerHome(), root, cmdctx.GetString(ctx.FlagValues, "agent"), cmdctx.GetString(ctx.FlagValues, "environment"), ctx.ScopedAuth(), os.Stderr, nil)
 	return finish(code, err)
 }
 

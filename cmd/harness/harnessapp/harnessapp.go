@@ -72,9 +72,14 @@ func Run(opts Options) {
 
 	reg := registry.New()
 	reg.IsMainBinary = true
-	// Embedded modules load before LoadSpecs so they win over a same-named
-	// plugin spec installed in ~/.harness/spec.
+	// Custom embedded specs load before LoadSpecs so they win over a same-named
+	// plugin spec installed in ~/.harness/spec. An empty Spec means the module
+	// spec is already part of the host's embedded spec set and must retain its
+	// hidden-module enablement gate.
 	for _, m := range opts.Embedded {
+		if len(m.Spec) == 0 {
+			continue
+		}
 		if _, err := specloader.LoadSpecBytes(reg, m.Name+".spec.yaml", m.Spec, true); err != nil {
 			console.PrintError(err.Error())
 			hbase.Exit(1)
@@ -98,6 +103,10 @@ func Run(opts Options) {
 	rt.ModuleInit(reg.Module("rt"))
 	vibeapps.ModuleInit(reg.Module("vibeapps"))
 	for _, m := range opts.Embedded {
+		if len(m.Spec) == 0 && reg.HasModule(m.Name) {
+			reg.MarkEmbedded(m.Name, m.Version)
+			hbase.EmbeddedPlugins[m.Name] = m.Version
+		}
 		m.Init(reg.Module(m.Name))
 	}
 	rootcmd.MaybeCheckSpecs(reg)

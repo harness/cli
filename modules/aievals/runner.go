@@ -4,6 +4,7 @@
 package aievals
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -39,7 +40,7 @@ func RunnerHome() string {
 
 // Remediation is the exact text printed when Python or the pinned package is missing.
 func Remediation(home string) string {
-	python := filepath.Join(home, "bin", "python")
+	python := filepath.Join(home, runnerBinName(), pythonName())
 	return fmt.Sprintf(`ai-evals-runner %s is not installed in %s.
 The runner is pinned to %s==%s (schema %s) and will not upgrade.
 Install uv (https://docs.astral.sh/uv/) or pipx, then run exactly:
@@ -50,7 +51,7 @@ or:
 Do not install a second SDK. ai-evals-runner already depends on harness-evals.`,
 		RunnerVersion, home, RunnerPackage, RunnerVersion, SchemaVersion,
 		home, python, RunnerPackage, RunnerVersion,
-		home, filepath.Join(home, "bin"), RunnerPackage, RunnerVersion)
+		home, filepath.Join(home, runnerBinName()), RunnerPackage, RunnerVersion)
 }
 
 // PinMismatchRemediation is printed when a different runner version is already present.
@@ -86,7 +87,7 @@ func EnsureRunner(home string, look func(string) (string, error), run CommandFun
 			return RunnerLayout{}, err
 		}
 	} else if _, err := look("pipx"); err == nil {
-		env := []string{"PIPX_HOME=" + home, "PIPX_BIN_DIR=" + filepath.Join(home, "bin")}
+		env := []string{"PIPX_HOME=" + home, "PIPX_BIN_DIR=" + filepath.Join(home, runnerBinName())}
 		if _, err := run("pipx", []string{"install", RunnerPackage + "==" + RunnerVersion}, env, ""); err != nil {
 			return RunnerLayout{}, err
 		}
@@ -132,7 +133,13 @@ func VerifyRunner(home string, run CommandFunc) (RunnerLayout, error) {
 	}
 	recorded, err := readHandshake(home)
 	if err != nil {
-		return RunnerLayout{}, fmt.Errorf("%s", Remediation(home))
+		if !os.IsNotExist(err) {
+			return RunnerLayout{}, fmt.Errorf("%s", Remediation(home))
+		}
+		if err := recordHandshake(home); err != nil {
+			return RunnerLayout{}, err
+		}
+		recorded = wantedHandshake()
 	}
 	want := wantedHandshake()
 	if recorded != want {
@@ -169,7 +176,7 @@ func requirePinned(home string, layout RunnerLayout, run CommandFunc) error {
 func installedLayout(home string) (RunnerLayout, bool) {
 	candidates := []RunnerLayout{
 		{Home: home, Python: pythonBin(home), AIEvals: bin(home, "ai-evals")},
-		{Home: home, Python: filepath.Join(home, "venvs", RunnerPackage, "bin", pythonName()), AIEvals: filepath.Join(home, "venvs", RunnerPackage, "bin", "ai-evals")},
+		{Home: home, Python: filepath.Join(home, "venvs", RunnerPackage, runnerBinName(), pythonName()), AIEvals: filepath.Join(home, "venvs", RunnerPackage, runnerBinName(), "ai-evals"+exeSuffix())},
 	}
 	for _, layout := range candidates {
 		if fileExists(layout.Python) && fileExists(layout.AIEvals) {
@@ -180,7 +187,14 @@ func installedLayout(home string) (RunnerLayout, bool) {
 }
 
 func pythonBin(home string) string {
-	return filepath.Join(home, "bin", pythonName())
+	return filepath.Join(home, runnerBinName(), pythonName())
+}
+
+func runnerBinName() string {
+	if runtime.GOOS == "windows" {
+		return "Scripts"
+	}
+	return "bin"
 }
 
 func pythonName() string {
@@ -190,11 +204,15 @@ func pythonName() string {
 	return "python"
 }
 
-func bin(home, name string) string {
+func exeSuffix() string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(home, "bin", name+".exe")
+		return ".exe"
 	}
-	return filepath.Join(home, "bin", name)
+	return ""
+}
+
+func bin(home, name string) string {
+	return filepath.Join(home, runnerBinName(), name+exeSuffix())
 }
 
 func fileExists(path string) bool {
@@ -230,7 +248,7 @@ func readHandshake(home string) (handshake, error) {
 // SSORunnerNotice is printed when the active login cannot be forwarded to the
 // Python runner. The D2 runner sends HARNESS_API_KEY as x-api-key and accepts
 // PAT, SAT, and pipeline st.* tokens.
-const SSORunnerNotice = "The Python runner cannot use this SSO session. onboard-run accepts a PAT or SAT as HARNESS_API_KEY (x-api-key), or a pipeline HARNESS_TOKEN. The SSO access token was not sent to the runner."
+const SSORunnerNotice = "The Python runner cannot use this SSO session. onboard-run accepts a PAT or SAT as HARNESS_API_KEY (x-api-key), or a pipeline HARNESS_TOKEN when the command is running in pipeline mode. The SSO access token was not sent to the runner."
 
 // RunnerProcessEnv returns environment assignments for the runner child.
 // PAT and SAT are forwarded. An SSO token is omitted.
@@ -247,10 +265,16 @@ func RunnerProcessEnv(a *auth.ResolvedAuth) (env []string, notice string) {
 	}
 	kind := auth.TokenType(token)
 	if kind != auth.TokenKindPAT && kind != auth.TokenKindSAT {
-		return nil, SSORunnerNotice
+		if kind != auth.TokenKindST {
+			return nil, SSORunnerNotice
+		}
+	}
+	tokenEnv := "HARNESS_API_KEY"
+	if a.Source == auth.SourcePipeline || kind == auth.TokenKindST {
+		tokenEnv = "HARNESS_TOKEN"
 	}
 	return []string{
-		"HARNESS_API_KEY=" + token,
+		tokenEnv + "=" + token,
 		"HARNESS_ACCOUNT_ID=" + a.AccountID,
 		"HARNESS_ORG_ID=" + a.OrgID,
 		"HARNESS_PROJECT_ID=" + a.ProjectID,
@@ -259,13 +283,18 @@ func RunnerProcessEnv(a *auth.ResolvedAuth) (env []string, notice string) {
 }
 
 func defaultCommand(name string, args []string, env []string, dir string) (CommandResult, error) {
-	cmd := exec.Command(name, args...)
+	return defaultCommandContext(context.Background(), name, args, env, dir)
+}
+
+func defaultCommandContext(ctx context.Context, name string, args []string, env []string, dir string) (CommandResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = sanitizedRunnerEnv(env)
 	out, err := cmd.Output()
 	result := CommandResult{Stdout: string(out)}
 	if err == nil {
@@ -277,4 +306,27 @@ func defaultCommand(name string, args []string, env []string, dir string) (Comma
 		return result, nil
 	}
 	return result, err
+}
+
+func sanitizedRunnerEnv(extra []string) []string {
+	const (
+		token     = "HARNESS_TOKEN"
+		apiKey    = "HARNESS_API_KEY"
+		accountID = "HARNESS_ACCOUNT_ID"
+		orgID     = "HARNESS_ORG_ID"
+		projectID = "HARNESS_PROJECT_ID"
+		baseURL   = "HARNESS_BASE_URL"
+		apiURL    = "HARNESS_API_URL"
+	)
+	sensitive := map[string]bool{
+		token: true, apiKey: true, accountID: true, orgID: true, projectID: true, baseURL: true, apiURL: true,
+	}
+	env := make([]string, 0, len(os.Environ())+len(extra))
+	for _, value := range os.Environ() {
+		name, _, _ := strings.Cut(value, "=")
+		if !sensitive[name] {
+			env = append(env, value)
+		}
+	}
+	return append(env, extra...)
 }
