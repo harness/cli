@@ -7,10 +7,12 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"compress/flate"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -34,6 +36,7 @@ const (
 	archiveImportPath      = "/ai-evals/api/v1/orgs/%s/projects/%s/evals/import-archive"
 	archiveRequestTimeout  = 30 * time.Second
 	maxArchiveResponseSize = 1 << 20
+	uploadDeflateLevel     = 5
 )
 
 var (
@@ -75,12 +78,53 @@ func BuildArchive(root string, limits Limits) ([]byte, error) {
 }
 
 func buildArchiveFromSnapshot(files []uploadFile, limits Limits) ([]byte, error) {
+	methods := make([]uint16, len(files))
+	var expanded int64
+	for index, file := range files {
+		methods[index] = uploadCompressionMethod(file.data)
+		expanded += int64(len(file.data))
+	}
+	payload, err := writeUploadArchive(files, methods)
+	if err != nil {
+		return nil, err
+	}
+	if expanded > int64(len(payload))*MaxCompressionRatio {
+		// D3 checks the whole ZIP, so keep useful per-member compression unless the aggregate exceeds the cap.
+		methods, err = selectRatioFallbacks(files, methods, payload, expanded)
+		if err != nil {
+			return nil, err
+		}
+		payload, err = writeUploadArchive(files, methods)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if expanded > int64(len(payload))*MaxCompressionRatio {
+		return nil, fmt.Errorf("archive exceeds the compression-ratio limit (%d:1)", MaxCompressionRatio)
+	}
+	sizes := make([]int64, len(files))
+	for index, file := range files {
+		sizes[index] = int64(len(file.data))
+	}
+	if err := CheckClientLimits(normalizeUploadLimits(limits), len(files), sizes, len(payload)); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func writeUploadArchive(files []uploadFile, methods []uint16) ([]byte, error) {
+	if len(files) != len(methods) {
+		return nil, fmt.Errorf("could not create the upload archive")
+	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	for _, file := range files {
+	zw.RegisterCompressor(zip.Deflate, func(output io.Writer) (io.WriteCloser, error) {
+		return flate.NewWriter(output, uploadDeflateLevel)
+	})
+	for index, file := range files {
 		header := &zip.FileHeader{
 			Name:     file.archivePath,
-			Method:   zip.Store,
+			Method:   methods[index],
 			Modified: uploadZipEpoch,
 		}
 		header.SetMode(0o644)
@@ -95,14 +139,77 @@ func buildArchiveFromSnapshot(files []uploadFile, limits Limits) ([]byte, error)
 	if err := zw.Close(); err != nil {
 		return nil, fmt.Errorf("could not finalize the upload archive")
 	}
-	sizes := make([]int64, len(files))
-	for index, file := range files {
-		sizes[index] = int64(len(file.data))
-	}
-	if err := CheckClientLimits(normalizeUploadLimits(limits), len(files), sizes, buf.Len()); err != nil {
-		return nil, err
-	}
 	return buf.Bytes(), nil
+}
+
+type uploadSizeCounter int64
+
+func (counter *uploadSizeCounter) Write(data []byte) (int, error) {
+	*counter += uploadSizeCounter(len(data))
+	return len(data), nil
+}
+
+func uploadCompressionMethod(data []byte) uint16 {
+	if len(data) == 0 {
+		return zip.Store
+	}
+	var compressed uploadSizeCounter
+	writer, err := flate.NewWriter(&compressed, uploadDeflateLevel)
+	if err != nil {
+		return zip.Store
+	}
+	if _, err := writer.Write(data); err != nil {
+		return zip.Store
+	}
+	if err := writer.Close(); err != nil {
+		return zip.Store
+	}
+	if int64(compressed) >= int64(len(data)) {
+		return zip.Store
+	}
+	return zip.Deflate
+}
+
+// selectRatioFallbacks stores the least costly members needed to meet D3's aggregate ratio.
+func selectRatioFallbacks(files []uploadFile, methods []uint16, payload []byte, expanded int64) ([]uint16, error) {
+	archive, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
+	if err != nil || len(archive.File) != len(files) {
+		return nil, fmt.Errorf("could not size the upload archive")
+	}
+	targetSize := (expanded + MaxCompressionRatio - 1) / MaxCompressionRatio
+	neededIncrease := targetSize - int64(len(payload))
+	if neededIncrease <= 0 {
+		return methods, nil
+	}
+	type fallback struct {
+		index    int
+		increase int64
+	}
+	var candidates []fallback
+	for index, method := range methods {
+		if method != zip.Deflate {
+			continue
+		}
+		increase := int64(len(files[index].data)) - int64(archive.File[index].CompressedSize64)
+		if increase > 0 {
+			candidates = append(candidates, fallback{index: index, increase: increase})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].increase == candidates[j].increase {
+			return candidates[i].index < candidates[j].index
+		}
+		return candidates[i].increase < candidates[j].increase
+	})
+	methods = append([]uint16(nil), methods...)
+	for _, candidate := range candidates {
+		methods[candidate.index] = zip.Store
+		neededIncrease -= candidate.increase
+		if neededIncrease <= 0 {
+			return methods, nil
+		}
+	}
+	return nil, fmt.Errorf("archive exceeds the compression-ratio limit (%d:1)", MaxCompressionRatio)
 }
 
 func normalizeUploadLimits(limits Limits) Limits {
@@ -122,32 +229,44 @@ func collectUploadFiles(root string, limits Limits) ([]uploadFile, error) {
 	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("upload root must be an existing directory, not a symlink")
 	}
+	pinnedRoot, err := os.OpenRoot(absRoot)
+	if err != nil {
+		return nil, fmt.Errorf("upload root must be an existing directory, not a symlink")
+	}
+	defer pinnedRoot.Close()
+	openedRootInfo, err := pinnedRoot.Stat(".")
+	if err != nil || !openedRootInfo.IsDir() || !os.SameFile(rootInfo, openedRootInfo) {
+		return nil, fmt.Errorf("upload root changed while it was being opened")
+	}
+	return collectUploadFilesFromRoot(pinnedRoot, limits)
+}
 
+func collectUploadFilesFromRoot(pinnedRoot *os.Root, limits Limits) ([]uploadFile, error) {
+	limits = normalizeUploadLimits(limits)
+	if pinnedRoot == nil {
+		return nil, fmt.Errorf("upload root is invalid")
+	}
 	var paths []string
-	err = filepath.WalkDir(absRoot, func(fullPath string, entry os.DirEntry, walkErr error) error {
+	err := fs.WalkDir(pinnedRoot.FS(), ".", func(rel string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return fmt.Errorf("upload tree could not be read")
 		}
-		if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() {
+		if rel == "." || entry.Type()&os.ModeSymlink != 0 || entry.IsDir() {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
 		if ext != ".yaml" && ext != ".yml" && ext != ".jsonl" {
 			return nil
 		}
-		info, err := os.Lstat(fullPath)
+		hostRel := filepath.FromSlash(rel)
+		if !fs.ValidPath(rel) || !filepath.IsLocal(hostRel) {
+			return fmt.Errorf("upload tree contains an invalid path")
+		}
+		info, err := pinnedRoot.Lstat(hostRel)
 		if err != nil || !info.Mode().IsRegular() {
 			return fmt.Errorf("upload tree contains an unreadable file")
 		}
-		rel, err := filepath.Rel(absRoot, fullPath)
-		if err != nil || !filepath.IsLocal(rel) {
-			return fmt.Errorf("upload tree contains an invalid path")
-		}
-		canonical := path.Join(".harness", "evals", filepath.ToSlash(rel))
-		if canonical == ".harness/evals" {
-			return fmt.Errorf("upload tree contains an invalid path")
-		}
-		paths = append(paths, fullPath)
+		paths = append(paths, rel)
 		if len(paths) > limits.Members {
 			return fmt.Errorf("archive exceeds the file count limit (%d)", limits.Members)
 		}
@@ -156,21 +275,13 @@ func collectUploadFiles(root string, limits Limits) ([]uploadFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(paths, func(i, j int) bool {
-		relI, _ := filepath.Rel(absRoot, paths[i])
-		relJ, _ := filepath.Rel(absRoot, paths[j])
-		return filepath.ToSlash(relI) < filepath.ToSlash(relJ)
-	})
+	sort.Strings(paths)
 
 	files := make([]uploadFile, 0, len(paths))
 	var expanded int64
 	agentCount := 0
-	for _, fullPath := range paths {
-		rel, err := filepath.Rel(absRoot, fullPath)
-		if err != nil {
-			return nil, fmt.Errorf("upload tree contains an invalid path")
-		}
-		data, err := readUploadFile(fullPath, limits.MemberBytes)
+	for _, rel := range paths {
+		data, err := readUploadFile(pinnedRoot, rel, limits.MemberBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -178,7 +289,7 @@ func collectUploadFiles(root string, limits Limits) ([]uploadFile, error) {
 		if expanded > MaxExpandedBytes {
 			return nil, fmt.Errorf("archive exceeds the expanded-size limit (%d bytes)", MaxExpandedBytes)
 		}
-		canonical := path.Join(".harness", "evals", filepath.ToSlash(rel))
+		canonical := path.Join(".harness", "evals", rel)
 		if err := validateUploadMember(canonical, data); err != nil {
 			return nil, err
 		}
@@ -196,12 +307,13 @@ func collectUploadFiles(root string, limits Limits) ([]uploadFile, error) {
 	return files, nil
 }
 
-func readUploadFile(fullPath string, maxBytes int64) ([]byte, error) {
-	before, err := os.Lstat(fullPath)
+func readUploadFile(pinnedRoot *os.Root, rel string, maxBytes int64) ([]byte, error) {
+	hostRel := filepath.FromSlash(rel)
+	before, err := pinnedRoot.Lstat(hostRel)
 	if err != nil || !before.Mode().IsRegular() || before.Size() > maxBytes {
 		return nil, fmt.Errorf("archive member exceeds the per-file limit or is not a regular file")
 	}
-	file, err := os.Open(fullPath)
+	file, err := pinnedRoot.Open(hostRel)
 	if err != nil {
 		return nil, fmt.Errorf("upload tree contains an unreadable file")
 	}
@@ -210,7 +322,7 @@ func readUploadFile(fullPath string, maxBytes int64) ([]byte, error) {
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
 		return nil, fmt.Errorf("upload tree changed while it was being read")
 	}
-	after, err := os.Lstat(fullPath)
+	after, err := pinnedRoot.Lstat(hostRel)
 	if err != nil || !os.SameFile(opened, after) {
 		return nil, fmt.Errorf("upload tree changed while it was being read")
 	}
@@ -277,7 +389,16 @@ func validateUploadMember(archivePath string, data []byte) error {
 }
 
 func buildValidatedUploadArchive(ctx context.Context, root string, limits Limits, runnerHome string, verify func(string, CommandFunc) (RunnerLayout, error), run CommandFunc) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
 	files, err := collectUploadFiles(root, limits)
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -285,21 +406,30 @@ func buildValidatedUploadArchive(ctx context.Context, root string, limits Limits
 		verify = VerifyRunner
 	}
 	layout, err := verify(runnerHome, run)
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
 	if err != nil {
 		return nil, err
 	}
 	if err := validateUploadSnapshot(ctx, files, layout, run); err != nil {
 		return nil, err
 	}
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
 	return buildArchiveFromSnapshot(files, limits)
 }
 
 func validateUploadSnapshot(ctx context.Context, files []uploadFile, layout RunnerLayout, run CommandFunc) error {
-	if layout.Python == "" || len(files) == 0 {
-		return fmt.Errorf("pinned onboarding validator is unavailable")
-	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	if layout.Python == "" || len(files) == 0 {
+		return fmt.Errorf("pinned onboarding validator is unavailable")
 	}
 	if run == nil {
 		run = func(name string, args []string, env []string, dir string) (CommandResult, error) {
@@ -308,25 +438,43 @@ func validateUploadSnapshot(ctx context.Context, files []uploadFile, layout Runn
 	}
 	temporary, err := os.MkdirTemp("", "aievals-upload-")
 	if err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
 		return fmt.Errorf("could not prepare the upload snapshot for validation")
 	}
 	defer os.RemoveAll(temporary)
 	stagingDir, err := filepath.EvalSymlinks(temporary)
 	if err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
 		return fmt.Errorf("could not prepare the upload snapshot for validation")
 	}
 	evalsRoot := filepath.Join(stagingDir, "repo", ".harness", "evals")
 	for _, file := range files {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
 		rel := strings.TrimPrefix(file.archivePath, ".harness/evals/")
 		if rel == file.archivePath || !filepath.IsLocal(filepath.FromSlash(rel)) {
 			return fmt.Errorf("upload snapshot contains an invalid path")
 		}
 		if err := writeTreeFile(evalsRoot, filepath.FromSlash(rel), file.data); err != nil {
+			if cause := context.Cause(ctx); cause != nil {
+				return cause
+			}
 			return fmt.Errorf("could not prepare the upload snapshot for validation")
 		}
 	}
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
 	args := ValidatorArgs(layout.Python, evalsRoot)
 	result, err := run(args[0], args[1:], nil, stagingDir)
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
 	if err != nil || result.Code != 0 {
 		return fmt.Errorf("pinned onboarding validator rejected the upload snapshot")
 	}
@@ -427,6 +575,12 @@ func UploadArchiveWithBasePath(a *auth.ResolvedAuth, payload []byte, apiBasePath
 
 // UploadArchiveContext sends one bounded archive and returns only validated, in-scope links.
 func UploadArchiveContext(ctx context.Context, a *auth.ResolvedAuth, payload []byte, apiBasePath string, do func(*http.Request) (*http.Response, error)) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if cause := context.Cause(ctx); cause != nil {
+		return "", cause
+	}
 	req, err := NewArchiveRequestContext(ctx, a, payload, apiBasePath)
 	if err != nil {
 		return "", err
@@ -443,14 +597,22 @@ func UploadArchiveContext(ctx context.Context, a *auth.ResolvedAuth, payload []b
 		}
 	}
 	resp, err := do(req)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	if cause := context.Cause(ctx); cause != nil {
+		return "", cause
+	}
 	if err != nil {
 		return "", fmt.Errorf("archive upload request failed; check the API URL, network, and proxy configuration")
 	}
 	if resp == nil || resp.Body == nil {
 		return "", fmt.Errorf("archive upload returned no response")
 	}
-	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxArchiveResponseSize+1))
+	if cause := context.Cause(ctx); cause != nil {
+		return "", cause
+	}
 	if err != nil || len(body) > maxArchiveResponseSize {
 		return "", fmt.Errorf("archive upload response could not be read safely")
 	}
@@ -503,7 +665,7 @@ func uploadUIOrigin(a *auth.ResolvedAuth) (*url.URL, error) {
 }
 
 func scopedImportLink(origin *url.URL, a *auth.ResolvedAuth, kind string, resource archiveImportedResource) (string, error) {
-	if !uploadIdentifierPattern.MatchString(resource.Identifier) || isCredentialName(resource.Identifier) || secretShaped(resource.Identifier) || uploadIDPattern.FindString(resource.ID) != resource.ID || resource.ID == "" {
+	if !uploadIdentifierPattern.MatchString(resource.Identifier) || secretShaped(resource.Identifier) || uploadIDPattern.FindString(resource.ID) != resource.ID || resource.ID == "" {
 		return "", fmt.Errorf("archive import response contained an invalid resource identity")
 	}
 	expected := []string{"account", a.AccountID, "all", "ai-evals", "orgs", a.OrgID, "projects", a.ProjectID, kind, resource.ID}
@@ -545,7 +707,13 @@ func sameUploadPath(rawPath string, expected []string) bool {
 }
 
 func uploadWorkflow(ctx *cmdctx.Ctx) error {
-	if ctx == nil || ctx.Auth == nil {
+	if ctx == nil {
+		return fmt.Errorf("upload requires an authenticated profile")
+	}
+	if ctx.Id != "" {
+		return fmt.Errorf("upload does not accept a positional ID; use --root to select the upload tree")
+	}
+	if ctx.Auth == nil {
 		return fmt.Errorf("upload requires an authenticated profile")
 	}
 	root := cmdctx.GetString(ctx.FlagValues, "root")
