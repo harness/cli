@@ -443,6 +443,7 @@ nouns:
   - noun: gitops_clusterlink
     short_desc: "Link between a GitOps cluster and a Harness environment (identifiers are raw, not scope-prefixed)."
     noun_aliases: [gitops_clusterlinks]
+    multi_level: true
     fields:
       - id: identifier
         expr: it.identifier ?? it.name
