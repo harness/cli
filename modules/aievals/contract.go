@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -196,6 +197,10 @@ func normalizeJSONNumbers(value any) any {
 	switch typed := value.(type) {
 	case json.Number:
 		if integer, err := typed.Int64(); err == nil {
+			return integer
+		}
+		if integer, err := strconv.ParseUint(typed.String(), 10, 64); err == nil {
+			// YAML can round-trip unsigned 64-bit integers without quoting or rounding.
 			return integer
 		}
 		if !strings.ContainsAny(typed.String(), ".eE") {
@@ -519,7 +524,7 @@ func ensureJSONScalar(value any, label string) error {
 			return rejectSecretShaped(label)
 		}
 		return nil
-	case nil, bool, int, int64:
+	case nil, bool, int, int64, uint64:
 		return nil
 	case float64:
 		if math.IsNaN(typed) || math.IsInf(typed, 0) {
@@ -527,6 +532,9 @@ func ensureJSONScalar(value any, label string) error {
 		}
 		return nil
 	case json.Number:
+		if !strings.ContainsAny(typed.String(), ".eE") {
+			return fmt.Errorf("%s exceeds the supported integer range for YAML", label)
+		}
 		return fmt.Errorf("%s must be a finite JSON number", label)
 	default:
 		return fmt.Errorf("%s contains an unsupported value", label)
@@ -934,7 +942,11 @@ func validateEndpoint(endpoint, label string) error {
 	if parsed.User != nil {
 		return fmt.Errorf("%s must not embed credentials", label)
 	}
-	for key, values := range parsed.Query() {
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return fmt.Errorf("%s contains an invalid query string", label)
+	}
+	for key, values := range query {
 		if isCredentialName(key) || secretShaped(key) {
 			return fmt.Errorf("%s includes a credential query parameter. Remove it from the endpoint and declare it under auth_headers with source env or source harness_secret. The value is not accepted", label)
 		}

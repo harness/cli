@@ -97,14 +97,15 @@ func writeTreeFile(root, rel string, data []byte) error {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
 		return fmt.Errorf("candidate path escapes the tree: %s", rel)
 	}
-	if err := ensureNoSymlink(root); err != nil {
-		return err
-	}
 	dest := filepath.Join(root, clean)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	parent := filepath.Dir(dest)
+	if err := ensureNoSymlink(parent); err != nil {
 		return err
 	}
-	if err := ensureNoSymlink(root); err != nil {
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	if err := ensureNoSymlink(parent); err != nil {
 		return err
 	}
 	return writeAtomic(dest, data)

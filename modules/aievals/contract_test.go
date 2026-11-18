@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestDecodeJSONValueRejectsTrailingJSON(t *testing.T) {
@@ -29,6 +31,43 @@ func TestDecodeJSONValuePreservesLargeInteger(t *testing.T) {
 	}
 }
 
+func TestStageCandidatePreservesUnsignedIntegerInYAML(t *testing.T) {
+	const want = uint64(12345678901234567890)
+	wire := CanonicalOnboardingV1Candidate()
+	target := wire["target"].(map[string]any)
+	target["request_template"] = map[string]any{"item_id": want}
+	target["query_params"] = map[string]any{"item_id": want}
+	wire["cases"] = []any{map[string]any{"id": "case-1", "input": "hello"}}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeJSONValue(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := loadV1Candidate(decoded.(map[string]any))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := v1TreeFiles(candidate, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staged map[string]any
+	if err := yaml.Unmarshal([]byte(files["agents/"+wire["identifier"].(string)+"/agent.yaml"]), &staged); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateV1DocumentForStage(staged, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"request_template", "query_params"} {
+		if got := staged["target"].(map[string]any)[field].(map[string]any)["item_id"]; got != want {
+			t.Errorf("%s.item_id = %v (%T), want exact unsigned integer", field, got, got)
+		}
+	}
+}
+
 func TestValidateV1TargetRejectsNonStringMethod(t *testing.T) {
 	err := validateV1Target(map[string]any{
 		"method":           true,
@@ -44,6 +83,18 @@ func TestValidateEndpointRejectsSecretQueryValue(t *testing.T) {
 	err := validateEndpoint("https://example.test/chat?note=Bearer%20secret", "environment.endpoint")
 	if err == nil || strings.Contains(err.Error(), "Bearer secret") {
 		t.Fatalf("validateEndpoint() error = %v, want a redacted credential-value error", err)
+	}
+}
+
+func TestValidateEndpointRejectsMalformedQuery(t *testing.T) {
+	for _, query := range []string{"count=1&part=%ZZ", "count=1;part=2"} {
+		err := validateEndpoint("https://example.test/chat?"+query, "environment.endpoint")
+		if err == nil || !strings.Contains(err.Error(), "invalid query string") || strings.Contains(err.Error(), query) {
+			t.Fatalf("validateEndpoint() error = %v, want a sanitized invalid-query error", err)
+		}
+	}
+	if err := validateEndpoint("https://example.test/chat?count=1&part=two", "environment.endpoint"); err != nil {
+		t.Fatal(err)
 	}
 }
 
