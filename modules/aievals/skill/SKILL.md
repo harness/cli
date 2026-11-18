@@ -26,7 +26,7 @@ When the prompt header includes a `harness auth login` command, use that command
 - `harness scan eval_onboarding` is an optional hint. It prints an `onboarding/v1` candidate with id, confidence, evidence, and typed value sources. It writes nothing and does not generate a tree. `--route '<METHOD path>'` narrows the hint. The agent's own reading of the repository is the source of truth. If the hint and the agent disagree, show both and let the user choose.
 - `harness scan eval_onboarding --metrics` reads the full metric catalog from the Harness Evals SDK in the pinned runner. It prints every catalog entry, including descriptions, constructor options and required options, default thresholds, LLM/embedding requirements, execution scope, and onboarding support. It does not scan the repository, install packages, call an agent or judge, or write files. Do not combine it with `--route`.
 - Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`. Pass `--confirm --file <path>` pointing at a temporary JSON file, or pass legacy flags that map unambiguously onto `onboarding/v1`. `--confirm` is required after the user says yes. Without it, the command writes nothing. The file uses `schema_version: "onboarding/v1"`. Value sources are `literal`, `input`, `env`, and `harness_secret` with D2 field names (`name`, `ref`, `env`). Do not use `env_name` or `secret_ref`. Never put a secret value in the file. Flags override the same legacy fields in a legacy file. They cannot be combined with an `onboarding/v1` file. Staging requires an explicit non-empty `cases` list with unique case identities; if scan has no cases, ask the user to confirm or add a sample case before staging.
-- `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>]` runs a staged agent. `local` is the default. The command checks the pinned runner and does not upgrade it. An `onboarding/v1` tree cannot be run by the pinned runner: the command fails and leaves the files unchanged. Do not remove query parameters or auth headers to make that runner accept the tree. A PAT or SAT is passed to the runner. An SSO access token is not.
+- `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>]` runs a staged agent. `local` is the default. The command checks the pinned runner and does not upgrade it. The current pinned runner must report `onboarding/v1`; otherwise the command stops before execution and leaves the files unchanged. Do not remove query parameters or auth headers to make an older runner accept the tree. A PAT or SAT is passed to the runner. An SSO access token is not.
 - `harness upload eval_onboarding` validates locally, uploads `.harness/evals`, and prints Agent and Eval links. Git sync is not applied by the upload.
 
 `stage` accepts `--confirm` plus `--agent`, `--endpoint`, `--method`, `--request-field`, `--request-fields`, `--response-path`, `--auth-header`, `--auth-env`, `--input-text`, and `--expected` for a legacy file. `--auth-header` is a header name. `--auth-env` is an environment-variable name. Never pass a secret value. A header name without an environment-variable name does not map to `onboarding/v1`, and the command writes nothing.
@@ -70,13 +70,13 @@ The tree the command writes is `.harness/evals/agents/<identifier>/agent.yaml`, 
 
 Show a step only when the next action needs it. Skip a step that is already done.
 
-If `harness version` fails, install the CLI and run `harness version` again:
+If `harness version` fails, ask the user whether to install the CLI, then install it only after confirmation and run `harness version` again:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/harness/cli/main/install.sh | sh
 ```
 
-Before the first `eval_onboarding` command, enable the module if it is not enabled:
+Before the first `eval_onboarding` command, ask the user whether to enable the module if it is not enabled. Enabling changes the user's CLI configuration; run this only after confirmation:
 
 ```bash
 harness install module aievals
@@ -138,7 +138,9 @@ Only after yes, create the temporary `onboarding/v1` candidate JSON with the con
 
 ## Stage 3. Local run
 
-Checkpoint: Run this eval locally?
+The current pinned runner may not report `onboarding/v1`. Check the runner result from staging before offering a run. If it does not report `onboarding/v1`, explain that local/live execution is blocked until a compatible runner is installed; do not remove fields or install a replacement without confirmation.
+
+Checkpoint: Run this eval locally with the compatible pinned runner?
 
 Only after yes, run `harness run eval_onboarding --agent <identifier> --environment local`. Explain the result in plain language: what was called, what passed or failed, and any diagnostic the command printed. Do not hide a non-zero exit. Do not rewrite files unless the user asks.
 
@@ -198,4 +200,4 @@ Read the existing agent, dataset, and metric-set files first and preserve the us
 
 Checkpoint: Write these updated files?
 
-Then call `harness stage eval_onboarding --confirm` with the full confirmed candidate, including existing and new metrics. The stager does not overwrite non-identical files: if it reports a collision, stop and ask the user how to handle it; do not bypass that protection. Preserve chosen metrics rather than resetting to exact match. Show LLM or embedding provider setup only when those metrics were chosen, and ask again before any subsequent run or upload.
+Then call `harness stage eval_onboarding --confirm` with the full confirmed candidate, including existing and new metrics. The stager does not overwrite non-identical files. If the existing tree differs, show the collision and stop; do not present staging as an in-place update, bypass the protection, or reset metrics to exact match. The user must reconcile the repository files through its normal review/edit workflow before staging the next confirmed candidate. Show LLM or embedding provider setup only when those metrics were chosen, and ask again before any subsequent run or upload.

@@ -48,19 +48,28 @@ func detectSkillDir(repo string) (string, bool) {
 	if repo == "" {
 		return "", false
 	}
+	repo, err := filepath.Abs(repo)
+	if err != nil {
+		return "", false
+	}
 	for _, dir := range []string{".cursor", ".claude"} {
-		info, err := os.Stat(filepath.Join(repo, dir))
+		agentDir := filepath.Join(repo, dir)
+		info, err := os.Lstat(agentDir)
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		return filepath.Join(repo, dir, "skills", "aievals", skillFileName), true
+		dest := filepath.Join(agentDir, "skills", "aievals", skillFileName)
+		if !safeDetectedSkillPath(repo, dest) {
+			continue
+		}
+		return dest, true
 	}
 	return "", false
 }
 
 func writeSkill(dest string) (string, error) {
 	path := dest
-	if !strings.HasSuffix(dest, skillFileName) {
+	if filepath.Base(dest) != skillFileName {
 		path = filepath.Join(dest, skillFileName)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -70,6 +79,36 @@ func writeSkill(dest string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func safeDetectedSkillPath(repo, dest string) bool {
+	root, err := filepath.Abs(repo)
+	if err != nil {
+		return false
+	}
+	absolute, err := filepath.Abs(dest)
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(root, absolute)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return false
+	}
+	current := root
+	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func writeSkillAtomic(path string, data []byte) error {
