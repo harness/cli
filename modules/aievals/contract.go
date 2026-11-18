@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/url"
 	"regexp"
@@ -60,12 +61,6 @@ var gluedCredentialAliases = map[string]bool{
 
 var confidenceLabels = map[string]bool{"high": true, "medium": true, "low": true}
 
-// structuralContainers are document keys whose names overlap credential tokens.
-var structuralContainers = map[string]bool{
-	"auth_headers": true,
-	"secrets":      true,
-}
-
 var executableFields = map[string]bool{
 	"code": true, "command": true, "commands": true, "entrypoint": true, "eval": true,
 	"exec": true, "module_path": true, "payload": true, "program": true, "python": true,
@@ -95,11 +90,11 @@ var legacyCandidateFields = map[string]bool{
 }
 
 func unsupportedSchemaVersion(_ any) error {
-	return fmt.Errorf("schema_version: unsupported_schema_version: schema version is not supported. Set schema_version to '%s', or remove schema_version to use the legacy onboarding tree.", SchemaVersionV1)
+	return fmt.Errorf("schema_version: unsupported_schema_version: schema version is not supported; set schema_version to '%s', or remove schema_version to use the legacy onboarding tree", SchemaVersionV1)
 }
 
 func absentSchemaVersion(reason string) error {
-	return fmt.Errorf("schema_version: unsupported_schema_version: schema version is absent. Set schema_version to '%s'. %s", SchemaVersionV1, reason)
+	return fmt.Errorf("schema_version: unsupported_schema_version: schema version is absent; set schema_version to '%s'; %s", SchemaVersionV1, reason)
 }
 
 func credentialTokens(name string) []string {
@@ -125,6 +120,10 @@ func isCredentialName(name string) bool {
 
 func secretShaped(value string) bool {
 	return secretShapedValue.MatchString(value)
+}
+
+func matchesPattern(pattern *regexp.Regexp, value string) bool {
+	return value != "" && pattern.FindString(value) == value
 }
 
 func sanitizeSourcePath(value string) string {
@@ -167,11 +166,11 @@ func rejectSecretShaped(label string) error {
 }
 
 func rejectLiteralCredential(label string) error {
-	return fmt.Errorf("%s: credential_field: credential field is not accepted. Use source env or source harness_secret.", label)
+	return fmt.Errorf("%s: credential_field: credential field is not accepted; use source env or source harness_secret", label)
 }
 
 func rejectLiteralTemplate(label string) error {
-	return fmt.Errorf("%s: literal_template: literal values cannot contain template delimiters. Use the relevant source/template form instead of literal.", label)
+	return fmt.Errorf("%s: literal_template: literal values cannot contain template delimiters; use the relevant source/template form instead of literal", label)
 }
 
 // decodeJSONValue preserves integers. encoding/json would otherwise turn every
@@ -183,8 +182,12 @@ func decodeJSONValue(data []byte) (any, error) {
 	if err := decoder.Decode(&value); err != nil {
 		return nil, err
 	}
-	if decoder.More() {
-		return nil, fmt.Errorf("candidate file contains trailing JSON")
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("candidate file contains trailing JSON")
+		}
+		return nil, err
 	}
 	return normalizeJSONNumbers(value), nil
 }
@@ -194,6 +197,11 @@ func normalizeJSONNumbers(value any) any {
 	case json.Number:
 		if integer, err := typed.Int64(); err == nil {
 			return integer
+		}
+		if !strings.ContainsAny(typed.String(), ".eE") {
+			// Keep large integer literals as json.Number so JSONL output and
+			// semantic case identities do not round them through float64.
+			return typed
 		}
 		floatValue, err := typed.Float64()
 		if err != nil || math.IsNaN(floatValue) || math.IsInf(floatValue, 0) {
@@ -282,9 +290,12 @@ func validateV1Target(target map[string]any) error {
 			return rejectUnknown("target." + publicUnknownKey(key))
 		}
 	}
-	method, _ := target["method"].(string)
-	if method == "" {
+	rawMethod, hasMethod := target["method"]
+	method, methodIsString := rawMethod.(string)
+	if !hasMethod {
 		method = "POST"
+	} else if !methodIsString || strings.TrimSpace(method) == "" {
+		return fmt.Errorf("target.method must be a non-empty HTTP method")
 	}
 	method = strings.ToUpper(method)
 	target["method"] = method
@@ -299,7 +310,7 @@ func validateV1Target(target map[string]any) error {
 		return err
 	}
 	response, _ := target["response_path"].(string)
-	if response == "" || inputSelector.FindString(response) != response {
+	if !matchesPattern(inputSelector, response) {
 		return fmt.Errorf("target.response_path must be a dotted or indexed selector such as output.text")
 	}
 	if headers, ok := target["headers"]; ok && headers != nil {
@@ -335,7 +346,7 @@ func validateV1Target(target map[string]any) error {
 func validateV1Headers(headers map[string]any, label string) error {
 	for name, value := range headers {
 		headerLabel := label + "." + publicKey(name)
-		if headerNamePattern.FindString(name) != name {
+		if !matchesPattern(headerNamePattern, name) {
 			return fmt.Errorf("%s must be an HTTP header name", headerLabel)
 		}
 		if isCredentialName(name) && !approvedSecretSource(value) {
@@ -364,7 +375,7 @@ func validateTemplateNode(node any, label string, header bool) error {
 			return validateSource(object, label, header)
 		}
 		for key, value := range object {
-			child := label + "." + key
+			child := label + "." + publicUnknownKey(key)
 			if isCredentialName(key) {
 				if !approvedSecretSource(value) {
 					return rejectLiteralCredential(child)
@@ -439,7 +450,7 @@ func validateSource(node map[string]any, label string, header bool) error {
 		}
 		if selector, ok := node["selector"]; ok {
 			text, _ := selector.(string)
-			if inputSelector.FindString(text) != text || text == "" {
+			if !matchesPattern(inputSelector, text) {
 				return fmt.Errorf("%s.selector must be a dotted or indexed input path such as items.0 or user.name", label)
 			}
 		}
@@ -449,7 +460,7 @@ func validateSource(node map[string]any, label string, header bool) error {
 			return fmt.Errorf("%s env source requires only source and name", label)
 		}
 		name, _ := node["name"].(string)
-		if envNamePattern.FindString(name) != name {
+		if !matchesPattern(envNamePattern, name) {
 			return fmt.Errorf("%s.name must be an environment variable name", label)
 		}
 		return nil
@@ -461,12 +472,12 @@ func validateSource(node map[string]any, label string, header bool) error {
 			return fmt.Errorf("%s harness_secret source requires ref and optional env", label)
 		}
 		ref, _ := node["ref"].(string)
-		if secretRefPattern.FindString(ref) != ref {
+		if !matchesPattern(secretRefPattern, ref) {
 			return fmt.Errorf("%s.ref must be a Harness secret reference", label)
 		}
 		if env, ok := node["env"]; ok {
 			name, _ := env.(string)
-			if envNamePattern.FindString(name) != name {
+			if !matchesPattern(envNamePattern, name) {
 				return fmt.Errorf("%s.env must be an environment variable name", label)
 			}
 		}
@@ -494,7 +505,7 @@ func validateTemplateString(value any, label string) error {
 	}
 	for _, match := range matches {
 		body := strings.TrimSpace(match[1])
-		if placeholderBody.FindString(body) != body {
+		if !matchesPattern(placeholderBody, body) {
 			shown := match[0]
 			if secretShaped(shown) {
 				shown = "<redacted>"
@@ -530,7 +541,7 @@ func ensureJSONValue(value any, label string) error {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, child := range typed {
-			childLabel := label + "." + key
+			childLabel := label + "." + publicUnknownKey(key)
 			if isCredentialName(key) {
 				return rejectLiteralCredential(childLabel)
 			}
@@ -555,7 +566,7 @@ func validateLiteralValue(value any, label string) error {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, child := range typed {
-			childLabel := label + "." + key
+			childLabel := label + "." + publicUnknownKey(key)
 			if isCredentialName(key) || secretShaped(key) {
 				return rejectLiteralCredential(childLabel)
 			}
@@ -595,7 +606,7 @@ func validateMetricConfig(value any, label string) error {
 			}
 		}
 		for key, child := range typed {
-			childLabel := label + "." + key
+			childLabel := label + "." + publicUnknownKey(key)
 			if isCredentialName(key) || secretShaped(key) {
 				return rejectLiteralCredential(childLabel)
 			}
@@ -633,7 +644,7 @@ func validateQueryParams(raw any, label string) error {
 		if key == "" {
 			return fmt.Errorf("%s names must be non-empty strings", label)
 		}
-		item := label + "." + key
+		item := label + "." + publicUnknownKey(key)
 		if isCredentialName(key) {
 			return fmt.Errorf("%s is a credential query parameter. Put credentials in auth_headers using source env or source harness_secret. The value is not accepted.", item)
 		}
@@ -705,7 +716,7 @@ func validateAuthHeaders(raw any, label string, existing map[string]any) error {
 		occupied[strings.ToLower(name)] = name
 	}
 	for name, value := range object {
-		if headerNamePattern.FindString(name) != name {
+		if !matchesPattern(headerNamePattern, name) {
 			return fmt.Errorf("%s.%s must be an HTTP header name", label, publicKey(name))
 		}
 		folded := strings.ToLower(name)
@@ -886,12 +897,12 @@ func validateV1Environments(raw any) error {
 			}
 			for ref, target := range secretMap {
 				refLabel := "environments." + publicKey(name) + ".secrets." + publicKey(ref)
-				if secretRefPattern.FindString(ref) != ref || secretShaped(ref) {
+				if !matchesPattern(secretRefPattern, ref) || secretShaped(ref) {
 					return fmt.Errorf("%s must be a Harness secret reference", refLabel)
 				}
 				switch mapping := target.(type) {
 				case string:
-					if envNamePattern.FindString(mapping) != mapping {
+					if !matchesPattern(envNamePattern, mapping) {
 						return fmt.Errorf("%s must be an environment variable name", refLabel)
 					}
 				case map[string]any:
@@ -904,7 +915,7 @@ func validateV1Environments(raw any) error {
 						return fmt.Errorf("%s cannot contain a value. Map the Harness secret to an environment variable name.", refLabel)
 					}
 					env, _ := mapping["env"].(string)
-					if envNamePattern.FindString(env) != env {
+					if !matchesPattern(envNamePattern, env) {
 						return fmt.Errorf("%s.env must be an environment variable name", refLabel)
 					}
 				default:
@@ -927,9 +938,14 @@ func validateEndpoint(endpoint, label string) error {
 	if parsed.User != nil {
 		return fmt.Errorf("%s must not embed credentials", label)
 	}
-	for key := range parsed.Query() {
+	for key, values := range parsed.Query() {
 		if isCredentialName(key) || secretShaped(key) {
 			return fmt.Errorf("%s includes a credential query parameter. Remove it from the endpoint and declare it under auth_headers with source env or source harness_secret. The value is not accepted.", label)
+		}
+		for _, value := range values {
+			if secretShaped(value) {
+				return fmt.Errorf("%s includes a credential-shaped query value. Move credentials to auth_headers with source env or source harness_secret. The value is not accepted.", label)
+			}
 		}
 	}
 	return nil
@@ -1242,7 +1258,7 @@ func semanticCaseID(body map[string]any) (string, error) {
 
 func requireIdentifier(value any, label string) (string, error) {
 	text, ok := value.(string)
-	if !ok || identifierPattern.FindString(text) != text {
+	if !ok || !matchesPattern(identifierPattern, text) {
 		return "", fmt.Errorf("%s must be a stable identifier", label)
 	}
 	return text, nil
@@ -1288,15 +1304,17 @@ func scanStagedValue(value any, label string) error {
 	switch typed := value.(type) {
 	case map[string]any:
 		// Secret-ref keys are names. Their values are env names, not literals.
-		secretRefs := strings.HasSuffix(label, ".secrets")
+		secretRefs := strings.HasPrefix(label, "candidate.environments.")
 		for key, child := range typed {
-			childLabel := label + "." + publicKey(key)
+			childLabel := label + "." + publicUnknownKey(key)
 			if secretShaped(key) {
 				return rejectSecretShaped(label + ".<redacted>")
 			}
 			// Schema names such as secrets and auth_headers tokenize as credential
 			// words. They are containers, not literal secret fields.
-			if !secretRefs && !structuralContainers[key] && !isCaseExternalKey(label, key) && isCredentialName(key) && !approvedSecretSource(child) {
+			schemaContainer := (key == "secrets" && strings.HasPrefix(label, "candidate.environments.")) ||
+				(key == "auth_headers" && label == "candidate.target")
+			if !secretRefs && !schemaContainer && !isCaseExternalKey(label, key) && isCredentialName(key) && !approvedSecretSource(child) {
 				return rejectLiteralCredential(childLabel)
 			}
 			if err := scanStagedValue(child, childLabel); err != nil {
@@ -1468,7 +1486,7 @@ func renderInputPlaceholder(node map[string]any) (string, error) {
 		return "{{input}}", nil
 	}
 	text, ok := selector.(string)
-	if !ok || inputSelector.FindString(text) != text {
+	if !ok || !matchesPattern(inputSelector, text) {
 		return "", fmt.Errorf("selector must be a dotted or indexed input path such as items.0 or user.name")
 	}
 	return "{{input." + text + "}}", nil
