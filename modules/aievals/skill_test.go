@@ -6,6 +6,7 @@ package aievals
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,21 +53,26 @@ func TestPlaceSkillPrintsWhenNoAgentDirectoryExists(t *testing.T) {
 }
 
 func TestPlaceSkillSkipsSymlinkedDetectedDirectory(t *testing.T) {
-	repo := t.TempDir()
-	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(repo, ".cursor")); err != nil {
-		t.Skipf("symlink creation unavailable: %v", err)
-	}
-	var stdout bytes.Buffer
-	path, err := PlaceSkill(repo, "", &stdout)
-	if err != nil {
-		t.Fatalf("PlaceSkill() error = %v", err)
-	}
-	if path != "" || stdout.String() != SkillText() {
-		t.Fatalf("symlinked destination was selected: (%q, %q)", path, stdout.String())
-	}
-	if _, err := os.Stat(filepath.Join(outside, "skills")); !os.IsNotExist(err) {
-		t.Fatalf("symlink target was written: %v", err)
+	for _, rel := range []string{".cursor", ".cursor/skills", ".cursor/skills/aievals"} {
+		t.Run(rel, func(t *testing.T) {
+			repo := t.TempDir()
+			outside := t.TempDir()
+			link := filepath.Join(repo, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, link); err != nil {
+				t.Skipf("symlink creation unavailable: %v", err)
+			}
+			var stdout bytes.Buffer
+			path, err := PlaceSkill(repo, "", &stdout)
+			if err != nil || path != "" || stdout.String() != SkillText() {
+				t.Fatalf("symlinked destination did not fall back to stdout: path=%q err=%v", path, err)
+			}
+			if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
+				t.Fatalf("symlink target was changed: %v (%v)", entries, err)
+			}
+		})
 	}
 }
 
@@ -86,12 +92,22 @@ func TestWriteSkillTreatsOnlyExactSkillFileNameAsFile(t *testing.T) {
 }
 
 func TestFormatSkillModuleSanitizesLabelsAndPreservesGeneratorInputs(t *testing.T) {
-	module := FormatSkillModule("source\nlabel", "body", "skill\npath")
-	header := strings.SplitN(module, "\n\n", 2)[0]
-	if strings.Contains(header, "source\nlabel") || strings.Contains(header, "skill\npath") {
-		t.Fatalf("generated header contains a raw line break: %q", header)
+	skillPath := "skill\tpath\\with'quote\n"
+	module := FormatSkillModule("source\nlabel", "body", skillPath)
+	const marker = "// Do not edit by hand. Regenerate with: "
+	_, command, ok := strings.Cut(module, marker)
+	line, _, _ := strings.Cut(command, "\n")
+	if !ok || !strings.Contains(line, "-source-label 'source label'") || strings.ContainsAny(line, "\t\r") {
+		t.Fatalf("regeneration command was split or contains raw control characters: %q", line)
 	}
-	if !strings.Contains(module, "-skill 'skill path' -source-label 'source label'") {
-		t.Fatalf("regeneration command did not preserve custom inputs: %s", module)
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is unavailable to check the regeneration command's arguments")
+	}
+	// Stub Go to inspect the argument that the one-line command actually passes.
+	line = strings.Replace(line, "<this-file>", "output.ts", 1)
+	got, err := exec.Command(bash, "--noprofile", "--norc", "-c", `go() { printf '%s' "$4"; }; `+line).Output()
+	if err != nil || string(got) != skillPath {
+		t.Fatalf("regeneration -skill argument = %q (%v), want %q", got, err, skillPath)
 	}
 }

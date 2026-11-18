@@ -19,13 +19,13 @@ func FormatSkillModule(sourceLabel, body string, skillPath ...string) string {
 	sum := sha256.Sum256([]byte(body))
 	hash := hex.EncodeToString(sum[:])
 	safeSource := sanitizeGeneratedLabel(sourceLabel)
-	safeSkill := safeSource
+	inputPath := sourceLabel
 	if len(skillPath) > 0 && skillPath[0] != "" {
-		safeSkill = sanitizeGeneratedLabel(skillPath[0])
+		inputPath = skillPath[0]
 	}
 	regenerate := fmt.Sprintf(
 		"go run ./modules/aievals/cmd/skillgen -skill %s -source-label %s -out <this-file>",
-		shellQuote(safeSkill),
+		shellQuote(inputPath),
 		shellQuote(safeSource),
 	)
 	var encoded bytes.Buffer
@@ -60,5 +60,10 @@ func sanitizeGeneratedLabel(value string) string {
 }
 
 func shellQuote(value string) string {
+	if strings.ContainsAny(value, "\r\n\t") {
+		// Keep the generated comment on one line without changing the path Bash receives.
+		escape := strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\r", `\r`, "\n", `\n`, "\t", `\t`)
+		return "$'" + escape.Replace(value) + "'"
+	}
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
