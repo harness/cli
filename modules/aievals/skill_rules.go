@@ -10,7 +10,7 @@ const (
 	SkillRuleSecrets    = "Infer secret names only, never values."
 	SkillRuleNoScript   = "Do not write a standalone Python runner."
 	SkillRuleNoEvalYAML = "Do not create eval.yaml."
-	SkillRuleStage      = "Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`."
+	SkillRuleStage      = "Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness execute eval_onboarding:stage`."
 	SkillRuleMCP        = "Check once whether the Harness MCP server is connected, and reuse that choice for the platform stages. Do not invent MCP tool names."
 )
 
