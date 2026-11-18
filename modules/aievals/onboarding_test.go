@@ -2288,7 +2288,7 @@ func TestSourceRunnerBootstrapIsIdempotentForSameSource(t *testing.T) {
 	if _, err := EnsureRunnerFromSource(home, source, look, run); err != nil {
 		t.Fatal(err)
 	}
-	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.9\\n'\n")
+	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.10\\n'\n")
 	writeExecutable(t, filepath.Join(home, "bin", "ai-evals"), "#!/bin/sh\nexit 0\n")
 	if err := writeHandshake(home); err != nil {
 		t.Fatal(err)
@@ -2335,7 +2335,7 @@ func TestSetupSourceBootstrapReportsAlreadyCompatible(t *testing.T) {
 	if _, err := EnsureRunnerFromSource(home, source, look, run); err != nil {
 		t.Fatal(err)
 	}
-	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.9\\n'\n")
+	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.10\\n'\n")
 	writeExecutable(t, filepath.Join(home, "bin", "ai-evals"), "#!/bin/sh\nexit 0\n")
 	if err := writeHandshake(home); err != nil {
 		t.Fatal(err)
@@ -2568,7 +2568,7 @@ func TestSourceRunnerBootstrapRejectsInvalidSourceBeforeWritingHome(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(path, []byte(strings.Replace(string(data), `version = "0.7.9"`, `version = "0.7.8"`, 1)), 0o644); err != nil {
+				if err := os.WriteFile(path, []byte(strings.Replace(string(data), `version = "0.7.10"`, `version = "0.7.8"`, 1)), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			},

@@ -16,7 +16,7 @@ const (
 
 	// RunnerPackage is installed into an isolated uv or pipx environment.
 	RunnerPackage  = "ai-evals-runner"
-	RunnerVersion  = "0.7.9"
+	RunnerVersion  = "0.7.10"
 	SchemaVersion  = SchemaVersionV1
 	OnboardCommand = "onboard-run"
 

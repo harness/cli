@@ -19,17 +19,17 @@ archive manifest mapping and ask the user before using
 Do not write a standalone Python runner.
 Do not create eval.yaml.
 
-The hosted Harness MCP server (https://mcp.harness.io/mcp) cannot read this repository, call localhost, build the upload zip, or call import-archive. Discover, Stage files, Local run, a live run against an endpoint that is not public, and Upload stay on the coding agent and the Harness CLI. Use the Harness CLI command named for each of those steps.
+The hosted Harness MCP server (https://mcp.harness.io/mcp) cannot read this repository, build the upload zip, or call import-archive. Discover, Stage files, Local run, a live run against a private endpoint, and Upload stay on the coding agent and the Harness CLI. Use the Harness CLI command named for each of those steps.
 
 When the prompt header includes a `harness auth login` command, use that command for this account, organization, and project. If no header was provided, ask for the account, organization, and project before authenticating. Do not change profiles automatically. To use an existing profile such as `qa`, pass `--profile <name>` on commands that need Harness credentials, or set `HARNESS_PROFILE`. An explicit `--profile` takes precedence over `HARNESS_PROFILE`.
 
 ## Commands
 
-- `harness setup eval_onboarding` installs or prints this skill. It does not scan and it does not write eval files. Optional `--skill-dir` chooses the destination. With no coding-agent skills directory and no `--skill-dir`, it prints the skill to stdout. For a developer-local runner only, set `HARNESS_CLI_HOME` to an isolated directory and pass `--runner-source <D2-worktree>`; setup copies and installs the checked-out 0.7.9 runner there. Retrying the same source/version/schema in that home reports `already compatible` without reinstalling. A different source or a corrupt/partial home is rejected with remediation instead of being overwritten. Without `--runner-source`, setup never uses a local source path.
+- `harness setup eval_onboarding` installs or prints this skill. It does not scan and it does not write eval files. Optional `--skill-dir` chooses the destination. With no coding-agent skills directory and no `--skill-dir`, it prints the skill to stdout.
 - `harness scan eval_onboarding` is an optional hint. It prints an `onboarding/v1` candidate with id, confidence, evidence, and typed value sources. It writes nothing and does not generate a tree. `--route '<METHOD path>'` narrows the hint. The agent's own reading of the repository is the source of truth. If the hint and the agent disagree, show both and let the user choose.
 - `harness scan eval_onboarding --metrics` reads the full metric catalog from the Harness Evals SDK in the pinned runner. It prints every catalog entry, including descriptions, constructor options and required options, default thresholds, LLM/embedding requirements, execution scope, and onboarding support. It does not scan the repository, install packages, call an agent or judge, or write files. Do not combine it with `--route`.
 - Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness stage eval_onboarding`. Pass `--confirm --file <path>` pointing at a temporary JSON file, or pass legacy flags that map unambiguously onto `onboarding/v1`. `--confirm` is required after the user says yes. Without it, the command writes nothing. The file uses `schema_version: "onboarding/v1"`. Value sources are `literal`, `input`, `env`, and `harness_secret` with D2 field names (`name`, `ref`, `env`). Do not use `env_name` or `secret_ref`. Never put a secret value in the file. Flags override the same legacy fields in a legacy file. They cannot be combined with an `onboarding/v1` file. Staging requires an explicit non-empty `cases` list with unique case identities; if scan has no cases, ask the user to confirm or add a sample case before staging.
-- `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>] [--report-json <absolute-path>]` runs a staged agent. `local` is the default. The command checks the pinned 0.7.9 runner and does not upgrade it. An older or stale runner handshake fails with exact remediation and leaves the files unchanged. Do not remove query parameters or auth headers to make a runner accept the tree. A PAT or SAT is passed to the runner. An SSO access token is not. `--report-json` is local-only: it passes the exact path to D2's `ai-evals onboard-run --report-json`, requires an existing parent outside the repository source tree, and prints the report path only after a successful runner exit. It does not upload or persist anything.
+- `harness run eval_onboarding --agent <identifier> [--environment local|<live-name>] [--report-json <absolute-path>]` runs a staged agent. `local` is the default. The command checks the released runner and does not upgrade it. An older or stale runner handshake fails with exact remediation and leaves the files unchanged. Do not remove query parameters or auth headers to make a runner accept the tree. A PAT or SAT is passed to the runner. An SSO access token is not. `--report-json` is local-only: it passes the exact path to D2's `ai-evals onboard-run --report-json`, requires an existing parent outside the repository source tree, and prints the report path only after a successful runner exit. It does not upload or persist anything.
 - `harness upload eval_onboarding` validates locally, uploads `.harness/evals`, and prints Agent and Eval links. Git sync is not applied by the upload. Without `--persist-report`, this is import-only.
 - `harness upload eval_onboarding --persist-report <path>` uploads the archive, consumes the D3 manifest, shows the source-to-imported metric mapping, and persists an already-completed D2 `--report-json` result. Use this flag only after asking the user `Persist this completed local result in Harness?`. For a multi-eval archive, pass `--eval-identifier <identifier>`.
 
@@ -58,7 +58,7 @@ Example candidate file, illustrating the `onboarding/v1` shape only (not a defau
     "query_params": {"region": {"source": "env", "name": "REGION"}},
     "auth_headers": {"Authorization": {"source": "env", "name": "SUPPORT_TOKEN"}}
   },
-  "environments": {"local": {"endpoint": "http://127.0.0.1:8080/api/chat", "secrets": {}}},
+  "environments": {"local": {"endpoint": "<AGENT_ENDPOINT>", "secrets": {}}},
   "evals": [{"identifier": "support-eval", "name": "Support", "dataset": "datasets/support.jsonl", "metric_set": "metric-sets/support.yaml"}],
   "suite": {"identifier": "support-suite", "name": "Support", "pass_strategy": "all_must_pass", "evals": ["support-eval"]},
   "cases": [{"id": "case-1", "input": {"text": "hello"}, "expected": "ok"}],
@@ -175,7 +175,7 @@ Do only the stage the user picks. Ask before each action. After it finishes, ask
 
 ### Run against a live agent
 
-This stage stays on the Harness CLI. The hosted MCP server cannot call localhost or an endpoint that is not public.
+This stage stays on the Harness CLI. The hosted MCP server cannot call a private endpoint.
 
 Ask for the live environment name. Show the command you will run.
 
@@ -269,6 +269,5 @@ maps every score using the full
 and allowed dataset IDs, and retries uncertain report transport with the same
 idempotency key. A 409 requires operator review; a 404 requires re-upload or
 the correct eval; a 422 requires fixing the report or mapping. The server's
-returned run URL is printed on 201/replay success. Hosted API profiles use
-`/gateway`; a raw local API uses an explicit `--api-url http://localhost:<port>
---api-base-path /`.
+returned run URL is printed on 201/replay success. The CLI uses the
+authenticated Harness API profile and its normal gateway base path.
