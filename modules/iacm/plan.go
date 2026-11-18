@@ -102,12 +102,7 @@ func runWorkspaceExecution(ctx *cmdctx.Ctx, operation string) error {
 			return err
 		}
 		workspaceID = cfg.Workspace
-		if cfg.Org != "" {
-			orgID = cfg.Org
-		}
-		if cfg.Project != "" {
-			projectID = cfg.Project
-		}
+		orgID, projectID = applyWorkspaceScope(a, cfg)
 		fmt.Printf("Using workspace from .harness/workspace.yaml: %s\n", workspaceID)
 	}
 	if workspaceID == "" {
@@ -360,13 +355,41 @@ func uploadRemoteExecution(ctx context.Context, hc *http.Client, a *auth.Resolve
 	return &exec, nil
 }
 
-func triggerRemoteExecution(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, org, project, workspaceID, execID, operation string) (*remoteExecution, error) {
+// applyWorkspaceScope copies org and project from the workspace file onto the
+// auth used by later calls, including the log viewer. A local copy would start
+// the run in one scope and then ask for its logs in another.
+func applyWorkspaceScope(a *auth.ResolvedAuth, cfg *workspaceConfig) (orgID, projectID string) {
+	if a == nil {
+		return "", ""
+	}
+	orgID, projectID = a.OrgID, a.ProjectID
+	if cfg == nil {
+		return orgID, projectID
+	}
+	if cfg.Org != "" {
+		a.OrgID = cfg.Org
+		orgID = cfg.Org
+	}
+	if cfg.Project != "" {
+		a.ProjectID = cfg.Project
+		projectID = cfg.Project
+	}
+	return orgID, projectID
+}
+
+// remoteExecutionExecutePath is the execute call. plan is the server default
+// for Terraform and OpenTofu, so that query is omitted and older servers keep
+// working. synth and diff must name the operation.
+func remoteExecutionExecutePath(org, project, workspaceID, execID, operation string) string {
 	path := fmt.Sprintf("/gateway/iacm/api/orgs/%s/projects/%s/workspaces/%s/remote-executions/%s/execute", org, project, workspaceID, execID)
-	// plan is the server default for Terraform/OpenTofu; only send the
-	// parameter for CDK operations so older servers keep working.
 	if operation != operationPlan {
 		path += "?operation=" + url.QueryEscape(operation)
 	}
+	return path
+}
+
+func triggerRemoteExecution(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, org, project, workspaceID, execID, operation string) (*remoteExecution, error) {
+	path := remoteExecutionExecutePath(org, project, workspaceID, execID, operation)
 	var exec remoteExecution
 	if err := doIACM(ctx, hc, a, "POST", path, nil, &exec); err != nil {
 		return nil, err

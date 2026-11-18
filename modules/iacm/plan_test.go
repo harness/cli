@@ -124,6 +124,33 @@ func TestZipSourceCodeSkipsHeavyAndStateFiles(t *testing.T) {
 	}
 }
 
+func TestApplyWorkspaceScopeUpdatesAuth(t *testing.T) {
+	a := &auth.ResolvedAuth{OrgID: "profile-org", ProjectID: "profile-project"}
+	orgID, projectID := applyWorkspaceScope(a, &workspaceConfig{Org: "file-org", Project: "file-project"})
+	if orgID != "file-org" || projectID != "file-project" || a.OrgID != "file-org" || a.ProjectID != "file-project" {
+		t.Fatalf("scope org=%q project=%q auth=%+v", orgID, projectID, a)
+	}
+
+	a = &auth.ResolvedAuth{OrgID: "profile-org", ProjectID: "profile-project"}
+	orgID, projectID = applyWorkspaceScope(a, &workspaceConfig{})
+	if orgID != "profile-org" || projectID != "profile-project" {
+		t.Fatalf("empty file should keep the profile scope, got %q %q", orgID, projectID)
+	}
+}
+
+func TestRemoteExecutionExecutePath(t *testing.T) {
+	const base = "/gateway/iacm/api/orgs/default/projects/Testim/workspaces/ws/remote-executions/exec-1/execute"
+	if got := remoteExecutionExecutePath("default", "Testim", "ws", "exec-1", operationPlan); got != base {
+		t.Errorf("plan path = %q, want no operation query", got)
+	}
+	if got := remoteExecutionExecutePath("default", "Testim", "ws", "exec-1", operationSynth); got != base+"?operation=synth" {
+		t.Errorf("synth path = %q", got)
+	}
+	if got := remoteExecutionExecutePath("default", "Testim", "ws", "exec-1", operationDiff); got != base+"?operation=diff" {
+		t.Errorf("diff path = %q", got)
+	}
+}
+
 func strPtr(s string) *string { return &s }
 
 func TestGetDefaultPipelineByOperation(t *testing.T) {

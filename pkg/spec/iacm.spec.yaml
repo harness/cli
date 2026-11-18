@@ -14,8 +14,9 @@ help_text: |
   backend, variables, and state. Workspaces run operations (plan, apply, destroy)
   which produce execution logs and state snapshots.
 
-  `execute workspace` runs a remote plan. For awscdk workspaces, `synth
-  workspace` and `diff workspace` run the remote CDK synth and diff.
+  `execute workspace` runs a remote plan. For awscdk workspaces,
+  `execute workspace:synth` and `execute workspace:diff` run the remote CDK
+  synth and diff.
 
   ### Nouns
 
@@ -246,9 +247,10 @@ commands:
         description: Open the interactive log viewer for the run (requires a TTY)
         is_bool: true
 
-  - command: synth workspace
-    verb: synth
+  - command: execute workspace:synth
+    verb: execute
     noun: workspace
+    noun_variant: synth
     short: Run a remote CDK synth on an awscdk workspace
     long: |
       Synthesize the CDK app remotely (cdk synth) on an awscdk IaCM workspace.
@@ -264,8 +266,8 @@ commands:
         workspace_id: <your-workspace>  # required if no ID is passed as an argument
 
       Examples:
-        harness synth workspace my-cdk-workspace
-        harness synth workspace                      # reads .harness/workspace.yaml
+        harness execute workspace:synth my-cdk-workspace
+        harness execute workspace:synth                      # reads .harness/workspace.yaml
     id_label: "<workspace-id>"
     no_id: true
     allows_id: true
@@ -280,9 +282,10 @@ commands:
         description: Open the interactive log viewer for the run (requires a TTY)
         is_bool: true
 
-  - command: diff workspace
-    verb: diff
+  - command: execute workspace:diff
+    verb: execute
     noun: workspace
+    noun_variant: diff
     short: Run a remote CDK diff on an awscdk workspace
     long: |
       Show the CDK diff remotely (cdk diff) on an awscdk IaCM workspace.
@@ -298,8 +301,8 @@ commands:
         workspace_id: <your-workspace>  # required if no ID is passed as an argument
 
       Examples:
-        harness diff workspace my-cdk-workspace
-        harness diff workspace                      # reads .harness/workspace.yaml
+        harness execute workspace:diff my-cdk-workspace
+        harness execute workspace:diff                      # reads .harness/workspace.yaml
     id_label: "<workspace-id>"
     no_id: true
     allows_id: true
