@@ -5,6 +5,7 @@ package registry
 
 import (
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -885,7 +886,7 @@ func makeFlagSetForSpec(cs *spec.CommandSpec) *pflag.FlagSet {
 		if f.IsBool {
 			fs.Bool(f.Name, false, "")
 		} else if f.IsMulti {
-			fs.StringArray(f.Name, nil, "")
+			addMultiFlag(fs, f)
 		} else {
 			fs.String(f.Name, f.Default, "")
 		}
@@ -917,6 +918,25 @@ func TestBuildFlagValues(t *testing.T) {
 		tags, ok := buildFlagValues(fs, cs)["tags"].([]string)
 		if !ok || len(tags) == 0 {
 			t.Errorf("fv[tags] = %v, want non-empty []string", buildFlagValues(fs, cs)["tags"])
+		}
+	})
+	t.Run("multi_flag_comma_separated", func(t *testing.T) {
+		cs := &spec.CommandSpec{Flags: []spec.Flag{{Name: "file", IsMulti: true, CommaSeparated: true}}}
+		fs := makeFlagSetForSpec(cs)
+		for _, v := range []string{"a.xml,b.xml", "c.xml", `"my,report.xml"`} {
+			fs.Set("file", v)
+		}
+		want := []string{"a.xml", "b.xml", "c.xml", "my,report.xml"}
+		if got, _ := buildFlagValues(fs, cs)["file"].([]string); !reflect.DeepEqual(got, want) {
+			t.Errorf("fv[file] = %v, want %v", got, want)
+		}
+	})
+	t.Run("multi_flag_default_keeps_commas", func(t *testing.T) {
+		cs := &spec.CommandSpec{Flags: []spec.Flag{{Name: "input", IsMulti: true}}}
+		fs := makeFlagSetForSpec(cs)
+		fs.Set("input", "k=a,b")
+		if got, _ := buildFlagValues(fs, cs)["input"].([]string); !reflect.DeepEqual(got, []string{"k=a,b"}) {
+			t.Errorf("fv[input] = %v, want [k=a,b]", got)
 		}
 	})
 	t.Run("builtin_page_flag_0indexed", func(t *testing.T) {

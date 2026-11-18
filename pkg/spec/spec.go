@@ -165,6 +165,7 @@ type Flag struct {
 	IsBool           bool     `yaml:"is_bool,omitempty"`           // if true, declares a bool flag instead of a string flag
 	IsArray          bool     `yaml:"is_array,omitempty"`          // if true, value is parsed as []string: comma-separated or JSON array syntax
 	IsMulti          bool     `yaml:"is_multi,omitempty"`          // if true, registers as StringArray (repeatable: --flag v1 --flag v2)
+	CommaSeparated   bool     `yaml:"comma_separated,omitempty"`   // with is_multi: also split each value on commas (CSV rules, quotes keep a comma in a value)
 	Hidden           bool     `yaml:"hidden,omitempty"`            // if true, flag is registered but not shown in --help output
 	CompletionNoun   string   `yaml:"completion_noun,omitempty"`   // list noun to call for dynamic tab-completion
 	CompletionFn     string   `yaml:"completion_fn,omitempty"`     // registered FlagCompletionFn name (overrides completion_noun)

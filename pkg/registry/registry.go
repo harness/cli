@@ -1030,7 +1030,7 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 				cmd.Flags().Bool(f.Name, false, f.Description)
 			}
 		} else if f.IsMulti {
-			cmd.Flags().StringArray(f.Name, nil, f.Description)
+			addMultiFlag(cmd.Flags(), f)
 		} else {
 			if f.Short != "" {
 				cmd.Flags().StringP(f.Name, f.Short, f.Default, f.Description)
@@ -1144,7 +1144,7 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 				cmd.Flags().Bool(f.Name, false, f.Description)
 			}
 		} else if f.IsMulti {
-			cmd.Flags().StringArray(f.Name, nil, f.Description)
+			addMultiFlag(cmd.Flags(), f)
 		} else {
 			if f.Short != "" {
 				cmd.Flags().StringP(f.Name, f.Short, f.Default, f.Description)
@@ -1366,6 +1366,9 @@ func buildFlagValues(flags *pflag.FlagSet, cs *spec.CommandSpec) map[string]any 
 		case f.IsBool:
 			v, _ := flags.GetBool(f.Name)
 			fv[f.Name] = v
+		case f.IsMulti && f.CommaSeparated:
+			v, _ := flags.GetStringSlice(f.Name)
+			fv[f.Name] = v
 		case f.IsMulti:
 			v, _ := flags.GetStringArray(f.Name)
 			fv[f.Name] = v
@@ -1393,7 +1396,7 @@ func buildFlagValues(flags *pflag.FlagSet, cs *spec.CommandSpec) map[string]any 
 			fv[name] = v
 		}
 	}
-	if flags.Lookup("file") != nil {
+	if _, declared := fv["file"]; !declared && flags.Lookup("file") != nil {
 		v, _ := flags.GetString("file")
 		fv["file"] = v
 	}
@@ -1440,4 +1443,14 @@ func buildPagingFlags(flags *pflag.FlagSet, pg *spec.PagingSpec) (cmdctx.PagingF
 	}
 	hlog.Debug("buildPagingFlags", "offset", pf.Offset, "limit", pf.Limit, "all", pf.All, "count", pf.Count)
 	return pf, nil
+}
+
+// addMultiFlag registers a repeatable flag. With comma_separated, each
+// occurrence is also split on commas using CSV rules (quotes keep a comma in a value).
+func addMultiFlag(fs *pflag.FlagSet, f spec.Flag) {
+	if f.CommaSeparated {
+		fs.StringSlice(f.Name, nil, f.Description)
+		return
+	}
+	fs.StringArray(f.Name, nil, f.Description)
 }

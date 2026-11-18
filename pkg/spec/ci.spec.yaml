@@ -232,8 +232,9 @@ commands:
     workflow_id: execute_coverage_analyze
     flags:
       - name: file
-        description: "Path to coverage report file(s) (can be specified multiple times)"
+        description: "Path to coverage report file(s) (comma-separated or repeated)"
         is_multi: true
+        comma_separated: true
       - name: exclude
         description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'."
         is_multi: true
@@ -300,11 +301,13 @@ commands:
       - name: target-scope
         description: "Harness account, organization, or project path that overrides pipeline scope. Not supported for Harness Code."
       - name: tags
-        description: "Tags to apply to the uploaded coverage report (can be specified multiple times)"
+        description: "Tags to apply to the uploaded coverage report (comma-separated or repeated)"
         is_multi: true
+        comma_separated: true
       - name: file
-        description: "Path to coverage report file(s) (can be specified multiple times)"
+        description: "Path to coverage report file(s) (comma-separated or repeated)"
         is_multi: true
+        comma_separated: true
       - name: base
         description: "Base revision to compare against for diff coverage (commit SHA, branch, or tag). If not specified, diff tracking is disabled."
       - name: patch
