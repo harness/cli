@@ -89,7 +89,7 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 		"--persist-report <path>",
 		"### Optional Stage 5. Persist Results",
 		"Persist this completed local result in Harness?",
-		"--api-base-path /",
+		"normal gateway base path",
 		"--profile <name>",
 		"HARNESS_PROFILE",
 		"TODO(onboarding-schema)",
@@ -97,6 +97,11 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("skill missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"--api-base-path /", "http://localhost", "HARNESS_CLI_HOME", "--runner-source"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("skill contains developer-only content %q", forbidden)
 		}
 	}
 }
@@ -2288,7 +2293,7 @@ func TestSourceRunnerBootstrapIsIdempotentForSameSource(t *testing.T) {
 	if _, err := EnsureRunnerFromSource(home, source, look, run); err != nil {
 		t.Fatal(err)
 	}
-	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.10\\n'\n")
+	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.13\\n'\n")
 	writeExecutable(t, filepath.Join(home, "bin", "ai-evals"), "#!/bin/sh\nexit 0\n")
 	if err := writeHandshake(home); err != nil {
 		t.Fatal(err)
@@ -2335,7 +2340,7 @@ func TestSetupSourceBootstrapReportsAlreadyCompatible(t *testing.T) {
 	if _, err := EnsureRunnerFromSource(home, source, look, run); err != nil {
 		t.Fatal(err)
 	}
-	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.10\\n'\n")
+	writeExecutable(t, filepath.Join(home, "bin", "python"), "#!/bin/sh\nprintf '0.7.13\\n'\n")
 	writeExecutable(t, filepath.Join(home, "bin", "ai-evals"), "#!/bin/sh\nexit 0\n")
 	if err := writeHandshake(home); err != nil {
 		t.Fatal(err)
@@ -2568,7 +2573,7 @@ func TestSourceRunnerBootstrapRejectsInvalidSourceBeforeWritingHome(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(path, []byte(strings.Replace(string(data), `version = "0.7.10"`, `version = "0.7.8"`, 1)), 0o644); err != nil {
+				if err := os.WriteFile(path, []byte(strings.Replace(string(data), `version = "0.7.13"`, `version = "0.7.8"`, 1)), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			},

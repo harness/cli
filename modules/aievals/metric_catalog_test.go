@@ -19,7 +19,7 @@ import (
 func metricTestPython(t *testing.T) string {
 	t.Helper()
 	if os.Getenv(hbase.EnvCLIHome) == "" {
-		t.Skipf("set %s to an isolated 0.7.10 runner home for SDK catalog tests", hbase.EnvCLIHome)
+		t.Skipf("set %s to an isolated 0.7.13 runner home for SDK catalog tests", hbase.EnvCLIHome)
 	}
 	layout, err := VerifyRunner(RunnerHome(), nil)
 	if err != nil {
