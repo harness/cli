@@ -2249,7 +2249,7 @@ commands:
       repository and does not write .harness/evals files.
       `--runner-source <path>` is an explicit developer-local bootstrap:
       with HARNESS_CLI_HOME set to an isolated directory, it copies and
-      installs the 0.7.9 runner from that checkout and records the
+      installs the 0.7.13 runner from that checkout and records the
       onboarding/v1 handshake. Without this flag, setup does not use a local
       source path.
     handler_type: workflow

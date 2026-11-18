@@ -13,7 +13,7 @@ export HARNESS_CLI_ENABLED_MODULES=aievals
 ```
 
 `--runner-source` requires `HARNESS_CLI_HOME` so the bootstrap cannot write
-`~/.harness`. It validates the source manifest, package version `0.7.9`, and
+`~/.harness`. It validates the source manifest, package version `0.7.13`, and
 `onboarding/v1`, copies the source into
 `$HARNESS_CLI_HOME/aievals-runner/source`, installs that snapshot into
 `$HARNESS_CLI_HOME/aievals-runner`, and records the handshake. The copied
