@@ -69,7 +69,7 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 		calls++
 		return CommandResult{}, nil
 	}
-	ensureRunner := func(string, func(string) (string, error), CommandFunc) (RunnerLayout, error) {
+	ensureRunner := func(string, CommandFunc) (RunnerLayout, error) {
 		runnerCalls++
 		return RunnerLayout{}, nil
 	}
@@ -86,7 +86,7 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 		},
 		Python:            "validator",
 		Run:               run,
-		EnsureRunner:      ensureRunner,
+		VerifyRunner:      ensureRunner,
 		ReadMetricCatalog: readCatalog,
 		Stdout:            io.Discard,
 		Stderr:            io.Discard,
@@ -106,7 +106,7 @@ func TestStageWithoutConfirmWritesNothing(t *testing.T) {
 		Candidate:         Candidate{Wire: document, Metrics: []MetricSelection{{Kind: "contains"}}},
 		Python:            "",
 		Run:               run,
-		EnsureRunner:      ensureRunner,
+		VerifyRunner:      ensureRunner,
 		ReadMetricCatalog: readCatalog,
 		Stdout:            io.Discard,
 		Stderr:            io.Discard,
