@@ -650,34 +650,47 @@ func readHandshake(home string) (handshake, error) {
 }
 
 // SSORunnerNotice is printed when the active login cannot be forwarded to the
-// Python runner. The D2 runner sends HARNESS_API_KEY as x-api-key and accepts
-// PAT, SAT, and pipeline st.* tokens.
-const SSORunnerNotice = "The Python runner cannot use this SSO session. onboard-run accepts a PAT or SAT as HARNESS_API_KEY (x-api-key), or a pipeline HARNESS_TOKEN. The SSO access token was not sent to the runner."
+// Python runner. Credentials inherited from the parent process are cleared.
+const SSORunnerNotice = "The Python runner cannot use this SSO session. onboard-run accepts a PAT or SAT as HARNESS_API_KEY (x-api-key), or a pipeline st.* token as HARNESS_TOKEN. The SSO access token was not sent to the runner."
 
 // RunnerProcessEnv returns environment assignments for the runner child.
-// PAT and SAT are forwarded. An SSO token is omitted.
+// Explicit credentials win over inherited variables; unsupported auth clears
+// both credential variables so a parent token cannot leak into the child.
 func RunnerProcessEnv(a *auth.ResolvedAuth) (env []string, notice string) {
+	scrub := []string{"HARNESS_API_KEY=", "HARNESS_TOKEN="}
 	if a == nil {
-		return nil, ""
+		return scrub, ""
 	}
 	if a.AuthType == auth.AuthTypeSSO || a.TokenKind == auth.TokenKindJWT {
-		return nil, SSORunnerNotice
+		return scrub, SSORunnerNotice
 	}
 	token := a.PATToken
 	if token == "" {
-		return nil, ""
+		return scrub, ""
 	}
 	kind := auth.TokenType(token)
-	if kind != auth.TokenKindPAT && kind != auth.TokenKindSAT {
-		return nil, SSORunnerNotice
+	switch kind {
+	case auth.TokenKindST:
+		return []string{
+			"HARNESS_API_KEY=",
+			"HARNESS_TOKEN=" + token,
+			"HARNESS_ACCOUNT_ID=" + a.AccountID,
+			"HARNESS_ORG_ID=" + a.OrgID,
+			"HARNESS_PROJECT_ID=" + a.ProjectID,
+			"HARNESS_BASE_URL=" + strings.TrimRight(a.APIUrl, "/"),
+		}, ""
+	case auth.TokenKindPAT, auth.TokenKindSAT:
+		return []string{
+			"HARNESS_API_KEY=" + token,
+			"HARNESS_TOKEN=",
+			"HARNESS_ACCOUNT_ID=" + a.AccountID,
+			"HARNESS_ORG_ID=" + a.OrgID,
+			"HARNESS_PROJECT_ID=" + a.ProjectID,
+			"HARNESS_BASE_URL=" + strings.TrimRight(a.APIUrl, "/"),
+		}, ""
+	default:
+		return scrub, SSORunnerNotice
 	}
-	return []string{
-		"HARNESS_API_KEY=" + token,
-		"HARNESS_ACCOUNT_ID=" + a.AccountID,
-		"HARNESS_ORG_ID=" + a.OrgID,
-		"HARNESS_PROJECT_ID=" + a.ProjectID,
-		"HARNESS_BASE_URL=" + strings.TrimRight(a.APIUrl, "/"),
-	}, ""
 }
 
 func defaultCommand(name string, args []string, env []string, dir string) (CommandResult, error) {
@@ -686,7 +699,7 @@ func defaultCommand(name string, args []string, env []string, dir string) (Comma
 		cmd.Dir = dir
 	}
 	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = mergeEnvironment(env)
 	}
 	out, err := cmd.Output()
 	result := CommandResult{Stdout: string(out)}
@@ -699,4 +712,30 @@ func defaultCommand(name string, args []string, env []string, dir string) (Comma
 		return result, nil
 	}
 	return result, err
+}
+
+func mergeEnvironment(overrides []string) []string {
+	values := make(map[string]string)
+	order := make([]string, 0)
+	add := func(entry string) {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			return
+		}
+		if _, exists := values[key]; !exists {
+			order = append(order, key)
+		}
+		values[key] = value
+	}
+	for _, entry := range os.Environ() {
+		add(entry)
+	}
+	for _, entry := range overrides {
+		add(entry)
+	}
+	result := make([]string, 0, len(order))
+	for _, key := range order {
+		result = append(result, key+"="+values[key])
+	}
+	return result
 }
