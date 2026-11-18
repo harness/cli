@@ -13,6 +13,14 @@ const (
 	VerbExecute = "execute"
 )
 
+// Stable onboarding verbs used by the AI Evals interface.
+const (
+	VerbSetup = "setup"
+	VerbScan  = "scan"
+	VerbStage = "stage"
+	VerbRun   = "run"
+)
+
 // Leaf verbs — standalone commands with no noun and no subcommands.
 // Only one registration per leaf verb is allowed.
 const (
@@ -74,6 +82,7 @@ type VerbSpec struct {
 var VerbOrder = []string{
 	VerbList, VerbGet, VerbCreate, VerbUpdate, VerbDelete, VerbExecute,
 	VerbInstall, VerbPush, VerbPull, VerbConfigure, VerbMigrate,
+	VerbSetup, VerbScan, VerbStage, VerbRun,
 }
 
 // verbRegistry is the authoritative table of every allowed verb.
@@ -95,6 +104,12 @@ var verbRegistry = map[string]VerbSpec{
 	VerbUpdate:  {Kind: VerbKindCore, Gerund: "updating", ShortDesc: "Update a Harness resource", RequiresId: true},
 	VerbDelete:  {Kind: VerbKindCore, Gerund: "deleting", ShortDesc: "Delete a Harness resource", RequiresId: true},
 	VerbExecute: {Kind: VerbKindCore, Gerund: "executing", ShortDesc: "Execute a Harness resource", RequiresId: true},
+
+	// Stable onboarding verb registry.
+	VerbSetup: {Kind: VerbKindCore, Gerund: "setting up", ShortDesc: "Set up a local onboarding workflow"},
+	VerbScan:  {Kind: VerbKindCore, Gerund: "scanning", ShortDesc: "Print onboarding candidates without writing files"},
+	VerbStage: {Kind: VerbKindCore, Gerund: "staging", ShortDesc: "Validate and write a local onboarding tree"},
+	VerbRun:   {Kind: VerbKindCore, Gerund: "running", ShortDesc: "Run a local onboarding workflow"},
 
 	// Leaf verbs
 	VerbVersion: {Kind: VerbKindLeaf, SkipSetup: true},

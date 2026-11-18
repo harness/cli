@@ -42,6 +42,16 @@ help_text: |
     harness execute evaluation:run <eval_id>
     harness list eval_run <eval_id>
 
+  ### Onboarding
+
+  The stable onboarding interface is `setup`, `scan`, `stage`, and `run` on
+  `eval_onboarding`. Enable this hidden module with
+  `harness install module aievals`.
+  `setup eval_onboarding` installs or prints the AI Evals skill and does not write eval files.
+  `scan eval_onboarding` prints candidate JSON and writes nothing.
+  `stage eval_onboarding` validates candidate values and writes `.harness/evals`.
+  `run eval_onboarding` invokes `ai-evals onboard-run`.
+
   ### Nouns
 
   {{nouns}}
@@ -538,6 +548,18 @@ nouns:
         expr: it.status
       - id: warnings
         expr: it.warnings
+
+  # Stable eval_onboarding noun.
+  - noun: eval_onboarding
+    short_desc: AI Evals onboarding for an AI Evals agent tree.
+    noun_aliases: [eval_onboardings]
+    fields:
+      - id: identifier
+        expr: it.identifier
+      - id: environment
+        expr: it.environment
+      - id: ui_path
+        expr: it.ui_path
 
 commands:
   # ── eval_dataset ──────────────────────────────────────────────────────────────
@@ -2211,4 +2233,126 @@ commands:
       request_headers:
         Harness-Account: auth.account
       item_expr: it
+
+  # Stable eval_onboarding command definition.
+  - command: setup eval_onboarding
+    verb: setup
+    noun: eval_onboarding
+    no_id: true
+    no_auth: true
+    short: "Install or print the AI Evals skill: harness setup eval_onboarding"
+    long: |
+      Stable eval_onboarding command.
+      Writes the AI Evals skill to an explicit or detected coding-agent
+      directory, or to stdout when neither is available. Does not scan the
+      repository and does not write .harness/evals files.
+    handler_type: workflow
+    workflow_id: setup
+    flags:
+      - name: repo
+        description: Repository root used to detect a coding-agent skills directory (default current directory)
+      - name: skill-dir
+        description: Explicit file or directory for the AI Evals skill
+
+  # Stable eval_onboarding command definition.
+  - command: scan eval_onboarding
+    verb: scan
+    noun: eval_onboarding
+    no_id: true
+    no_auth: true
+    short: "Print onboarding candidates as JSON: harness scan eval_onboarding"
+    long: |
+      Stable eval_onboarding command.
+      Optional hint for the coding agent. Prints an onboarding/v1 candidate
+      with id, confidence, evidence, and typed value sources. Writes nothing
+      and does not generate a tree. --route narrows the hint to one supported
+      candidate.
+      A route that is not an exact supported hint is rejected.
+    handler_type: workflow
+    workflow_id: scan
+    flags:
+      - name: repo
+        description: Repository root to scan (default current directory)
+      - name: route
+        description: Optional method-qualified hint filter, for example "POST /api/analyze" or "POST /api/analyze [services/billing]"
+
+  # Stable eval_onboarding command definition.
+  - command: stage eval_onboarding
+    verb: stage
+    noun: eval_onboarding
+    no_id: true
+    no_auth: true
+    short: "Validate candidate values and write .harness/evals: harness stage eval_onboarding"
+    long: |
+      Stable eval_onboarding command.
+      Accepts an onboarding/v1 candidate file, or legacy flags that map onto
+      that document without ambiguity. --confirm is required. Without it,
+      nothing is written. Unsupported schema versions, unknown fields,
+      secret-shaped literals, and source-grammar mismatches are rejected
+      before any file is written. Flags override the same legacy fields in a
+      legacy file. auth-header is a header name and auth-env is an
+      environment-variable name. Never pass a secret value.
+      Candidate files may include cases with structured expected values, context, expected_tools,
+      expected_tool_calls, tags, and metadata. Staging requires an explicit
+      non-empty cases list with unique case identities; if scan has no cases,
+      ask the user to confirm or add a sample case before staging.
+    handler_type: workflow
+    workflow_id: stage
+    flags:
+      - name: repo
+        description: Repository root that receives .harness/evals (default current directory)
+      - name: file
+        description: Temporary JSON file of an onboarding/v1 candidate, or a legacy candidate that maps onto it
+      - name: confirm
+        is_bool: true
+        description: Write the tree only after the user has confirmed this candidate. Without this flag, nothing is written.
+      - name: agent
+        description: Stable agent identifier
+      - name: endpoint
+        description: Local endpoint URL, including port and path
+      - name: method
+        description: HTTP method
+      - name: request-field
+        description: Request body field that carries the eval input
+      - name: request-fields
+        description: Comma-separated request body fields
+      - name: response-path
+        description: Path to the reply text in the response
+      - name: auth-header
+        description: Auth header name only, never a secret value
+      - name: auth-env
+        description: Environment-variable name for the auth header, never a secret value
+      - name: input-text
+        description: Sample input text for the dataset row
+      - name: expected
+        description: Sample expected text for the dataset row
+
+  # Stable eval_onboarding command definition.
+  - command: run eval_onboarding
+    verb: run
+    noun: eval_onboarding
+    no_id: true
+    short: "Run a staged agent through ai-evals onboard-run: harness run eval_onboarding --agent <identifier> [--profile <name>]"
+    long: |
+      Stable eval_onboarding command.
+      Verifies the pinned ai-evals-runner, then invokes
+      `ai-evals onboard-run --root <root> --agent <identifier> --environment local`.
+      local is the default. An onboarding/v1 tree fails closed when the pinned
+      runner schema is not onboarding/v1. The files are not modified and query
+      or auth fields are not removed. A PAT or SAT is passed to the runner. An
+      SSO session is not. Use --profile <name> or HARNESS_PROFILE to select an
+      existing profile; this command never changes profiles.
+    handler_type: workflow
+    workflow_id: run
+    flags:
+      - name: root
+        description: Path to the .harness/evals directory
+        default: .harness/evals
+      - name: agent
+        description: Stable agent identifier from agents/*/agent.yaml
+        required: true
+      - name: environment
+        description: local (default) or the name of a live environment
+        default: local
+
 
