@@ -11,6 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/lmittmann/tint v1.2.1
+	github.com/odvcencio/gotreesitter v0.56.0
 	github.com/parquet-go/parquet-go v0.25.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/spf13/cobra v1.10.2
