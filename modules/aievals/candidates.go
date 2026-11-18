@@ -444,6 +444,8 @@ func LoadCandidateFile(path string) (Candidate, error) {
 	if err := decoder.Decode(&candidate); err != nil {
 		return Candidate{}, fmt.Errorf("candidate file does not match the onboarding candidate schema")
 	}
+	// Reuse the normalized v1 number representation for legacy metric fields.
+	candidate.Metrics, _ = raw["metrics"].([]any)
 	return candidate, nil
 }
 
@@ -520,9 +522,10 @@ func (c Candidate) WithOverrides(override Candidate) Candidate {
 	return c
 }
 
-// WriteCandidate validates a v1 candidate and writes that document.
-// Legacy flags are accepted only after they map onto the same document.
-// The pinned runner is not asked to accept the tree and the tree is not rewritten.
+// WriteCandidate validates an onboarding/v1 candidate and writes the tree after confirmation.
+// Legacy fields first map onto the same document. If Python is supplied directly
+// or via VerifyRunner, Stage validates the temporary tree before any files are
+// committed; otherwise only in-process validation is performed.
 func WriteCandidate(opts WriteOptions) (int, error) {
 	if opts.Candidate.Wire == nil {
 		normalized, err := normalizeCandidate(opts.Candidate)
@@ -777,10 +780,9 @@ func v1TreeFiles(candidate Candidate, definitions map[string]MetricDefinition) (
 		return nil, err
 	}
 	for _, rel := range datasetRefs(doc) {
-		if err := relativeTreePath(rel); err != nil {
+		if err := addGeneratedTreeFile(files, rel, body, "dataset"); err != nil {
 			return nil, err
 		}
-		files[rel] = body
 	}
 	if hasMetrics && rawMetrics != nil {
 		metricBody, err := metricSetBody(rawMetrics, agent, definitions)
@@ -788,13 +790,25 @@ func v1TreeFiles(candidate Candidate, definitions map[string]MetricDefinition) (
 			return nil, err
 		}
 		for _, rel := range metricSetRefs(doc) {
-			if err := relativeTreePath(rel); err != nil {
+			if err := addGeneratedTreeFile(files, rel, metricBody, "metric_set"); err != nil {
 				return nil, err
 			}
-			files[rel] = metricBody
 		}
 	}
 	return files, nil
+}
+
+func addGeneratedTreeFile(files map[string]string, rel, body, field string) error {
+	if err := relativeTreePath(rel); err != nil {
+		return err
+	}
+	// Check the same path that will be written, including aliases with ./.
+	path := filepath.ToSlash(filepath.Clean(rel))
+	if _, exists := files[path]; exists {
+		return fmt.Errorf("generated %s path conflicts with another tree file", field)
+	}
+	files[path] = body
+	return nil
 }
 
 func datasetBody(cases []SampleCase, doc map[string]any) (string, error) {

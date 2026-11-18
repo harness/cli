@@ -83,6 +83,51 @@ func TestLegacyCandidateDocumentIncludesMetricSetReference(t *testing.T) {
 	}
 }
 
+func TestStageLegacyJSONPreservesNumericThreshold(t *testing.T) {
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, "candidate.json")
+	body := `{"agent_id":"support","endpoint_url":"https://example.test/chat","method":"POST",
+		"request_field":"text","response_path":"output.text",
+		"cases":[{"id":"case-1","input":{"text":"hello"}}],
+		"metrics":[{"kind":"contains","threshold":0.8}]}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := LoadCandidateFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: candidate, Confirm: true}); code != 0 || err != nil {
+		t.Fatalf("WriteCandidate() = (%d, %v), want success", code, err)
+	}
+	staged, err := os.ReadFile(filepath.Join(repo, ".harness", "evals", "metric-sets", "support.yaml"))
+	if err != nil || !strings.Contains(string(staged), "threshold: 0.8") {
+		t.Fatalf("expected a numeric threshold in the staged metric set: %v", err)
+	}
+}
+
+func TestWriteV1CandidateRejectsConflictingGeneratedPaths(t *testing.T) {
+	for _, ref := range []string{"agents/support-agent/agent.yaml", "./agents/support-agent/agent.yaml"} {
+		t.Run(ref, func(t *testing.T) {
+			repo := t.TempDir()
+			wire := CanonicalOnboardingV1Candidate()
+			wire["evals"].([]any)[0].(map[string]any)["metric_set"] = ref
+			wire["cases"] = []any{map[string]any{"id": "case-1", "input": "hello"}}
+			wire["metrics"] = []any{map[string]any{"kind": "contains", "threshold": 0.8}}
+			code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: Candidate{Wire: wire}, Confirm: true})
+			if code != 2 || err == nil || !strings.Contains(err.Error(), "metric_set path conflicts") {
+				t.Fatalf("WriteCandidate() = (%d, %v), want a path collision", code, err)
+			}
+			if _, err := os.Stat(filepath.Join(repo, ".harness")); !os.IsNotExist(err) {
+				t.Fatalf("path collision left staged files: %v", err)
+			}
+		})
+	}
+}
+
 func TestWriteV1CandidateRequiresConfirmationBeforeWriting(t *testing.T) {
 	repo := t.TempDir()
 	wire := CanonicalOnboardingV1Candidate()
