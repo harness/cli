@@ -2416,9 +2416,9 @@ commands:
       then imports the completed result through the normal scoped runs API.
       The coding agent must ask the user before invoking --persist-report.
       If the archive contains multiple evals, pass --eval-identifier to select
-      one; otherwise the sole manifest eval is selected. Hosted APIs default to
-      /gateway. For a raw local API, pass --api-url http://localhost:<port>
-      --api-base-path /.
+      one; otherwise the sole manifest eval is selected. Production uploads use the
+      active profile and its normal gateway base path. The API override flags
+      are developer-only and are not part of the standard onboarding flow.
     handler_type: workflow
     workflow_id: upload
     flags:
@@ -2430,7 +2430,7 @@ commands:
       - name: eval-identifier
         description: Source eval identifier to select from a multi-eval archive manifest
       - name: api-url
-        description: Explicit API origin override; supports hosted origins and raw local http://localhost origins
+        description: Developer-only API origin override; standard uploads use the active profile
       - name: api-base-path
-        description: Explicit API path prefix; defaults to /gateway, pass / for a raw local API
+        description: Developer-only API path override; standard uploads use the normal gateway base path
 
