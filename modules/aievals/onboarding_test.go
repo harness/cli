@@ -92,7 +92,7 @@ func TestSkillEmbeddedVersionAndRules(t *testing.T) {
 		"--api-base-path /",
 		"--profile <name>",
 		"HARNESS_PROFILE",
-		"TODO(onboarding-schema)",
+		"stable onboarding interface",
 		"Do not invent MCP tool names.",
 	} {
 		if !strings.Contains(text, required) {
@@ -2614,7 +2614,7 @@ func TestSourceRunnerBootstrapRejectsOlderInstalledHandshake(t *testing.T) {
 	touch(t, filepath.Join(home, "bin", "ai-evals"))
 	old := wantedHandshake()
 	old.Version = "0.7.8"
-	old.Schema = "provisional-onboarding-1"
+	old.Schema = "unsupported-onboarding-1"
 	data, err := json.Marshal(old)
 	if err != nil {
 		t.Fatal(err)
@@ -2837,7 +2837,7 @@ func TestCrossRepoWorkflowPinsReviewedD2FixtureRevision(t *testing.T) {
 	}
 }
 
-func TestProvisionalCommandsRegister(t *testing.T) {
+func TestStableCommandsRegister(t *testing.T) {
 	t.Setenv(hbase.EnvEnabledModules, "aievals")
 	t.Setenv(hbase.EnvCLIHome, t.TempDir())
 	reg := registry.New()
@@ -2853,8 +2853,8 @@ func TestProvisionalCommandsRegister(t *testing.T) {
 		if cs.WorkflowID != "aievals:"+verb {
 			t.Fatalf("%s workflow = %s", verb, cs.WorkflowID)
 		}
-		if !strings.Contains(cs.Long, "TODO(onboarding-schema)") {
-			t.Fatalf("%s is missing the provisional marker", verb)
+		if !strings.Contains(cs.Long, "stable onboarding interface") {
+			t.Fatalf("%s is missing stable onboarding wording", verb)
 		}
 	}
 	setup := reg.GetSpec("setup", "eval_onboarding")
