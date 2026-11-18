@@ -64,7 +64,7 @@ Example candidate file, illustrating the `onboarding/v1` shape only. Replace the
 }
 ```
 
-The tree the command writes is `.harness/evals/agents/<identifier>/agent.yaml`, `.harness/evals/datasets/<identifier>.jsonl`, and `.harness/evals/metric-sets/<identifier>.yaml`. The agent file references that dataset and metric set and declares the suite. Include every user-selected metric, its options, threshold, and score name in the candidate. Never omit `metrics` in this workflow: omission retains a legacy exact-match fallback, not an intelligent recommendation. An empty list is rejected. If `stage` reports that a destination differs and was left unchanged, show that message and ask how to proceed. Do not overwrite the file by hand, delete existing files, or promise that re-staging will replace a non-identical tree.
+The tree the command writes is `.harness/evals/agents/<identifier>/agent.yaml`, `.harness/evals/datasets/<identifier>.jsonl`, and `.harness/evals/metric-sets/<identifier>.yaml`. The agent file references that dataset and metric set and declares the suite. Include every user-selected metric, its options, threshold, and score name in the candidate. A missing or empty metrics list is rejected rather than defaulting to exact match. If `stage` reports that a destination differs and was left unchanged, show that message and ask how to proceed. Do not overwrite the file by hand, delete existing files, or promise that re-staging will replace a non-identical tree.
 
 ## Harness CLI setup
 
