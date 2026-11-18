@@ -1397,9 +1397,8 @@ commands:
       path: /gitops/api/v1/agents/{{ctx.id}}/metrics
       item_expr: it
       yaml_pick_expr: it
+      query_params_fn: gitops_agent_metrics_range
       query_params:
-        startTime: flags["start-time"]
-        endTime: flags["end-time"]
         source: 'flags.source != "" ? flags.source : nil'
 
   - command: get gitops_dashboard
