@@ -743,7 +743,7 @@ func TestV1StageWritesFieldsAndRunRejectsStaleHandshake(t *testing.T) {
 	touch(t, filepath.Join(home, "bin", "ai-evals"))
 	stale := wantedHandshake()
 	stale.Version = "0.7.8"
-	stale.Schema = "provisional-onboarding-1"
+	stale.Schema = "unsupported-onboarding-1"
 	staleData, err := json.Marshal(stale)
 	if err != nil {
 		t.Fatal(err)
