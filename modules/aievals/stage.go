@@ -52,8 +52,7 @@ type StageResult struct {
 
 // Stage copies files into a temporary .harness/evals tree, runs the validator,
 // and writes only missing or identical destination files. It validates the
-// same bytes it writes. v1 candidates are committed by WriteCandidate after
-// the Go grammar check and are not rewritten for the pinned runner.
+// same bytes it writes, including v1 candidates supplied by the CLI.
 func Stage(repo string, files map[string]string, python string, run CommandFunc) (StageResult, error) {
 	if len(files) == 0 {
 		return StageResult{}, fmt.Errorf("no candidate files to stage")
@@ -66,14 +65,20 @@ func Stage(repo string, files map[string]string, python string, run CommandFunc)
 		return StageResult{}, err
 	}
 	defer os.RemoveAll(tmp)
-	evals := filepath.Join(tmp, "repo", ".harness", "evals")
+	// The OS temp location can have a system symlink (for example macOS /var).
+	// Resolve our private temp directory, not any user-selected destination.
+	stagingDir, err := filepath.EvalSymlinks(tmp)
+	if err != nil {
+		return StageResult{}, err
+	}
+	evals := filepath.Join(stagingDir, "repo", ".harness", "evals")
 	for rel, body := range files {
 		if err := writeTreeFile(evals, rel, []byte(body)); err != nil {
 			return StageResult{}, err
 		}
 	}
 	args := ValidatorArgs(python, evals)
-	result, err := run(args[0], args[1:], nil, tmp)
+	result, err := run(args[0], args[1:], nil, stagingDir)
 	if err != nil {
 		return StageResult{}, err
 	}

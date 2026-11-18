@@ -96,3 +96,32 @@ func TestWriteV1CandidateRequiresConfirmationBeforeWriting(t *testing.T) {
 		t.Fatalf("confirmation failure created staging tree: %v", statErr)
 	}
 }
+
+func TestWriteV1CandidateDoesNotCommitBytesRejectedByRunner(t *testing.T) {
+	repo := t.TempDir()
+	wire := CanonicalOnboardingV1Candidate()
+	wire["cases"] = []any{map[string]any{"id": "case-1", "input": map[string]any{"text": "hello"}}}
+	wire["metrics"] = []any{map[string]any{"kind": "contains", "threshold": 0.8}}
+	code, err := WriteCandidate(WriteOptions{
+		Repo: repo, Candidate: Candidate{Wire: wire}, Confirm: true,
+		VerifyRunner: func(_ string, _ CommandFunc) (RunnerLayout, error) {
+			return RunnerLayout{Python: "test-python"}, nil
+		},
+		Run: func(name string, args []string, _ []string, _ string) (CommandResult, error) {
+			if name != "test-python" || len(args) != 4 || args[0] != "-I" {
+				t.Fatalf("unexpected metric validation invocation %q with %d arguments", name, len(args))
+			}
+			content, err := os.ReadFile(filepath.Join(args[3], "metric-sets", "quality.yaml"))
+			if err != nil || !strings.Contains(string(content), "kind: contains") {
+				t.Fatalf("validator did not receive the confirmed metric set: %v", err)
+			}
+			return CommandResult{Code: 1, Stderr: "invalid metric options"}, nil
+		},
+	})
+	if code != 1 || err == nil || !strings.Contains(err.Error(), "invalid metric options") {
+		t.Fatalf("WriteCandidate() = (%d, %v), want validator failure", code, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".harness", "evals")); !os.IsNotExist(err) {
+		t.Fatalf("validation failure left a staged tree: %v", err)
+	}
+}

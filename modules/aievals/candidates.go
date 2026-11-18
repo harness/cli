@@ -713,7 +713,21 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	result, err := commitFiles(filepath.Join(opts.Repo, ".harness", "evals"), files)
+	var result StageResult
+	python := opts.Python
+	if python == "" && opts.VerifyRunner != nil {
+		layout, err := opts.VerifyRunner(opts.Repo, opts.Run)
+		if err != nil {
+			return 1, err
+		}
+		python = layout.Python
+	}
+	if python != "" {
+		result, err = Stage(opts.Repo, files, python, opts.Run)
+	} else {
+		// In-process callers may choose structural validation without a runner.
+		result, err = commitFiles(filepath.Join(opts.Repo, ".harness", "evals"), files)
+	}
 	if err != nil {
 		return 1, err
 	}
