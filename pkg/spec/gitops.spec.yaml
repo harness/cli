@@ -333,6 +333,59 @@ nouns:
       - id: created
         expr: it.createdAt
 
+  - noun: gitops_app_resource_tree
+    short_desc: "Kubernetes resource tree of a GitOps application."
+    fields:
+      - id: response
+        expr: it
+
+  - noun: gitops_app_event
+    short_desc: "Events of a GitOps application."
+    fields:
+      - id: response
+        expr: it
+
+  - noun: gitops_pod_log
+    short_desc: "Pod logs of a GitOps application."
+    fields:
+      - id: response
+        expr: it
+
+  - noun: gitops_managed_resource
+    short_desc: "Managed resources of a GitOps application."
+    fields:
+      - id: response
+        expr: it
+
+  - noun: gitops_resource_action
+    short_desc: "Actions available on a resource of a GitOps application."
+    fields:
+      - id: response
+        expr: it
+
+  - noun: gitops_agent_metrics
+    short_desc: "Metric samples of a GitOps agent."
+    fields:
+      - id: response
+        expr: it
+
+  - noun: gitops_dashboard
+    short_desc: "GitOps dashboard overview: counts of applications, clusters and repositories."
+    fields:
+      - id: applications
+        expr: it.applicationCount
+      - id: healthy
+        expr: it.applicationStatusCounts.healthStatusCounts.healthy ?? 0
+      - id: synced
+        expr: it.applicationStatusCounts.syncStatusCounts.synced ?? 0
+      - id: out_of_sync
+        label: Out of Sync
+        expr: it.applicationStatusCounts.syncStatusCounts.outOfSync ?? 0
+      - id: clusters
+        expr: it.clusterCount
+      - id: repositories
+        expr: it.repositoryCount
+
 commands:
   - command: list gitops_agent
     verb: list
@@ -1233,3 +1286,128 @@ commands:
         projectIdentifier: 'ctx.level == "project" ? (auth.project != "" ? auth.project : nil) : nil'
       no_fields: true
       text_header: "\nUpdated mapping {{ctx.idParts[1]}} on agent {{ctx.idParts[0]}}\n"
+
+  - command: get gitops_app_resource_tree
+    verb: get
+    noun: gitops_app_resource_tree
+    short: "Get the Kubernetes resource tree of an application: harness get gitops_app_resource_tree <agent/app>"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<agent/app>"
+    endpoint:
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/resource-tree
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: get gitops_app_event
+    verb: get
+    noun: gitops_app_event
+    short: "Get events of an application: harness get gitops_app_event <agent/app>"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<agent/app>"
+    endpoint:
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/events
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: get gitops_pod_log
+    verb: get
+    noun: gitops_pod_log
+    short: "Get pod logs of an application: harness get gitops_pod_log <agent/app> [--pod-name ...]"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<agent/app>"
+    flags:
+      - name: pod-name
+        description: "Pod name"
+      - name: namespace
+        description: "Kubernetes namespace"
+      - name: container
+        description: "Container name"
+      - name: tail-lines
+        description: "Number of log lines to return"
+    endpoint:
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/logs
+      item_expr: it
+      yaml_pick_expr: it
+      query_params:
+        podName: 'flags["pod-name"] != "" ? flags["pod-name"] : nil'
+        namespace: 'flags.namespace != "" ? flags.namespace : nil'
+        container: 'flags.container != "" ? flags.container : nil'
+        tailLines: 'flags["tail-lines"] != "" ? flags["tail-lines"] : nil'
+
+  - command: get gitops_managed_resource
+    verb: get
+    noun: gitops_managed_resource
+    short: "Get managed resources of an application: harness get gitops_managed_resource <agent/app>"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<agent/app>"
+    endpoint:
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/managed-resources
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: get gitops_resource_action
+    verb: get
+    noun: gitops_resource_action
+    short: "Get actions available on a resource: harness get gitops_resource_action <agent/app> [--kind ...]"
+    handler_type: endpoint
+    id_parts: 2
+    id_label: "<agent/app>"
+    flags:
+      - name: namespace
+        description: "Kubernetes namespace"
+      - name: resource-name
+        description: "Resource name"
+      - name: kind
+        description: "Resource kind, e.g. Deployment"
+      - name: group
+        description: "API group, e.g. apps"
+      - name: version
+        description: "API version, e.g. v1"
+    endpoint:
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/resource/actions
+      item_expr: it
+      yaml_pick_expr: it
+      query_params:
+        request.namespace: 'flags.namespace != "" ? flags.namespace : nil'
+        request.resourceName: 'flags["resource-name"] != "" ? flags["resource-name"] : nil'
+        request.kind: 'flags.kind != "" ? flags.kind : nil'
+        request.group: 'flags.group != "" ? flags.group : nil'
+        request.version: 'flags.version != "" ? flags.version : nil'
+
+  - command: get gitops_agent_metrics
+    verb: get
+    noun: gitops_agent_metrics
+    short: "Get metric samples of an agent: harness get gitops_agent_metrics <agent> --start-time <RFC3339> --end-time <RFC3339>"
+    handler_type: endpoint
+    id_label: "<agent>"
+    flags:
+      - name: start-time
+        description: "Range start, RFC3339 UTC"
+        required: true
+      - name: end-time
+        description: "Range end, RFC3339 UTC (at most 14 days after start)"
+        required: true
+      - name: source
+        description: "Restrict to one metrics source"
+    endpoint:
+      path: /gitops/api/v1/agents/{{ctx.id}}/metrics
+      item_expr: it
+      yaml_pick_expr: it
+      query_params:
+        startTime: flags["start-time"]
+        endTime: flags["end-time"]
+        source: 'flags.source != "" ? flags.source : nil'
+
+  - command: get gitops_dashboard
+    verb: get
+    noun: gitops_dashboard
+    short: "Get the GitOps dashboard overview: harness get gitops_dashboard"
+    handler_type: endpoint
+    no_id: true
+    endpoint:
+      path: /gitops/api/v1/dashboard/overview
+      item_expr: it
