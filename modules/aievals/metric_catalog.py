@@ -61,12 +61,15 @@ def metric_catalog():
     }
     entries = []
     for item in catalog():
+        metadata = item.to_dict()
         metric_type = next((key for key, registry in registries.items() if item.kind in registry), None)
         reason = ""
         if item.requires_provider:
             reason = "Requires a decision provider; the onboarding schema does not support decision metrics."
         elif metric_type is None:
             reason = "Not available through the onboarding runner's heuristic, LLM, or embedding factory."
+        elif not metadata.get("configured_contract_supported", False):
+            reason = "The SDK has no reviewed configured evidence contract for this metric."
         runtime_only = set(getattr(item.metric_class, "factory_reserved_options", ()))
         required_runtime = [
             name for name, param in inspect.signature(item.metric_class).parameters.items()
@@ -92,6 +95,9 @@ def metric_catalog():
             "execution_scope": execution_scope_for_metric_kind(item.kind).value,
             "options_schema": schema,
             "type": metric_type or "unsupported",
+            "configured_contract_supported": bool(metadata.get("configured_contract_supported", False)),
+            "eval_inputs": metadata.get("eval_inputs", {}),
+            "applicability": metadata.get("applicability", {}),
             "supported": not reason,
             "unsupported_reason": reason,
         })

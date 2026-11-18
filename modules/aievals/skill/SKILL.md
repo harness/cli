@@ -108,11 +108,19 @@ Checkpoint: Use this endpoint, pick another candidate, or set one up?
 
 ### Choose metrics for the confirmed agent
 
-Before proposing files, run `harness scan eval_onboarding --metrics`. Inspect the complete returned catalog, not just the first entries or a remembered shortlist. Summarize available categories and how many entries are supported by onboarding. Entries marked unsupported remain visible, but explain their limitation rather than recommending them as runnable.
+Before proposing files, create the temporary onboarding/v1 candidate containing the confirmed target and real sample cases, but no metrics. Run the evidence-aware advisor:
 
-Match catalog descriptions and options against the confirmed agent's purpose and observed data. Where a description is insufficient, read the selected metric's SDK implementation identified by `implementation` using the pinned runner's installed SDK; do not import repository code or install another SDK. Check required case fields and whether this runner actually supplies them. Check `execution_scope`: dataset-level and repeated-run metrics need the appropriate dataset or run grouping, not a single ordinary sample. Do not confuse constructor options with dataset fields or assume `metadata` populates arbitrary runtime fields.
+```bash
+harness scan eval_onboarding --metrics \
+  --candidate /absolute/path/to/candidate.json \
+  --goals correctness,safety
+```
 
-Recommend a small, complementary set, with a table containing the exact SDK kind, why it fits this agent (with repository evidence), required case fields, required options, proposed threshold and rationale, and LLM/embedding cost/setup needs. Use SDK thresholds as starting points, not calibrated promises; preserve an explicit user threshold, including zero. Offer other relevant alternatives and let the user choose metrics not on the shortlist.
+The advisor returns `eligible`, `blocked`, `missing_prerequisites`, and up to four ranked `recommendations`. It reads the complete installed SDK catalog and hard-filters metrics that lack a reviewed configured contract, required evidence, supported execution scope, or required options. Do not replace that result with a remembered shortlist or a factory-only catalog entry.
+
+Provider-backed choices are blocked until the user explicitly consents. Re-run with `--allow-llm` or `--allow-embedding` only after explaining paid calls, data sharing, required provider/model configuration, and that credentials remain outside chat and files.
+
+Present the ranked choices with the exact SDK kind, observed evidence, missing prerequisites, required options, proposed threshold/caveat, and provider implications. Use SDK thresholds as starting points, not calibrated promises; preserve an explicit user threshold, including zero. If `no_eligible_metrics` is true, explain the first concrete prerequisite and ask one focused question. Do not silently substitute exact match.
 
 Use these as reasoning examples, not a fixed mapping or metric list; recommend a named kind only if it exists in the returned catalog:
 

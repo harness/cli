@@ -29,8 +29,26 @@ type MetricCatalogEntry struct {
 	ExecutionScope    string         `json:"execution_scope"`
 	OptionsSchema     map[string]any `json:"options_schema"`
 	MetricType        string         `json:"type"`
+	ReviewedContract  bool           `json:"configured_contract_supported"`
+	EvalInputs        MetricInputs   `json:"eval_inputs"`
+	Applicability     MetricModes    `json:"applicability"`
 	Supported         bool           `json:"supported"`
 	UnsupportedReason string         `json:"unsupported_reason,omitempty"`
+}
+
+// MetricInputs is SDK-declared evidence, not a claim that a candidate has it.
+// The advisor intersects it with authored cases before recommending a metric.
+type MetricInputs struct {
+	Required []string   `json:"required"`
+	Optional []string   `json:"optional"`
+	AnyOf    [][]string `json:"any_of"`
+}
+
+// MetricModes is discovery metadata. It avoids recommending online-only modes
+// for the offline local runner without constructing providers.
+type MetricModes struct {
+	Modes        []string `json:"modes"`
+	OnlineScopes []string `json:"online_scopes"`
 }
 
 type MetricCatalogReport struct {

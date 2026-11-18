@@ -144,13 +144,37 @@ func setupWorkflow(ctx *cmdctx.Ctx) error {
 }
 
 func scanWorkflow(ctx *cmdctx.Ctx) error {
-	if cmdctx.GetBool(ctx.FlagValues, "metrics") {
+	metrics := cmdctx.GetBool(ctx.FlagValues, "metrics")
+	if !metrics && (cmdctx.GetString(ctx.FlagValues, "candidate") != "" ||
+		cmdctx.GetString(ctx.FlagValues, "goals") != "" ||
+		cmdctx.GetBool(ctx.FlagValues, "allow-llm") ||
+		cmdctx.GetBool(ctx.FlagValues, "allow-embedding")) {
+		return fmt.Errorf("--candidate, --goals, --allow-llm, and --allow-embedding require --metrics")
+	}
+	if metrics {
 		if cmdctx.GetString(ctx.FlagValues, "route") != "" {
 			return fmt.Errorf("--metrics cannot be combined with --route")
 		}
 		report, err := MetricCatalog(RunnerHome(), nil)
 		if err != nil {
 			return err
+		}
+		if candidatePath := cmdctx.GetString(ctx.FlagValues, "candidate"); candidatePath != "" {
+			candidate, err := LoadCandidateFile(candidatePath)
+			if err != nil {
+				return err
+			}
+			goals := strings.Split(cmdctx.GetString(ctx.FlagValues, "goals"), ",")
+			for i := range goals {
+				goals[i] = strings.TrimSpace(goals[i])
+			}
+			encoder := json.NewEncoder(os.Stdout)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(AdviseMetrics(candidate, report.Metrics, MetricAdviceOptions{
+				AllowLLM:       cmdctx.GetBool(ctx.FlagValues, "allow-llm"),
+				AllowEmbedding: cmdctx.GetBool(ctx.FlagValues, "allow-embedding"),
+				Goals:          goals,
+			}))
 		}
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")

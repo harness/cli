@@ -205,19 +205,20 @@ func (item SampleCase) MarshalJSON() ([]byte, error) {
 // Wire is set when the file is an onboarding/v1 document. Flat fields remain
 // for flags and for a legacy file that maps onto that document.
 type Candidate struct {
-	AgentID       string            `json:"agent_id,omitempty"`
-	EndpointURL   string            `json:"endpoint_url,omitempty"`
-	Method        string            `json:"method,omitempty"`
-	RequestField  string            `json:"request_field,omitempty"`
-	RequestFields string            `json:"request_fields,omitempty"`
-	ResponsePath  string            `json:"response_path,omitempty"`
-	AuthHeader    string            `json:"auth_header,omitempty"`
-	AuthEnv       string            `json:"auth_env,omitempty"`
-	InputText     string            `json:"input_text,omitempty"`
-	Expected      string            `json:"expected,omitempty"`
-	Cases         []SampleCase      `json:"cases,omitempty"`
-	Metrics       []MetricSelection `json:"metrics,omitempty"`
-	Wire          map[string]any    `json:"-"`
+	AgentID        string            `json:"agent_id,omitempty"`
+	EndpointURL    string            `json:"endpoint_url,omitempty"`
+	Method         string            `json:"method,omitempty"`
+	RequestField   string            `json:"request_field,omitempty"`
+	RequestFields  string            `json:"request_fields,omitempty"`
+	ResponsePath   string            `json:"response_path,omitempty"`
+	AuthHeader     string            `json:"auth_header,omitempty"`
+	AuthEnv        string            `json:"auth_env,omitempty"`
+	InputText      string            `json:"input_text,omitempty"`
+	Expected       string            `json:"expected,omitempty"`
+	Cases          []SampleCase      `json:"cases,omitempty"`
+	Metrics        []MetricSelection `json:"metrics,omitempty"`
+	Wire           map[string]any    `json:"-"`
+	requireMetrics bool
 }
 
 // WriteOptions validates a candidate and writes the .harness/evals tree.
@@ -448,7 +449,7 @@ func loadV1Candidate(raw map[string]any) (Candidate, error) {
 			return Candidate{}, rejectUnknown("candidate." + publicUnknownKey(key))
 		}
 	}
-	candidate := Candidate{Wire: raw}
+	candidate := Candidate{Wire: raw, requireMetrics: true}
 	if err := validateV1Document(raw); err != nil {
 		return Candidate{}, err
 	}
@@ -856,6 +857,9 @@ func v1TreeFiles(candidate Candidate) (map[string]string, error) {
 	doc, ok := cloneValue(candidate.Wire).(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("candidate file must be a JSON object")
+	}
+	if candidate.requireMetrics && len(candidate.Metrics) == 0 {
+		return nil, fmt.Errorf("metrics: missing_metrics: select at least one evidence-eligible metric before staging; do not substitute exact match")
 	}
 	delete(doc, "metrics")
 	delete(doc, "cases")
