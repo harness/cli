@@ -124,6 +124,10 @@ func recordHandshake(home string) error {
 // VerifyRunner checks the recorded handshake and the installed package version
 // before a run. It does not install or upgrade.
 func VerifyRunner(home string, run CommandFunc) (RunnerLayout, error) {
+	return verifyRunner(home, run, true)
+}
+
+func verifyRunner(home string, run CommandFunc, persistHandshake bool) (RunnerLayout, error) {
 	if run == nil {
 		run = defaultCommand
 	}
@@ -150,7 +154,7 @@ func VerifyRunner(home string, run CommandFunc) (RunnerLayout, error) {
 		return RunnerLayout{}, fmt.Errorf("pinned %s %s does not provide %s\n%s", RunnerPackage, RunnerVersion, OnboardCommand, Remediation(home))
 	}
 	// A manually installed runner has no handshake until both probes succeed.
-	if missing {
+	if missing && persistHandshake {
 		if err := writeHandshake(home); err != nil {
 			return RunnerLayout{}, err
 		}
@@ -260,6 +264,10 @@ func RunnerProcessEnv(a *auth.ResolvedAuth) (env []string, notice string) {
 		return nil, SSORunnerNotice
 	}
 	token := a.PATToken
+	if a.Source == auth.SourcePipeline {
+		// Pipeline auth resolves the configured header rather than a PAT profile.
+		token = a.Headers["x-api-key"]
+	}
 	if token == "" {
 		return nil, ""
 	}
@@ -300,8 +308,8 @@ func defaultCommandContext(ctx context.Context, name string, args []string, env 
 	if err == nil {
 		return result, nil
 	}
-	if ctx.Err() != nil {
-		return result, ctx.Err()
+	if cause := context.Cause(ctx); cause != nil {
+		return result, cause
 	}
 	if exit, ok := err.(*exec.ExitError); ok {
 		result.Code = exit.ExitCode()

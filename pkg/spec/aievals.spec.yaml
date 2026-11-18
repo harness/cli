@@ -44,13 +44,14 @@ help_text: |
 
   ### Onboarding
 
-  The stable onboarding interface is `setup`, `scan`, `stage`, and `run` on
-  `eval_onboarding`. Enable this hidden module with
+  The stable onboarding interface is `setup`, `scan`, `stage`, `run`, and `upload`
+  on `eval_onboarding`. Enable this hidden module with
   `harness install module aievals`.
   `setup eval_onboarding` installs or prints the AI Evals skill and does not write eval files.
-  `scan eval_onboarding` prints candidate JSON and writes nothing.
+  `scan eval_onboarding` prints candidate JSON; `scan eval_onboarding --metrics` prints the SDK metric catalog.
   `stage eval_onboarding` validates candidate values and writes `.harness/evals`.
   `run eval_onboarding` invokes `ai-evals onboard-run`.
+  `upload eval_onboarding` imports the validated tree into the selected Harness project.
 
   ### Nouns
 
@@ -2263,11 +2264,11 @@ commands:
     short: "Print onboarding candidates as JSON: harness scan eval_onboarding"
     long: |
       Stable eval_onboarding command.
-      Optional hint for the coding agent. Prints an onboarding/v1 candidate
-      with id, confidence, evidence, and typed value sources. Writes nothing
-      and does not generate a tree. --route narrows the hint to one supported
-      candidate.
-      A route that is not an exact supported hint is rejected.
+      Optional hint for the coding agent. Prints onboarding/v1 candidates
+      when a matching route adapter is available; otherwise candidates is
+      empty. Use guided/manual discovery when no hint is available. Writes
+      nothing and does not generate a tree. --route selects an exact supported
+      hint and is rejected when there is no match.
     handler_type: workflow
     workflow_id: scan
     flags:
@@ -2275,6 +2276,9 @@ commands:
         description: Repository root to scan (default current directory)
       - name: route
         description: Optional method-qualified hint filter, for example "POST /api/analyze" or "POST /api/analyze [services/billing]"
+      - name: metrics
+        is_bool: true
+        description: Print the metric catalog from the pinned runner instead of scanning (cannot be combined with --route)
 
   # Stable eval_onboarding command definition.
   - command: stage eval_onboarding
@@ -2347,6 +2351,8 @@ commands:
     pipeline_auth:
       token_envvar: HARNESS_TOKEN
       apiurl_envvar: HARNESS_BASE_URL
+      headers:
+        x-api-key: token
     flags:
       - name: root
         description: Path to the .harness/evals directory
@@ -2357,3 +2363,15 @@ commands:
       - name: environment
         description: local (default) or the name of a live environment
         default: local
+
+  - command: upload eval_onboarding
+    verb: upload
+    noun: eval_onboarding
+    no_id: true
+    short: Upload a validated AI Evals tree to the selected Harness project
+    handler_type: workflow
+    workflow_id: upload
+    flags:
+      - name: root
+        description: Path to the AI Evals tree to validate and upload
+        default: .harness/evals

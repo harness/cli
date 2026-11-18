@@ -5,6 +5,7 @@ package aievals
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -82,9 +83,7 @@ func RunAgent(home, root, agent, environment string, resolved *auth.ResolvedAuth
 
 func RunAgentContext(ctx context.Context, home, root, agent, environment string, resolved *auth.ResolvedAuth, stderr io.Writer, run CommandFunc) (int, error) {
 	if run == nil {
-		run = func(name string, args []string, env []string, dir string) (CommandResult, error) {
-			return defaultCommandContext(ctx, name, args, env, dir)
-		}
+		run = runnerCommand(ctx)
 	}
 	v1Tree, err := treeRequiresV1Runner(root)
 	if err != nil {
@@ -137,22 +136,81 @@ func setupWorkflow(ctx *cmdctx.Ctx) error {
 	return finish(code, err)
 }
 
+//go:embed metric_catalog.py
+var metricCatalogSnippet string
+
+func metricCatalog(home string, run CommandFunc) ([]json.RawMessage, error) {
+	layout, err := verifyRunner(home, run, false)
+	if err != nil {
+		return nil, err
+	}
+	return loadMetricCatalog(layout.Python, run)
+}
+
+func loadMetricCatalog(python string, run CommandFunc) ([]json.RawMessage, error) {
+	result, err := run(python, []string{"-I", "-c", metricCatalogSnippet}, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	if result.Code != 0 {
+		return nil, fmt.Errorf("could not read the pinned runner's metric catalog (exit %d)", result.Code)
+	}
+	var metrics []json.RawMessage
+	if err := json.Unmarshal([]byte(result.Stdout), &metrics); err != nil || len(metrics) == 0 {
+		return nil, fmt.Errorf("the pinned runner did not return a valid, non-empty metric catalog")
+	}
+	return metrics, nil
+}
+
+func resolveMetricDefinitions(python string, run CommandFunc) (map[string]MetricDefinition, error) {
+	metrics, err := loadMetricCatalog(python, run)
+	if err != nil {
+		return nil, err
+	}
+	definitions := make(map[string]MetricDefinition, len(metrics))
+	for _, raw := range metrics {
+		var entry struct {
+			Kind string `json:"kind"`
+			MetricDefinition
+		}
+		if err := json.Unmarshal(raw, &entry); err != nil || entry.Kind == "" || entry.Type == "" {
+			return nil, fmt.Errorf("the pinned runner returned an invalid metric catalog entry")
+		}
+		definitions[entry.Kind] = entry.MetricDefinition
+	}
+	return definitions, nil
+}
+
 func scanWorkflow(ctx *cmdctx.Ctx) error {
+	route := cmdctx.GetString(ctx.FlagValues, "route")
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if cmdctx.GetBool(ctx.FlagValues, "metrics") {
+		if route != "" {
+			return fmt.Errorf("--metrics cannot be combined with --route")
+		}
+		report, err := metricCatalog(RunnerHome(), runnerCommand(ctx.Context))
+		if err != nil {
+			return err
+		}
+		return encoder.Encode(report)
+	}
 	repo, err := workflowRepo(ctx)
 	if err != nil {
 		return err
 	}
-	report, code, err := Scan(repo, cmdctx.GetString(ctx.FlagValues, "route"))
+	report, code, err := Scan(repo, route)
 	if err != nil {
 		return finish(code, err)
 	}
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(report); err != nil {
-		return err
+	return encoder.Encode(report)
+}
+
+func runnerCommand(ctx context.Context) CommandFunc {
+	return func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		return defaultCommandContext(ctx, name, args, env, dir)
 	}
-	return nil
 }
 
 func stageWorkflow(ctx *cmdctx.Ctx) error {
@@ -189,8 +247,13 @@ func stageWorkflow(ctx *cmdctx.Ctx) error {
 		Repo:      repo,
 		Candidate: candidate,
 		Confirm:   cmdctx.GetBool(ctx.FlagValues, "confirm"),
-		Stdout:    os.Stdout,
-		Stderr:    os.Stderr,
+		Run:       runnerCommand(ctx.Context),
+		VerifyRunner: func(_ string, run CommandFunc) (RunnerLayout, error) {
+			return VerifyRunner(RunnerHome(), run)
+		},
+		ResolveMetrics: resolveMetricDefinitions,
+		Stdout:         os.Stdout,
+		Stderr:         os.Stderr,
 	})
 	return finish(code, err)
 }

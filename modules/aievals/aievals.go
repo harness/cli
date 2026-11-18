@@ -11,4 +11,5 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(scanWorkflowID, scanWorkflow)
 	reg.RegisterWorkflow(stageWorkflowID, stageWorkflow)
 	reg.RegisterWorkflow(runWorkflowID, runWorkflow)
+	reg.RegisterWorkflow(uploadWorkflowID, uploadWorkflow)
 }
