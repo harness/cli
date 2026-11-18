@@ -334,42 +334,78 @@ nouns:
         expr: it.createdAt
 
   - noun: gitops_tree
+    noun_aliases: [gitops_trees]
     short_desc: "Kubernetes resource tree of a GitOps application."
     fields:
       - id: response
         expr: it
 
   - noun: gitops_event
+    noun_aliases: [gitops_events]
     short_desc: "Events of a GitOps application."
     fields:
       - id: response
         expr: it
+      - id: type
+        expr: it.type
+      - id: reason
+        expr: it.reason
+      - id: object
+        expr: (it.involvedObject.kind ?? "") + "/" + (it.involvedObject.name ?? "")
+      - id: message
+        expr: it.message
+        width_max: 60
+      - id: count
+        expr: it.count
+      - id: last_seen
+        expr: it.lastTimestamp
 
   - noun: gitops_log
+    noun_aliases: [gitops_logs]
     short_desc: "Pod logs of a GitOps application."
     fields:
       - id: response
         expr: it
 
   - noun: gitops_resource
+    noun_aliases: [gitops_resources]
     short_desc: "Managed resources of a GitOps application."
     fields:
       - id: response
         expr: it
+      - id: kind
+        expr: it.kind
+      - id: namespace
+        expr: it.namespace
+      - id: name
+        expr: it.name
+      - id: group
+        expr: it.group
+      - id: hook
+        expr: it.hook
 
   - noun: gitops_action
+    noun_aliases: [gitops_actions]
     short_desc: "Actions available on a resource of a GitOps application."
     fields:
       - id: response
         expr: it
+      - id: name
+        expr: it.name
+      - id: disabled
+        expr: it.disabled ?? false
+      - id: params
+        expr: join(map(it.params ?? [], {#.name}), ",")
 
   - noun: gitops_metrics
+    noun_aliases: [gitops_metric]
     short_desc: "Metric samples of a GitOps agent."
     fields:
       - id: response
         expr: it
 
   - noun: gitops_dashboard
+    noun_aliases: [gitops_dashboards]
     short_desc: "GitOps dashboard overview: counts of applications, clusters and repositories."
     fields:
       - id: applications
@@ -1290,31 +1326,45 @@ commands:
   - command: get gitops_tree
     verb: get
     noun: gitops_tree
-    short: "Get the Kubernetes resource tree of an application: harness get gitops_tree <agent/app>"
+    short: "Get the Kubernetes resource tree of an application: harness get gitops_tree <agent/app> [--app-namespace <ns>]"
     handler_type: endpoint
     id_parts: 2
     id_label: "<agent/app>"
+    flags:
+      - name: app-namespace
+        description: "Namespace of the application, for applications stored as namespace/app"
     endpoint:
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/resource-tree
       item_expr: it
       yaml_pick_expr: it
+      query_params:
+        query.appNamespace: 'flags["app-namespace"] != "" ? flags["app-namespace"] : nil'
 
-  - command: get gitops_event
-    verb: get
+  - command: list gitops_event
+    verb: list
     noun: gitops_event
-    short: "Get events of an application: harness get gitops_event <agent/app>"
+    short: "List events of an application: harness list gitops_event <agent/app> [--app-namespace <ns>]"
     handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<agent/app>"
     id_parts: 2
-    id_label: "<agent/app>"
+    flags:
+      - name: app-namespace
+        description: "Namespace of the application, for applications stored as namespace/app"
     endpoint:
-      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/events
-      item_expr: it
-      yaml_pick_expr: it
+      path: /gitops/api/v1/agents/{{ctx.parentIdParts[0]}}/applications/{{ctx.parentIdParts[1]}}/events
+      items_expr: it.items ?? []
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [type, reason, object, message, count, last_seen]
+      query_params:
+        query.appNamespace: 'flags["app-namespace"] != "" ? flags["app-namespace"] : nil'
 
   - command: get gitops_log
     verb: get
     noun: gitops_log
-    short: "Get pod logs of an application: harness get gitops_log <agent/app> [--pod-name ...]"
+    short: "Get pod logs of an application: harness get gitops_log <agent/app> [--pod-name ...] [--app-namespace <ns>]"
     handler_type: endpoint
     id_parts: 2
     id_label: "<agent/app>"
@@ -1327,38 +1377,51 @@ commands:
         description: "Container name"
       - name: tail-lines
         description: "Number of log lines to return"
+      - name: app-namespace
+        description: "Namespace of the application, for applications stored as namespace/app"
     endpoint:
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/logs
       item_expr: it
       yaml_pick_expr: it
       query_params:
-        podName: 'flags["pod-name"] != "" ? flags["pod-name"] : nil'
-        namespace: 'flags.namespace != "" ? flags.namespace : nil'
-        container: 'flags.container != "" ? flags.container : nil'
-        tailLines: 'flags["tail-lines"] != "" ? flags["tail-lines"] : nil'
+        query.podName: 'flags["pod-name"] != "" ? flags["pod-name"] : nil'
+        query.namespace: 'flags.namespace != "" ? flags.namespace : nil'
+        query.container: 'flags.container != "" ? flags.container : nil'
+        query.tailLines: 'flags["tail-lines"] != "" ? flags["tail-lines"] : nil'
+        query.appNamespace: 'flags["app-namespace"] != "" ? flags["app-namespace"] : nil'
 
-  - command: get gitops_resource
-    verb: get
+  - command: list gitops_resource
+    verb: list
     noun: gitops_resource
-    short: "Get managed resources of an application: harness get gitops_resource <agent/app>"
+    short: "List managed resources of an application: harness list gitops_resource <agent/app> [--app-namespace <ns>]"
     handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<agent/app>"
     id_parts: 2
-    id_label: "<agent/app>"
+    flags:
+      - name: app-namespace
+        description: "Namespace of the application, for applications stored as namespace/app"
     endpoint:
-      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/managed-resources
-      item_expr: it
-      yaml_pick_expr: it
+      path: /gitops/api/v1/agents/{{ctx.parentIdParts[0]}}/applications/{{ctx.parentIdParts[1]}}/managed-resources
+      items_expr: it.items ?? []
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [kind, namespace, name, group, hook]
+      query_params:
+        query.appNamespace: 'flags["app-namespace"] != "" ? flags["app-namespace"] : nil'
 
-  - command: get gitops_action
-    verb: get
+  - command: list gitops_action
+    verb: list
     noun: gitops_action
-    short: "Get actions available on a resource: harness get gitops_action <agent/app> [--kind ...]"
+    short: "List actions available on a resource: harness list gitops_action <agent/app> --namespace <ns> --resource-name <name> --kind <kind> [--app-namespace <ns>]"
     handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<agent/app>"
     id_parts: 2
-    id_label: "<agent/app>"
     flags:
       - name: namespace
-        description: "Kubernetes namespace"
+        description: "Kubernetes namespace of the resource"
       - name: resource-name
         description: "Resource name"
       - name: kind
@@ -1367,16 +1430,22 @@ commands:
         description: "API group, e.g. apps"
       - name: version
         description: "API version, e.g. v1"
+      - name: app-namespace
+        description: "Namespace of the application, for applications stored as namespace/app"
     endpoint:
-      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/resource/actions
-      item_expr: it
-      yaml_pick_expr: it
+      path: /gitops/api/v1/agents/{{ctx.parentIdParts[0]}}/applications/{{ctx.parentIdParts[1]}}/resource/actions
+      items_expr: it.actions ?? []
+      get_id_expr: "-"
+      paging:
+        paging_strategy: flat_list
+      columns: [name, disabled, params]
       query_params:
         request.namespace: 'flags.namespace != "" ? flags.namespace : nil'
         request.resourceName: 'flags["resource-name"] != "" ? flags["resource-name"] : nil'
         request.kind: 'flags.kind != "" ? flags.kind : nil'
         request.group: 'flags.group != "" ? flags.group : nil'
         request.version: 'flags.version != "" ? flags.version : nil'
+        request.appNamespace: 'flags["app-namespace"] != "" ? flags["app-namespace"] : nil'
 
   - command: get gitops_metrics
     verb: get
