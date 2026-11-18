@@ -26,10 +26,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/httpclient"
-	"go.yaml.in/yaml/v3"
 )
 
 const (
@@ -77,54 +78,63 @@ func BuildArchive(root string, limits Limits) ([]byte, error) {
 	return buildArchiveFromSnapshot(files, limits)
 }
 
+type uploadEncoding struct {
+	method uint16
+	level  int
+}
+
 func buildArchiveFromSnapshot(files []uploadFile, limits Limits) ([]byte, error) {
-	methods := make([]uint16, len(files))
+	limits = normalizeUploadLimits(limits)
+	encodings := make([]uploadEncoding, len(files))
 	var expanded int64
 	for index, file := range files {
-		methods[index] = uploadCompressionMethod(file.data)
+		encodings[index] = uploadCompressionEncoding(file.data)
 		expanded += int64(len(file.data))
 	}
-	payload, err := writeUploadArchive(files, methods)
+	payload, err := writeUploadArchive(files, encodings)
 	if err != nil {
 		return nil, err
 	}
-	if expanded > int64(len(payload))*MaxCompressionRatio {
+	if int64(len(payload)) <= limits.Compressed && expanded > int64(len(payload))*MaxCompressionRatio {
 		// D3 checks the whole ZIP, so keep useful per-member compression unless the aggregate exceeds the cap.
-		methods, err = selectRatioFallbacks(files, methods, payload, expanded)
+		encodings, err = selectRatioFallbacks(files, encodings, payload, expanded, limits.Compressed)
 		if err != nil {
 			return nil, err
 		}
-		payload, err = writeUploadArchive(files, methods)
+		payload, err = writeUploadArchive(files, encodings)
 		if err != nil {
 			return nil, err
 		}
-	}
-	if expanded > int64(len(payload))*MaxCompressionRatio {
-		return nil, fmt.Errorf("archive exceeds the compression-ratio limit (%d:1)", MaxCompressionRatio)
 	}
 	sizes := make([]int64, len(files))
 	for index, file := range files {
 		sizes[index] = int64(len(file.data))
 	}
-	if err := CheckClientLimits(normalizeUploadLimits(limits), len(files), sizes, len(payload)); err != nil {
+	if err := CheckClientLimits(limits, len(files), sizes, len(payload)); err != nil {
 		return nil, err
+	}
+	if expanded > int64(len(payload))*MaxCompressionRatio {
+		return nil, fmt.Errorf("archive exceeds the compression-ratio limit (%d:1)", MaxCompressionRatio)
 	}
 	return payload, nil
 }
 
-func writeUploadArchive(files []uploadFile, methods []uint16) ([]byte, error) {
-	if len(files) != len(methods) {
+func writeUploadArchive(files []uploadFile, encodings []uploadEncoding) ([]byte, error) {
+	if len(files) != len(encodings) {
 		return nil, fmt.Errorf("could not create the upload archive")
 	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
+	var level int
 	zw.RegisterCompressor(zip.Deflate, func(output io.Writer) (io.WriteCloser, error) {
-		return flate.NewWriter(output, uploadDeflateLevel)
+		return flate.NewWriter(output, level)
 	})
 	for index, file := range files {
+		encoding := encodings[index]
+		level = encoding.level // CreateHeader initializes the compressor for this member synchronously.
 		header := &zip.FileHeader{
 			Name:     file.archivePath,
-			Method:   methods[index],
+			Method:   encoding.method,
 			Modified: uploadZipEpoch,
 		}
 		header.SetMode(0o644)
@@ -149,45 +159,50 @@ func (counter *uploadSizeCounter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func uploadCompressionMethod(data []byte) uint16 {
-	if len(data) == 0 {
-		return zip.Store
-	}
+func deflatedUploadSize(data []byte, level int) (int64, error) {
 	var compressed uploadSizeCounter
-	writer, err := flate.NewWriter(&compressed, uploadDeflateLevel)
+	writer, err := flate.NewWriter(&compressed, level)
 	if err != nil {
-		return zip.Store
+		return 0, err
 	}
 	if _, err := writer.Write(data); err != nil {
-		return zip.Store
+		return 0, err
 	}
 	if err := writer.Close(); err != nil {
-		return zip.Store
+		return 0, err
 	}
-	if int64(compressed) >= int64(len(data)) {
-		return zip.Store
-	}
-	return zip.Deflate
+	return int64(compressed), nil
 }
 
-// selectRatioFallbacks stores the least costly members needed to meet D3's aggregate ratio.
-func selectRatioFallbacks(files []uploadFile, methods []uint16, payload []byte, expanded int64) ([]uint16, error) {
+func uploadCompressionEncoding(data []byte) uploadEncoding {
+	if len(data) == 0 {
+		return uploadEncoding{method: zip.Store}
+	}
+	compressed, err := deflatedUploadSize(data, uploadDeflateLevel)
+	if err != nil || compressed >= int64(len(data)) {
+		return uploadEncoding{method: zip.Store}
+	}
+	return uploadEncoding{method: zip.Deflate, level: uploadDeflateLevel}
+}
+
+// selectRatioFallbacks reduces compression without exceeding D3's ZIP byte limit.
+func selectRatioFallbacks(files []uploadFile, encodings []uploadEncoding, payload []byte, expanded, maxCompressed int64) ([]uploadEncoding, error) {
 	archive, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
 	if err != nil || len(archive.File) != len(files) {
 		return nil, fmt.Errorf("could not size the upload archive")
 	}
 	targetSize := (expanded + MaxCompressionRatio - 1) / MaxCompressionRatio
-	neededIncrease := targetSize - int64(len(payload))
-	if neededIncrease <= 0 {
-		return methods, nil
+	size := int64(len(payload))
+	if targetSize > maxCompressed {
+		return nil, fmt.Errorf("archive cannot fit both the compression-ratio and archive byte limits")
 	}
 	type fallback struct {
 		index    int
 		increase int64
 	}
 	var candidates []fallback
-	for index, method := range methods {
-		if method != zip.Deflate {
+	for index, encoding := range encodings {
+		if encoding.method != zip.Deflate {
 			continue
 		}
 		increase := int64(len(files[index].data)) - int64(archive.File[index].CompressedSize64)
@@ -201,15 +216,28 @@ func selectRatioFallbacks(files []uploadFile, methods []uint16, payload []byte, 
 		}
 		return candidates[i].increase < candidates[j].increase
 	})
-	methods = append([]uint16(nil), methods...)
+	encodings = append([]uploadEncoding(nil), encodings...)
 	for _, candidate := range candidates {
-		methods[candidate.index] = zip.Store
-		neededIncrease -= candidate.increase
-		if neededIncrease <= 0 {
-			return methods, nil
+		index := candidate.index
+		increase := candidate.increase
+		encoding := uploadEncoding{method: zip.Store}
+		if increase > maxCompressed-size {
+			// A large, repetitive member can meet both limits with entropy coding
+			// alone, even though storing all its bytes would exceed the size cap.
+			compressed, err := deflatedUploadSize(files[index].data, flate.HuffmanOnly)
+			increase = compressed - int64(archive.File[index].CompressedSize64)
+			if err != nil || increase <= 0 || increase > maxCompressed-size {
+				continue
+			}
+			encoding = uploadEncoding{method: zip.Deflate, level: flate.HuffmanOnly}
+		}
+		encodings[index] = encoding
+		size += increase
+		if size >= targetSize {
+			return encodings, nil
 		}
 	}
-	return nil, fmt.Errorf("archive exceeds the compression-ratio limit (%d:1)", MaxCompressionRatio)
+	return nil, fmt.Errorf("archive cannot fit both the compression-ratio and archive byte limits")
 }
 
 func normalizeUploadLimits(limits Limits) Limits {

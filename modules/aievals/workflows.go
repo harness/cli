@@ -4,6 +4,7 @@
 package aievals
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -13,10 +14,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/format"
 	"github.com/harness/cli/v3/pkg/hbase"
-	"go.yaml.in/yaml/v3"
+	"github.com/harness/cli/v3/pkg/spec"
 )
 
 const (
@@ -205,7 +209,31 @@ func metricsWorkflow(ctx *cmdctx.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return printOnboardingJSON(report)
+	return renderMetricCatalog(ctx, report)
+}
+
+func renderMetricCatalog(ctx *cmdctx.Ctx, report []json.RawMessage) error {
+	rows := make([]any, len(report))
+	for i, raw := range report {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var row map[string]any
+		if err := decoder.Decode(&row); err != nil || row == nil {
+			return fmt.Errorf("the pinned runner returned an invalid metric catalog entry")
+		}
+		rows[i] = row
+	}
+	flags := ctx.FormatFlags
+	if flags.Format == "" && flags.Columns == "" {
+		flags.Format = "json" // Keep the default machine-readable for the onboarding skill.
+	}
+	table := &spec.TableSpec{Columns: []spec.TableColumn{
+		{Header: "KIND", Expr: "it.kind"},
+		{Header: "TYPE", Expr: "it.type"},
+		{Header: "DIMENSION", Expr: "it.dimension"},
+		{Header: "SUPPORTED", Expr: "it.supported"},
+	}}
+	return format.FormatArrayOutput(flags, ctx.IsPty, rows, "it", table, nil, nil, nil)
 }
 
 func printOnboardingJSON(value any) error {

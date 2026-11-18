@@ -2279,7 +2279,7 @@ commands:
     noun: eval_onboarding
     noun_variant: metrics
     no_auth: true
-    short: List the metric catalog from the pinned AI Evals runner as JSON
+    short: List the metric catalog from the pinned AI Evals runner (defaults to JSON)
     handler_type: workflow
     workflow_id: aievals_onboarding_metrics
 

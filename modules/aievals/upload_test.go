@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -383,6 +384,30 @@ func TestBuildArchiveFallsBackOnlySmallestMembersWhenAggregateRatioExceedsLimit(
 	}
 	if expanded > uint64(len(payload))*MaxCompressionRatio {
 		t.Fatalf("archive expands to %d bytes from %d compressed bytes, exceeding ratio %d", expanded, len(payload), MaxCompressionRatio)
+	}
+}
+
+func TestBuildArchiveFitsBothLimitsForMaxSizeCompressibleMember(t *testing.T) {
+	const name = ".harness/evals/datasets/repeated.jsonl"
+	row := []byte("{\"text\":\"" + strings.Repeat("x", 1012) + "\"}\n")
+	if MaxMemberBytes%len(row) != 0 {
+		t.Fatal("fixture must divide the maximum member size evenly")
+	}
+	data := bytes.Repeat(row, MaxMemberBytes/len(row))
+	payload, err := buildArchiveFromSnapshot([]uploadFile{{archivePath: name, data: data}}, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) > MaxCompressedBytes || len(data) > len(payload)*MaxCompressionRatio {
+		t.Fatalf("ZIP with %d expanded and %d compressed bytes does not meet both limits", len(data), len(payload))
+	}
+	archive, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := fs.ReadFile(archive, name)
+	if err != nil || !bytes.Equal(original, data) {
+		t.Fatalf("unpacking the ZIP did not recover the original member: %v", err)
 	}
 }
 

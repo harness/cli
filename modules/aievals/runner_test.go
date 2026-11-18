@@ -186,6 +186,39 @@ func TestMetricCatalogUsesVerifiedRunnerWithoutWritingHandshake(t *testing.T) {
 	}
 }
 
+func TestRenderMetricCatalogHonorsListOutputFlags(t *testing.T) {
+	report := []json.RawMessage{
+		json.RawMessage(`{"kind":"contains","type":"heuristic","dimension":"correctness","supported":true}`),
+		json.RawMessage(`{"kind":"exact_match","type":"heuristic","dimension":"correctness","supported":true}`),
+	}
+	for _, tc := range []struct{ format, prefix string }{
+		{"", "["},
+		{"jsonl", "{"},
+		{"csv", "KIND,TYPE,DIMENSION,SUPPORTED"},
+	} {
+		t.Run(tc.format, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "metrics")
+			ctx := &cmdctx.Ctx{FormatFlags: cmdctx.FormatFlags{Format: tc.format, OutFile: out}}
+			if err := renderMetricCatalog(ctx, report); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatalf("--out did not write the catalog: %v", err)
+			}
+			if !strings.HasPrefix(string(data), tc.prefix) || !strings.Contains(string(data), "exact_match") {
+				t.Fatalf("unexpected %s catalog output: %q", tc.format, data)
+			}
+			if tc.format == "jsonl" {
+				lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+				if len(lines) != len(report) || !json.Valid([]byte(lines[0])) || !json.Valid([]byte(lines[1])) {
+					t.Fatalf("expected one JSON object per line, got %q", data)
+				}
+			}
+		})
+	}
+}
+
 func TestDefaultCommandContextStopsChildOnCancellation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell cancellation probe uses sh")
