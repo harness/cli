@@ -107,6 +107,9 @@ func promptFlagValues(cs *spec.CommandSpec, inputFlag, text string) (map[string]
 		}
 		provided[f.Name] = true
 	}
+	if cs.ConfirmMode == spec.ConfirmPrompt {
+		fv["force"] = true
+	}
 	return fv, provided
 }
 
@@ -222,6 +225,10 @@ func (m uiTableModel) promptView() string {
 		Padding(0, 1).
 		Render(accent.Render(uiCommandHintLabel(p.uc)) + "\n" + p.input.View())
 	b.WriteString(box + "\n\n")
-	b.WriteString(subtle.Render("  ctrl+s submit  esc cancel") + "\n")
+	submit := "submit"
+	if p.cs.ConfirmMode == spec.ConfirmPrompt {
+		submit = p.uc.Label
+	}
+	b.WriteString(subtle.Render("  ctrl+s "+submit+"  esc cancel") + "\n")
 	return b.String()
 }

@@ -70,3 +70,12 @@ func TestErrorScreenKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptFlagValuesConfirmMode(t *testing.T) {
+	for mode, wantForce := range map[string]bool{spec.ConfirmPrompt: true, spec.ConfirmID: false, spec.ConfirmNone: false} {
+		fv, _ := promptFlagValues(&spec.CommandSpec{ConfirmMode: mode, Flags: []spec.Flag{{Name: "comment"}}}, "comment", "x")
+		if got, _ := fv["force"].(bool); got != wantForce {
+			t.Fatalf("confirm_mode %q: force=%v want %v", mode, got, wantForce)
+		}
+	}
+}
