@@ -144,6 +144,8 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: verb must be %q, %q or %q", noun, uc.Key, VerbExecute, VerbCreate, VerbUpdate))
 			} else if targetCs := r.GetSpec(uc.Verb, uc.Noun); targetCs == nil {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q does not resolve", noun, uc.Key, uc.Verb, uc.Noun))
+			} else if targetCs.Endpoint == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q is not an endpoint command", noun, uc.Key, uc.Verb, uc.Noun))
 			} else if !hasFlag(targetCs, uc.InputFlag) {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: input_flag %q is not a flag of %s %q", noun, uc.Key, uc.InputFlag, uc.Verb, uc.Noun))
 			}

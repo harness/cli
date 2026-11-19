@@ -69,20 +69,26 @@ func TestCheckUICommands_PromptInputFlag(t *testing.T) {
 		name    string
 		verb    string
 		flag    string
+		noEp    bool
 		wantErr string
 	}{
-		{"ok", VerbExecute, "comment", ""},
-		{"undeclared flag", VerbExecute, "message", `input_flag "message" is not a flag`},
-		{"read verb", VerbGet, "comment", "verb must be"},
+		{"ok", VerbExecute, "comment", false, ""},
+		{"non-endpoint target", VerbExecute, "comment", true, "not an endpoint command"},
+		{"undeclared flag", VerbExecute, "message", false, `input_flag "message" is not a flag`},
+		{"read verb", VerbGet, "comment", false, "verb must be"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			r.specs[VerbGet] = append(r.specs[VerbGet], &spec.CommandSpec{Command: "get thing", Verb: VerbGet, Noun: "thing", Module: "test"})
-			r.specs[VerbExecute] = append(r.specs[VerbExecute], &spec.CommandSpec{
+			target := &spec.CommandSpec{
 				Command: "execute thing:approve", Verb: VerbExecute, Noun: "thing:approve", Module: "test",
 				Flags: []spec.Flag{{Name: "comment"}},
-			})
+			}
+			if !tc.noEp {
+				target.Endpoint = &spec.EndpointSpec{}
+			}
+			r.specs[VerbExecute] = append(r.specs[VerbExecute], target)
 			if err := r.RegisterNoun(spec.NounDef{
 				Noun: "thing",
 				UICommands: []spec.UICommand{

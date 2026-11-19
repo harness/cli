@@ -1050,7 +1050,7 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 		if err := ensureIds(cs, ctx); err != nil {
 			return err
 		}
-		r.emitIntent(cmd, cs, ctx)
+		r.emitIntent(changedFlagNames(cmd), cs, ctx)
 		start := time.Now()
 		if err := fn(ctx); err != nil {
 			r.emitError(cs, ctx, err, start)
@@ -1175,7 +1175,7 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	if err != nil {
 		return err
 	}
-	r.emitIntent(cmd, cs, ctx)
+	r.emitIntent(changedFlagNames(cmd), cs, ctx)
 	start := time.Now()
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
 		if ctx.Id != "" {
@@ -1200,6 +1200,11 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 			return RunUIDetailForGet(ctx, cs)
 		}
 	}
+	return r.runEndpointCtx(cs, ctx, start)
+}
+
+// runEndpointCtx runs a built endpoint ctx: confirm gate, request, error reporting and --follow.
+func (r *Registry) runEndpointCtx(cs *spec.CommandSpec, ctx *cmdctx.Ctx, start time.Time) error {
 	if cs.ConfirmMode != spec.ConfirmNone && ctx.RequestPreview == nil {
 		if err := runConfirmGate(cs.ConfirmMode, cs.Verb, cs.Noun, ctx.Id, ctx.IsPty, cmdctx.GetBool(ctx.FlagValues, "force")); err != nil {
 			r.emitError(cs, ctx, err, start)
@@ -1222,6 +1227,12 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	return nil
 }
 
+// RunCommandCtx runs an endpoint command from an already-built ctx, with the CLI's confirm gate, rendering and error reporting.
+func (r *Registry) RunCommandCtx(ctx *cmdctx.Ctx, cs *spec.CommandSpec) error {
+	r.emitIntent(nil, cs, ctx)
+	return r.runEndpointCtx(cs, ctx, time.Now())
+}
+
 // runEndpointListCmd executes a list endpoint-backed command.
 func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, args []string) error {
 	ep := cs.Endpoint
@@ -1229,7 +1240,7 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	if err != nil {
 		return err
 	}
-	r.emitIntent(cmd, cs, ctx)
+	r.emitIntent(changedFlagNames(cmd), cs, ctx)
 	start := time.Now()
 	if cmdctx.GetBool(ctx.FlagValues, "list-columns") {
 		fields := resolveFieldsForCommand(ctx, ep)
@@ -1303,12 +1314,16 @@ func telemetryAuth(cs *spec.CommandSpec, ctx *cmdctx.Ctx) *auth.ResolvedAuth {
 	return resolved
 }
 
-func (r *Registry) emitIntent(cmd *cobra.Command, cs *spec.CommandSpec, ctx *cmdctx.Ctx) {
+func changedFlagNames(cmd *cobra.Command) []string {
+	var flags []string
+	cmd.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
+	return flags
+}
+
+func (r *Registry) emitIntent(flags []string, cs *spec.CommandSpec, ctx *cmdctx.Ctx) {
 	if telemetry.Disabled() {
 		return
 	}
-	var flags []string
-	cmd.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
 	accountID, userDomain, userID, userType, tokenKind, authSource, apiURL := authTelemetryFields(telemetryAuth(cs, ctx))
 	telemetry.RecordIntent(telemetry.CommandIntent{
 		Verb:       cs.Verb,
