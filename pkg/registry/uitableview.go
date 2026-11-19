@@ -102,6 +102,7 @@ type uiTableModel struct {
 	launchUIHandlerFn string         // view entry's ui_handler_fn, set on quit
 	linkTarget        *cmdctx.UILink // link entry to follow, set on quit
 	wantBack          bool           // "b" was pressed with a non-empty UIHistory, set on quit
+	prompt            *uiPrompt      // open prompt text box, nil when closed
 
 	// picker mode — set via newUIPickerModel; enter selects and quits
 	pickerMode       bool
@@ -548,6 +549,9 @@ func (m uiTableModel) dispatchUICommandKey(key string) (uiTableModel, tea.Cmd, b
 			m.detail.loading = true
 			m.detail.err = ""
 			return m, m.fetchDetail(m.detail.id), true
+		case spec.UICommandPrompt:
+			newM, cmd := m.openPrompt(uc)
+			return newM, cmd, true
 		case spec.UICommandView:
 			m.launchUIId = m.detail.id
 			m.launchUIHandlerFn = uc.UIHandlerFn
@@ -703,6 +707,8 @@ func uiCommandHintLabel(uc spec.UICommand) string {
 		return uc.Verb + " " + strings.ReplaceAll(uc.Noun, "_", " ")
 	case spec.UICommandView:
 		return "view"
+	case spec.UICommandPrompt:
+		return strings.ReplaceAll(uc.Noun, "_", " ")
 	case spec.UICommandUp:
 		return "up " + strings.ReplaceAll(uc.Noun, "_", " ")
 	default:
@@ -754,6 +760,9 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.prompt != nil {
+			m.prompt.input.SetWidth(max(msg.Width-uiPromptChrome, 20))
+		}
 		pageSize := tableHeight(msg.Height)
 		m.pageSize = pageSize
 		m.t.SetHeight(pageSize)
@@ -782,6 +791,16 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case uiPromptDoneMsg:
+		return m.finishPrompt(msg)
+
+	case tea.PasteMsg:
+		if m.prompt != nil && !m.prompt.busy {
+			var cmd tea.Cmd
+			m.prompt.input, cmd = m.prompt.input.Update(msg)
+			return m, cmd
+		}
+
 	case uiPageMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -798,6 +817,9 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if m.prompt != nil {
+			return m.handlePromptKey(msg)
+		}
 		if m.colPickMode {
 			switch msg.String() {
 			case "q", "ctrl+c":
@@ -1014,6 +1036,13 @@ func (m uiTableModel) View() tea.View {
 		b.WriteString(errStyle.Render("  terminal too small") + "\n")
 		b.WriteString(subtleStyle.Render(fmt.Sprintf("  min %dx%d  current %dx%d", uiMinWidth, uiMinHeight, m.width, m.height)) + "\n")
 		b.WriteString(subtleStyle.Render("  q quit") + "\n")
+		v := tea.NewView(b.String())
+		v.AltScreen = true
+		return v
+	}
+
+	if m.prompt != nil {
+		b.WriteString(m.promptView())
 		v := tea.NewView(b.String())
 		v.AltScreen = true
 		return v
