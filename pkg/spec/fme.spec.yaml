@@ -186,7 +186,7 @@ nouns:
         expr: it.key
 
   - noun: traffic_type
-    short_desc: Harness FME traffic type (read-only lookup).
+    short_desc: A Harness FME traffic type (the kind of key flags, segments and metrics target, e.g. user, account).
     fields:
       - id: id
         expr: it.id
@@ -1587,6 +1587,42 @@ commands:
         total_expr: it.totalCount
         countable: true
       columns: [id, name]
+
+  - command: create traffic_type
+    verb: create
+    noun: traffic_type
+    short: "Create a traffic type: harness create traffic_type <name> (or -f traffic-type.json)"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      file_body: optional
+      path: /fme/api/v4/traffic-types
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      create_strategy: set-fields
+      create_body_init:
+        name: ctx.id
+      create_body_wrap: ""
+      item_expr: it.entity
+      text_header: "\nCreated traffic type {{it.name}}\n"
+
+  - command: delete traffic_type
+    verb: delete
+    noun: traffic_type
+    confirm_mode: prompt
+    short: "Delete a traffic type by id (must not be used by flags, segments or metrics): harness delete traffic_type <traffic-type-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/api/v4/traffic-types/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
 
   # ── rollout_status ────────────────────────────────────────────────────────────
 
