@@ -32,6 +32,17 @@ help_text: |
 
   Supported: png, jpg, jpeg, gif, webp, svg (inline images); mp4, mov, webm (links).
 
+  ### Resolving and reopening PR comment threads
+
+  Set a thread's status using its root comment ID, not a reply ID:
+
+      harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status resolved
+      harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status active
+
+  Add --preview-request to inspect the request without changing the thread.
+  Use --org and --project to override the current scope as needed.
+  To edit comment text instead, use `harness update pr_comment`.
+
   ### Nouns
 
   {{nouns}}
@@ -2155,6 +2166,43 @@ commands:
         text: flags.text
       no_fields: true
       text_header: "\nUpdated comment #{{ctx.idParts[2]}}\n"
+
+  - command: update pr_comment:status
+    verb: update
+    noun: pr_comment
+    noun_variant: status
+    short: "Resolve or reopen a PR comment thread: harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status resolved|active"
+    long: |
+      Set a pull request comment thread's status. Use resolved to resolve the
+      thread or active to reopen it. Target the root comment ID, not a reply ID.
+      This changes only the thread status; use update pr_comment to edit text.
+
+      Examples:
+        harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status resolved
+        harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status active
+        harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status resolved --org <org> --project <project> --preview-request
+
+      Use --preview-request to inspect the request without changing the thread.
+    handler_type: endpoint
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<root_comment_id>"
+    # The comment list includes replies, but status updates require a root ID.
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: status
+        description: "Thread status: resolved to resolve, active to reopen"
+        required: true
+        completion_values: [resolved, active]
+    endpoint:
+      method: PUT
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/comments/{{ctx.idParts[2]}}/status
+      body_params:
+        status: flags.status
+      no_fields: true
+      text_header: "\nUpdated status of comment #{{ctx.idParts[2]}}\n"
 
   - command: delete pr_comment
     verb: delete
