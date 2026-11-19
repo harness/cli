@@ -6,6 +6,7 @@ package registry
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/textarea"
@@ -70,5 +71,18 @@ func TestPromptFlagValues(t *testing.T) {
 	}
 	if !provided["comment"] || provided["kind"] {
 		t.Fatalf("provided: %v", provided)
+	}
+}
+
+func TestRunPromptCommandRejectsNonScalarInputFlag(t *testing.T) {
+	for name, f := range map[string]spec.Flag{
+		"multi": {Name: "comment", IsMulti: true},
+		"array": {Name: "comment", IsArray: true},
+	} {
+		cs := &spec.CommandSpec{Verb: VerbExecute, Noun: "thing", Flags: []spec.Flag{f}}
+		err := runPromptCommand(nil, &uiPromptRun{uc: spec.UICommand{InputFlag: "comment"}, cs: cs})
+		if err == nil || !strings.Contains(err.Error(), "single-value flag") {
+			t.Fatalf("%s input flag: got %v", name, err)
+		}
 	}
 }

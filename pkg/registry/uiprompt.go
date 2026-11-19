@@ -138,6 +138,9 @@ func promptFlagValues(cs *spec.CommandSpec, inputFlag, text string) (map[string]
 // because the TUI owns the screen.
 func runPromptCommand(ctx *cmdctx.Ctx, run *uiPromptRun) error {
 	cs := run.cs
+	if f := findFlag(cs, run.uc.InputFlag); f == nil || f.IsMulti || f.IsArray {
+		return fmt.Errorf("input_flag %q must be a single-value flag of %s %s", run.uc.InputFlag, cs.Verb, cs.Noun)
+	}
 	fv, provided := promptFlagValues(cs, run.uc.InputFlag, run.text)
 	profile, org, project := scopeFromCtx(ctx)
 	link := &cmdctx.UILink{
