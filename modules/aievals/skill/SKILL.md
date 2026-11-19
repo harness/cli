@@ -22,7 +22,7 @@ When the prompt header includes a `harness auth login` command, use that command
 
 ## Commands
 
-- `harness install eval_onboarding:skill` installs or prints this skill. It does not scan and it does not write eval files. Optional `--skill-dir` chooses the destination. With no coding-agent skills directory and no `--skill-dir`, it prints the skill to stdout.
+- `harness configure eval_onboarding:skill` writes or prints this skill. It does not scan and it does not write eval files. Optional `--skill-dir` chooses the destination. With no coding-agent skills directory and no `--skill-dir`, it prints the skill to stdout.
 - `harness execute eval_onboarding:scan` is an optional hint. It prints an `onboarding/v1` candidate with id, confidence, evidence, and typed value sources. It writes nothing and does not generate a tree. `--route '<METHOD path>'` narrows the hint. The agent's own reading of the repository is the source of truth. If the hint and the agent disagree, show both and let the user choose.
 - `harness list eval_onboarding:metrics` reads the full metric catalog from the Harness Evals SDK in the pinned runner. It prints every catalog entry, including descriptions, constructor options and required options, default thresholds, LLM/embedding requirements, execution scope, and onboarding support. It does not scan the repository, install packages, call an agent or judge, or write files.
 - Write the .harness/evals tree only with the Harness CLI validate-and-write command `harness execute eval_onboarding:stage`. Pass `--confirm --file <path>` pointing at a temporary JSON file, or pass legacy flags that map unambiguously onto `onboarding/v1`. `--confirm` is required after the user says yes. Without it, the command writes nothing. The file uses `schema_version: "onboarding/v1"`. Value sources are `literal`, `input`, `env`, and `harness_secret` with D2 field names (`name`, `ref`, `env`). Do not use `env_name` or `secret_ref`. Never put a secret value in the file. Flags override the same legacy fields in a legacy file. They cannot be combined with an `onboarding/v1` file. Staging requires an explicit non-empty `cases` list with unique case identities; if scan has no cases, ask the user to confirm or add a sample case before staging.
@@ -82,7 +82,7 @@ Before the first onboarding command, ask the user whether to enable the module i
 harness install module aievals
 ```
 
-Before running a staged agent or importing an archive, authenticate with a Harness personal access token or API key. Give the token to the CLI when it asks. Do not paste the token into chat or write it into the repository.
+A local or live target run does not need a Harness login. Authenticate with Harness only when importing an archive. Do not paste tokens into chat or write them into the repository.
 
 Metric discovery requires the pinned runner but not Harness authentication or provider credentials. If it is missing or mismatched, show the CLI's exact remediation and ask before installing the pinned runner; do not silently upgrade or install a second SDK. Repeat catalog discovery after installation. If discovery fails, stop metric selection and explain the error instead of inventing a catalog or falling back to exact match.
 
@@ -139,6 +139,8 @@ Only after yes, create the temporary `onboarding/v1` candidate JSON with the con
 ## Stage 3. Local run
 
 Use the pinned `onboarding/v1` runner. If the CLI reports an installation or compatibility problem, show its remediation and stop. Do not remove fields or install a replacement without confirmation.
+
+For local or live target runs, have the user export the necessary application variables and approve each name before adding `--env NAME` to the command. Repeat `--env` for each name. Never pass a value in the command or select variables just because the repository asks for them. Harness profile credentials and `.env` files are not loaded for target runs.
 
 Checkpoint: Run this eval locally with the compatible pinned runner?
 
