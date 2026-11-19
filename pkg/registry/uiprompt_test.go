@@ -71,12 +71,6 @@ func TestPromptFlagValues(t *testing.T) {
 	if !provided["comment"] || provided["kind"] {
 		t.Fatalf("provided: %v", provided)
 	}
-
-	cs.Flags[0] = spec.Flag{Name: "comment", IsMulti: true}
-	fv, _ = promptFlagValues(cs, "comment", "hi, there")
-	if got := fv["comment"]; !reflect.DeepEqual(got, []string{"hi, there"}) {
-		t.Fatalf("multi input flag: %v", got)
-	}
 }
 
 func TestPromptFlagValuesConfirmMode(t *testing.T) {

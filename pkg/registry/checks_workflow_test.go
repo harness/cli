@@ -70,12 +70,18 @@ func TestCheckUICommands_PromptInputFlag(t *testing.T) {
 		verb    string
 		flag    string
 		noEp    bool
+		wf      bool
+		multi   bool
+		array   bool
 		wantErr string
 	}{
-		{"ok", VerbExecute, "comment", false, ""},
-		{"non-endpoint target", VerbExecute, "comment", true, "not an endpoint command"},
-		{"undeclared flag", VerbExecute, "message", false, `input_flag "message" is not a flag`},
-		{"read verb", VerbGet, "comment", false, "verb must be"},
+		{"ok", VerbExecute, "comment", false, false, false, false, ""},
+		{"non-endpoint target", VerbExecute, "comment", true, false, false, false, "not an endpoint command"},
+		{"workflow with endpoint metadata", VerbExecute, "comment", false, true, false, false, "needs the terminal"},
+		{"undeclared flag", VerbExecute, "message", false, false, false, false, `input_flag "message" is not a flag`},
+		{"multi input flag", VerbExecute, "comment", false, false, true, false, "single-value flag"},
+		{"array input flag", VerbExecute, "comment", false, false, false, true, "single-value flag"},
+		{"read verb", VerbGet, "comment", false, false, false, false, "verb must be"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,6 +93,10 @@ func TestCheckUICommands_PromptInputFlag(t *testing.T) {
 			}
 			if !tc.noEp {
 				target.Endpoint = &spec.EndpointSpec{}
+			}
+			target.Flags[0].IsMulti, target.Flags[0].IsArray = tc.multi, tc.array
+			if tc.wf {
+				target.HandlerType = spec.HandlerWorkflow
 			}
 			r.specs[VerbExecute] = append(r.specs[VerbExecute], target)
 			if err := r.RegisterNoun(spec.NounDef{
