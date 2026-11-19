@@ -103,6 +103,7 @@ type uiTableModel struct {
 	linkTarget        *cmdctx.UILink // link entry to follow, set on quit
 	wantBack          bool           // "b" was pressed with a non-empty UIHistory, set on quit
 	prompt            *uiPrompt      // open prompt text box, nil when closed
+	promptRun         *uiPromptRun   // submitted prompt to run after the TUI exits
 
 	// picker mode — set via newUIPickerModel; enter selects and quits
 	pickerMode       bool
@@ -805,16 +806,6 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case uiPromptDoneMsg:
-		return m.finishPrompt(msg)
-
-	case tea.PasteMsg:
-		if m.prompt != nil && !m.prompt.busy {
-			var cmd tea.Cmd
-			m.prompt.input, cmd = m.prompt.input.Update(msg)
-			return m, cmd
-		}
-
 	case uiPageMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -1027,6 +1018,10 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
+	if m.prompt != nil {
+		m.prompt.input, cmd = m.prompt.input.Update(msg)
+		return m, cmd
+	}
 	m.t, cmd = m.t.Update(msg)
 	return m, cmd
 }
@@ -1351,6 +1346,10 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 	if fm.linkTarget != nil {
 		ctx.PushUILink(currentScreenLink(ctx, fm))
 		return dispatchLink(ctx, fm.linkTarget)
+	}
+	if fm.promptRun != nil {
+		ctx.PushUILink(currentScreenLink(ctx, fm))
+		return finishPromptRun(ctx, fm.promptRun)
 	}
 	if fm.launchUIId != "" && fm.launchUIHandlerFn != "" {
 		ctx.PushUILink(currentScreenLink(ctx, fm))
