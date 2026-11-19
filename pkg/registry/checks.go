@@ -146,6 +146,8 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q does not resolve", noun, uc.Key, uc.Verb, uc.Noun))
 			} else if targetCs.Endpoint == nil {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q is not an endpoint command", noun, uc.Key, uc.Verb, uc.Noun))
+			} else if targetCs.ConfirmMode == spec.ConfirmID || targetCs.FollowFn != "" {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q needs the terminal (confirm_mode id or follow_fn)", noun, uc.Key, uc.Verb, uc.Noun))
 			} else if !hasFlag(targetCs, uc.InputFlag) {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: input_flag %q is not a flag of %s %q", noun, uc.Key, uc.InputFlag, uc.Verb, uc.Noun))
 			}

@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -29,13 +30,29 @@ func ctrlS() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtr
 func TestPromptKeys(t *testing.T) {
 	for _, text := range []string{"", "ship it"} {
 		m, cmd := promptTestModel(text).handlePromptKey(ctrlS())
-		if cmd == nil || m.promptRun == nil || m.promptRun.text != text || m.prompt != nil {
-			t.Fatalf("ctrl+s with %q: cmd=%v run=%+v", text, cmd != nil, m.promptRun)
+		if cmd == nil || !m.prompt.busy {
+			t.Fatalf("ctrl+s with %q: cmd=%v busy=%v", text, cmd != nil, m.prompt.busy)
 		}
 	}
+	busy := promptTestModel("ship it")
+	busy.prompt.busy = true
+	if m, cmd := busy.handlePromptKey(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil || m.prompt == nil {
+		t.Fatal("esc must not close the box while the command runs")
+	}
 	m, _ := promptTestModel("ship it").handlePromptKey(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.prompt != nil || m.promptRun != nil {
-		t.Fatal("esc must close the box without submitting")
+	if m.prompt != nil {
+		t.Fatal("esc must close the box")
+	}
+}
+
+func TestPromptDone(t *testing.T) {
+	m, cmd := promptTestModel("ship it").finishPrompt(uiPromptDoneMsg{err: errors.New("boom")})
+	if cmd != nil || m.prompt == nil || m.prompt.busy || m.prompt.err != "boom" || m.prompt.input.Value() != "ship it" || m.promptDone {
+		t.Fatalf("after error: prompt=%+v done=%v", m.prompt, m.promptDone)
+	}
+	m, cmd = promptTestModel("ship it").finishPrompt(uiPromptDoneMsg{})
+	if cmd == nil || m.prompt != nil || !m.promptDone {
+		t.Fatalf("after success: cmd=%v prompt=%v done=%v", cmd != nil, m.prompt != nil, m.promptDone)
 	}
 }
 
@@ -59,15 +76,6 @@ func TestPromptFlagValues(t *testing.T) {
 	fv, _ = promptFlagValues(cs, "comment", "hi, there")
 	if got := fv["comment"]; !reflect.DeepEqual(got, []string{"hi, there"}) {
 		t.Fatalf("multi input flag: %v", got)
-	}
-}
-
-func TestErrorScreenKeys(t *testing.T) {
-	for key, wantBack := range map[string]bool{"b": true, "q": false} {
-		m, cmd := uiErrorModel{}.Update(tea.KeyPressMsg{Code: rune(key[0]), Text: key})
-		if cmd == nil || m.(uiErrorModel).back != wantBack {
-			t.Fatalf("%s: back=%v want %v", key, m.(uiErrorModel).back, wantBack)
-		}
 	}
 }
 

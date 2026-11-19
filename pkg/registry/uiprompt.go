@@ -5,6 +5,7 @@ package registry
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
@@ -28,9 +29,14 @@ type uiPrompt struct {
 	cs    *spec.CommandSpec
 	id    string
 	input textarea.Model
+	busy  bool
+	err   string
 }
 
-// uiPromptRun is a submitted prompt, run by finishUIExit once the TUI has quit.
+// uiPromptDoneMsg is sent when the target command of a submitted prompt returns.
+type uiPromptDoneMsg struct{ err error }
+
+// uiPromptRun is a submitted prompt.
 type uiPromptRun struct {
 	uc   spec.UICommand
 	cs   *spec.CommandSpec
@@ -59,20 +65,44 @@ func (m uiTableModel) openPrompt(uc spec.UICommand) (uiTableModel, tea.Cmd) {
 
 func (m uiTableModel) handlePromptKey(msg tea.KeyPressMsg) (uiTableModel, tea.Cmd) {
 	p := m.prompt
-	switch msg.String() {
-	case "ctrl+c":
+	key := msg.String()
+	if key == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if p.busy {
+		return m, nil
+	}
+	switch key {
 	case "esc":
 		m.prompt = nil
 		return m, nil
 	case "ctrl+s":
-		m.promptRun = &uiPromptRun{uc: p.uc, cs: p.cs, id: p.id, text: p.input.Value()}
-		m.prompt = nil
-		return m, tea.Quit
+		p.busy = true
+		p.err = ""
+		run := &uiPromptRun{uc: p.uc, cs: p.cs, id: p.id, text: p.input.Value()}
+		ctx := m.ctx
+		return m, func() tea.Msg { return uiPromptDoneMsg{err: runPromptCommand(ctx, run)} }
 	}
+	p.err = ""
 	var cmd tea.Cmd
 	p.input, cmd = p.input.Update(msg)
 	return m, cmd
+}
+
+// finishPrompt quits to the origin screen on success; on failure it keeps the
+// box open with the typed text.
+func (m uiTableModel) finishPrompt(msg uiPromptDoneMsg) (uiTableModel, tea.Cmd) {
+	if m.prompt == nil {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.prompt.busy = false
+		m.prompt.err = msg.err.Error()
+		return m, nil
+	}
+	m.prompt = nil
+	m.promptDone = true
+	return m, tea.Quit
 }
 
 // promptFlagValues builds the target's flag values: spec defaults first, then
@@ -114,7 +144,8 @@ func promptFlagValues(cs *spec.CommandSpec, inputFlag, text string) (map[string]
 }
 
 // runPromptCommand runs the prompt's target as a link-style hop with the typed
-// text, through the same confirm gate and error reporting as the CLI.
+// text, through the same error reporting as the CLI. Its output is discarded
+// because the TUI owns the screen.
 func runPromptCommand(ctx *cmdctx.Ctx, run *uiPromptRun) error {
 	cs := run.cs
 	fv, provided := promptFlagValues(cs, run.uc.InputFlag, run.text)
@@ -132,6 +163,7 @@ func runPromptCommand(ctx *cmdctx.Ctx, run *uiPromptRun) error {
 	if err != nil {
 		return err
 	}
+	pctx.FormatFlags.OutFile = os.DevNull
 	if err := resolveFlagValues(pctx, cs); err != nil {
 		return err
 	}
@@ -150,64 +182,6 @@ func runPromptCommand(ctx *cmdctx.Ctx, run *uiPromptRun) error {
 		return fmt.Errorf("resolver cannot run commands")
 	}
 	return runner.RunCommandCtx(pctx, cs)
-}
-
-// finishPromptRun runs a submitted prompt and goes back a screen on success. On
-// failure it shows an error page whose "b" returns to the screen the prompt was
-// opened from.
-func finishPromptRun(ctx *cmdctx.Ctx, run *uiPromptRun) error {
-	if err := runPromptCommand(ctx, run); err != nil {
-		back, perr := showPromptError(run, err)
-		if perr != nil || !back {
-			return perr
-		}
-	}
-	if link, ok := ctx.PopUILink(); ok {
-		return dispatchLink(ctx, &link)
-	}
-	return nil
-}
-
-type uiErrorModel struct {
-	title, msg string
-	back       bool
-}
-
-func (m uiErrorModel) Init() tea.Cmd { return nil }
-
-func (m uiErrorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := msg.(tea.KeyPressMsg); ok {
-		switch k.String() {
-		case "b":
-			m.back = true
-			return m, tea.Quit
-		case "q", "esc", "ctrl+c":
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-
-func (m uiErrorModel) View() tea.View {
-	accent := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(tui.CLIAccent))
-	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLITextMuted))
-	var b strings.Builder
-	b.WriteString(accent.Render(m.title) + "\n\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLIError)).Render("error: "+m.msg) + "\n\n")
-	b.WriteString(subtle.Render("  b back  q quit") + "\n")
-	v := tea.NewView(b.String())
-	v.AltScreen = true
-	return v
-}
-
-func showPromptError(run *uiPromptRun, err error) (back bool, _ error) {
-	m := uiErrorModel{title: fmt.Sprintf("%s %s  %s", run.uc.Verb, strings.ReplaceAll(run.uc.Noun, "_", " "), run.id), msg: err.Error()}
-	final, rerr := tea.NewProgram(m).Run()
-	if rerr != nil {
-		return false, rerr
-	}
-	fm, ok := final.(uiErrorModel)
-	return ok && fm.back, nil
 }
 
 func (m uiTableModel) promptView() string {
@@ -229,6 +203,14 @@ func (m uiTableModel) promptView() string {
 	if p.cs.ConfirmMode == spec.ConfirmPrompt {
 		submit = p.uc.Label
 	}
-	b.WriteString(subtle.Render("  ctrl+s "+submit+"  esc cancel") + "\n")
+	switch {
+	case p.busy:
+		b.WriteString(subtle.Render("  Submitting…") + "\n")
+	case p.err != "":
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLIError)).Render("  error: "+p.err) + "\n")
+		b.WriteString(subtle.Render("  ctrl+s "+submit+"  esc cancel") + "\n")
+	default:
+		b.WriteString(subtle.Render("  ctrl+s "+submit+"  esc cancel") + "\n")
+	}
 	return b.String()
 }
