@@ -172,6 +172,17 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 			} else if uc.UpIdExpr == "" && upTargetRequiresId(verb, targetCs) {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: up_id_expr is required (%s %q requires an id)", noun, uc.Key, verb, uc.Noun))
 			}
+		case spec.UICommandPrompt:
+			if uc.Default {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: default is only allowed on text entries", noun, uc.Key))
+			}
+			if uc.Verb != VerbExecute && uc.Verb != VerbCreate && uc.Verb != VerbUpdate {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: verb must be %q, %q or %q", noun, uc.Key, VerbExecute, VerbCreate, VerbUpdate))
+			} else if targetCs := r.GetSpec(uc.Verb, uc.Noun); targetCs == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q does not resolve", noun, uc.Key, uc.Verb, uc.Noun))
+			} else if !hasFlag(targetCs, uc.InputFlag) {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: input_flag %q is not a flag of %s %q", noun, uc.Key, uc.InputFlag, uc.Verb, uc.Noun))
+			}
 		default:
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry %q: invalid ui_command_type %q", noun, uc.Key, uc.UICommandType))
 		}
@@ -180,6 +191,15 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 		errs = append(errs, fmt.Sprintf("noun %q: ui_commands requires exactly one default text entry, found %d", noun, defaultCount))
 	}
 	return errs
+}
+
+func hasFlag(cs *spec.CommandSpec, name string) bool {
+	for _, f := range cs.Flags {
+		if f.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // upTargetRequiresId reports whether an up entry's resolved target command
