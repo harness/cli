@@ -146,10 +146,12 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q does not resolve", noun, uc.Key, uc.Verb, uc.Noun))
 			} else if targetCs.Endpoint == nil {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q is not an endpoint command", noun, uc.Key, uc.Verb, uc.Noun))
-			} else if targetCs.ConfirmMode == spec.ConfirmID || targetCs.FollowFn != "" {
-				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q needs the terminal (confirm_mode id or follow_fn)", noun, uc.Key, uc.Verb, uc.Noun))
-			} else if !hasFlag(targetCs, uc.InputFlag) {
+			} else if targetCs.ConfirmMode == spec.ConfirmID || targetCs.FollowFn != "" || targetCs.HandlerType == spec.HandlerWorkflow || targetCs.WorkflowID != "" {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q needs the terminal (confirm_mode id, follow_fn or a workflow)", noun, uc.Key, uc.Verb, uc.Noun))
+			} else if f := findFlag(targetCs, uc.InputFlag); f == nil {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: input_flag %q is not a flag of %s %q", noun, uc.Key, uc.InputFlag, uc.Verb, uc.Noun))
+			} else if f.IsMulti || f.IsArray {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: input_flag %q must be a single-value flag (not is_multi or is_array)", noun, uc.Key, uc.InputFlag))
 			}
 		default:
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry %q: invalid ui_command_type %q", noun, uc.Key, uc.UICommandType))
@@ -161,13 +163,13 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 	return errs
 }
 
-func hasFlag(cs *spec.CommandSpec, name string) bool {
-	for _, f := range cs.Flags {
-		if f.Name == name {
-			return true
+func findFlag(cs *spec.CommandSpec, name string) *spec.Flag {
+	for i := range cs.Flags {
+		if cs.Flags[i].Name == name {
+			return &cs.Flags[i]
 		}
 	}
-	return false
+	return nil
 }
 
 // upTargetRequiresId reports whether an up entry's resolved target command

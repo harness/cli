@@ -127,14 +127,7 @@ func promptFlagValues(cs *spec.CommandSpec, inputFlag, text string) (map[string]
 		if f.Name != inputFlag {
 			continue
 		}
-		switch {
-		case f.IsMulti:
-			fv[f.Name] = []string{text}
-		case f.IsArray:
-			fv[f.Name] = parseArrayFlag(text)
-		default:
-			fv[f.Name] = text
-		}
+		fv[f.Name] = text
 		provided[f.Name] = true
 	}
 	if cs.ConfirmMode == spec.ConfirmPrompt {
