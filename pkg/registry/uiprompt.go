@@ -130,9 +130,6 @@ func promptFlagValues(cs *spec.CommandSpec, inputFlag, text string) (map[string]
 		fv[f.Name] = text
 		provided[f.Name] = true
 	}
-	if cs.ConfirmMode == spec.ConfirmPrompt {
-		fv["force"] = true
-	}
 	return fv, provided
 }
 
@@ -168,13 +165,8 @@ func runPromptCommand(ctx *cmdctx.Ctx, run *uiPromptRun) error {
 			return fmt.Errorf("flag --%s is required", f.Name)
 		}
 	}
-	runner, ok := ctx.Resolver.(interface {
-		RunCommandCtx(*cmdctx.Ctx, *spec.CommandSpec) error
-	})
-	if !ok {
-		return fmt.Errorf("resolver cannot run commands")
-	}
-	return runner.RunCommandCtx(pctx, cs)
+	_, err = RunEndpoint(pctx, cs.Endpoint)
+	return err
 }
 
 func (m uiTableModel) promptView() string {
