@@ -70,6 +70,13 @@ func TestValidateV1TargetRejectsNonStringMethod(t *testing.T) {
 	}
 }
 
+func TestInputSourceRejectsBothKeysEvenWithNull(t *testing.T) {
+	input := map[string]any{"source": "input", "template": nil, "selector": "text"}
+	if err := validateSource(input, "input", false); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("input source accepted both keys: %v", err)
+	}
+}
+
 func TestValidateEndpointRejectsSecretQueryValue(t *testing.T) {
 	err := validateEndpoint("https://example.test/chat?note=Bearer%20secret", "environment.endpoint")
 	if err == nil || strings.Contains(err.Error(), "Bearer secret") {

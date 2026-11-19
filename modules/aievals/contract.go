@@ -425,19 +425,10 @@ func validateSource(node map[string]any, label string, header bool) error {
 		}
 		return validateLiteralValue(value, label+".value")
 	case "input":
-		if _, both := node["template"]; both {
-			if _, also := node["selector"]; also {
-				return fmt.Errorf("%s input source requires template or selector, not both", label)
-			}
+		if hasKey(node, "template") && hasKey(node, "selector") {
+			return fmt.Errorf("%s input source requires template or selector, not both", label)
 		}
-		allowed := map[string]bool{"source": true}
-		if _, ok := node["template"]; ok {
-			allowed["template"] = true
-		}
-		if _, ok := node["selector"]; ok {
-			allowed["selector"] = true
-		}
-		if !sameKeys(node, allowed) || (node["template"] != nil && node["selector"] != nil && hasKey(node, "template") && hasKey(node, "selector")) {
+		if !subsetKeys(node, "source", "template", "selector") {
 			return fmt.Errorf("%s input source requires template or selector, not both", label)
 		}
 		if template, ok := node["template"]; ok {
