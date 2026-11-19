@@ -27,10 +27,10 @@ func promptTestModel(text string) uiTableModel {
 func ctrlS() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl} }
 
 func TestPromptKeys(t *testing.T) {
-	t.Run("ctrl+s on blank text does not submit", func(t *testing.T) {
-		m, cmd := promptTestModel("  \n ").handlePromptKey(ctrlS())
-		if cmd != nil || m.prompt.busy || m.prompt.err == "" {
-			t.Fatalf("blank submit: cmd=%v busy=%v err=%q", cmd != nil, m.prompt.busy, m.prompt.err)
+	t.Run("ctrl+s on empty text still submits", func(t *testing.T) {
+		m, cmd := promptTestModel("").handlePromptKey(ctrlS())
+		if cmd == nil || !m.prompt.busy {
+			t.Fatalf("empty submit: cmd=%v busy=%v", cmd != nil, m.prompt.busy)
 		}
 	})
 	t.Run("ctrl+s on text submits", func(t *testing.T) {

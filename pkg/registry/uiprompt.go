@@ -67,14 +67,9 @@ func (m uiTableModel) handlePromptKey(msg tea.KeyPressMsg) (uiTableModel, tea.Cm
 		m.prompt = nil
 		return m, nil
 	case "ctrl+s":
-		text := strings.TrimSpace(p.input.Value())
-		if text == "" {
-			p.err = "text is required"
-			return m, nil
-		}
 		p.busy = true
 		p.err = ""
-		return m, m.submitPrompt(text)
+		return m, m.submitPrompt(p.input.Value())
 	}
 	p.err = ""
 	var cmd tea.Cmd
