@@ -109,18 +109,6 @@ func slugIdentifier(value string) string {
 	return "app"
 }
 
-func uniqueStrings(in []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, item := range in {
-		if item != "" && !seen[item] {
-			seen[item] = true
-			out = append(out, item)
-		}
-	}
-	return out
-}
-
 func canonicalHeader(name string) string {
 	switch strings.ToLower(name) {
 	case "authorization":

@@ -15,6 +15,12 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+var legacyCandidateFields = map[string]bool{
+	"agent_id": true, "endpoint_url": true, "method": true, "request_field": true,
+	"request_fields": true, "response_path": true, "auth_header": true, "auth_env": true,
+	"input_text": true, "expected": true, "cases": true, "metrics": true,
+}
+
 // EvidenceRecord is one scanner observation. Source is a path, not a program.
 type EvidenceRecord struct {
 	Source     string `json:"source"`
@@ -618,23 +624,6 @@ func normalizeCandidate(candidate Candidate) (Candidate, error) {
 	return candidate, nil
 }
 
-func applySampleCases(files map[string]string, agent string, cases []SampleCase) error {
-	if len(cases) == 0 {
-		return nil
-	}
-	var body strings.Builder
-	for _, item := range cases {
-		row, err := json.Marshal(item)
-		if err != nil {
-			return err
-		}
-		body.Write(row)
-		body.WriteByte('\n')
-	}
-	files[fmt.Sprintf("datasets/%s.jsonl", agent)] = body.String()
-	return nil
-}
-
 func legacyCandidateDocument(repo string, candidate Candidate) (map[string]any, error) {
 	agent := candidate.AgentID
 	if agent == "" {
@@ -718,7 +707,7 @@ func writeV1Candidate(opts WriteOptions) (int, error) {
 		}
 	}
 	if !opts.Confirm {
-		return 2, &StatusError{Code: 2, Msg: stageConfirmMessage}
+		return 2, &StatusError{Code: 2, Msg: "stage requires --confirm after the user accepts the candidate. Nothing was written."}
 	}
 	if opts.Candidate.Wire["metrics"] == nil {
 		return 2, fmt.Errorf("metrics are required; choose the metrics to stage instead of defaulting to exact match")

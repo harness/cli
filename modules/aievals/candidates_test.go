@@ -64,6 +64,21 @@ func TestV1TreeFilesWritesConfirmedMetrics(t *testing.T) {
 	}
 }
 
+func TestLegacyOverridesDistinguishFlagsFromDocumentData(t *testing.T) {
+	for _, flags := range []Candidate{
+		{AgentID: "agent"}, {EndpointURL: "https://example.test"}, {Method: "POST"},
+		{RequestField: "text"}, {RequestFields: "text,region"}, {ResponsePath: "answer"},
+		{AuthHeader: "Authorization"}, {AuthEnv: "TEST_AUTH_ENV"}, {InputText: "question"}, {Expected: "answer"},
+	} {
+		if !legacyOverrideSet(flags) {
+			t.Errorf("legacy flag must be rejected with a v1 document: %+v", flags)
+		}
+	}
+	if legacyOverrideSet(Candidate{Wire: CanonicalOnboardingV1Candidate()}) {
+		t.Fatal("a v1 document without legacy flags was treated as an override")
+	}
+}
+
 func TestLegacyCandidateDocumentIncludesMetricSetReference(t *testing.T) {
 	document, err := legacyCandidateDocument("/tmp/support", Candidate{
 		AgentID:      "support",
