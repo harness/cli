@@ -760,19 +760,7 @@ func uploadWorkflow(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
-	apiAuth := ctx.ScopedAuth()
-	if apiURL := cmdctx.GetString(ctx.FlagValues, "api-url"); apiURL != "" {
-		scoped := *apiAuth
-		scoped.APIUrl = apiURL
-		apiAuth = &scoped
-	}
-	text, err := UploadArchiveContext(
-		ctx.Context,
-		apiAuth,
-		payload,
-		cmdctx.GetString(ctx.FlagValues, "api-base-path"),
-		nil,
-	)
+	text, err := UploadArchiveContext(ctx.Context, ctx.ScopedAuth(), payload, "", nil)
 	if err != nil {
 		return err
 	}
