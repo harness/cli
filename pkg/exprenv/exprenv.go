@@ -12,6 +12,7 @@ import (
 
 	"github.com/expr-lang/expr"
 
+	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/exprenv/exprfuncs"
 	"github.com/harness/cli/v3/pkg/spec"
@@ -87,7 +88,10 @@ func newIdJoin(formats []spec.IdFormat) func(parts ...any) string {
 // Make builds the expr-lang environment from ctx.
 // Flags are exposed as a flat map under "flags".
 func Make(ctx *cmdctx.Ctx) map[string]any {
-	a := ctx.Auth
+	var a *auth.ResolvedAuth
+	if ctx.Auth != nil {
+		a = ctx.ScopedAuth()
+	}
 
 	parts := []string{}
 	if a != nil {
