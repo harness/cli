@@ -102,6 +102,31 @@ func TestCredentialErrorsRedactKeysAndValues(t *testing.T) {
 	}
 }
 
+func TestValidateV1SeparatesAgentAndStageDocuments(t *testing.T) {
+	agent := CanonicalOnboardingV1Candidate()
+	stage := cloneValue(agent).(map[string]any)
+	stage["cases"] = []any{map[string]any{"id": "smoke", "input": "hello"}}
+	if err := validateV1Document(stage); err != nil {
+		t.Fatalf("stage document with cases: %v", err)
+	}
+	if err := validateV1AgentDocument(agent); err != nil {
+		t.Fatalf("agent document without cases: %v", err)
+	}
+	if err := validateV1Document(agent); err == nil || !strings.Contains(err.Error(), "cases") {
+		t.Fatalf("stage accepted the agent document without cases: %v", err)
+	}
+	stage["evals"].([]any)[0].(map[string]any)["dataset"] = "../answers.jsonl"
+	if err := validateV1Document(stage); err == nil || !strings.Contains(err.Error(), "dataset") {
+		t.Fatalf("stage accepted a dataset outside the tree: %v", err)
+	}
+}
+
+func TestSanitizeSourcePathPreservesNeighbors(t *testing.T) {
+	if got := sanitizeSourcePath("src/auth/chat.py"); got != "src/[redacted]/chat.py" {
+		t.Fatalf("sanitizeSourcePath() = %q", got)
+	}
+}
+
 func TestScanStagedValueAllowsSchemaSecretReferences(t *testing.T) {
 	if err := scanStagedValue(CanonicalOnboardingV1Candidate(), "candidate"); err != nil {
 		t.Fatalf("scanStagedValue() rejected valid secret references: %v", err)

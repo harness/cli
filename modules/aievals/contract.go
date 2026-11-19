@@ -19,10 +19,6 @@ import (
 // The runner handshake in SchemaVersion is enforced by the released runtime.
 const SchemaVersionV1 = "onboarding/v1"
 
-// stageConfirmMessage is the reason a valid candidate does not write.
-// Confirmation is the --confirm flag so the JSON stays the D2 document.
-const stageConfirmMessage = "stage requires --confirm after the user accepts the candidate. Nothing was written."
-
 // These patterns are copied from D2 service/ai_evals/onboarding/contract.py.
 // Do not add Go-only aliases. env_name and secret_ref are rejected on purpose.
 var (
@@ -82,12 +78,6 @@ var v1TargetFields = map[string]bool{
 
 var v1Methods = map[string]bool{
 	"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true,
-}
-
-var legacyCandidateFields = map[string]bool{
-	"agent_id": true, "endpoint_url": true, "method": true, "request_field": true,
-	"request_fields": true, "response_path": true, "auth_header": true, "auth_env": true,
-	"input_text": true, "expected": true, "cases": true, "metrics": true,
 }
 
 func unsupportedSchemaVersion(_ any) error {
@@ -305,7 +295,7 @@ func validateV1Target(target map[string]any) error {
 	method = strings.ToUpper(method)
 	target["method"] = method
 	if !v1Methods[method] {
-		return fmt.Errorf("target.method %s is not supported by %s. Use GET, POST, PUT, PATCH, or DELETE.", publicKey(method), SchemaVersionV1)
+		return fmt.Errorf("target.method %s is not supported by %s. Use GET, POST, PUT, PATCH, or DELETE", publicKey(method), SchemaVersionV1)
 	}
 	template, ok := target["request_template"].(map[string]any)
 	if !ok || len(template) == 0 {
@@ -355,7 +345,7 @@ func validateV1Headers(headers map[string]any, label string) error {
 			return fmt.Errorf("%s must be an HTTP header name", headerLabel)
 		}
 		if isCredentialName(name) && !approvedSecretSource(value) {
-			return fmt.Errorf("%s cannot carry a literal credential. Use source env or source harness_secret. The literal value is not accepted.", headerLabel)
+			return fmt.Errorf("%s cannot carry a literal credential. Use source env or source harness_secret. The literal value is not accepted", headerLabel)
 		}
 		if err := validateTemplateNode(value, headerLabel, true); err != nil {
 			return err
@@ -471,7 +461,7 @@ func validateSource(node map[string]any, label string, header bool) error {
 		return nil
 	case "harness_secret":
 		if _, ok := node["value"]; ok {
-			return fmt.Errorf("%s is a Harness secret and cannot contain a value. Declare an environment variable mapping or a .env variable name.", label)
+			return fmt.Errorf("%s is a Harness secret and cannot contain a value. Declare an environment variable mapping or a .env variable name", label)
 		}
 		if _, ok := node["ref"]; !ok || !subsetKeys(node, "source", "ref", "env") {
 			return fmt.Errorf("%s harness_secret source requires ref and optional env", label)
@@ -494,7 +484,7 @@ func validateSource(node map[string]any, label string, header bool) error {
 
 func rejectLegacySourceFields(node map[string]any, label string) error {
 	if _, ok := node["env_name"]; ok || hasKey(node, "secret_ref") {
-		return fmt.Errorf("%s uses a legacy source field. Use source env with name, or source harness_secret with ref and optional env. env_name and secret_ref are not accepted.", label)
+		return fmt.Errorf("%s uses a legacy source field. Use source env with name, or source harness_secret with ref and optional env. env_name and secret_ref are not accepted", label)
 	}
 	return nil
 }
@@ -515,7 +505,7 @@ func validateTemplateString(value any, label string) error {
 			if secretShaped(shown) {
 				shown = "<redacted>"
 			}
-			return fmt.Errorf("%s placeholder %q is not supported. Use {{input}}, {{input.<selector>}}, {{metadata.<selector>}}, or {{env.<name>}}.", label, shown)
+			return fmt.Errorf("%s placeholder %q is not supported. Use {{input}}, {{input.<selector>}}, {{metadata.<selector>}}, or {{env.<name>}}", label, shown)
 		}
 	}
 	return nil
@@ -654,7 +644,7 @@ func validateQueryParams(raw any, label string) error {
 		}
 		item := label + "." + publicUnknownKey(key)
 		if isCredentialName(key) {
-			return fmt.Errorf("%s is a credential query parameter. Put credentials in auth_headers using source env or source harness_secret. The value is not accepted.", item)
+			return fmt.Errorf("%s is a credential query parameter. Put credentials in auth_headers using source env or source harness_secret. The value is not accepted", item)
 		}
 		if err := validateQueryValue(value, item); err != nil {
 			return err
@@ -670,7 +660,7 @@ func validateQueryValue(value any, label string) error {
 			source, _ := object["source"].(string)
 			switch source {
 			case "harness_secret":
-				return fmt.Errorf("%s cannot reference a Harness secret. Put credentials in auth_headers. The value is not accepted.", label)
+				return fmt.Errorf("%s cannot reference a Harness secret. Put credentials in auth_headers. The value is not accepted", label)
 			case "input", "metadata":
 				return queryTemplateError(label)
 			case "env":
@@ -685,7 +675,7 @@ func validateQueryValue(value any, label string) error {
 				}
 				return ensureQueryScalar(literal, label+".value")
 			default:
-				return fmt.Errorf("%s source must be literal or env. Query parameters do not render input or metadata templates.", label)
+				return fmt.Errorf("%s source must be literal or env. Query parameters do not render input or metadata templates", label)
 			}
 		}
 	}
@@ -699,13 +689,13 @@ func validateQueryValue(value any, label string) error {
 }
 
 func queryTemplateError(label string) error {
-	return fmt.Errorf("%s cannot use an input or metadata template. Query parameters accept a literal scalar or source env. Per-item templates are not rendered on the query string.", label)
+	return fmt.Errorf("%s cannot use an input or metadata template. Query parameters accept a literal scalar or source env. Per-item templates are not rendered on the query string", label)
 }
 
 func ensureQueryScalar(value any, label string) error {
 	switch value.(type) {
 	case map[string]any, []any:
-		return fmt.Errorf("%s must be a literal scalar or source env. Objects and lists are not query parameters.", label)
+		return fmt.Errorf("%s must be a literal scalar or source env. Objects and lists are not query parameters", label)
 	default:
 		return ensureJSONScalar(value, label)
 	}
@@ -729,15 +719,12 @@ func validateAuthHeaders(raw any, label string, existing map[string]any) error {
 		}
 		folded := strings.ToLower(name)
 		if previous, ok := occupied[folded]; ok {
-			return fmt.Errorf("%s.%s duplicates header %q. Name each auth header once.", label, publicKey(name), publicKey(previous))
+			return fmt.Errorf("%s.%s duplicates header %q. Name each auth header once", label, publicKey(name), publicKey(previous))
 		}
-		body, ok := value.(map[string]any)
-		if !ok {
-			return fmt.Errorf("%s.%s must reference an environment variable or a named Harness secret, not a literal value.", label, publicKey(name))
-		}
+		body, _ := value.(map[string]any)
 		source, _ := body["source"].(string)
 		if source != "env" && source != "harness_secret" {
-			return fmt.Errorf("%s.%s must reference an environment variable or a named Harness secret, not a literal value.", label, publicKey(name))
+			return fmt.Errorf("%s.%s must reference an environment variable or a named Harness secret, not a literal value", label, publicKey(name))
 		}
 		if err := validateSource(body, label+"."+publicKey(name), true); err != nil {
 			return err
@@ -920,7 +907,7 @@ func validateV1Environments(raw any) error {
 						}
 					}
 					if _, hasValue := mapping["value"]; hasValue {
-						return fmt.Errorf("%s cannot contain a value. Map the Harness secret to an environment variable name.", refLabel)
+						return fmt.Errorf("%s cannot contain a value. Map the Harness secret to an environment variable name", refLabel)
 					}
 					env, _ := mapping["env"].(string)
 					if !matchesPattern(envNamePattern, env) {
@@ -952,11 +939,11 @@ func validateEndpoint(endpoint, label string) error {
 	}
 	for key, values := range query {
 		if isCredentialName(key) || secretShaped(key) {
-			return fmt.Errorf("%s includes a credential query parameter. Remove it from the endpoint and declare it under auth_headers with source env or source harness_secret. The value is not accepted.", label)
+			return fmt.Errorf("%s includes a credential query parameter. Remove it from the endpoint and declare it under auth_headers with source env or source harness_secret. The value is not accepted", label)
 		}
 		for _, value := range values {
 			if secretShaped(value) {
-				return fmt.Errorf("%s includes a credential-shaped query value. Move credentials to auth_headers with source env or source harness_secret. The value is not accepted.", label)
+				return fmt.Errorf("%s includes a credential-shaped query value. Move credentials to auth_headers with source env or source harness_secret. The value is not accepted", label)
 			}
 		}
 	}
@@ -1479,27 +1466,4 @@ func SerializeOnboardingV1Candidate() ([]byte, error) {
 		return nil, err
 	}
 	return append(encoded, '\n'), nil
-}
-
-func renderInputPlaceholder(node map[string]any) (string, error) {
-	template, hasTemplate := node["template"]
-	selector, hasSelector := node["selector"]
-	if hasTemplate && hasSelector {
-		return "", fmt.Errorf("input source accepts template or selector, not both")
-	}
-	if hasTemplate {
-		text, ok := template.(string)
-		if !ok {
-			return "", fmt.Errorf("template must be a string")
-		}
-		return text, nil
-	}
-	if !hasSelector {
-		return "{{input}}", nil
-	}
-	text, ok := selector.(string)
-	if !ok || !matchesPattern(inputSelector, text) {
-		return "", fmt.Errorf("selector must be a dotted or indexed input path such as items.0 or user.name")
-	}
-	return "{{input." + text + "}}", nil
 }
