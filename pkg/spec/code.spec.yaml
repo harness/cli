@@ -853,7 +853,7 @@ commands:
           expr: it.repository.identifier
         - id: url
           label: URL
-          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code" + (auth.org != "" ? "/orgs/" + auth.org : "") + (auth.project != "" ? "/projects/" + auth.project : "") + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
       columns: [repo, number, title, state, source_branch, target_branch, updated]
 
   - command: list pr:review_pending
@@ -897,7 +897,7 @@ commands:
           expr: it.repository.identifier
         - id: url
           label: URL
-          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code" + (auth.org != "" ? "/orgs/" + auth.org : "") + (auth.project != "" ? "/projects/" + auth.project : "") + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
       columns: [repo, number, title, state, source_branch, target_branch, updated]
 
   - command: list pr
