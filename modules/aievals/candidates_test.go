@@ -125,21 +125,41 @@ func TestStageLegacyJSONPreservesNumericThreshold(t *testing.T) {
 }
 
 func TestWriteV1CandidateRejectsConflictingGeneratedPaths(t *testing.T) {
-	for _, ref := range []string{"agents/support-agent/agent.yaml", "./agents/support-agent/agent.yaml"} {
-		t.Run(ref, func(t *testing.T) {
+	for _, tc := range []struct{ ref, reason string }{
+		{"agents/support-agent/agent.yaml", "metric_set path conflicts"},
+		{"./agents/support-agent/agent.yaml", "metric_set path conflicts"},
+		{"agents/support-agent/agent.yaml/metrics.yaml", "file as its parent"},
+	} {
+		t.Run(tc.ref, func(t *testing.T) {
 			repo := t.TempDir()
 			wire := CanonicalOnboardingV1Candidate()
-			wire["evals"].([]any)[0].(map[string]any)["metric_set"] = ref
+			wire["evals"].([]any)[0].(map[string]any)["metric_set"] = tc.ref
 			wire["cases"] = []any{map[string]any{"id": "case-1", "input": "hello"}}
 			wire["metrics"] = []any{map[string]any{"kind": "contains", "threshold": 0.8}}
 			code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: Candidate{Wire: wire}, Confirm: true})
-			if code != 2 || err == nil || !strings.Contains(err.Error(), "metric_set path conflicts") {
+			if code != 2 || err == nil || !strings.Contains(err.Error(), tc.reason) {
 				t.Fatalf("WriteCandidate() = (%d, %v), want a path collision", code, err)
 			}
 			if _, err := os.Stat(filepath.Join(repo, ".harness")); !os.IsNotExist(err) {
 				t.Fatalf("path collision left staged files: %v", err)
 			}
 		})
+	}
+}
+
+func TestWriteV1CandidateAllowsNormalizedSharedRefs(t *testing.T) {
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := CanonicalOnboardingV1Candidate()
+	wire["evals"] = append(wire["evals"].([]any), map[string]any{
+		"identifier": "other", "name": "Other", "dataset": "./datasets/answers.jsonl", "metric_set": "./metric-sets/quality.yaml",
+	})
+	wire["cases"] = []any{map[string]any{"id": "case-1", "input": "hello"}}
+	wire["metrics"] = []any{map[string]any{"kind": "contains", "threshold": 0.8}}
+	if code, err := WriteCandidate(WriteOptions{Repo: repo, Candidate: Candidate{Wire: wire}, Confirm: true}); code != 0 || err != nil {
+		t.Fatalf("WriteCandidate() = (%d, %v), want a shared dataset and metric set", code, err)
 	}
 }
 

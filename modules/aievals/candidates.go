@@ -768,36 +768,27 @@ func v1TreeFiles(candidate Candidate, definitions map[string]MetricDefinition) (
 	if err != nil {
 		return nil, err
 	}
-	for _, rel := range datasetRefs(doc) {
-		if err := addGeneratedTreeFile(files, rel, body, "dataset"); err != nil {
-			return nil, err
-		}
+	if err := addGeneratedTreeRefs(files, doc, body, "dataset"); err != nil {
+		return nil, err
 	}
 	if hasMetrics && rawMetrics != nil {
 		metricBody, err := metricSetBody(rawMetrics, agent, definitions)
 		if err != nil {
 			return nil, err
 		}
-		for _, rel := range metricSetRefs(doc) {
-			if err := addGeneratedTreeFile(files, rel, metricBody, "metric_set"); err != nil {
-				return nil, err
+		if err := addGeneratedTreeRefs(files, doc, metricBody, "metric_set"); err != nil {
+			return nil, err
+		}
+	}
+	// Preflight generated parents before either staging path can write files.
+	for rel := range files {
+		for parent := filepath.Dir(rel); parent != "."; parent = filepath.Dir(parent) {
+			if _, exists := files[filepath.ToSlash(parent)]; exists {
+				return nil, fmt.Errorf("generated tree path has a file as its parent")
 			}
 		}
 	}
 	return files, nil
-}
-
-func addGeneratedTreeFile(files map[string]string, rel, body, field string) error {
-	if err := relativeTreePath(rel); err != nil {
-		return err
-	}
-	// Check the same path that will be written, including aliases with ./.
-	path := filepath.ToSlash(filepath.Clean(rel))
-	if _, exists := files[path]; exists {
-		return fmt.Errorf("generated %s path conflicts with another tree file", field)
-	}
-	files[path] = body
-	return nil
 }
 
 func datasetBody(cases []SampleCase, doc map[string]any) (string, error) {
@@ -852,14 +843,6 @@ func sampleCasesValue(cases []SampleCase) (any, error) {
 		return nil, err
 	}
 	return decodeJSONValue(encoded)
-}
-
-func datasetRefs(doc map[string]any) []string {
-	return evalRefs(doc, "dataset")
-}
-
-func metricSetRefs(doc map[string]any) []string {
-	return evalRefs(doc, "metric_set")
 }
 
 func metricSetBody(raw any, agent string, definitions map[string]MetricDefinition) (string, error) {
@@ -936,25 +919,33 @@ func metricSetBody(raw any, agent string, definitions map[string]MetricDefinitio
 	return string(encoded), nil
 }
 
-func evalRefs(doc map[string]any, field string) []string {
+func addGeneratedTreeRefs(files map[string]string, doc map[string]any, contents, field string) error {
 	evals, _ := doc["evals"].([]any)
-	var refs []string
 	seen := map[string]bool{}
 	for _, item := range evals {
 		body, _ := item.(map[string]any)
 		rel, _ := body[field].(string)
-		if rel == "" || seen[rel] {
+		if rel == "" {
 			continue
 		}
-		seen[rel] = true
-		refs = append(refs, rel)
+		if err := relativeTreePath(rel); err != nil {
+			return err
+		}
+		path := filepath.ToSlash(filepath.Clean(rel))
+		if seen[path] {
+			continue // Evals of the same kind may share one generated file.
+		}
+		if _, exists := files[path]; exists {
+			return fmt.Errorf("generated %s path conflicts with another tree file", field)
+		}
+		files[path], seen[path] = contents, true
 	}
-	return refs
+	return nil
 }
 
 func relativeTreePath(rel string) error {
 	clean := filepath.Clean(rel)
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) || strings.Contains(rel, "\\") {
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" || strings.Contains(rel, "\\") {
 		return fmt.Errorf("candidate path escapes the tree: %s", rel)
 	}
 	return nil
