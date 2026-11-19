@@ -150,6 +150,8 @@ type Request struct {
 	Headers    map[string]string
 	// NoAccountID, when true, omits the accountIdentifier query param for this request.
 	NoAccountID bool
+	// NoRedirect disables redirect following for DoRaw only.
+	NoRedirect bool
 }
 
 // Client makes authenticated HTTP requests to the Harness API.
@@ -294,7 +296,8 @@ func (c *Client) DoRequest(r Request) (any, http.Header, error) {
 }
 
 // DoRaw executes a Request and returns the raw *http.Response. The caller is responsible
-// for closing resp.Body. Use this for binary responses or large downloads.
+// for closing resp.Body. Use this for binary responses or large downloads. When r.NoRedirect
+// is true, the original 3xx response is returned without following the redirect.
 func (c *Client) DoRaw(r Request) (*http.Response, error) {
 	req, u, err := c.buildRequest(r)
 	if err != nil {
@@ -303,7 +306,15 @@ func (c *Client) DoRaw(r Request) (*http.Response, error) {
 	if err := c.previewRequest(req); err != nil {
 		return nil, err
 	}
-	resp, err := DoWithProxyCheck(c.http, req)
+	httpClient := c.http
+	if r.NoRedirect {
+		clientCopy := *c.http
+		clientCopy.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		httpClient = &clientCopy
+	}
+	resp, err := DoWithProxyCheck(httpClient, req)
 	if err != nil {
 		nerr := networkError(err, c.resolved.APIUrl)
 		hlog.Info(r.Method+" "+u.Path, "error", nerr)
