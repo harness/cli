@@ -10,10 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
-	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/hbase"
 )
 
@@ -249,45 +249,35 @@ func readHandshake(home string) (handshake, error) {
 	return recorded, nil
 }
 
-// SSORunnerNotice is printed when the active login cannot be forwarded to the
-// Python runner. The D2 runner sends HARNESS_API_KEY as x-api-key and accepts
-// PAT, SAT, and pipeline st.* tokens.
-const SSORunnerNotice = "The Python runner cannot use this SSO session. onboard-run accepts a PAT or SAT as HARNESS_API_KEY (x-api-key), or a pipeline HARNESS_TOKEN when the command is running in pipeline mode. The SSO access token was not sent to the runner."
+// Keep the 0.7.13 pin usable without trusting older python-dotenv versions
+// that silently ignore PYTHON_DOTENV_DISABLED. Test it without reading a file.
+const onboardBootstrap = `from io import StringIO
+from dotenv import load_dotenv
+if load_dotenv(stream=StringIO('AIEVALS_DOTENV_PROBE=1'), override=True):
+    raise SystemExit('The pinned runner does not honor PYTHON_DOTENV_DISABLED; use the approved runner environment.')
+from ai_evals.runner.cli import app
+app()`
 
-// RunnerProcessEnv returns environment assignments for the runner child.
-// PAT and SAT are forwarded. An SSO token is omitted.
-func RunnerProcessEnv(a *auth.ResolvedAuth) (env []string, notice string) {
-	if a == nil {
-		return nil, ""
-	}
-	if a.AuthType == auth.AuthTypeSSO || a.TokenKind == auth.TokenKindJWT {
-		return nil, SSORunnerNotice
-	}
-	token := a.PATToken
-	if a.Source == auth.SourcePipeline {
-		// Pipeline auth resolves the configured header rather than a PAT profile.
-		token = a.Headers["x-api-key"]
-	}
-	if token == "" {
-		return nil, ""
-	}
-	kind := auth.TokenType(token)
-	if kind != auth.TokenKindPAT && kind != auth.TokenKindSAT {
-		if kind != auth.TokenKindST {
-			return nil, SSORunnerNotice
+var runnerEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func selectedRunnerEnv(names []string) ([]string, error) {
+	var env []string
+	for _, name := range names {
+		if !runnerEnvName.MatchString(name) {
+			return nil, fmt.Errorf("--env requires an exported variable name, not a value or assignment")
+		}
+		upper := strings.ToUpper(name)
+		if strings.HasPrefix(upper, "HARNESS_") || strings.HasPrefix(upper, "PYTHON") ||
+			strings.HasPrefix(upper, "LD_") || strings.HasPrefix(upper, "DYLD_") {
+			return nil, fmt.Errorf("--env cannot pass Harness credentials or process configuration")
+		}
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
+		} else {
+			return nil, fmt.Errorf("--env variable %s is not exported", name)
 		}
 	}
-	tokenEnv := "HARNESS_API_KEY"
-	if a.Source == auth.SourcePipeline || kind == auth.TokenKindST {
-		tokenEnv = "HARNESS_TOKEN"
-	}
-	return []string{
-		tokenEnv + "=" + token,
-		"HARNESS_ACCOUNT_ID=" + a.AccountID,
-		"HARNESS_ORG_ID=" + a.OrgID,
-		"HARNESS_PROJECT_ID=" + a.ProjectID,
-		"HARNESS_BASE_URL=" + strings.TrimRight(a.APIUrl, "/"),
-	}, ""
+	return env, nil
 }
 
 func defaultCommand(name string, args []string, env []string, dir string) (CommandResult, error) {
@@ -320,24 +310,12 @@ func defaultCommandContext(ctx context.Context, name string, args []string, env 
 }
 
 func sanitizedRunnerEnv(extra []string) []string {
-	const (
-		token     = "HARNESS_TOKEN"
-		apiKey    = "HARNESS_API_KEY"
-		accountID = "HARNESS_ACCOUNT_ID"
-		orgID     = "HARNESS_ORG_ID"
-		projectID = "HARNESS_PROJECT_ID"
-		baseURL   = "HARNESS_BASE_URL"
-		apiURL    = "HARNESS_API_URL"
-	)
-	sensitive := map[string]bool{
-		token: true, apiKey: true, accountID: true, orgID: true, projectID: true, baseURL: true, apiURL: true,
-	}
-	env := make([]string, 0, len(os.Environ())+len(extra))
-	for _, value := range os.Environ() {
-		name, _, _ := strings.Cut(value, "=")
-		// Windows environment keys are case-insensitive.
-		if !sensitive[strings.ToUpper(name)] {
-			env = append(env, value)
+	// The pinned runner binaries use absolute paths, so they don't need the
+	// caller's PATH, HOME, or provider environment to start.
+	env := []string{"PYTHON_DOTENV_DISABLED=1"}
+	for _, name := range []string{"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE"} {
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
 		}
 	}
 	return append(env, extra...)

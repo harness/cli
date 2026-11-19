@@ -16,7 +16,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/format"
 	"github.com/harness/cli/v3/pkg/hbase"
@@ -54,7 +53,6 @@ func Setup(opts SetupOptions) (int, error) {
 	return 0, nil
 }
 
-// RunAgent verifies the pinned runner and invokes onboard-run.
 // RunnerV1Remediation is the exact failure when the pinned runner cannot
 // execute an onboarding/v1 tree. The tree is left unchanged.
 func RunnerV1Remediation() string {
@@ -82,11 +80,12 @@ func treeRequiresV1Runner(root string) (bool, error) {
 	return false, nil
 }
 
-func RunAgent(home, root, agent, environment string, resolved *auth.ResolvedAuth, stderr io.Writer, run CommandFunc) (int, error) {
-	return RunAgentContext(context.Background(), home, root, agent, environment, resolved, stderr, run)
-}
-
-func RunAgentContext(ctx context.Context, home, root, agent, environment string, resolved *auth.ResolvedAuth, stderr io.Writer, run CommandFunc) (int, error) {
+// runAgent verifies the pinned runner before handing an explicitly selected environment to it.
+func runAgent(ctx context.Context, home, root, agent, environment string, envNames []string, stderr io.Writer, run CommandFunc) (int, error) {
+	env, err := selectedRunnerEnv(envNames)
+	if err != nil {
+		return 2, err
+	}
 	if run == nil {
 		run = runnerCommand(ctx)
 	}
@@ -101,12 +100,10 @@ func RunAgentContext(ctx context.Context, home, root, agent, environment string,
 	if err != nil {
 		return 1, err
 	}
-	env, notice := RunnerProcessEnv(resolved)
-	if notice != "" && stderr != nil {
-		fmt.Fprintln(stderr, notice)
-	}
 	args := OnboardArgs(layout.AIEvals, root, agent, environment)
-	result, err := run(args[0], args[1:], env, filepath.Dir(root))
+	// Use the venv interpreter in isolated mode; the bootstrap refuses to run if
+	// this installation of python-dotenv ignores the no-auto-load setting.
+	result, err := run(layout.Python, append([]string{"-I", "-c", onboardBootstrap}, args[1:]...), env, filepath.Dir(root))
 	if err != nil {
 		return 1, err
 	}
@@ -314,7 +311,7 @@ func runWorkflow(ctx *cmdctx.Ctx) error {
 		}
 		root = filepath.Join(wd, root)
 	}
-	code, err := RunAgentContext(ctx.Context, RunnerHome(), root, ctx.Id, cmdctx.GetString(ctx.FlagValues, "environment"), ctx.ScopedAuth(), os.Stderr, nil)
+	code, err := runAgent(ctx.Context, RunnerHome(), root, ctx.Id, cmdctx.GetString(ctx.FlagValues, "environment"), cmdctx.GetStringSlice(ctx.FlagValues, "env"), os.Stderr, nil)
 	return finish(code, err)
 }
 

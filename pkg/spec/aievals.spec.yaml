@@ -45,7 +45,7 @@ help_text: |
   ### Onboarding
 
   Enable this hidden module with `harness install module aievals`.
-  `install eval_onboarding:skill` installs or prints the AI Evals skill and does not write eval files.
+  `configure eval_onboarding:skill` writes or prints the AI Evals skill and does not write eval files.
   `execute eval_onboarding:scan` prints candidate JSON; `list eval_onboarding:metrics` prints the SDK metric catalog.
   `execute eval_onboarding:stage` validates candidate values and writes `.harness/evals`.
   `execute eval_onboarding:run <agent-id>` invokes `ai-evals onboard-run`.
@@ -2235,12 +2235,13 @@ commands:
 
   # ── eval_onboarding ───────────────────────────────────────────────────────────
 
-  - command: install eval_onboarding:skill
-    verb: install
+  - command: configure eval_onboarding:skill
+    verb: configure
     noun: eval_onboarding
     noun_variant: skill
+    no_id: true
     no_auth: true
-    short: Install or print the AI Evals skill
+    short: Write or print the AI Evals skill
     long: |
       Writes the AI Evals skill to an explicit or detected coding-agent
       directory, or to stdout when neither is available. Does not scan the
@@ -2338,22 +2339,18 @@ commands:
     noun: eval_onboarding
     noun_variant: run
     id_label: "<agent-id>"
+    no_auth: true
     short: Run a staged agent through the pinned AI Evals runner
     long: |
       Verifies the pinned ai-evals-runner, then invokes
       `ai-evals onboard-run --root <root> --agent <identifier> --environment local`.
       local is the default. An onboarding/v1 tree fails closed when the pinned
       runner schema is not onboarding/v1. The files are not modified and query
-      or auth fields are not removed. A PAT or SAT is passed to the runner. An
-      SSO session is not. Use --profile <name> or HARNESS_PROFILE to select an
-      existing profile; this command never changes profiles.
+      or auth fields are not removed. Harness login is not required and Harness
+      credentials are not passed to the runner. Pass --env NAME once per approved
+      application variable. The runner does not read .env automatically.
     handler_type: workflow
     workflow_id: run
-    pipeline_auth:
-      token_envvar: HARNESS_TOKEN
-      apiurl_envvar: HARNESS_BASE_URL
-      headers:
-        x-api-key: token
     flags:
       - name: root
         description: Path to the .harness/evals directory
@@ -2361,6 +2358,9 @@ commands:
       - name: environment
         description: local (default) or the name of a live environment
         default: local
+      - name: env
+        is_multi: true
+        description: Exported application variable name to pass to the runner (repeatable, no values)
 
   - command: create eval_onboarding:archive
     verb: create

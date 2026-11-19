@@ -15,9 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
-	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 func TestVerifyRunnerRejectsVersionMismatchWithFreshHandshake(t *testing.T) {
@@ -109,48 +107,60 @@ func TestVerifyRunnerRecordsMissingHandshakeAfterPinnedProbe(t *testing.T) {
 	}
 }
 
-func TestSanitizedRunnerEnvDropsAmbientCredentials(t *testing.T) {
-	t.Setenv("HARNESS_API_KEY", "ambient-key")
-	t.Setenv("HARNESS_TOKEN", "ambient-token")
-	t.Setenv("HARNESS_ACCOUNT_ID", "ambient-account")
-	t.Setenv("HARNESS_ORG_ID", "ambient-org")
-	t.Setenv("HARNESS_PROJECT_ID", "ambient-project")
-	values := strings.Join(sanitizedRunnerEnv([]string{"HARNESS_API_KEY=explicit-key"}), "\n")
-	for _, leaked := range []string{"ambient-key", "ambient-token", "ambient-account", "ambient-org", "ambient-project"} {
-		if strings.Contains(values, leaked) {
-			t.Fatalf("sanitizedRunnerEnv() leaked %q", leaked)
+func TestRunnerEnvPassesOnlyOptedInApplicationVariables(t *testing.T) {
+	for _, name := range []string{"HARNESS_API_KEY", "HARNESS_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "APP_SELECTED"} {
+		t.Setenv(name, "fixture")
+	}
+	t.Setenv("PYTHON_DOTENV_DISABLED", "0")
+	selected, err := selectedRunnerEnv([]string{"APP_SELECTED"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := strings.Join(sanitizedRunnerEnv(selected), "\n")
+	for _, name := range []string{"HARNESS_API_KEY", "HARNESS_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"} {
+		if strings.Contains(env, name+"=") {
+			t.Fatalf("runner inherited %s", name)
 		}
 	}
-	if !strings.Contains(values, "HARNESS_API_KEY=explicit-key") {
-		t.Fatalf("sanitizedRunnerEnv() dropped explicit runner credential")
+	if !strings.Contains(env, "APP_SELECTED=fixture") || !strings.Contains(env, "PYTHON_DOTENV_DISABLED=1") {
+		t.Fatal("runner needs the selected variable and the fixed dotenv policy")
+	}
+	for _, name := range []string{"HaRNeSS_TOKEN", "PYTHON_DOTENV_DISABLED", "LD_PRELOAD", "APP_SELECTED=fixture"} {
+		if _, err := selectedRunnerEnv([]string{name}); err == nil {
+			t.Fatal("accepted a reserved variable or assignment")
+		}
 	}
 }
 
-func TestRunnerProcessEnvForwardsPipelineTokenAsHarnessToken(t *testing.T) {
-	t.Setenv(hbase.EnvPipelineID, "test-pipeline")
-	t.Setenv(hbase.EnvAccountID, "account")
-	t.Setenv(hbase.EnvOrgID, "org")
-	t.Setenv(hbase.EnvProjectID, "project")
-	t.Setenv("HARNESS_TOKEN", "st.account.pipeline")
-	t.Setenv("HARNESS_BASE_URL", "https://example.test")
-	resolved, handled, err := auth.ResolvePipelineAuth(&auth.PipelineAuthConfig{
-		TokenEnvVar: "HARNESS_TOKEN", APIURLEnvVar: "HARNESS_BASE_URL",
-	}, true, func(_ map[string]string, token string) map[string]string {
-		return map[string]string{"x-api-key": token}
-	})
-	if err != nil || !handled {
-		t.Fatalf("ResolvePipelineAuth() handled = %v, error = %v", handled, err)
+func TestRunAgentPassesOptedInEnvOnlyToExecution(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(pythonBin(home)), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	env, notice := RunnerProcessEnv(resolved)
-	if notice != "" {
-		t.Fatalf("RunnerProcessEnv() notice = %q", notice)
+	for _, file := range []string{pythonBin(home), bin(home, "ai-evals")} {
+		if err := os.WriteFile(file, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	joined := strings.Join(env, "\n")
-	if !strings.Contains(joined, "HARNESS_TOKEN=st.account.pipeline") {
-		t.Fatalf("RunnerProcessEnv() did not forward pipeline token: %v", env)
+	t.Setenv("TARGET_AUTH_TEST", "fixture")
+	root := t.TempDir()
+	called := false
+	run := func(name string, args, env []string, dir string) (CommandResult, error) {
+		if len(args) > 2 && args[2] == onboardBootstrap {
+			called = true
+			if name != pythonBin(home) || args[0] != "-I" || args[3] != OnboardCommand || dir != filepath.Dir(root) {
+				t.Fatal("runner must launch the pinned interpreter in isolated mode")
+			}
+			if len(env) != 1 || env[0] != "TARGET_AUTH_TEST=fixture" {
+				t.Fatal("execution did not receive exactly the selected variable")
+			}
+		} else if len(env) != 0 {
+			t.Fatal("a runner probe received application credentials")
+		}
+		return CommandResult{Stdout: RunnerVersion}, nil
 	}
-	if strings.Contains(joined, "HARNESS_API_KEY=") {
-		t.Fatalf("RunnerProcessEnv() forwarded pipeline token as API key: %v", env)
+	if code, err := runAgent(context.Background(), home, root, "agent", "local", []string{"TARGET_AUTH_TEST"}, nil, run); code != 0 || err != nil || !called {
+		t.Fatalf("runAgent() = (%d, %v), execution called: %t", code, err, called)
 	}
 }
 
