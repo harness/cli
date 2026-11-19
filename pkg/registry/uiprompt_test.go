@@ -86,3 +86,11 @@ func TestRunPromptCommandRejectsNonScalarInputFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestRunPromptCommandRejectsConfirmID(t *testing.T) {
+	cs := &spec.CommandSpec{Verb: VerbExecute, Noun: "thing", ConfirmMode: spec.ConfirmID, Flags: []spec.Flag{{Name: "comment"}}}
+	err := runPromptCommand(nil, &uiPromptRun{uc: spec.UICommand{InputFlag: "comment"}, cs: cs})
+	if err == nil || !strings.Contains(err.Error(), "confirm_mode id") {
+		t.Fatalf("got %v", err)
+	}
+}

@@ -138,6 +138,9 @@ func promptFlagValues(cs *spec.CommandSpec, inputFlag, text string) (map[string]
 // because the TUI owns the screen.
 func runPromptCommand(ctx *cmdctx.Ctx, run *uiPromptRun) error {
 	cs := run.cs
+	if cs.ConfirmMode == spec.ConfirmID {
+		return fmt.Errorf("%s %s needs the terminal (confirm_mode id)", cs.Verb, cs.Noun)
+	}
 	if f := findFlag(cs, run.uc.InputFlag); f == nil || f.IsMulti || f.IsArray {
 		return fmt.Errorf("input_flag %q must be a single-value flag of %s %s", run.uc.InputFlag, cs.Verb, cs.Noun)
 	}
