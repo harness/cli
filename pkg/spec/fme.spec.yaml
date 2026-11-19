@@ -372,6 +372,19 @@ nouns:
         expr: string(it.isEnabled)
         mutable_path: isEnabled
 
+  - noun: experiment_summary
+    short_desc: An experiment's overall sample counts and SRM state per treatment (used for field lookup only, read-only).
+    fields:
+      - id: calculated_at
+        label: Calculated At
+        expr: it.calculatedAt ?? ""
+      - id: sample_counts
+        label: Sample Counts
+        expr: 'join(map(it.sampleCounts, {#.treatment + "=" + string(#.count)}), ", ")'
+      - id: srm_state
+        label: SRM State
+        expr: 'join(map(filter(it.sampleCounts, {#.srmState != nil}), {#.treatment + "=" + #.srmState}), ", ")'
+
   - noun: experiment_results
     short_desc: A metric result for an experiment comparison (used for field lookup only, read-only).
     fields:
@@ -1917,6 +1930,24 @@ commands:
         project_identifier: auth.project
         metric_ids: flags["metric-id"]
       columns: [metric_id, metric_name, category, comparison, baseline_mean, comparison_mean, value, pvalue, positive, impact_lower, impact_upper]
+
+  # ── experiment:summary ───────────────────────────────────────────────────────
+
+  - command: get experiment:summary
+    verb: get
+    noun: experiment
+    noun_variant: summary
+    short: "Get an experiment's sample counts and SRM state per treatment: harness get experiment:summary <experiment-id>"
+    handler_type: endpoint
+    fields_noun: experiment_summary
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.id}}/summary
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
 
   # ── change_request ───────────────────────────────────────────────────────────
 
