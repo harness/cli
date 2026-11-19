@@ -271,6 +271,10 @@ const (
 	// item's id or its ParentId. Must be declared explicitly per noun — there
 	// is no implicit "go up" navigation stack.
 	UICommandUp = "up"
+	// UICommandPrompt opens a text box in the detail overlay and runs another
+	// command (Verb Noun, against the current item's id) with the typed text
+	// passed as the InputFlag flag.
+	UICommandPrompt = "prompt"
 )
 
 // UICommand is a single hotkey offered by a noun's --ui detail overlay. One flat
@@ -298,6 +302,9 @@ type UICommand struct {
 	// item ("it") to derive the target id for an "up" jump, e.g.
 	// "it.check.payload.data.execution_id". Up only, required.
 	UpIdExpr string `yaml:"up_id_expr,omitempty"`
+	// InputFlag names the flag of the target command that receives the typed
+	// text. Prompt only, required; Verb must be execute, create or update.
+	InputFlag string `yaml:"input_flag,omitempty"`
 }
 
 // FieldDef defines a named, reusable field for a noun. Fields declared here can be
