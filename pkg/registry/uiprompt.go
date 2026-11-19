@@ -94,8 +94,8 @@ func (m uiTableModel) submitPrompt(text string) tea.Cmd {
 	}
 }
 
-// finishPrompt closes the box and refreshes the detail on success; on failure it
-// keeps the box open with the typed text.
+// finishPrompt goes back a screen on success; on failure it keeps the box open
+// with the typed text.
 func (m uiTableModel) finishPrompt(msg uiPromptDoneMsg) (uiTableModel, tea.Cmd) {
 	if m.prompt == nil {
 		return m, nil
@@ -106,9 +106,7 @@ func (m uiTableModel) finishPrompt(msg uiPromptDoneMsg) (uiTableModel, tea.Cmd) 
 		return m, nil
 	}
 	m.prompt = nil
-	m.detail.loading = true
-	m.detail.err = ""
-	return m, m.fetchDetail(m.detail.id)
+	return m.goBack()
 }
 
 func (m uiTableModel) promptView() string {

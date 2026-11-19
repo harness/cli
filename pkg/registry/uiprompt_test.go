@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/spec"
 )
 
@@ -62,10 +63,19 @@ func TestPromptDone(t *testing.T) {
 			t.Fatalf("after error: prompt=%+v", m.prompt)
 		}
 	})
-	t.Run("success closes the box and reloads the detail", func(t *testing.T) {
+	t.Run("success from a hopped detail pops the history", func(t *testing.T) {
+		m := promptTestModel("ship it")
+		m.detailOnly = true
+		m.ctx = &cmdctx.Ctx{UIHistory: []cmdctx.UILink{{}}}
+		m, cmd := m.finishPrompt(uiPromptDoneMsg{})
+		if cmd == nil || m.prompt != nil || !m.wantBack {
+			t.Fatalf("after success: cmd=%v prompt=%v wantBack=%v", cmd != nil, m.prompt != nil, m.wantBack)
+		}
+	})
+	t.Run("success from an in-place detail returns to the list", func(t *testing.T) {
 		m, cmd := promptTestModel("ship it").finishPrompt(uiPromptDoneMsg{})
-		if cmd == nil || m.prompt != nil || !m.detail.loading {
-			t.Fatalf("after success: cmd=%v prompt=%v loading=%v", cmd != nil, m.prompt != nil, m.detail.loading)
+		if cmd != nil || m.prompt != nil || m.detailMode {
+			t.Fatalf("after success: cmd=%v prompt=%v detailMode=%v", cmd != nil, m.prompt != nil, m.detailMode)
 		}
 	})
 }

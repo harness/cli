@@ -532,6 +532,20 @@ func (m uiTableModel) buildUILink(verb, noun, id string) *cmdctx.UILink {
 	}
 }
 
+// goBack leaves the detail overlay: an in-place detail (reached via "enter", not
+// a Hop) collapses to the list underneath; a hopped one pops UIHistory on quit.
+func (m uiTableModel) goBack() (uiTableModel, tea.Cmd) {
+	if !m.detailOnly {
+		m.detailMode = false
+		return m, nil
+	}
+	if len(m.ctx.UIHistory) > 0 {
+		m.wantBack = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // dispatchUICommandKey handles a hotkey press against the active noun's
 // ui_commands list: re-renders in place for a text entry, or queues a view/link
 // hand-off and quits for view/link entries. handled=false means key isn't bound.
@@ -865,14 +879,7 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.detailMode = false
 			case "b":
-				if !m.detailOnly {
-					// In-place detail flip (reached via "enter", not a Hop) — collapse
-					// back to the list underneath, same as esc, before touching History.
-					m.detailMode = false
-				} else if len(m.ctx.UIHistory) > 0 {
-					m.wantBack = true
-					return m, tea.Quit
-				}
+				return m.goBack()
 			case "up", "k":
 				if m.detail.scroll > 0 {
 					m.detail.scroll--
