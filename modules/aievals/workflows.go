@@ -274,7 +274,7 @@ func stageWorkflow(ctx *cmdctx.Ctx) error {
 		Expected:      cmdctx.GetString(ctx.FlagValues, "expected"),
 	}
 	if candidate.Wire != nil && legacyOverrideSet(override) {
-		return fmt.Errorf("onboarding/v1 candidate files are staged as written. Flags such as --endpoint are the legacy mapping and cannot be combined with schema_version %s. Edit the document, then pass --confirm.", SchemaVersionV1)
+		return fmt.Errorf("onboarding/v1 candidate files are staged as written. Flags such as --endpoint are the legacy mapping and cannot be combined with schema_version %s. Edit the document, then pass --confirm", SchemaVersionV1)
 	}
 	if candidate.Wire == nil {
 		candidate = candidate.WithOverrides(override)
