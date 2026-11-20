@@ -111,6 +111,23 @@ type nounCmd struct {
 	cs    *spec.CommandSpec
 }
 
+// editableNote describes where a field is writable, e.g. "editable: create; bool".
+func editableNote(f spec.FieldDef, cmdByVerb map[string]*nounCmd) string {
+	if f.MutablePath == "" {
+		return ""
+	}
+	var verbs []string
+	for _, v := range []string{"create", "update"} {
+		if nc := cmdByVerb[v]; nc != nil && nc.cs.BuiltinFlags.Set && f.MutableOnVerb(v) {
+			verbs = append(verbs, v)
+		}
+	}
+	if len(verbs) == 0 {
+		return "editable"
+	}
+	return "editable: " + strings.Join(verbs, ", ") + "; " + f.TypeLabel()
+}
+
 func GetNounHandler(ctx *cmdctx.Ctx) error {
 	target := strings.ToLower(strings.TrimSpace(ctx.Id))
 	if target == "" {
@@ -280,14 +297,14 @@ func GetNounHandler(ctx *cmdctx.Ctx) error {
 				padding := strings.Repeat(" ", maxID-len(f.ID))
 				label := f.Label
 				hasLabel := label != "" && !strings.EqualFold(label, strings.ReplaceAll(f.ID, "_", " "))
-				editable := f.MutablePath != ""
+				note := editableNote(f, cmdByVerb)
 				switch {
-				case hasLabel && editable:
-					fmt.Printf("  %s%s  -- %s (editable)\n", f.ID, padding, label)
+				case hasLabel && note != "":
+					fmt.Printf("  %s%s  -- %s (%s)\n", f.ID, padding, label, note)
 				case hasLabel:
 					fmt.Printf("  %s%s  -- %s\n", f.ID, padding, label)
-				case editable:
-					fmt.Printf("  %s%s  -- (editable)\n", f.ID, padding)
+				case note != "":
+					fmt.Printf("  %s%s  -- (%s)\n", f.ID, padding, note)
 				default:
 					fmt.Printf("  %s\n", f.ID)
 				}

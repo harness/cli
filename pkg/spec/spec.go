@@ -353,6 +353,14 @@ func (f FieldDef) Validate() error {
 	return nil
 }
 
+// TypeLabel is the field's type as shown to users; plain fields are "scalar".
+func (f FieldDef) TypeLabel() string {
+	if f.FieldType == "" {
+		return "scalar"
+	}
+	return f.FieldType
+}
+
 // MutableOnVerb reports whether the field is writable on verb ("create" or "update").
 func (f FieldDef) MutableOnVerb(verb string) bool {
 	return f.MutablePath != "" && (f.MutableOn == "" || f.MutableOn == verb)
