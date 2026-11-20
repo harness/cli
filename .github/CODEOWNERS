@@ -9,5 +9,5 @@
 /modules/core/            @sawka-harness @BlueLabelscotch @mohitsuman
 /pkg/spec/core.spec.yaml  @sawka-harness @BlueLabelscotch @mohitsuman
 
-/modules/har/            @arvind-choudhary-h @sameeksha-harness @shivagowda @PragyeshMishra01 @shivanand-harness
-/pkg/spec/har.spec.yaml  @arvind-choudhary-h @sameeksha-harness @shivagowda @PragyeshMishra01 @shivanand-harness
+/modules/har/            @arvind-choudhary-h @sameeksha-harness @shivagowda @PragyeshMishra01 @shivanand-harness @BlueLabelscotch
+/pkg/spec/har.spec.yaml  @arvind-choudhary-h @sameeksha-harness @shivagowda @PragyeshMishra01 @shivanand-harness @BlueLabelscotch
