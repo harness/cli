@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 )
 
@@ -235,5 +236,23 @@ func TestEvalExpr_MapJoin(t *testing.T) {
 	}
 	if got := EvalExpr(env, `it.tags.map(t, t.name).join(", ")`); got != "" {
 		t.Errorf("method-call form = %q, want blank (unsupported syntax)", got)
+	}
+}
+
+func TestMake_AuthFollowsLevel(t *testing.T) {
+	for _, tc := range []struct{ level, org, project, scope string }{
+		{"", "o", "p", "a/o/p"},
+		{"project", "o", "p", "a/o/p"},
+		{"org", "o", "", "a/o"},
+		{"account", "", "", "a"},
+	} {
+		ctx := &cmdctx.Ctx{Level: tc.level, Auth: &auth.ResolvedAuth{AccountID: "a", OrgID: "o", ProjectID: "p"}}
+		got := Make(ctx)["auth"].(map[string]any)
+		if got["org"] != tc.org || got["project"] != tc.project || got["scope"] != tc.scope {
+			t.Errorf("level %q: got %v", tc.level, got)
+		}
+	}
+	if got := Make(&cmdctx.Ctx{Level: "org"})["auth"].(map[string]any); got["org"] != "" {
+		t.Errorf("nil auth: got %v", got)
 	}
 }
