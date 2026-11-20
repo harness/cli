@@ -321,6 +321,8 @@ type FieldDef struct {
 	// "spec.value"). Must not start with "it.". Its presence marks the field as writable
 	// and should match update_body_pick on the corresponding update command.
 	MutablePath string `yaml:"mutable_path,omitempty"`
+	// MutableOn limits mutable_path to one verb: "create" or "update". Empty means both.
+	MutableOn string `yaml:"mutable_on,omitempty"`
 	// FieldType optionally changes how the value is rendered or updated.
 	// Supported: "multiline_text" (renders raw block below other fields), "yaml" (alias for multiline_text, use for actual YAML content),
 	// "tags" (tag-map handling), "set" (string-set handling), "ts" (epoch-ms timestamp),
@@ -342,7 +344,18 @@ func (f FieldDef) Validate() error {
 	if strings.HasPrefix(f.MutablePath, "it.") {
 		return fmt.Errorf("field %q: mutable_path must not start with \"it.\" (it is relative to the update_body_pick subtree)", f.ID)
 	}
+	if f.MutableOn != "" && f.MutablePath == "" {
+		return fmt.Errorf("field %q: mutable_on requires mutable_path", f.ID)
+	}
+	if f.MutableOn != "" && f.MutableOn != "create" && f.MutableOn != "update" {
+		return fmt.Errorf("field %q: mutable_on %q must be \"create\" or \"update\"", f.ID, f.MutableOn)
+	}
 	return nil
+}
+
+// MutableOnVerb reports whether the field is writable on verb ("create" or "update").
+func (f FieldDef) MutableOnVerb(verb string) bool {
+	return f.MutablePath != "" && (f.MutableOn == "" || f.MutableOn == verb)
 }
 
 // TableSpec is a declarative table definition used internally by the rendering layer.

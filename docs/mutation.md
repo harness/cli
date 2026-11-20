@@ -43,6 +43,10 @@ reg.RegisterFieldType("owners", cmdctx.FieldTypeHandler{
 
 There is no generic object-set field type or bracketed literal-member syntax. The built-in `tags` handler is a string-keyed map, **not** a handler for FME's named tag objects. If FME needs those semantics, register an API-specific type such as `fme:tags` and define its member identity, accepted operands, duplicate handling, clear behavior, and wire encoding there. Core dispatches the operations; it does not decide the shape of FME owners or tags.
 
+## Create-only and update-only fields
+
+When an API accepts a field on create but ignores it on update (or the reverse), set `mutable_on: create` or `mutable_on: update` on the noun field. Without it the field is writable on both. `--list-fields` shows only the running verb's fields, and `--set`/`--del` on the other verb's field fails with `field "x" cannot be set on update (create-only field)` instead of sending a request the API ignores. `mutable_on` requires `mutable_path`.
+
 ## Handler lifecycle
 
 The callback signatures and mutation kinds live in `pkg/cmdctx/cmdctx.go`. For a GET-then-PATCH or GET-then-PUT **with `update_body_pick`**:
