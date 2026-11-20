@@ -88,6 +88,12 @@ const (
 	PagingStrategyOffsetLimit = "offset_limit" // API accepts offset (items to skip) + limit; response has totalCount
 )
 
+// Valid page_params_in values for PagingSpec.
+const (
+	PageParamsInQuery = "query"
+	PageParamsInBody  = "body"
+)
+
 // Valid presence values for MigrateFlag.
 const (
 	MigratePresenceRequired = "required" // flag is registered and must be provided
@@ -408,6 +414,10 @@ type PagingSpec struct {
 	PageSizeParam   string `yaml:"page_size_param,omitempty"`   // query param name, e.g. "pageSize"
 	PageSizeDefault int    `yaml:"page_size_default,omitempty"` // default page size (e.g. 50)
 	PageSizeMax     int    `yaml:"page_size_max,omitempty"`     // max page size the API accepts (e.g. 100)
+
+	// PageParamsIn selects where page_index writes its index and size params:
+	// PageParamsInQuery (default) or PageParamsInBody (JSON request body).
+	PageParamsIn string `yaml:"page_params_in,omitempty"`
 
 	// TotalExpr is an expression evaluated against the raw response (with "it" bound to the response root).
 	// Resolves to the total item count, e.g. "it.data.totalItems". Required for page_index model.
