@@ -380,7 +380,7 @@ nouns:
         expr: it.calculatedAt ?? ""
       - id: sample_counts
         label: Sample Counts
-        expr: 'join(map(it.sampleCounts, {#.treatment + "=" + string(#.count)}), ", ")'
+        expr: 'join(map(it.sampleCounts, {#.treatment + "=" + string(int(#.count))}), ", ")'
       - id: srm_state
         label: SRM State
         expr: 'join(map(filter(it.sampleCounts, {#.srmState != nil}), {#.treatment + "=" + #.srmState}), ", ")'
