@@ -47,6 +47,8 @@ There is no generic object-set field type or bracketed literal-member syntax. Th
 
 When an API accepts a field on create but ignores it on update (or the reverse), set `mutable_on: create` or `mutable_on: update` on the noun field. Without it the field is writable on both. `--list-fields` shows only the running verb's fields, and `--set`/`--del` on the other verb's field fails with `field "x" cannot be set on update (create-only field)` instead of sending a request the API ignores. `mutable_on` requires `mutable_path`.
 
+The rejection happens in the automatic mutation builder (`set-fields` create and GET-then-PATCH/PUT). A command that reads `ctx.SetArgs` itself, such as a `body_fn` or workflow handler, is not checked and must enforce its own field list.
+
 ## Handler lifecycle
 
 The callback signatures and mutation kinds live in `pkg/cmdctx/cmdctx.go`. For a GET-then-PATCH or GET-then-PUT **with `update_body_pick`**:
