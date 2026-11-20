@@ -777,12 +777,16 @@ commands:
     noun: feature_flag
     noun_variant: definition
     confirm_mode: prompt
-    short: Delete a flag definition from an environment
+    short: "Delete a flag definition from an environment: harness delete feature_flag:definition <name> --env <env-id> [--comment <text>] [--title <text>]"
     handler_type: endpoint
     flags:
       - name: env
         description: Environment identifier (required)
         required: true
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: DELETE
       path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
@@ -791,6 +795,12 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
+      # comment/title travel as a JSON body (not query params): the v4 resource takes
+      # @Valid FeatureFlagDefinitionActionRequest with no @QueryParam, same as feature_flag delete.
+      # Omitted (not sent as null/empty) when unset.
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
 
   - command: execute feature_flag:kill
     verb: execute
@@ -1125,13 +1135,17 @@ commands:
     verb: delete
     noun: segment
     confirm_mode: prompt
-    short: "Delete (archive) a segment: harness delete segment <name> --segment-type STANDARD"
+    short: "Delete (archive) a segment: harness delete segment <name> --segment-type STANDARD [--comment <text>] [--title <text>]"
     handler_type: endpoint
     flags:
       - name: segment-type
         description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
         required: true
         completion_values: [STANDARD, LARGE, RULE_BASED]
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: DELETE
       path: /fme/api/v4/segments/{{ctx.id}}
@@ -1140,6 +1154,12 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         segment_type: flags["segment-type"]
+      # comment/title travel as a JSON body (not query params): the v4 resource takes
+      # an optional @Valid SegmentDeleteRequest with no @QueryParam.
+      # Omitted (not sent as null/empty) when unset.
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
 
   # ── segment:definition ─────────────────────────────────────────────────────────
 
