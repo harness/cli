@@ -91,7 +91,7 @@ func (m *MigrationService) Run(ctx context.Context) error {
 	// exit-code contract below: a dry-run never mutates anything, so engine
 	// errors there do not fail the process.
 	if m.config.DryRun {
-		return m.writeDryRunOutput(logger)
+		return m.writeDryRunOutput(logger, engineErr)
 	}
 
 	fileStats := transferStats.Snapshot()
@@ -197,7 +197,7 @@ func writeResultFile(path string, fileStats []types.FileStat) error {
 	return nil
 }
 
-func (m *MigrationService) writeDryRunOutput(logger zerolog.Logger) error {
+func (m *MigrationService) writeDryRunOutput(logger zerolog.Logger, engineErr error) error {
 	timestamp := time.Now().Format("20060102_150405")
 	outputDir := "dry-run-output"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -263,6 +263,17 @@ func (m *MigrationService) writeDryRunOutput(logger zerolog.Logger) error {
 	fmt.Printf("%-30s %d\n", migratedCountLabel, migratedCount)
 	fmt.Printf("%-30s %s\n", "File list:", fileListPath)
 	fmt.Printf("%-30s %s\n", "Directory structure:", dirStructPath)
+	if engineErr != nil {
+		fmt.Printf("\nWARNING: %d error(s) occurred during the dry run, so the totals above may be incomplete.\n"+
+			"Check the log for details.\n", joinedErrorCount(engineErr))
+	}
 
 	return nil
+}
+
+func joinedErrorCount(err error) int {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return len(joined.Unwrap())
+	}
+	return 1
 }

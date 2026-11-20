@@ -39,8 +39,9 @@ func (f factory) Create(ctx context.Context, config types.RegistryConfig) (adp.A
 
 // adapter section
 type adapter struct {
-	client *client
-	reg    types.RegistryConfig
+	client   *client
+	reg      types.RegistryConfig
+	listings listingCache
 }
 
 func newAdapter(config types.RegistryConfig) (adp.Adapter, error) {
@@ -50,12 +51,16 @@ func newAdapter(config types.RegistryConfig) (adp.Adapter, error) {
 	}, nil
 }
 
-func (a *adapter) GetKeyChain(_ string) (authn.Keychain, error) {
-	parseUrl, err := url.Parse(a.reg.Endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse [%s], err: %w", a.reg.Endpoint, err)
+func (a *adapter) GetKeyChain(sourcePackageHostname string) (authn.Keychain, error) {
+	host := sourcePackageHostname
+	if host == "" {
+		parseUrl, err := url.Parse(a.reg.Endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse [%s], err: %w", a.reg.Endpoint, err)
+		}
+		host = parseUrl.Host
 	}
-	return NewNexusKeychain(a.reg.Credentials.Username, a.reg.Credentials.Password, parseUrl.Host), nil
+	return NewNexusKeychain(a.reg.Credentials.Username, a.reg.Credentials.Password, host), nil
 }
 
 func (a *adapter) GetConfig() types.RegistryConfig {
@@ -98,42 +103,34 @@ func (a *adapter) GetPackages(registry string, artifactType types.ArtifactType, 
 	error,
 ) {
 	var packages []types.Package
-	continuationToken := ""
+
+	l, err := a.listing(registry)
+	if err != nil {
+		return nil, err
+	}
 
 	pkgNames := make(map[string][]string)
 	assetToVersion := make(map[string]string)
-	for {
-		searchResponse, err := a.client.searchComponents(registry, continuationToken)
-		if err != nil {
-			return nil, fmt.Errorf("failed to search components in registry %s: %w", registry, err)
-		}
-
-		for _, component := range searchResponse.Items {
-			if artifactType == types.HELM_LEGACY {
-				for _, asset := range component.Assets {
-					if asset.Format == "helm" {
-						if _, ok := pkgNames[component.Name]; !ok {
-							pkgNames[component.Name] = []string{}
-						}
-						pkgNames[component.Name] = append(pkgNames[component.Name], asset.Path)
-						assetToVersion[asset.Path] = component.Version
+	for _, component := range l.components {
+		if artifactType == types.HELM_LEGACY {
+			for _, asset := range component.Assets {
+				if asset.Format == "helm" {
+					if _, ok := pkgNames[component.Name]; !ok {
+						pkgNames[component.Name] = []string{}
 					}
+					pkgNames[component.Name] = append(pkgNames[component.Name], asset.Path)
+					assetToVersion[asset.Path] = component.Version
 				}
-			} else {
-				var pkgName string
-				if component.Group != "" {
-					pkgName = fmt.Sprintf("%s/%s", component.Group, component.Name)
-				} else {
-					pkgName = component.Name
-				}
-				pkgNames[pkgName] = []string{}
 			}
+		} else {
+			var pkgName string
+			if component.Group != "" {
+				pkgName = fmt.Sprintf("%s/%s", component.Group, component.Name)
+			} else {
+				pkgName = component.Name
+			}
+			pkgNames[pkgName] = []string{}
 		}
-
-		if searchResponse.ContinuationToken == "" {
-			break
-		}
-		continuationToken = searchResponse.ContinuationToken
 	}
 
 	for pkgName, urls := range pkgNames {
@@ -209,61 +206,52 @@ func (a *adapter) GetVersions(
 	p types.Package,
 	node *types.TreeNode, registry, pkg string, artifactType types.ArtifactType,
 ) ([]types.Version, error) {
-	var versions []types.Version
-	continuationToken := ""
-
-	for {
-		searchResponse, err := a.client.searchComponents(registry, continuationToken)
-		if err != nil {
-			return nil, fmt.Errorf("failed to search components: %w", err)
-		}
-
-		for _, component := range searchResponse.Items {
-			if artifactType == types.MAVEN {
-				if component.Group+"/"+component.Name == pkg {
-					version := types.Version{
-						Registry: registry,
-						Pkg:      pkg,
-						Name:     component.Version,
-						Path:     fmt.Sprintf("%s", component.Version),
-					}
-					// Calculate total size from all assets
-					totalSize := 0
-					for _, asset := range component.Assets {
-						totalSize += int(asset.FileSize)
-					}
-					version.Size = totalSize
-
-					versions = append(versions, version)
-				}
-			} else {
-				if component.Name == pkg || strings.Contains(component.Name, pkg) {
-					version := types.Version{
-						Registry: registry,
-						Pkg:      pkg,
-						Name:     component.Version,
-						Path:     fmt.Sprintf("%s", component.Version),
-					}
-
-					// Calculate total size from all assets
-					totalSize := 0
-					for _, asset := range component.Assets {
-						totalSize += int(asset.FileSize)
-					}
-					version.Size = totalSize
-
-					versions = append(versions, version)
-				}
-			}
-		}
-
-		if searchResponse.ContinuationToken == "" {
-			break
-		}
-		continuationToken = searchResponse.ContinuationToken
+	l, err := a.listing(registry)
+	if err != nil {
+		return nil, err
 	}
 
+	var versions []types.Version
+	if artifactType == types.MAVEN {
+		for _, i := range l.byGroupName[pkg] {
+			component := l.components[i]
+			versions = append(versions, types.Version{
+				Registry: registry,
+				Pkg:      pkg,
+				Name:     component.Version,
+				Path:     mavenVersionTreePath(component.Group, component.Name, component.Version),
+				Size:     componentSize(component),
+			})
+		}
+		return versions, nil
+	}
+
+	for _, component := range l.components {
+		if component.Name == pkg || strings.Contains(component.Name, pkg) {
+			versions = append(versions, types.Version{
+				Registry: registry,
+				Pkg:      pkg,
+				Name:     component.Version,
+				Path:     component.Version,
+				Size:     componentSize(component),
+			})
+		}
+	}
 	return versions, nil
+}
+
+func componentSize(component NexusComponent) int {
+	total := 0
+	for _, asset := range component.Assets {
+		total += int(asset.FileSize)
+	}
+	return total
+}
+
+// Maven packages resolve to the tree root, so a version's path must be its full
+// repository layout path or the version node lookup fails and nothing migrates.
+func mavenVersionTreePath(group, artifact, version string) string {
+	return strings.Join([]string{strings.ReplaceAll(group, ".", "/"), artifact, version}, "/")
 }
 
 func (a *adapter) GetFiles(registry string) ([]types.File, error) {
@@ -274,7 +262,11 @@ func (a *adapter) GetFiles(registry string) ([]types.File, error) {
 	if repository.Type != "hosted" {
 		return nil, fmt.Errorf("repository %s is not a hosted repository", registry)
 	}
-	return a.client.getFiles(registry, repository.Format)
+	l, err := a.listing(registry)
+	if err != nil {
+		return nil, err
+	}
+	return append([]types.File(nil), l.files...), nil
 }
 
 func (a *adapter) DownloadFile(registry string, uri string) (io.ReadCloser, http.Header, error) {
@@ -282,15 +274,15 @@ func (a *adapter) DownloadFile(registry string, uri string) (io.ReadCloser, http
 	return a.client.getAsset(downloadURL)
 }
 
-func (a *adapter) GetOCIImagePath(registry string, _ string, image string) (string, error) {
-	var port int
-	var err error
+func (a *adapter) GetOCIImagePath(registry string, packageHostname string, image string) (string, error) {
+	if packageHostname != "" {
+		return util.GenOCIImagePath(packageHostname, image), nil
+	}
 
-	// First, try to discover the port via API
-	port, err = a.client.getDockerPort(registry, a.GetConfig().Insecure)
+	port, err := a.client.getDockerPort(registry, a.reg.Insecure)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to discover Docker port via API, falling back to configuration")
-		return "", fmt.Errorf("failed to get Docker port: %w", err)
+		return "", fmt.Errorf("failed to get Docker port (set sourcePackageHostname in the registry mapping "+
+			"if the repository is served through a reverse proxy or subdomain): %w", err)
 	}
 
 	host, err := nexusDockerHost(a.reg.Endpoint, port)
@@ -329,6 +321,8 @@ func (a *adapter) UploadFile(
 	metadata map[string]interface{},
 ) error {
 	defer file.Close()
+	// A cached listing of this repository no longer reflects what it contains.
+	defer a.listings.invalidate(registry)
 
 	// Construct the upload path based on artifact type and metadata
 	uploadPath := a.constructUploadPath(artifactName, version, artifactType, metadata)
