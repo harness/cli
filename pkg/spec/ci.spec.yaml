@@ -234,6 +234,7 @@ commands:
       - name: file
         description: "Path to coverage report file(s) (can be specified multiple times)"
         is_multi: true
+        comma_separated: true
       - name: exclude
         description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'."
         is_multi: true
@@ -302,9 +303,11 @@ commands:
       - name: tags
         description: "Tags to apply to the uploaded coverage report (can be specified multiple times)"
         is_multi: true
+        comma_separated: true
       - name: file
         description: "Path to coverage report file(s) (can be specified multiple times)"
         is_multi: true
+        comma_separated: true
       - name: base
         description: "Base revision to compare against for diff coverage (commit SHA, branch, or tag). If not specified, diff tracking is disabled."
       - name: patch
