@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/harness/cli/v3 v3.6.2
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/jedib0t/go-pretty/v6 v6.8.3
+	github.com/jedib0t/go-pretty/v6 v6.9.2
 	github.com/klauspost/compress v1.20.4
 	github.com/oapi-codegen/runtime v1.9.0
 	github.com/pterm/pterm v0.12.84
