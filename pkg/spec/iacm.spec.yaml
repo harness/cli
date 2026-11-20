@@ -14,6 +14,10 @@ help_text: |
   backend, variables, and state. Workspaces run operations (plan, apply, destroy)
   which produce execution logs and state snapshots.
 
+  `execute workspace` runs a remote plan. For awscdk workspaces,
+  `execute workspace:synth` and `execute workspace:diff` run the remote CDK
+  synth and diff.
+
   ### Nouns
 
   {{nouns}}
@@ -238,6 +242,79 @@ commands:
         is_multi: true
       - name: force
         description: "Skip confirmation prompt"
+        is_bool: true
+      - name: ui
+        description: Open the interactive log viewer for the run (requires a TTY)
+        is_bool: true
+
+  - command: execute workspace:synth
+    verb: execute
+    noun: workspace
+    noun_variant: synth
+    short: Run a remote CDK synth on an awscdk workspace
+    long: |
+      Synthesize the CDK app remotely (cdk synth) on an awscdk IaCM workspace.
+
+      Uploads the local source to the workspace and runs the workspace's default
+      "synth" pipeline against it. node_modules and cdk.out are not uploaded.
+
+      The workspace ID is optional. If omitted, the command reads it from
+      .harness/workspace.yaml in the current directory:
+
+        org_id:       <your-org>        # optional; overrides --org flag
+        project_id:   <your-project>    # optional; overrides --project flag
+        workspace_id: <your-workspace>  # required if no ID is passed as an argument
+
+      Examples:
+        harness execute workspace:synth my-cdk-workspace
+        harness execute workspace:synth                      # reads .harness/workspace.yaml
+    id_label: "<workspace-id>"
+    no_id: true
+    allows_id: true
+    completion_noun: workspace
+    handler_type: workflow
+    workflow_id: execute_workspace_synth
+    flags:
+      - name: force
+        description: "Skip confirmation prompt"
+        is_bool: true
+      - name: ui
+        description: Open the interactive log viewer for the run (requires a TTY)
+        is_bool: true
+
+  - command: execute workspace:diff
+    verb: execute
+    noun: workspace
+    noun_variant: diff
+    short: Run a remote CDK diff on an awscdk workspace
+    long: |
+      Show the CDK diff remotely (cdk diff) on an awscdk IaCM workspace.
+
+      Uploads the local source to the workspace and runs the workspace's default
+      "diff" pipeline against it. node_modules and cdk.out are not uploaded.
+
+      The workspace ID is optional. If omitted, the command reads it from
+      .harness/workspace.yaml in the current directory:
+
+        org_id:       <your-org>        # optional; overrides --org flag
+        project_id:   <your-project>    # optional; overrides --project flag
+        workspace_id: <your-workspace>  # required if no ID is passed as an argument
+
+      Examples:
+        harness execute workspace:diff my-cdk-workspace
+        harness execute workspace:diff                      # reads .harness/workspace.yaml
+    id_label: "<workspace-id>"
+    no_id: true
+    allows_id: true
+    completion_noun: workspace
+    handler_type: workflow
+    workflow_id: execute_workspace_diff
+    flags:
+      - name: force
+        description: "Skip confirmation prompt"
+        is_bool: true
+      - name: ui
+        description: Open the interactive log viewer for the run (requires a TTY)
         is_bool: true
 
   # ── host (Ansible) ────────────────────────────────────────────────────────────
