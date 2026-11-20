@@ -216,11 +216,16 @@ func EvalExpr(env map[string]any, s string) string {
 	if !ok {
 		return ""
 	}
-	s2 := strutil.Stringify(out)
-	if s2 == "<nil>" || s2 == "map[]" {
+	return ResultString(out)
+}
+
+// ResultString renders an expression result the way EvalExpr does: "" for nil or an empty map.
+func ResultString(out any) string {
+	s := strutil.Stringify(out)
+	if s == "<nil>" || s == "map[]" {
 		return ""
 	}
-	return s2
+	return s
 }
 
 // EvalHeaders evaluates pipeline_auth's header expressions in a restricted env

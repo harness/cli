@@ -138,6 +138,9 @@ type Request struct {
 	Method      string
 	Path        string
 	QueryParams map[string]string
+	// QueryParamsMulti sends each value under its own repeated key (kind=a&kind=b),
+	// replacing any QueryParams entry or path query value for the same key.
+	QueryParamsMulti map[string][]string
 	// Body is always fully materialized: string → sent as-is with BodyContentType;
 	// any other type → JSON-marshaled, BodyContentType defaults to "application/json".
 	Body            any
@@ -399,6 +402,14 @@ func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 	for k, v := range r.QueryParams {
 		if v != "" {
 			q.Set(k, v)
+		}
+	}
+	for k, vs := range r.QueryParamsMulti {
+		q.Del(k)
+		for _, v := range vs {
+			if v != "" {
+				q.Add(k, v)
+			}
 		}
 	}
 	u.RawQuery = q.Encode()
