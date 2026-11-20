@@ -169,6 +169,17 @@ func MutableFields(noun *spec.NounDef) []spec.FieldDef {
 	return out
 }
 
+// MutableFieldsFor returns the noun's fields writable on verb ("create" or "update").
+func MutableFieldsFor(noun *spec.NounDef, verb string) []spec.FieldDef {
+	var out []spec.FieldDef
+	for _, f := range MutableFields(noun) {
+		if f.MutableOnVerb(verb) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // PrintMutableFieldTable writes a table of settable (path-based) fields to w,
 // including their field_type so users know the --set/--del semantics.
 func PrintMutableFieldTable(w io.Writer, fields []spec.FieldDef) error {

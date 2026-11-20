@@ -197,7 +197,7 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 				noun = cs.FieldsNoun
 			}
 			mutable := map[string]bool{}
-			for _, f := range MutableFields(r.GetNoun(noun)) {
+			for _, f := range MutableFieldsFor(r.GetNoun(noun), VerbUpdate) {
 				mutable[f.ID] = true
 			}
 			for _, id := range cs.Endpoint.PatchAlwaysFields {

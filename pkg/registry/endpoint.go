@@ -299,7 +299,11 @@ func RunEndpoint(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (any, error) {
 			return nil, err
 		}
 		if ctx.VerbHandler == VerbUpdate || ep.CreateStrategy == spec.CreateStrategySetFields {
-			return nil, PrintMutableFieldTable(w, MutableFields(resolveNounDef(ctx)))
+			verb := VerbCreate
+			if ctx.VerbHandler == VerbUpdate {
+				verb = VerbUpdate
+			}
+			return nil, PrintMutableFieldTable(w, MutableFieldsFor(resolveNounDef(ctx), verb))
 		}
 		return nil, PrintFieldTable(w, fields)
 	}
@@ -804,7 +808,7 @@ func runGetThenUpdate(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, 
 
 	contentType := resolveContentType(ep, method)
 	omitDeleted := contentType == "application/yaml" || ep.FileBodyYamlEnvelope != ""
-	body, err := mutationBodyForCtx(ctx, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH", omitDeleted, ep.PatchAlwaysFields)
+	body, err := mutationBodyForCtx(ctx, VerbUpdate, base, ep.UpdateBodyWrap, evalBodyParamValues(exprEnv, ep.BodyParams), ep.UpdateBodyPick != "", method == "PATCH", omitDeleted, ep.PatchAlwaysFields)
 	if err != nil {
 		return nil, err
 	}
@@ -973,7 +977,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 		}
 	}
 
-	postBody, err := mutationBodyForCtx(ctx, base, ep.CreateBodyWrap, nil, false, false, false, nil)
+	postBody, err := mutationBodyForCtx(ctx, VerbCreate, base, ep.CreateBodyWrap, nil, false, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -982,7 +986,7 @@ func runSetFields(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, c *client.Client, path
 	return result, err
 }
 
-func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra map[string]any, picked, sparsePatch, omitDeleted bool, alwaysFields []string) (map[string]any, error) {
+func mutationBodyForCtx(ctx *cmdctx.Ctx, verb string, base map[string]any, wrap string, extra map[string]any, picked, sparsePatch, omitDeleted bool, alwaysFields []string) (map[string]any, error) {
 	ops := effectiveMutations(ctx.SetArgs, ctx.DelArgs, ctx.MutationFlags)
 	if ctx.MutationOrderCaptured {
 		ops = ctx.MutationFlags
@@ -992,7 +996,16 @@ func mutationBodyForCtx(ctx *cmdctx.Ctx, base map[string]any, wrap string, extra
 	}
 	fields := map[string]spec.FieldDef{}
 	handlers := map[string]cmdctx.FieldTypeHandler{}
-	mutableFields := MutableFields(resolveNounDef(ctx))
+	noun := resolveNounDef(ctx)
+	mutableFields := MutableFieldsFor(noun, verb)
+	for _, op := range ops {
+		fieldID, _, _ := strings.Cut(op.Key, ".")
+		for _, f := range MutableFields(noun) {
+			if f.ID == fieldID && !f.MutableOnVerb(verb) {
+				return nil, fmt.Errorf("field %q cannot be set on %s (%s-only field)", fieldID, verb, f.MutableOn)
+			}
+		}
+	}
 	for _, field := range mutableFields {
 		fields[field.ID] = field
 		if (len(ops) > 0 || picked) && ctx.Resolver != nil {
