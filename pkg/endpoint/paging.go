@@ -122,6 +122,11 @@ func HTTPFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount in
 	}); err != nil {
 		return nil, err
 	}
+	if pg.PageParamsIn == spec.PageParamsInBody && req.Body != nil {
+		if _, ok := req.Body.(map[string]any); !ok {
+			return nil, fmt.Errorf("page_params_in: body requires a JSON object request body, got %T", req.Body)
+		}
+	}
 	pagingData := strategy.InjectPaging(req, pg, wantStart, wantCount)
 	raw, headers, err := client.New(ctx).DoRequest(*req)
 	if err != nil {
