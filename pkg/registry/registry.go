@@ -772,7 +772,7 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    use,
 		Short:  cs.Short,
-		Long:   cs.Long,
+		Long:   r.longWithSettableFields(cs),
 		Hidden: cs.Hidden,
 	}
 
@@ -784,6 +784,27 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 	}
 	r.wireFlagCompletions(cmd, cs)
 	return cmd
+}
+
+// longWithSettableFields appends the settable-fields block to the help of a
+// create or update command that accepts --set.
+func (r *Registry) longWithSettableFields(cs *spec.CommandSpec) string {
+	if !cs.BuiltinFlags.Set || (cs.Verb != VerbCreate && cs.Verb != VerbUpdate) {
+		return cs.Long
+	}
+	noun := cs.FullNoun()
+	if cs.FieldsNoun != "" {
+		noun = cs.FieldsNoun
+	}
+	fields := MutableFieldsFor(r.GetNoun(noun), cs.Verb)
+	if len(fields) == 0 {
+		return cs.Long
+	}
+	long := cs.Long
+	if long == "" {
+		long = cs.Short
+	}
+	return long + "\n\n" + SettableFieldsHelp(fields)
 }
 
 // aliasNamePairs returns every (from, to) name combination that should resolve to cs:

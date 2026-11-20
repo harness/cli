@@ -454,3 +454,28 @@ func TestFieldsToTableColumns(t *testing.T) {
 		t.Errorf("second column header = %q, want %q", cols[1].Header, "Status")
 	}
 }
+
+func TestLongWithSettableFields(t *testing.T) {
+	r := New()
+	if err := r.RegisterNoun(spec.NounDef{Noun: "widget", Fields: []spec.FieldDef{
+		{ID: "name", Expr: "it.name", MutablePath: "name"},
+		{ID: "is_public", Expr: "it.p", MutablePath: "p", FieldType: "bool", MutableOn: "create"},
+		{ID: "readonly", Expr: "it.r"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	cs := func(verb string, set bool) *spec.CommandSpec {
+		return &spec.CommandSpec{Verb: verb, Noun: "widget", Short: "short", BuiltinFlags: spec.BuiltinFlags{Set: set}}
+	}
+	if got, want := r.longWithSettableFields(cs(VerbCreate, true)),
+		"short\n\nSettable fields (--set, --del):\n  name       scalar\n  is_public  bool  (create only)"; got != want {
+		t.Errorf("create:\n%s\nwant:\n%s", got, want)
+	}
+	if got, want := r.longWithSettableFields(cs(VerbUpdate, true)),
+		"short\n\nSettable fields (--set, --del):\n  name  scalar"; got != want {
+		t.Errorf("update:\n%s\nwant:\n%s", got, want)
+	}
+	if got := r.longWithSettableFields(cs(VerbUpdate, false)); got != "" {
+		t.Errorf("without --set: got %q", got)
+	}
+}
