@@ -5,6 +5,7 @@ package endpoint
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -57,11 +58,8 @@ func BuildRequest(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (*client.Request, erro
 		"orgIdentifier":     a.OrgID,
 		"projectIdentifier": a.ProjectID,
 	}
-	for paramName, exprStr := range ep.QueryParams {
-		if result := exprenv.EvalExpr(exprEnv, exprStr); result != "" {
-			qp[paramName] = result
-		}
-	}
+	single, multi := EvalQueryParams(exprEnv, ep.QueryParams)
+	maps.Copy(qp, single)
 	if err := ApplyQueryParamsFn(ctx, ep, qp); err != nil {
 		return nil, err
 	}
@@ -70,10 +68,11 @@ func BuildRequest(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (*client.Request, erro
 		method = http.MethodGet
 	}
 	req := &client.Request{
-		Method:      method,
-		Path:        path,
-		QueryParams: qp,
-		NoAccountID: ep.NoAccountID,
+		Method:           method,
+		Path:             path,
+		QueryParams:      qp,
+		QueryParamsMulti: multi,
+		NoAccountID:      ep.NoAccountID,
 	}
 	if len(ep.BodyParams) > 0 {
 		req.Body = buildBody(ep, exprEnv)

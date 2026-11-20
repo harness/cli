@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -216,5 +217,25 @@ func TestDoRequest_EmptyBodyStreamSendsZeroLengthNotChunked(t *testing.T) {
 	}
 	if gotLen != 0 || chunked {
 		t.Fatalf("ContentLength = %d chunked = %v, want 0 and not chunked", gotLen, chunked)
+	}
+}
+
+func TestBuildRequest_QueryParamsMulti(t *testing.T) {
+	c := testClient("https://example.test")
+	_, u, err := c.buildRequest(Request{
+		Method:           "GET",
+		Path:             "/items?kind=old&keep=1",
+		QueryParams:      map[string]string{"kind": "single"},
+		QueryParamsMulti: map[string][]string{"kind": {"a", "", "b"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	q := u.Query()
+	if got := q["kind"]; !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("kind = %v, want [a b]", got)
+	}
+	if q.Get("keep") != "1" {
+		t.Errorf("keep = %q, want 1", q.Get("keep"))
 	}
 }

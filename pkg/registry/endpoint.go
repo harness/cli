@@ -212,6 +212,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 
 	// Priority 3: default body_params / body_fn path.
 	qp := evalQueryParams(ctx, ep.QueryParams, true, extraQueryParams)
+	qpm := evalQueryParamsMulti(ctx, ep.QueryParams)
 	if method == "GET" {
 		if err := endpoint.ApplyQueryParamsFn(ctx, ep, qp); err != nil {
 			return nil, nil, err
@@ -235,7 +236,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 		if rb, ok := body.(*cmdctx.RawBody); ok {
 			hlog.Debug("raw body", "content_type", rb.ContentType, "size", len(rb.Content))
 			if len(extraHeaders) > 0 {
-				return c.DoRequest(client.Request{Method: method, Path: path, QueryParams: qp, Body: rb.Content, BodyContentType: rb.ContentType, Headers: extraHeaders})
+				return c.DoRequest(client.Request{Method: method, Path: path, QueryParams: qp, QueryParamsMulti: qpm, Body: rb.Content, BodyContentType: rb.ContentType, Headers: extraHeaders})
 			}
 			return c.PostRaw(path, qp, rb.Content, rb.ContentType)
 		}
@@ -247,7 +248,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 					body = map[string]any{}
 				}
 			}
-			return c.DoRequest(client.Request{Method: method, Path: path, QueryParams: qp, Body: body, BodyContentType: ct, Headers: extraHeaders})
+			return c.DoRequest(client.Request{Method: method, Path: path, QueryParams: qp, QueryParamsMulti: qpm, Body: body, BodyContentType: ct, Headers: extraHeaders})
 		}
 		switch method {
 		case "POST":
@@ -264,7 +265,7 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 		}
 	default:
 		if len(extraHeaders) > 0 {
-			return c.DoRequest(client.Request{Method: "GET", Path: path, QueryParams: qp, Headers: extraHeaders})
+			return c.DoRequest(client.Request{Method: "GET", Path: path, QueryParams: qp, QueryParamsMulti: qpm, Headers: extraHeaders})
 		}
 		return c.Get(path, qp)
 	}
@@ -588,15 +589,18 @@ func evalQueryParams(ctx *cmdctx.Ctx, exprs map[string]string, withScope bool, e
 		params["orgIdentifier"] = ctx.Auth.OrgID
 		params["projectIdentifier"] = ctx.Auth.ProjectID
 	}
-	for paramName, exprStr := range exprs {
-		if result := exprenv.EvalExpr(exprEnv, exprStr); result != "" {
-			params[paramName] = result
-		}
-	}
+	single, _ := endpoint.EvalQueryParams(exprEnv, exprs)
+	maps.Copy(params, single)
 	for _, e := range extra {
 		maps.Copy(params, e)
 	}
 	return params
+}
+
+// evalQueryParamsMulti returns the query_params expressions that evaluate to a list.
+func evalQueryParamsMulti(ctx *cmdctx.Ctx, exprs map[string]string) map[string][]string {
+	_, multi := endpoint.EvalQueryParams(exprenv.Make(ctx), exprs)
+	return multi
 }
 
 // evalBodyParams evaluates a dot-path→expr map against ctx, returning a nested map[string]any.
