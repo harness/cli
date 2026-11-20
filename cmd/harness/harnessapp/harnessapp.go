@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 
+	"github.com/harness/cli/v3/modules/aievals"
 	"github.com/harness/cli/v3/modules/ci"
 	"github.com/harness/cli/v3/modules/code"
 	"github.com/harness/cli/v3/modules/core"
@@ -72,7 +73,7 @@ func Run(opts Options) {
 
 	reg := registry.New()
 	reg.IsMainBinary = true
-	// Embedded modules load before LoadSpecs so they win over a same-named
+	// Custom embedded specs load before LoadSpecs so they win over a same-named
 	// plugin spec installed in ~/.harness/spec.
 	for _, m := range opts.Embedded {
 		if _, err := specloader.LoadSpecBytes(reg, m.Name+".spec.yaml", m.Spec, true); err != nil {
@@ -86,6 +87,7 @@ func Run(opts Options) {
 		console.PrintError(err.Error())
 		hbase.Exit(1)
 	}
+	aievals.ModuleInit(reg.Module("aievals"))
 	ci.ModuleInit(reg.Module("ci"))
 	code.ModuleInit(reg.Module("code"))
 	core.ModuleInit(reg.Module("core"))
