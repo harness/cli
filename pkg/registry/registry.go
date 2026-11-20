@@ -787,9 +787,17 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 }
 
 // longWithSettableFields appends the settable-fields block to the help of a
-// create or update command that accepts --set.
+// create or update command whose body the mutation builder assembles. Commands
+// with a body_fn read --set themselves, so the noun's fields don't describe them.
 func (r *Registry) longWithSettableFields(cs *spec.CommandSpec) string {
-	if !cs.BuiltinFlags.Set || (cs.Verb != VerbCreate && cs.Verb != VerbUpdate) {
+	ep := cs.Endpoint
+	if ep == nil || ep.BodyFn != "" || !cs.BuiltinFlags.Set {
+		return cs.Long
+	}
+	switch {
+	case cs.Verb == VerbCreate && ep.CreateStrategy == spec.CreateStrategySetFields:
+	case cs.Verb == VerbUpdate && (ep.UpdateStrategy == spec.UpdateStrategyGetThenPut || ep.UpdateStrategy == spec.UpdateStrategyGetThenPatch):
+	default:
 		return cs.Long
 	}
 	noun := cs.FullNoun()
@@ -870,7 +878,7 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string
 	cmd := &cobra.Command{
 		Use:    use,
 		Short:  cs.Short,
-		Long:   cs.Long,
+		Long:   r.longWithSettableFields(cs),
 		Hidden: true,
 	}
 	r.bindHandler(cmd, cs)

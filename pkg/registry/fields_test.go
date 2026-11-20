@@ -465,7 +465,8 @@ func TestLongWithSettableFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs := func(verb string, set bool) *spec.CommandSpec {
-		return &spec.CommandSpec{Verb: verb, Noun: "widget", Short: "short", BuiltinFlags: spec.BuiltinFlags{Set: set}}
+		ep := &spec.EndpointSpec{CreateStrategy: spec.CreateStrategySetFields, UpdateStrategy: spec.UpdateStrategyGetThenPatch}
+		return &spec.CommandSpec{Verb: verb, Noun: "widget", Short: "short", Endpoint: ep, BuiltinFlags: spec.BuiltinFlags{Set: set}}
 	}
 	if got, want := r.longWithSettableFields(cs(VerbCreate, true)),
 		"short\n\nSettable fields (--set, --del):\n  name       scalar\n  is_public  bool  (create only)"; got != want {
@@ -477,5 +478,10 @@ func TestLongWithSettableFields(t *testing.T) {
 	}
 	if got := r.longWithSettableFields(cs(VerbUpdate, false)); got != "" {
 		t.Errorf("without --set: got %q", got)
+	}
+	ownBody := cs(VerbCreate, true)
+	ownBody.Endpoint.BodyFn = "build"
+	if got := r.longWithSettableFields(ownBody); got != "" {
+		t.Errorf("body_fn command: got %q", got)
 	}
 }
