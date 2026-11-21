@@ -100,7 +100,7 @@ modules/har/          # External HAR module (separate go.mod)
 
 ## PR scope: core vs module
 
-- **Module files:** `modules/<module>/**` and `pkg/spec/<module>.spec.yaml`. **Core files:** everything else, including `modules/core/`, `pkg/spec/core.spec.yaml`, `pkg/spec/spec.go`, and `cmd/harness/harnessapp/harnessapp.go`. `.github/CODEOWNERS` encodes this split.
+- **Module files:** `modules/<module>/**` and `pkg/spec/<module>.spec.yaml`. **Core files:** everything else, including `modules/core/`, `pkg/spec/core.spec.yaml`, `pkg/spec/spec.go`, and `cmd/harness/harnessapp/harnessapp.go`. `CODEOWNERS` encodes this split.
 - A PR is either a module PR (module files only) or a core PR. Core PRs get a stricter review and need core CLI team approval.
 - Don't bundle a new core feature with module changes that adopt it — land the core PR first, then adopt it in a module PR.
 - Exception: a core PR may edit module files when required for compatibility (e.g. renaming a spec YAML key across all specs).

@@ -1,6 +1,0 @@
-# Later lines take precedence. Mirrors .github/CODEOWNERS for Harness Code.
-
-* naman.nirwan@harness.io mike.sawka@harness.io
-
-/modules/har/ shivakumar.ningappa@harness.io saksham.golcha@harness.io jatin.agrawal@harness.io shubham.singla@harness.io arvind.choudhary@harness.io tudor.macari@harness.io sourabh.awashti@harness.io pragyesh.mishra@harness.io shivanand.sonnad@harness.io manjunatha.etagi@harness.io arham.dugar@harness.io akash.kumar@harness.io shivang.kaushal@harness.io sharique.arshi@harness.io akshat.pandey@harness.io sameeksha.malav@harness.io
-/pkg/spec/har.spec.yaml shivakumar.ningappa@harness.io saksham.golcha@harness.io jatin.agrawal@harness.io shubham.singla@harness.io arvind.choudhary@harness.io tudor.macari@harness.io sourabh.awashti@harness.io pragyesh.mishra@harness.io shivanand.sonnad@harness.io manjunatha.etagi@harness.io arham.dugar@harness.io akash.kumar@harness.io shivang.kaushal@harness.io sharique.arshi@harness.io akshat.pandey@harness.io sameeksha.malav@harness.io
