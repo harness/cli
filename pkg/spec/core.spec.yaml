@@ -112,32 +112,35 @@ commands:
     long: |
       Save Harness credentials to a named profile.
 
-      Interactive mode (default when a terminal is detected and either --api-url or --api-token is not provided):
-        Launches a TUI wizard to enter the API URL, PAT/SAT token, and select an org and project.
+      Interactive (default on a terminal when --api-url or --api-token is missing):
+        Launches a TUI wizard for the API URL, PAT/SAT token, org and project.
 
-      Non-interactive mode (CI / scripting):
-        Provide both --api-url and --api-token to skip the wizard entirely.
-        If --org or --project are omitted the profile is saved without them; run 'harness auth setscope'
-        afterwards to configure the default scope.
+      Non-interactive (CI, scripts, agents) with a token:
+        Pass --api-token (required when there is no terminal). --api-url defaults to
+        https://app.harness.io. Without --org/--project the profile is saved without a
+        scope; run 'harness auth setscope' afterwards.
+          harness auth login --profile <name> --api-url <host> --api-token <token> --org <org> --project <project>
 
-      SSO mode (--sso):
-        Logs in through the browser instead of a token. Your account must be enabled for SSO
-        access; SSO is not the default login method. On a terminal you'll pick an org/project
-        after login; otherwise --org/--project are used, and the profile saves without a scope
-        if they are absent.
+      SSO (--sso):
+        Opens a browser and waits for you to sign in, so it needs a person at a browser and
+        cannot finish in a headless shell. Your account must be enabled for SSO. SSO uses its
+        own API URL: do not pass --api-url or --api-token, and --account/--no-validate have
+        no effect. On a terminal you pick an org/project after login; otherwise --org/--project
+        are used, and the profile saves without a scope if they are absent.
+          harness auth login --sso --profile <name> --org <org> --project <project>
 
-      The --api-url flag accepts a harness.io hostname ("app.harness.io") or a full URL
+      --api-url accepts a harness.io hostname ("app.harness.io") or a full URL
       ("https://app.harness.io"). Both forms are expanded to a full URL automatically.
     no_auth: true
     handler_type: workflow
     workflow_id: login
     flags:
       - name: api-url
-        description: 'Harness API base URL (default "https://app.harness.io")'
+        description: 'Harness API base URL (default "https://app.harness.io"; not used with --sso)'
       - name: api-token
-        description: API token (PAT or SAT); reads from stdin if omitted
+        description: API token (PAT or SAT); required without a terminal (not used with --sso)
       - name: account
-        description: Account ID (inferred from PAT; must match token if provided)
+        description: Account ID (inferred from PAT; must match token if provided; ignored with --sso)
       - name: org
         description: Default org ID to store in profile
       - name: project
@@ -147,7 +150,7 @@ commands:
         description: Overwrite existing profile without prompting
       - name: no-validate
         is_bool: true
-        description: Skip token validation against the API
+        description: Skip token validation against the API (ignored with --sso)
       - name: sso
         is_bool: true
         description: Log in via browser SSO (OAuth2) instead of an API token
