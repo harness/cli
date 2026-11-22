@@ -135,9 +135,10 @@ func DebugSSOLogHandler(ctx *cmdctx.Ctx) error {
 
 // buildBlobURL constructs the log-service blob URL exactly as FetchAndPrintLog does.
 func buildBlobURL(a *auth.ResolvedAuth, logKey string) string {
-	u, err := url.Parse(a.APIUrl + "/gateway/log-service/blob")
+	blobURL := auth.JoinAPIURL(a.APIUrl, "/gateway/log-service/blob")
+	u, err := url.Parse(blobURL)
 	if err != nil {
-		return a.APIUrl + "/gateway/log-service/blob?accountID=" + url.QueryEscape(a.AccountID) + "&key=" + url.QueryEscape(logKey)
+		return blobURL + "?accountID=" + url.QueryEscape(a.AccountID) + "&key=" + url.QueryEscape(logKey)
 	}
 	q := u.Query()
 	q.Set("accountID", a.AccountID)
