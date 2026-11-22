@@ -2075,11 +2075,10 @@ commands:
       - completion_noun: pr
         keep_order: true
     endpoint:
-      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/activities
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/activities?kind=comment&kind=change-comment
       items_expr: it
       get_id_expr: string(it.id)
       query_params:
-        kind: '"comment"'
         limit: flags.limit
       paging:
         paging_strategy: flat_list
