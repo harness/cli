@@ -29,7 +29,7 @@ nouns:
   - noun: pipeline
     short_desc: A CI/CD pipeline definition with stages, steps, and trigger configuration.
     noun_aliases: [pipelines]
-    url_path: /ng/account/{{auth.account}}/all/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{it.identifier}}
+    url_path: /ng/account/{{auth.account}}/all{{scopePath(auth)}}/pipelines/{{it.identifier}}
     fields:
       - id: identifier
         expr: it.identifier
@@ -84,7 +84,7 @@ nouns:
   - noun: execution
     short_desc: A single pipeline run instance with status, timing, and trigger info.
     noun_aliases: [executions]
-    url_path: "/ng/account/{{auth.account}}/all/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{'pipelineExecutionSummary' in it ? it.pipelineExecutionSummary.pipelineIdentifier : it.pipelineIdentifier}}/deployments/{{'pipelineExecutionSummary' in it ? it.pipelineExecutionSummary.planExecutionId : it.planExecutionId}}/pipeline"
+    url_path: "/ng/account/{{auth.account}}/all{{scopePath(auth)}}/pipelines/{{'pipelineExecutionSummary' in it ? it.pipelineExecutionSummary.pipelineIdentifier : it.pipelineIdentifier}}/deployments/{{'pipelineExecutionSummary' in it ? it.pipelineExecutionSummary.planExecutionId : it.planExecutionId}}/pipeline"
     fields:
       - id: id
         label: ID
@@ -257,7 +257,7 @@ nouns:
 
   - noun: pipeline_summary
     short_desc: Lightweight pipeline overview with execution history, as returned by the list endpoint.
-    url_path: /ng/account/{{auth.account}}/all/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{it.identifier}}
+    url_path: /ng/account/{{auth.account}}/all{{scopePath(auth)}}/pipelines/{{it.identifier}}
     fields:
       - id: identifier
         expr: it.identifier
@@ -427,7 +427,7 @@ nouns:
 
   - noun: execution_result
     short_desc: Detailed execution outcome with stage and step results from a pipeline run.
-    url_path: /ng/account/{{auth.account}}/all/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{it.metadata.pipelineIdentifier}}/deployments/{{it.uuid}}/pipeline
+    url_path: /ng/account/{{auth.account}}/all{{scopePath(auth)}}/pipelines/{{it.metadata.pipelineIdentifier}}/deployments/{{it.uuid}}/pipeline
     fields:
       - id: execution_id
         label: ExecutionId

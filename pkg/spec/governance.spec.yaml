@@ -23,7 +23,7 @@ nouns:
   - noun: policy
     short_desc: A Harness OPA governance policy.
     noun_aliases: [policies]
-    url_path: /ng/account/{{auth.account}}/module/cd/orgs/{{auth.org}}/projects/{{auth.project}}/governance/policies/{{it.identifier}}
+    url_path: /ng/account/{{auth.account}}/module/cd{{scopePath(auth)}}/governance/policies/{{it.identifier}}
     fields:
       - id: identifier
         expr: it.identifier
