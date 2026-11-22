@@ -772,7 +772,7 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    use,
 		Short:  cs.Short,
-		Long:   cs.Long,
+		Long:   r.longWithSettableFields(cs),
 		Hidden: cs.Hidden,
 	}
 
@@ -784,6 +784,35 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 	}
 	r.wireFlagCompletions(cmd, cs)
 	return cmd
+}
+
+// longWithSettableFields appends the settable-fields block to the help of a
+// create or update command whose body the mutation builder assembles. Commands
+// with a body_fn read --set themselves, so the noun's fields don't describe them.
+func (r *Registry) longWithSettableFields(cs *spec.CommandSpec) string {
+	ep := cs.Endpoint
+	if ep == nil || ep.BodyFn != "" || !cs.BuiltinFlags.Set {
+		return cs.Long
+	}
+	switch {
+	case cs.Verb == VerbCreate && ep.CreateStrategy == spec.CreateStrategySetFields:
+	case cs.Verb == VerbUpdate && (ep.UpdateStrategy == spec.UpdateStrategyGetThenPut || ep.UpdateStrategy == spec.UpdateStrategyGetThenPatch):
+	default:
+		return cs.Long
+	}
+	noun := cs.FullNoun()
+	if cs.FieldsNoun != "" {
+		noun = cs.FieldsNoun
+	}
+	fields := MutableFieldsFor(r.GetNoun(noun), cs.Verb)
+	if len(fields) == 0 {
+		return cs.Long
+	}
+	long := cs.Long
+	if long == "" {
+		long = cs.Short
+	}
+	return long + "\n\n" + SettableFieldsHelp(fields)
 }
 
 // aliasNamePairs returns every (from, to) name combination that should resolve to cs:
@@ -849,7 +878,7 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string
 	cmd := &cobra.Command{
 		Use:    use,
 		Short:  cs.Short,
-		Long:   cs.Long,
+		Long:   r.longWithSettableFields(cs),
 		Hidden: true,
 	}
 	r.bindHandler(cmd, cs)

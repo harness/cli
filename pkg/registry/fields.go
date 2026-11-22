@@ -180,6 +180,23 @@ func MutableFieldsFor(noun *spec.NounDef, verb string) []spec.FieldDef {
 	return out
 }
 
+// SettableFieldsHelp renders the --help block listing the fields --set/--del accept.
+func SettableFieldsHelp(fields []spec.FieldDef) string {
+	width := 0
+	for _, f := range fields {
+		width = max(width, len(f.ID))
+	}
+	var b strings.Builder
+	b.WriteString("Settable fields (--set, --del):")
+	for _, f := range fields {
+		fmt.Fprintf(&b, "\n  %-*s  %s", width, f.ID, f.TypeLabel())
+		if f.MutableOn != "" {
+			fmt.Fprintf(&b, "  (%s only)", f.MutableOn)
+		}
+	}
+	return b.String()
+}
+
 // PrintMutableFieldTable writes a table of settable (path-based) fields to w,
 // including their field_type so users know the --set/--del semantics.
 func PrintMutableFieldTable(w io.Writer, fields []spec.FieldDef) error {
@@ -191,11 +208,7 @@ func PrintMutableFieldTable(w io.Writer, fields []spec.FieldDef) error {
 	t := format.NewTable()
 	t.AppendHeader(table.Row{"ID", "Label", "Type"})
 	for _, f := range mutable {
-		ft := f.FieldType
-		if ft == "" {
-			ft = "scalar"
-		}
-		t.AppendRow(table.Row{f.ID, fieldLabel(f), ft})
+		t.AppendRow(table.Row{f.ID, fieldLabel(f), f.TypeLabel()})
 	}
 	t.SetOutputMirror(w)
 	t.Render()
