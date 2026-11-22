@@ -388,7 +388,7 @@ func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 		}
 	}
 
-	u, err := url.Parse(c.resolved.APIUrl + r.Path)
+	u, err := url.Parse(auth.JoinAPIURL(c.resolved.APIUrl, r.Path))
 	if err != nil {
 		return nil, nil, fmt.Errorf("building URL: %w", err)
 	}
