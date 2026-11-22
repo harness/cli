@@ -52,7 +52,7 @@ nouns:
     short_desc: A Harness Code source repository.
     noun_aliases: [repo, repos, repositories]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/module/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{it.identifier}}
+    url_path: /ng/account/{{auth.account}}/module/code{{scopePath(auth)}}/repos/{{it.identifier}}
     fields:
       - id: identifier
         expr: it.identifier
@@ -120,7 +120,7 @@ nouns:
     short_desc: A Harness Code pull request.
     noun_aliases: [prs, pull_request, pull_requests]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{it.number}}/conversation
+    url_path: /ng/account/{{auth.account}}/all/code{{scopePath(auth)}}/repos/{{ctx.idParts[0]}}/pulls/{{it.number}}/conversation
     fields:
       - id: number
         label: "#"
@@ -471,7 +471,7 @@ nouns:
   - noun: pr_insight
     short_desc: Risk summary for a pull request (Harness Code review insights).
     noun_aliases: [pr_insights]
-    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+    url_path: /ng/account/{{auth.account}}/all/code{{scopePath(auth)}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
     fields:
       - id: risk
         expr: it.risk
@@ -482,7 +482,7 @@ nouns:
   - noun: pr_review_group
     short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).
     noun_aliases: [pr_review_groups]
-    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+    url_path: /ng/account/{{auth.account}}/all/code{{scopePath(auth)}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
 
   # ── repo_settings (AICR config + general repo settings) ────────────────────────
 
@@ -687,7 +687,7 @@ nouns:
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+    url_path: /ng/account/{{auth.account}}/all/code{{scopePath(auth)}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
     fields:
       - id: id
         label: ID
@@ -853,7 +853,7 @@ commands:
           expr: it.repository.identifier
         - id: url
           label: URL
-          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code" + scopePath(auth) + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
       columns: [repo, number, title, state, source_branch, target_branch, updated]
 
   - command: list pr:review_pending
@@ -897,7 +897,7 @@ commands:
           expr: it.repository.identifier
         - id: url
           label: URL
-          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code" + scopePath(auth) + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
       columns: [repo, number, title, state, source_branch, target_branch, updated]
 
   - command: list pr

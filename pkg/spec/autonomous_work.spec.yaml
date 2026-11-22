@@ -38,7 +38,7 @@ nouns:
   - noun: work_item
     short_desc: An autonomous software work unit (plan→design→implement→review→merged).
     noun_aliases: [work_items]
-    url_path: /ng/account/{{auth.account}}/module/dh/orgs/{{auth.org}}/projects/{{auth.project}}/workitems/{{it.id}}
+    url_path: /ng/account/{{auth.account}}/module/dh{{scopePath(auth)}}/workitems/{{it.id}}
     fields:
       - id: id
         expr: it.id
