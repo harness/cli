@@ -9,36 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/harness/cli/v3/pkg/auth"
-	"github.com/harness/cli/v3/pkg/hlog"
 )
 
 const marker = "SYNTHETIC_SENSITIVE_MARKER"
 
 var testScope = Scope{Account: "fixture_account", Org: "fixture_org", Source: "source", Destination: "destination"}
-
-type roundTrip func(*http.Request) (*http.Response, error)
-
-func (fn roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return fn(r) }
-
-func fakeTransport(fn roundTrip) *Transport {
-	t := NewTransport(&auth.ResolvedAuth{APIUrl: "https://inventory.invalid/gateway", AccountID: testScope.Account})
-	t.http.Transport = fn
-	t.wait = func(context.Context, time.Duration) error { return nil }
-	return t
-}
-
-func response(status int, body string) *http.Response {
-	return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
-}
 
 func fixture(id string) record {
 	updated := int64(17)
@@ -227,153 +204,6 @@ func TestSecretCapabilities(t *testing.T) {
 	}
 }
 
-func TestTransportBoundsRetriesAndSanitizes(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "debug.log")
-	hlog.SetDebugFile(logPath)
-	for _, tc := range []struct {
-		name      string
-		statuses  []int
-		body      string
-		network   bool
-		wantCalls int
-		ok        bool
-	}{
-		{"success", []int{200}, `{"status":"SUCCESS"}`, false, 1, true},
-		{"retry", []int{429, 503, 200}, `{"status":"SUCCESS"}`, false, 3, true},
-		{"denied", []int{403}, marker, false, 1, false},
-		{"unauthorized", []int{401}, marker, false, 1, false},
-		{"server retries exhausted", []int{503, 503, 503}, marker, false, 3, false},
-		{"network", nil, "", true, 3, false},
-		{"malformed", []int{200}, `{"status":"` + marker, false, 1, false},
-		{"duplicate keys", []int{200}, `{"status":"SUCCESS","status":"FAILURE"}`, false, 1, false},
-		{"trailing document", []int{200}, `{} {}`, false, 1, false},
-		{"too large", []int{200}, strings.Repeat("x", responseLimit+1), false, 1, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			calls := 0
-			transport := fakeTransport(func(r *http.Request) (*http.Response, error) {
-				calls++
-				if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/sample") {
-					t.Fatal("unexpected/mutating request")
-				}
-				if tc.network {
-					return nil, errors.New(marker)
-				}
-				return response(tc.statuses[min(calls-1, len(tc.statuses)-1)], tc.body), nil
-			})
-			var target any
-			err := transport.read(context.Background(), testScope, "sample", 0, &target)
-			if (err == nil) != tc.ok || calls != tc.wantCalls {
-				t.Fatalf("calls=%d error=%v", calls, err)
-			}
-			if err != nil && strings.Contains(err.Error(), marker) {
-				t.Fatal("unsafe error")
-			}
-		})
-	}
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(data, []byte(marker)) {
-		t.Fatal("debug payload leak")
-	}
-}
-
-func TestTransportReadOnlyPaginationContract(t *testing.T) {
-	reader := fixtureReader(101, nil)
-	calls := 0
-	tr := fakeTransport(func(r *http.Request) (*http.Response, error) {
-		calls++
-		q := r.URL.Query()
-		if q.Get("projectIdentifier") != "source" || q.Get("orgIdentifier") != testScope.Org {
-			t.Fatal("scope drift")
-		}
-		id := ""
-		page := 0
-		if r.URL.Path == "/gateway"+secretsPath+"/list/secrets" {
-			if r.Method != "POST" {
-				t.Fatal("unexpected method")
-			}
-			fmt.Sscan(q.Get("pageIndex"), &page)
-		} else if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/gateway"+secretsPath+"/secret_") {
-			id = strings.TrimPrefix(r.URL.Path, "/gateway"+secretsPath+"/")
-		} else {
-			t.Fatal("non-inventory request")
-		}
-		var target any
-		if err := reader(r.Context(), testScope, id, page, &target); err != nil {
-			t.Fatal(err)
-		}
-		data, _ := json.Marshal(target)
-		return response(200, string(data)), nil
-	})
-	report, err := Inventory(context.Background(), tr, testScope)
-	if err != nil || !report.InventoryComplete || calls != 105 {
-		t.Fatalf("calls=%d err=%v", calls, err)
-	}
-}
-
-func TestInventorySensitiveFailuresAcrossDiagnostics(t *testing.T) {
-	for _, mode := range []string{"denied", "malformed", "network", "partial", "ambiguous", "null control", "pagination control", "unknown list schema"} {
-		t.Run(mode, func(t *testing.T) {
-			logPath := filepath.Join(t.TempDir(), "debug.log")
-			hlog.SetDebugFile(logPath)
-			tr := fakeTransport(func(r *http.Request) (*http.Response, error) {
-				if mode == "network" {
-					return nil, errors.New(marker)
-				}
-				if mode == "malformed" {
-					return response(200, `{"message":"`+marker), nil
-				}
-				if mode != "denied" && r.Method == "POST" {
-					var data any
-					if err := fixtureReader(1, nil)(r.Context(), testScope, "", 0, &data); err != nil {
-						t.Fatal(err)
-					}
-					b, _ := json.Marshal(data)
-					body := string(b)
-					switch mode {
-					case "ambiguous":
-						body = strings.Replace(body, `"draft":false`, `"draft":true,"Draft":false`, 1)
-					case "null control":
-						body = strings.Replace(body, `"draft":false`, `"draft":null`, 1)
-					case "pagination control":
-						body = strings.Replace(body, `"pageSize":100`, `"pageSize":100,"pageIndex":"`+marker+`"`, 1)
-					case "unknown list schema":
-						body = strings.Replace(body, `"spec":`, `"unprovenControl":"`+marker+`","spec":`, 1)
-					}
-					return response(200, body), nil
-				}
-				return response(403, `{"message":"`+marker+`","definition":"`+marker+`"}`), nil
-			})
-			outRead, outWrite, _ := os.Pipe()
-			errRead, errWrite, _ := os.Pipe()
-			oldOut, oldErr := os.Stdout, os.Stderr
-			os.Stdout, os.Stderr = outWrite, errWrite
-			defer func() { os.Stdout, os.Stderr = oldOut, oldErr }()
-			r, err := Inventory(context.Background(), tr, testScope)
-			json.NewEncoder(os.Stdout).Encode(r)
-			fmt.Fprintln(os.Stderr, err)
-			outWrite.Close()
-			errWrite.Close()
-			stdout, _ := io.ReadAll(outRead)
-			stderr, _ := io.ReadAll(errRead)
-			outRead.Close()
-			errRead.Close()
-			debug, _ := os.ReadFile(logPath)
-			if err == nil || r.InventoryComplete {
-				t.Fatal("failed inventory claimed complete")
-			}
-			for _, surface := range [][]byte{stdout, stderr, debug} {
-				if bytes.Contains(surface, []byte(marker)) {
-					t.Fatal("sensitive marker in diagnostics")
-				}
-			}
-		})
-	}
-}
-
 func TestUnknownSecretRootFieldsBlock(t *testing.T) {
 	var s secret
 	if err := json.Unmarshal([]byte(`{"type":"SecretText","privateSecret":true}`), &s); err != nil {
@@ -528,33 +358,5 @@ func TestInventoryDoesNotEraseUnknownListSchema(t *testing.T) {
 				t.Fatal("unknown list schema erased by minimal detail")
 			}
 		})
-	}
-}
-
-func TestTransportRetryAfterAndCancellation(t *testing.T) {
-	for _, delay := range []string{"2", "999999999", "invalid"} {
-		t.Run(delay, func(t *testing.T) {
-			calls, waits := 0, 0
-			tr := fakeTransport(func(*http.Request) (*http.Response, error) {
-				calls++
-				r := response(429, marker)
-				r.Header.Set("Retry-After", delay)
-				return r, nil
-			})
-			tr.wait = func(context.Context, time.Duration) error { waits++; return errors.New(marker) }
-			var v any
-			err := tr.read(context.Background(), testScope, "sample", 0, &v)
-			if err == nil || calls != 1 || strings.Contains(err.Error(), marker) {
-				t.Fatal("unsafe retry")
-			}
-			if delay == "2" && waits != 1 {
-				t.Fatal("retry-after not honored")
-			}
-		})
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if wait(ctx, time.Hour) == nil {
-		t.Fatal("cancel ignored")
 	}
 }

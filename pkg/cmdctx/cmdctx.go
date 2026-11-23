@@ -282,6 +282,11 @@ type Ctx struct {
 	UIWantBack bool
 
 	RequestPreview io.Writer // non-nil to preview the next unsafe HTTP request instead of sending it
+
+	// InlineBody is an in-memory request body for this call. A string is sent as
+	// given. Any other value is encoded as YAML when the endpoint content type is
+	// YAML, and as JSON otherwise. Nil means the call uses -f or the spec body.
+	InlineBody any
 }
 
 func (c *Ctx) SetFlag(name string, value any) {

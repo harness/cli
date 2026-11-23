@@ -54,10 +54,6 @@ const (
 	ActionSkipped  Action = "skipped"
 )
 
-// InlineSecretPlaceholder is the shell value stored for copied inline SecretText.
-// The source value is never read or written. Replace it in the destination before running anything.
-const InlineSecretPlaceholder = "123456"
-
 type Result struct {
 	Kind       string `json:"kind"`
 	Identifier string `json:"identifier"`

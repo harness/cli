@@ -24,7 +24,6 @@ var rootDrop = map[string]bool{
 
 type rewriteOpts struct {
 	Org, Project, SourceOrg, SourceProject string
-	DisableTriggers                        bool
 }
 
 func rewriteYAML(doc string, opts rewriteOpts) (string, error) {
@@ -88,15 +87,9 @@ func rewriteTree(v any, opts rewriteOpts) {
 		if cur, ok := n["orgIdentifier"].(string); ok && cur == opts.SourceOrg {
 			n["orgIdentifier"] = opts.Org
 		}
-		if opts.DisableTriggers {
-			if _, ok := n["pipelineIdentifier"]; ok {
-				if _, ok := n["enabled"]; ok {
-					n["enabled"] = false
-				}
-			}
-		}
+		rewritePipelineStage(n, opts)
 		for k, child := range n {
-			if s, ok := child.(string); ok && (k == "yaml" || k == "yamlPipeline" || k == "inputSetYaml") && strings.Contains(s, "projectIdentifier") {
+			if s, ok := child.(string); ok && (k == "yaml" || k == "yamlPipeline" || k == "inputSetYaml") && yamlStringNeedsRewrite(s) {
 				if rewritten, err := rewriteYAML(s, opts); err == nil {
 					n[k] = rewritten
 					continue
@@ -109,6 +102,79 @@ func rewriteTree(v any, opts rewriteOpts) {
 			rewriteTree(n[i], opts)
 		}
 	}
+}
+
+func yamlStringNeedsRewrite(s string) bool {
+	return strings.Contains(s, "projectIdentifier") || strings.Contains(s, "type: Pipeline")
+}
+
+// rewritePipelineStage points a Pipeline stage at the destination when it names
+// the source project. A stage that names another project is left in place; the
+// caller reports that leftover project-level reference.
+func rewritePipelineStage(n map[string]any, opts rewriteOpts) {
+	if stringField(n, "type") != "Pipeline" {
+		return
+	}
+	spec, ok := n["spec"].(map[string]any)
+	if !ok {
+		return
+	}
+	project := stringField(spec, "project")
+	org := stringField(spec, "org")
+	if project != opts.SourceProject || (org != "" && org != opts.SourceOrg) {
+		return
+	}
+	spec["project"] = opts.Project
+	if org == opts.SourceOrg {
+		spec["org"] = opts.Org
+	}
+}
+
+// disableTriggerDoc sets enabled: false on the trigger document only.
+func disableTriggerDoc(doc string) (string, error) {
+	var node any
+	if err := yaml.Unmarshal([]byte(doc), &node); err != nil {
+		return "", err
+	}
+	plain, ok := yamlToPlain(node).(map[string]any)
+	if !ok {
+		return doc, nil
+	}
+	trigger, ok := plain["trigger"].(map[string]any)
+	if !ok {
+		return doc, nil
+	}
+	trigger["enabled"] = false
+	out, err := yaml.Marshal(plain)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// sameTrigger compares trigger documents without the enabled flag, so a trigger
+// the user turned on after copy still counts as the same resource.
+func sameTrigger(a, b string) bool {
+	return sameDocument(stripTriggerEnabled(a), stripTriggerEnabled(b))
+}
+
+func stripTriggerEnabled(doc string) string {
+	var node any
+	if yaml.Unmarshal([]byte(doc), &node) != nil {
+		return doc
+	}
+	plain, ok := yamlToPlain(node).(map[string]any)
+	if !ok {
+		return doc
+	}
+	if trigger, ok := plain["trigger"].(map[string]any); ok {
+		delete(trigger, "enabled")
+	}
+	out, err := yaml.Marshal(plain)
+	if err != nil {
+		return doc
+	}
+	return string(out)
 }
 
 func cleanRoot(obj map[string]any) map[string]any {
@@ -169,8 +235,14 @@ func isRemote(m map[string]any) bool {
 	if strings.EqualFold(stringField(m, "storeType", "store_type"), "REMOTE") {
 		return true
 	}
-	if git, ok := m["gitDetails"].(map[string]any); ok {
-		return strings.EqualFold(stringField(git, "storeType"), "REMOTE")
+	for _, key := range []string{"gitDetails", "git_details"} {
+		git, ok := m[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(stringField(git, "storeType", "store_type"), "REMOTE") {
+			return true
+		}
 	}
 	return false
 }
@@ -183,4 +255,15 @@ func asMap(v any) (map[string]any, bool) {
 func asSlice(v any) ([]any, bool) {
 	s, ok := v.([]any)
 	return s, ok
+}
+
+func truthy(v any) bool {
+	switch n := v.(type) {
+	case bool:
+		return n
+	case string:
+		return strings.EqualFold(n, "true")
+	default:
+		return false
+	}
 }

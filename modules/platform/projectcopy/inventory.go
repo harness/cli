@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"reflect"
 	"sort"
 	"strings"
@@ -115,10 +116,6 @@ func (e *envelope[T]) UnmarshalJSON(data []byte) error {
 
 type readFn func(context.Context, Scope, string, int, any) error
 
-func Inventory(ctx context.Context, t *Transport, s Scope) (Report, error) {
-	return inventory(ctx, t.read, s)
-}
-
 func inventory(ctx context.Context, read readFn, s Scope) (Report, error) {
 	report := NewReport(s)
 	if err := s.Validate(); err != nil {
@@ -214,6 +211,69 @@ func list(ctx context.Context, read readFn, s Scope) (map[string]record, error) 
 
 func validRecord(r record, s Scope) bool {
 	return !r.Draft && r.Secret != nil && !r.Secret.Unproven && r.Updated != nil && *r.Updated >= 0 && ValidIdentifier(r.Secret.Identifier) && r.Secret.Name != "" && r.Secret.Org == s.Org && r.Secret.Project == s.Source && r.Secret.Type != "" && r.Secret.Spec != nil
+}
+
+func canonicalObject(data []byte, controls ...string) (map[string]json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if !unambiguousJSON(data) || json.Unmarshal(data, &fields) != nil || fields == nil {
+		return nil, errors.New("malformed secret inventory object")
+	}
+	for key, value := range fields {
+		for _, control := range controls {
+			if strings.EqualFold(key, control) && (key != control || string(value) == "null") {
+				return nil, errors.New("ambiguous or null secret inventory control")
+			}
+		}
+	}
+	return fields, nil
+}
+
+func unambiguousJSON(data []byte) bool {
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	var value func() bool
+	value = func() bool {
+		token, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return true
+		}
+		switch delim {
+		case '{':
+			seen := map[string]bool{}
+			for dec.More() {
+				key, e := dec.Token()
+				if e != nil {
+					return false
+				}
+				s, ok := key.(string)
+				if !ok || seen[s] {
+					return false
+				}
+				seen[s] = true
+				if !value() {
+					return false
+				}
+			}
+		case '[':
+			for dec.More() {
+				if !value() {
+					return false
+				}
+			}
+		default:
+			return false
+		}
+		end, e := dec.Token()
+		return e == nil && ((delim == '{' && end == json.Delim('}')) || (delim == '[' && end == json.Delim(']')))
+	}
+	if !value() {
+		return false
+	}
+	_, err := dec.Token()
+	return err == io.EOF
 }
 
 func classify(s *secret) Item {

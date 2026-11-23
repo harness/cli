@@ -4,20 +4,18 @@
 package projectcopy
 
 import (
-	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"testing"
 )
 
 func TestCopyAppliesCDCoreAndSkipsIdenticalRerun(t *testing.T) {
-	api := newCopyAPI(false)
-	report, err := Copy(context.Background(), api.transport(), testScope, true)
+	gw := newFixture(false)
+	report, err := runCopy(testScope, true, gw)
 	if err == nil || !strings.Contains(err.Error(), "git-backed") {
-		t.Fatalf("expected incomplete copy for skipped git-backed resources: %v\n%s", err, strings.Join(api.seen, "\n"))
+		t.Fatalf("expected incomplete copy for skipped git-backed resources: %v", err)
 	}
 	if !report.InventoryComplete || !strings.Contains(report.Readiness, "skipped") {
 		t.Fatalf("readiness %q", report.Readiness)
@@ -34,72 +32,156 @@ func TestCopyAppliesCDCoreAndSkipsIdenticalRerun(t *testing.T) {
 	if !containsResult(report, "reference", "account.shared_connector", ActionShared) {
 		t.Fatal("account connector was copied instead of reported")
 	}
+	if !containsResult(report, "reference", "project.other_project", ActionShared) {
+		t.Fatal("pipeline stage project reference was not reported")
+	}
+	if !containsResult(report, "infrastructure", "prod/k8s", ActionCreate) {
+		t.Fatal("infrastructure was not planned")
+	}
+	if !containsResult(report, "service_override", "prod/ov", ActionCreate) {
+		t.Fatal("service override was not planned")
+	}
+	if !containsResult(report, "secret", "db_password", ActionSkipped) || !strings.Contains(strings.Join(report.SecretsPendingValue, ","), "db_password") {
+		t.Fatal("inline secret was created instead of reported")
+	}
 	if len(report.DelegateSelectors) != 1 || !strings.Contains(report.DelegateSelectors[0].Reason, "harness-delegate") {
 		t.Fatalf("delegate check %#v", report.DelegateSelectors)
 	}
-	var secretBody, triggerBody, projectBody string
-	for _, call := range api.mutating {
+	var projectBody, triggerBody, pipelineBody, secretBody string
+	for _, call := range gw.writes {
 		switch {
-		case strings.Contains(call.body, "db_password"):
-			secretBody = call.body
-		case strings.Contains(call.path, "/triggers"):
-			triggerBody = call.body
-		case call.path == "/ng/api/projects":
-			projectBody = call.body
+		case call.Noun == "project":
+			projectBody = call.Body
+		case call.Noun == "trigger":
+			triggerBody = call.Body
+		case call.Noun == "pipeline" && call.ID == "deploy":
+			pipelineBody = call.Body
+		case call.Noun == "secret":
+			secretBody = call.Body
 		}
 	}
-	if !strings.Contains(secretBody, InlineSecretPlaceholder) || strings.Contains(secretBody, "SUPER_SECRET") {
-		t.Fatalf("inline secret body = %s", secretBody)
+	if strings.Contains(secretBody, "SUPER_SECRET") || strings.Contains(secretBody, "db_password") {
+		t.Fatalf("inline secret was written: %s", secretBody)
+	}
+	if !strings.Contains(secretBody, "ref_vault") || !strings.Contains(secretBody, "vault/path#key") {
+		t.Fatalf("reference secret body = %s", secretBody)
 	}
 	if !strings.Contains(triggerBody, "enabled: false") {
 		t.Fatalf("trigger body = %s", triggerBody)
 	}
-	if !strings.Contains(projectBody, `"identifier":"destination"`) || !strings.Contains(projectBody, `"name":"destination"`) || strings.Contains(projectBody, `"name":"Source"`) || !strings.Contains(projectBody, "CD") {
+	if !strings.Contains(pipelineBody, "project: "+testScope.Destination) || !strings.Contains(pipelineBody, "project: other_project") || !strings.Contains(pipelineBody, "enabled: true") || !strings.Contains(pipelineBody, "org.echo") || !strings.Contains(pipelineBody, "account.shared_connector") {
+		t.Fatalf("pipeline body = %s", pipelineBody)
+	}
+	if !strings.Contains(projectBody, `"identifier":"`+testScope.Destination+`"`) || !strings.Contains(projectBody, `"name":"`+testScope.Destination+`"`) || strings.Contains(projectBody, `"name":"Source"`) || !strings.Contains(projectBody, "CD") {
 		t.Fatalf("project body = %s", projectBody)
 	}
-	for _, call := range api.mutating {
-		if strings.Contains(call.path, "delegate") {
-			t.Fatal("delegate was created")
+	for _, call := range gw.writes {
+		if call.Noun == "delegate" || call.Noun == "connector" && call.ID == "harnessSecretManager" {
+			t.Fatalf("unexpected write %#v", call)
 		}
 	}
-	before := len(api.mutating)
-	again, err := Copy(context.Background(), api.transport(), testScope, true)
+	if !writeBefore(gw, "connector", "vault", "secret", "ref_vault") || !writeBefore(gw, "secret", "ref_vault", "connector", "github") {
+		t.Fatalf("secret manager was not created before the reference secret: %#v", gw.writes)
+	}
+	if !writeBefore(gw, "environment", "prod", "infrastructure", "k8s") || !writeBefore(gw, "template", "parent", "template", "child") {
+		t.Fatalf("dependency order %#v", gw.writes)
+	}
+	before := len(gw.writes)
+	again, err := runCopy(testScope, true, gw)
 	if err == nil || !strings.Contains(err.Error(), "git-backed") {
-		t.Fatalf("expected incomplete rerun for skipped git-backed resources: %v\n%s", err, strings.Join(api.seen, "\n"))
+		t.Fatalf("expected incomplete rerun for skipped git-backed resources: %v", err)
 	}
-	if len(api.mutating) != before {
-		t.Fatalf("rerun wrote %d extra resources", len(api.mutating)-before)
+	if len(gw.writes) != before {
+		t.Fatalf("rerun wrote %d extra resources", len(gw.writes)-before)
 	}
-	if !containsResult(again, "secret", "db_password", ActionSkip) || !containsResult(again, "pipeline", "deploy", ActionSkip) {
+	if !containsResult(again, "secret", "ref_vault", ActionSkip) || !containsResult(again, "pipeline", "deploy", ActionSkip) || !containsResult(again, "infrastructure", "prod/k8s", ActionSkip) || !containsResult(again, "service_override", "prod/ov", ActionSkip) {
 		t.Fatal("identical rerun did not skip")
 	}
 }
 
 func TestCopyPlanDoesNotWrite(t *testing.T) {
-	api := newCopyAPI(false)
-	report, err := Copy(context.Background(), api.transport(), testScope, false)
+	gw := newFixture(false)
+	report, err := runCopy(testScope, false, gw)
 	if err == nil || !strings.Contains(err.Error(), "git-backed") {
 		t.Fatalf("expected incomplete plan for skipped git-backed resources: %v", err)
 	}
-	if len(api.mutating) != 0 {
-		t.Fatalf("plan wrote %#v", api.mutating)
+	if len(gw.writes) != 0 {
+		t.Fatalf("plan wrote %#v", gw.writes)
 	}
-	if !containsResult(report, "secret", "db_password", ActionCreate) || !strings.Contains(strings.Join(report.SecretsPendingValue, ","), "db_password") {
-		t.Fatal("plan did not include the inline secret")
+	if !containsResult(report, "secret", "db_password", ActionSkipped) || !strings.Contains(strings.Join(report.SecretsPendingValue, ","), "db_password") {
+		t.Fatal("plan did not list the inline secret")
+	}
+	if !containsResult(report, "infrastructure", "prod/k8s", ActionCreate) || !containsResult(report, "service_override", "prod/ov", ActionCreate) {
+		t.Fatal("plan missed infrastructure or service override")
 	}
 }
 
 func TestCopyConflictWritesNothing(t *testing.T) {
-	api := newCopyAPI(true)
-	report, err := Copy(context.Background(), api.transport(), testScope, true)
+	gw := newFixture(true)
+	report, err := runCopy(testScope, true, gw)
 	if err == nil || !strings.Contains(err.Error(), "nothing written") && !strings.Contains(err.Error(), "differs") {
 		t.Fatalf("err=%v", err)
 	}
-	if len(api.mutating) != 0 {
-		t.Fatalf("conflict wrote %#v", api.mutating)
+	if len(gw.writes) != 0 {
+		t.Fatalf("conflict wrote %#v", gw.writes)
 	}
 	if !containsResult(report, "pipeline", "deploy", ActionConflict) {
 		t.Fatal("conflict missing from report")
+	}
+}
+
+func TestCopyResumesAfterCreateFailure(t *testing.T) {
+	gw := newFixture(false)
+	gw.failNoun = "service"
+	report, err := runCopy(testScope, true, gw)
+	if err == nil || report.Readiness != "copy stopped after a create failure; re-run to continue" {
+		t.Fatalf("err=%v readiness=%q", err, report.Readiness)
+	}
+	if containsResult(report, "service", "svc", ActionCreate) {
+		t.Fatal("failed create recorded as success")
+	}
+	if writesOf(gw, "project") != 1 || writesOf(gw, "service") != 0 {
+		t.Fatalf("writes %#v", gw.writes)
+	}
+	again, err := runCopy(testScope, true, gw)
+	if err == nil || !strings.Contains(err.Error(), "git-backed") {
+		t.Fatalf("expected resume to finish remaining writes: %v", err)
+	}
+	if !containsResult(again, "project", testScope.Destination, ActionSkip) || !containsResult(again, "service", "svc", ActionCreate) {
+		t.Fatalf("resume results %#v", again.Results)
+	}
+	if writesOf(gw, "project") != 1 {
+		t.Fatalf("resume recreated the project")
+	}
+}
+
+func TestCopyStableTemplateFailureRetriesOnRerun(t *testing.T) {
+	gw := &memGW{by: map[string][]memItem{}}
+	gw.add("project", testScope.Source, memItem{ID: testScope.Source, Raw: map[string]any{"identifier": testScope.Source, "name": "Source", "orgIdentifier": testScope.Org}})
+	doc := "template:\n  identifier: step\n  name: step\n  versionLabel: v1\n  type: Step\n  orgIdentifier: " + testScope.Org + "\n  projectIdentifier: " + testScope.Source + "\n  spec: {}\n"
+	gw.add("template", testScope.Source, memItem{ID: "step"})
+	gw.add("template_version", testScope.Source, memItem{ID: "v1", Parent: "step", Version: "v1", Stable: true, Doc: doc})
+	gw.failStable = true
+	report, err := runCopy(testScope, true, gw)
+	if err == nil || report.Readiness != "copy stopped after a create failure; re-run to continue" {
+		t.Fatalf("err=%v readiness=%q", err, report.Readiness)
+	}
+	if !containsResult(report, "template", "step/v1", ActionBlocked) {
+		t.Fatalf("stable failure %#v", report.Results)
+	}
+	if writesOf(gw, "template") != 1 || writesOf(gw, "template:stable") != 0 {
+		t.Fatalf("writes %#v", gw.writes)
+	}
+	gw.failStable = false
+	again, err := runCopy(testScope, true, gw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writesOf(gw, "template") != 1 || writesOf(gw, "template:stable") != 1 {
+		t.Fatalf("rerun did not retry only the stable update: %#v", gw.writes)
+	}
+	if !containsResult(again, "template", "step/v1", ActionCreate) || again.Results[indexResult(again, "template", "step/v1")].Reason != "set stable version" {
+		t.Fatalf("rerun results %#v", again.Results)
 	}
 }
 
@@ -115,52 +197,50 @@ func TestCopyAcceptsLiveInlineSecretSchema(t *testing.T) {
 	}
 }
 
-func TestCDEnvelopeWrapsServiceYAML(t *testing.T) {
-	env, err := cdEnvelope("service", "service:\n  identifier: demo_app\n  name: demo-app\n  orgIdentifier: fixture_org\n  projectIdentifier: destination\n")
+func TestRewriteDisablesOnlyTriggerDocument(t *testing.T) {
+	doc, err := disableTriggerDoc("trigger:\n  identifier: push\n  enabled: true\n  pipelineIdentifier: deploy\n  projectIdentifier: source\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env["identifier"] != "demo_app" || env["projectIdentifier"] != "destination" {
-		t.Fatalf("%v", env)
+	rewritten, err := rewriteYAML(doc, rewriteOpts{Org: testScope.Org, Project: testScope.Destination, SourceOrg: testScope.Org, SourceProject: testScope.Source})
+	if err != nil {
+		t.Fatal(err)
 	}
-	yamlField, _ := env["yaml"].(string)
-	if !strings.Contains(yamlField, "identifier: demo_app") {
-		t.Fatal(yamlField)
+	if !strings.Contains(rewritten, "projectIdentifier: "+testScope.Destination) || !strings.Contains(rewritten, "enabled: false") {
+		t.Fatal(rewritten)
+	}
+	pipeline, err := rewriteYAML("pipeline:\n  identifier: deploy\n  enabled: true\n  pipelineIdentifier: deploy\n  projectIdentifier: source\n", rewriteOpts{Org: testScope.Org, Project: testScope.Destination, SourceOrg: testScope.Org, SourceProject: testScope.Source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(pipeline, "enabled: true") {
+		t.Fatal(pipeline)
+	}
+	if !sameTrigger("trigger:\n  identifier: push\n  enabled: true\n", "trigger:\n  identifier: push\n  enabled: false\n") {
+		t.Fatal("enabled flag counted as a conflict")
 	}
 }
 
-func TestRewriteDisablesTriggersAndRewritesProject(t *testing.T) {
-	doc, err := rewriteYAML("trigger:\n  identifier: push\n  enabled: true\n  pipelineIdentifier: deploy\n  projectIdentifier: source\n", rewriteOpts{Org: testScope.Org, Project: testScope.Destination, SourceOrg: testScope.Org, SourceProject: testScope.Source, DisableTriggers: true})
+func TestRewritePipelineStageProject(t *testing.T) {
+	doc, err := rewriteYAML("pipeline:\n  projectIdentifier: source\n  stages:\n    - stage:\n        type: Pipeline\n        spec:\n          org: "+testScope.Org+"\n          project: source\n          pipeline: child\n    - stage:\n        type: Pipeline\n        spec:\n          project: other_project\n          pipeline: foreign\n", rewriteOpts{Org: testScope.Org, Project: testScope.Destination, SourceOrg: testScope.Org, SourceProject: testScope.Source})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(doc, "projectIdentifier: "+testScope.Destination) || !strings.Contains(doc, "enabled: false") || strings.Contains(doc, "projectIdentifier: source") {
+	if !strings.Contains(doc, "project: "+testScope.Destination) || !strings.Contains(doc, "project: other_project") || strings.Contains(doc, "project: source") {
+		t.Fatal(doc)
+	}
+	if !strings.Contains(doc, "account.kept") && strings.Contains(doc, "projectIdentifier: source") {
 		t.Fatal(doc)
 	}
 }
 
-func TestRewritePreservesCrossProjectRefs(t *testing.T) {
-	doc, err := rewriteYAML("pipeline:\n  projectIdentifier: source\n  stages:\n    - stage:\n        spec:\n          pipeline:\n            projectIdentifier: other_project\n            orgIdentifier: other_org\n", rewriteOpts{Org: testScope.Org, Project: testScope.Destination, SourceOrg: testScope.Org, SourceProject: testScope.Source})
+func TestRewritePreservesScopedRefs(t *testing.T) {
+	doc, err := rewriteYAML("pipeline:\n  projectIdentifier: source\n  connectorRef: account.shared_connector\n  orgRef: org.echo\n", rewriteOpts{Org: testScope.Org, Project: testScope.Destination, SourceOrg: testScope.Org, SourceProject: testScope.Source})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(doc, "projectIdentifier: "+testScope.Destination) || !strings.Contains(doc, "projectIdentifier: other_project") || !strings.Contains(doc, "orgIdentifier: other_org") {
+	if !strings.Contains(doc, "account.shared_connector") || !strings.Contains(doc, "org.echo") || strings.Contains(doc, "projectIdentifier: source") {
 		t.Fatal(doc)
-	}
-}
-
-func TestListFailsClosedOnLaterPageError(t *testing.T) {
-	calls := 0
-	tr := fakeTransport(func(r *http.Request) (*http.Response, error) {
-		calls++
-		if calls == 1 {
-			return response(200, `{"status":"SUCCESS","data":{"content":[{"identifier":"a"}],"totalItems":2,"totalPages":2}}`), nil
-		}
-		return response(404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`), nil
-	})
-	c := &copier{ctx: context.Background(), transport: tr, scope: testScope}
-	if _, err := c.list(http.MethodGet, "/items", url.Values{}, "", "page", "size", ""); err == nil {
-		t.Fatal("later page 404 accepted as complete")
 	}
 }
 
@@ -183,7 +263,7 @@ func TestOrderTemplateUnitsCopiesDependenciesFirst(t *testing.T) {
 		{id: "parent", version: "v1", doc: "template:\n  spec: {}\n"},
 	})
 	if len(ordered) != 3 || ordered[0].id != "parent" || ordered[0].version != "v1" || ordered[1].id != "parent" || ordered[1].version != "v2" || ordered[2].id != "child" {
-		t.Fatalf("%v", ordered)
+		t.Fatalf("%#v", ordered)
 	}
 }
 
@@ -211,352 +291,190 @@ func TestIsNotFoundUsesAPICode(t *testing.T) {
 	}
 }
 
-func TestMutatingPostIsNotRetried(t *testing.T) {
-	calls := 0
-	tr := fakeTransport(func(r *http.Request) (*http.Response, error) {
-		calls++
-		return response(503, `{"status":"ERROR"}`), nil
-	})
-	c := &copier{ctx: context.Background(), transport: tr, scope: testScope}
-	if err := c.postJSON("/ng/api/connectors", c.query(testScope.Destination), `{"connector":{}}`); err == nil {
-		t.Fatal("mutating 503 accepted")
-	}
-	if calls != 1 {
-		t.Fatalf("mutating POST retried %d times", calls)
-	}
-	calls = 0
-	status, _, err := tr.exchange(context.Background(), http.MethodGet, "/ng/api/projects/destination", c.query(testScope.Destination), "", "")
-	if err != nil || status != 503 {
-		t.Fatalf("status=%d err=%v", status, err)
-	}
-	if calls != 3 {
-		t.Fatalf("GET 503 retried %d times", calls)
-	}
-}
-
-func TestCopyResumesAfterCreateFailure(t *testing.T) {
-	api := newCopyAPI(false)
-	api.failPath = "/ng/api/servicesV2"
-	api.failOnce = true
-	report, err := Copy(context.Background(), api.transport(), testScope, true)
-	if err == nil || report.Readiness != "copy stopped after a create failure; re-run to continue" {
-		t.Fatalf("err=%v readiness=%q", err, report.Readiness)
-	}
-	if containsResult(report, "service", "svc", ActionCreate) {
-		t.Fatal("failed create recorded as success")
-	}
-	projectWrites := 0
-	for _, call := range api.mutating {
-		if call.path == "/ng/api/projects" {
-			projectWrites++
-		}
-		if call.path == "/ng/api/servicesV2" {
-			t.Fatal("failed service create was stored")
-		}
-	}
-	if projectWrites != 1 {
-		t.Fatalf("project writes = %d", projectWrites)
-	}
-	again, err := Copy(context.Background(), api.transport(), testScope, true)
-	if err == nil || !strings.Contains(err.Error(), "git-backed") {
-		t.Fatalf("expected resume to finish remaining writes: %v", err)
-	}
-	if !containsResult(again, "project", testScope.Destination, ActionSkip) || !containsResult(again, "service", "svc", ActionCreate) {
-		t.Fatalf("resume results %#v", again.Results)
-	}
-	projectWrites = 0
-	for _, call := range api.mutating {
-		if call.path == "/ng/api/projects" {
-			projectWrites++
-		}
-	}
-	if projectWrites != 1 {
-		t.Fatalf("resume recreated the project: %d writes", projectWrites)
-	}
-}
-
-func TestCopyStableTemplateFailureStopsCopy(t *testing.T) {
-	api := newCopyAPI(false)
-	api.rejectStable = true
-	report, err := Copy(context.Background(), api.transport(), testScope, true)
-	if err == nil || report.Readiness != "copy stopped after a create failure; re-run to continue" {
-		t.Fatalf("err=%v readiness=%q", err, report.Readiness)
-	}
-	if !containsResult(report, "template", "step/v1", ActionBlocked) {
-		t.Fatalf("stable-template failure %#v", report.Results)
-	}
-}
-
-func TestExtractItemsRejectsUnprovenLists(t *testing.T) {
-	for _, body := range []string{`{}`, `{"status":"SUCCESS"}`, `{"status":"SUCCESS","data":null}`, `{"status":"ERROR","data":{"content":[]}}`} {
-		if _, err := extractItems([]byte(body)); err == nil {
-			t.Fatalf("accepted %s", body)
-		}
-	}
-	page, err := extractItems([]byte(`{"status":"SUCCESS","data":{"content":[],"totalItems":0,"totalPages":0}}`))
-	if err != nil || len(page.Items) != 0 || !page.HasTotalItems {
-		t.Fatalf("%v %#v", err, page)
-	}
-}
-
 func containsResult(report Report, kind, id string, action Action) bool {
-	for _, item := range report.Results {
-		if item.Kind == kind && item.Identifier == id && item.Action == action {
-			return true
+	return indexResult(report, kind, id) >= 0 && report.Results[indexResult(report, kind, id)].Action == action
+}
+
+func indexResult(report Report, kind, id string) int {
+	for i, item := range report.Results {
+		if item.Kind == kind && item.Identifier == id {
+			return i
 		}
 	}
-	return false
+	return -1
 }
 
-type copyCall struct{ method, path, body, project string }
-
-type copyAPI struct {
-	conflict     bool
-	failOnce     bool
-	failPath     string
-	rejectStable bool
-	mutating     []copyCall
-	stored       map[string]string
-	seen         []string
-}
-
-func newCopyAPI(conflict bool) *copyAPI {
-	return &copyAPI{conflict: conflict, stored: map[string]string{}}
-}
-
-func (a *copyAPI) transport() *Transport {
-	return fakeTransport(func(r *http.Request) (*http.Response, error) {
-		var body []byte
-		if r.Body != nil {
-			body, _ = io.ReadAll(r.Body)
+func writeBefore(gw *memGW, leftNoun, leftID, rightNoun, rightID string) bool {
+	left, right := -1, -1
+	for i, call := range gw.writes {
+		if call.Noun == leftNoun && call.ID == leftID && left < 0 {
+			left = i
 		}
-		path := strings.TrimPrefix(r.URL.Path, "/gateway")
-		project := r.URL.Query().Get("projectIdentifier")
-		a.seen = append(a.seen, r.Method+" "+path+" project="+project)
-		if r.Method == http.MethodPost || r.Method == http.MethodPut {
-			if !strings.Contains(path, "/list") {
-				if a.failOnce && r.Method == http.MethodPost && path == a.failPath {
-					a.failOnce = false
-					return response(500, `{"status":"ERROR","code":"UNKNOWN"}`), nil
-				}
-				if a.rejectStable && r.Method == http.MethodPut && strings.Contains(path, "updateStableTemplate") {
-					return response(400, `{"status":"ERROR","code":"INVALID_REQUEST"}`), nil
-				}
-				call := copyCall{method: r.Method, path: path, body: string(body), project: project}
-				a.mutating = append(a.mutating, call)
-				a.stored[storeKey(call)] = string(body)
-			}
-		}
-		return response(a.serve(r.Method, path, project, string(body))), nil
-	})
-}
-
-func (a *copyAPI) serve(method, path, project, body string) (int, string) {
-	switch {
-	case path == "/ng/api/v2/secrets/list/secrets":
-		if project != testScope.Source {
-			return 200, emptySecretPage()
-		}
-		return 200, sourceSecrets()
-	case strings.HasPrefix(path, "/ng/api/v2/secrets/") && method == http.MethodGet:
-		return a.storedSecret(project, strings.TrimPrefix(path, "/ng/api/v2/secrets/"))
-	case path == "/ng/api/projects/"+testScope.Source:
-		return 200, `{"status":"SUCCESS","data":{"project":{"identifier":"source","name":"Source","orgIdentifier":"fixture_org","description":"demo","color":"#004fc4","modules":["CD"]}}}`
-	case path == "/ng/api/projects/"+testScope.Destination && method == http.MethodGet:
-		if _, ok := a.stored[http.MethodPost+" "+"/ng/api/projects"+" "+""]; ok || a.conflict {
-			return 200, `{"status":"SUCCESS","data":{"project":{"identifier":"destination","name":"Source","orgIdentifier":"fixture_org"}}}`
-		}
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	case path == "/ng/api/connectors/listV2":
-		if project != testScope.Source {
-			return 200, emptyPage()
-		}
-		return 200, `{"status":"SUCCESS","data":{"content":[{"connector":{"identifier":"github","name":"github","type":"Github","orgIdentifier":"fixture_org","projectIdentifier":"source","spec":{"delegateSelectors":["cd-delegate"],"connectorRef":"account.shared_connector"}}}],"totalPages":1,"totalItems":1}}`
-	case strings.HasPrefix(path, "/ng/api/connectors/") && method == http.MethodGet:
-		return a.storedJSON(http.MethodPost+" /ng/api/connectors "+project, "connector")
-	case path == "/ng/api/servicesV2" && method == http.MethodGet:
-		return a.yamlList(project, "service", "svc", "service:\n  identifier: svc\n  name: svc\n  orgIdentifier: fixture_org\n  projectIdentifier: source\n")
-	case strings.HasPrefix(path, "/ng/api/servicesV2/") && method == http.MethodGet:
-		return a.storedYAML(http.MethodPost+" /ng/api/servicesV2 "+project, "service")
-	case path == "/ng/api/environmentsV2" && method == http.MethodGet:
-		return a.yamlList(project, "environment", "prod", "environment:\n  identifier: prod\n  name: prod\n  orgIdentifier: fixture_org\n  projectIdentifier: source\n")
-	case strings.HasPrefix(path, "/ng/api/environmentsV2/") && path != "/ng/api/environmentsV2/serviceOverrides" && method == http.MethodGet:
-		return a.storedYAML(http.MethodPost+" /ng/api/environmentsV2 "+project, "environment")
-	case path == "/ng/api/infrastructures" || path == "/ng/api/environmentsV2/serviceOverrides":
-		return 200, emptyPage()
-	case path == "/template/api/templates/list":
-		if project != testScope.Source {
-			return 200, emptyPage()
-		}
-		return 200, `{"status":"SUCCESS","data":{"content":[{"identifier":"step","name":"step","versionLabel":"v1","stableTemplate":true,"storeType":"INLINE"}],"totalPages":1,"totalItems":1}}`
-	case strings.HasPrefix(path, "/template/api/templates/") && method == http.MethodGet:
-		return a.template(project)
-	case path == "/pipeline/api/pipelines/list":
-		if project != testScope.Source {
-			return 200, emptyPage()
-		}
-		return 200, `{"status":"SUCCESS","data":{"content":[{"identifier":"deploy","name":"deploy","storeType":"INLINE"},{"identifier":"gitpipe","name":"gitpipe","storeType":"REMOTE"}],"totalPages":1,"totalItems":2}}`
-	case path == "/pipeline/api/pipelines/deploy" && method == http.MethodGet:
-		if project == testScope.Destination && a.conflict {
-			return 200, `{"status":"SUCCESS","data":{"yamlPipeline":"pipeline:\n  identifier: deploy\n  name: other\n  orgIdentifier: fixture_org\n  projectIdentifier: destination\n"}}`
-		}
-		if project == testScope.Destination {
-			if doc, ok := a.stored[http.MethodPost+" /pipeline/api/pipelines/v2 "+project]; ok {
-				return 200, `{"status":"SUCCESS","data":{"yamlPipeline":` + jsonString(doc) + `}}`
-			}
-			return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-		}
-		return 200, `{"status":"SUCCESS","data":{"yamlPipeline":"pipeline:\n  identifier: deploy\n  name: deploy\n  orgIdentifier: fixture_org\n  projectIdentifier: source\n"}}`
-	case path == "/pipeline/api/inputSets" && method == http.MethodGet:
-		return a.docList(project, "inputSet:\n  identifier: inputs\n  name: inputs\n  orgIdentifier: fixture_org\n  projectIdentifier: source\n  pipeline:\n    identifier: deploy\n", "inputs")
-	case path == "/pipeline/api/inputSets/inputs" && method == http.MethodGet:
-		return a.storedDoc(http.MethodPost+" /pipeline/api/inputSets "+project, "inputSetYaml")
-	case path == "/pipeline/api/triggers" && method == http.MethodGet:
-		return a.docList(project, "trigger:\n  identifier: push\n  name: push\n  enabled: true\n  pipelineIdentifier: deploy\n  orgIdentifier: fixture_org\n  projectIdentifier: source\n", "push")
-	case path == "/pipeline/api/triggers/push" && method == http.MethodGet:
-		return a.storedDoc(http.MethodPost+" /pipeline/api/triggers "+project, "yaml")
-	case path == "/pm/api/v1/policies" && method == http.MethodGet:
-		if project != testScope.Source {
-			return 200, emptyPage()
-		}
-		return 200, `{"status":"SUCCESS","data":{"content":[{"identifier":"deny_prod","name":"deny","rego":"package pipeline","projectIdentifier":"source"}],"totalPages":1,"totalItems":1}}`
-	case path == "/pm/api/v1/policies/deny_prod" && method == http.MethodGet:
-		return a.storedGovernance(http.MethodPost + " /pm/api/v1/policies " + project)
-	case path == "/pm/api/v1/policysets" && method == http.MethodGet:
-		if project != testScope.Source {
-			return 200, emptyPage()
-		}
-		return 200, `{"status":"SUCCESS","data":{"content":[{"identifier":"on_run","name":"on run","type":"pipeline","action":"onrun","enabled":true,"policies":[{"identifier":"deny_prod"}],"projectIdentifier":"source"}],"totalPages":1,"totalItems":1}}`
-	case path == "/pm/api/v1/policysets/on_run" && method == http.MethodGet:
-		return a.storedGovernance(http.MethodPost + " /pm/api/v1/policysets " + project)
-	case path == "/ng/api/delegate-setup/listDelegates":
-		return 200, `{"status":"SUCCESS","resource":[{"groupName":"harness-delegate","delegateGroupIdentifier":"del1","connectivityStatus":"connected","tags":["cd-delegate"]}],"totalPages":1}`
-	case method == http.MethodPost || method == http.MethodPut:
-		return 200, `{"status":"SUCCESS"}`
-	default:
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	}
-}
-
-func (a *copyAPI) storedSecret(project, id string) (int, string) {
-	if project == testScope.Source && id == "db_password" {
-		return 200, `{"status":"SUCCESS","data":{"secret":{"identifier":"db_password","name":"db","type":"SecretText","orgIdentifier":"fixture_org","projectIdentifier":"source","spec":{"type":"SecretText","valueType":"Inline","secretManagerIdentifier":"harnessSecretManager","value":"SUPER_SECRET"}},"updatedAt":17}}`
-	}
-	if project == testScope.Source && id == "ref_token" {
-		return 200, `{"status":"SUCCESS","data":{"secret":{"identifier":"ref_token","name":"ref","type":"SecretText","orgIdentifier":"fixture_org","projectIdentifier":"source","spec":{"type":"SecretText","valueType":"Reference","secretManagerIdentifier":"org.manager","value":"vault/path#key"}},"updatedAt":17}}`
-	}
-	raw, ok := a.stored[http.MethodPost+" /ng/api/v2/secrets "+project+" "+id]
-	if !ok {
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	}
-	var body map[string]any
-	if json.Unmarshal([]byte(raw), &body) != nil {
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	}
-	data, _ := json.Marshal(map[string]any{"status": "SUCCESS", "data": body})
-	return 200, string(data)
-}
-
-func sourceSecrets() string {
-	return `{"status":"SUCCESS","data":{"totalPages":1,"totalItems":2,"pageItemCount":2,"pageSize":100,"content":[` +
-		`{"secret":{"identifier":"db_password","name":"db","orgIdentifier":"fixture_org","projectIdentifier":"source","type":"SecretText","spec":{"type":"SecretText","valueType":"Inline","secretManagerIdentifier":"harnessSecretManager","value":"SUPER_SECRET"}},"updatedAt":17},` +
-		`{"secret":{"identifier":"ref_token","name":"ref","orgIdentifier":"fixture_org","projectIdentifier":"source","type":"SecretText","spec":{"type":"SecretText","valueType":"Reference","secretManagerIdentifier":"org.manager","value":"vault/path#key"}},"updatedAt":18}` +
-		`]}}`
-}
-
-func (a *copyAPI) yamlList(project, root, id, doc string) (int, string) {
-	if project != testScope.Source {
-		return 200, emptyPage()
-	}
-	return 200, `{"status":"SUCCESS","data":{"content":[{"` + root + `":{"identifier":"` + id + `","name":"` + id + `","orgIdentifier":"fixture_org","projectIdentifier":"source","yaml":` + jsonString(doc) + `}}],"totalPages":1,"totalItems":1}}`
-}
-
-func (a *copyAPI) storedYAML(key, root string) (int, string) {
-	doc, ok := a.stored[key]
-	if !ok {
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	}
-	var env map[string]any
-	if json.Unmarshal([]byte(doc), &env) == nil {
-		if inner, ok := env["yaml"].(string); ok {
-			doc = inner
+		if call.Noun == rightNoun && call.ID == rightID && right < 0 {
+			right = i
 		}
 	}
-	return 200, `{"status":"SUCCESS","data":{"` + root + `":{"yaml":` + jsonString(doc) + `}}}`
+	return left >= 0 && right >= 0 && left < right
 }
 
-func (a *copyAPI) storedJSON(key, root string) (int, string) {
-	raw, ok := a.stored[key]
-	if !ok {
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	}
-	var body map[string]any
-	if json.Unmarshal([]byte(raw), &body) != nil {
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	}
-	entity, _ := body[root]
-	data, _ := json.Marshal(map[string]any{"status": "SUCCESS", "data": map[string]any{root: entity}})
-	return 200, string(data)
-}
-
-func (a *copyAPI) template(project string) (int, string) {
-	if project == testScope.Source {
-		return 200, `{"status":"SUCCESS","data":{"yaml":` + jsonString("template:\n  identifier: step\n  name: step\n  versionLabel: v1\n  type: Step\n  orgIdentifier: fixture_org\n  projectIdentifier: source\n  spec: {}\n") + `}}`
-	}
-	if doc, ok := a.stored[http.MethodPost+" /template/api/templates "+project]; ok {
-		return 200, `{"status":"SUCCESS","data":{"yaml":` + jsonString(doc) + `}}`
-	}
-	return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-}
-
-func (a *copyAPI) docList(project, doc, id string) (int, string) {
-	if project != testScope.Source {
-		return 200, emptyPage()
-	}
-	return 200, `{"status":"SUCCESS","data":{"content":[{"identifier":"` + id + `","name":"` + id + `","storeType":"INLINE","yaml":` + jsonString(doc) + `,"inputSetYaml":` + jsonString(doc) + `}],"totalPages":1,"totalItems":1}}`
-}
-
-func (a *copyAPI) storedDoc(key, field string) (int, string) {
-	doc, ok := a.stored[key]
-	if !ok {
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	}
-	data, _ := json.Marshal(map[string]any{"status": "SUCCESS", "data": map[string]any{field: doc, "yaml": doc}})
-	return 200, string(data)
-}
-
-func (a *copyAPI) storedGovernance(key string) (int, string) {
-	raw, ok := a.stored[key]
-	if !ok {
-		return 404, `{"status":"ERROR","code":"RESOURCE_NOT_FOUND"}`
-	}
-	return 200, `{"status":"SUCCESS","data":` + raw + `}`
-}
-
-func emptyPage() string {
-	return `{"status":"SUCCESS","data":{"content":[],"totalPages":0,"totalItems":0}}`
-}
-
-func emptySecretPage() string {
-	return `{"status":"SUCCESS","data":{"totalPages":0,"totalItems":0,"pageItemCount":0,"pageSize":100,"content":[]}}`
-}
-
-func storeKey(call copyCall) string {
-	key := call.method + " " + call.path + " " + call.project
-	if call.path == "/ng/api/v2/secrets" {
-		var body map[string]any
-		if json.Unmarshal([]byte(call.body), &body) == nil {
-			if secret, ok := body["secret"].(map[string]any); ok {
-				if id, ok := secret["identifier"].(string); ok {
-					return key + " " + id
-				}
-			}
+func writesOf(gw *memGW, noun string) int {
+	n := 0
+	for _, call := range gw.writes {
+		if call.Noun == noun {
+			n++
 		}
 	}
-	return key
+	return n
 }
 
-func jsonString(s string) string {
-	data, _ := json.Marshal(s)
-	return string(data)
+type gwWrite struct {
+	Noun, ID, Parent, Project, Body string
+}
+
+type memItem struct {
+	ID, Parent, Doc, Version string
+	Stable, Remote           bool
+	Raw                      map[string]any
+}
+
+type memGW struct {
+	by         map[string][]memItem
+	writes     []gwWrite
+	failNoun   string
+	didFail    bool
+	failStable bool
+	delegates  []map[string]any
+}
+
+func (g *memGW) add(noun, project string, item memItem) {
+	if item.Raw == nil {
+		item.Raw = map[string]any{}
+	}
+	if item.ID != "" && stringField(item.Raw, "identifier") == "" {
+		item.Raw["identifier"] = item.ID
+	}
+	if item.Remote {
+		item.Raw["storeType"] = "REMOTE"
+	}
+	if item.Doc != "" {
+		item.Raw["yaml"] = item.Doc
+	}
+	if item.Version != "" {
+		item.Raw["versionLabel"] = item.Version
+	}
+	if item.Stable {
+		item.Raw["stableTemplate"] = true
+	}
+	g.by[noun+"|"+project] = append(g.by[noun+"|"+project], item)
+}
+
+func (g *memGW) List(noun, project, parent string) ([]listed, error) {
+	var out []listed
+	for _, item := range g.by[noun+"|"+project] {
+		if parent != "" && item.Parent != parent {
+			continue
+		}
+		out = append(out, listed{ID: item.ID, Parent: item.Parent, Version: item.Version, Doc: item.Doc, Stable: item.Stable, Raw: cloneMap(item.Raw)})
+	}
+	return out, nil
+}
+
+func (g *memGW) Get(noun, project, id, parent string) (got, error) {
+	for _, item := range g.by[noun+"|"+project] {
+		if item.ID != id {
+			continue
+		}
+		if parent != "" && item.Parent != "" && item.Parent != parent {
+			continue
+		}
+		return got{Found: true, Doc: item.Doc, Raw: cloneMap(item.Raw), Version: item.Version, Stable: item.Stable}, nil
+	}
+	return got{}, nil
+}
+
+func (g *memGW) Create(noun, project, id, parent, body string) error {
+	if g.failNoun == noun && !g.didFail {
+		g.didFail = true
+		return errors.New("create failed")
+	}
+	g.writes = append(g.writes, gwWrite{Noun: noun, ID: id, Parent: parent, Project: project, Body: body})
+	item := memItem{ID: id, Parent: parent, Doc: body}
+	if strings.HasPrefix(strings.TrimSpace(body), "{") {
+		var raw map[string]any
+		if json.Unmarshal([]byte(body), &raw) == nil {
+			item.Raw = raw
+			item.Doc = ""
+		}
+	}
+	g.add(noun, project, item)
+	if noun == "template" {
+		ver := versionLabel(body)
+		g.add("template_version", project, memItem{ID: ver, Parent: id, Version: ver, Doc: body})
+	}
+	return nil
+}
+
+func (g *memGW) SetStable(project, id, version string) error {
+	if g.failStable {
+		return errors.New("stable update failed")
+	}
+	g.writes = append(g.writes, gwWrite{Noun: "template:stable", ID: id + "/" + version, Project: project})
+	items := g.by["template_version|"+project]
+	for i := range items {
+		if items[i].Parent == id && (items[i].Version == version || items[i].ID == version) {
+			items[i].Stable = true
+			items[i].Raw["stableTemplate"] = true
+		}
+	}
+	return nil
+}
+
+func (g *memGW) Delegates() ([]map[string]any, error) {
+	return g.delegates, nil
+}
+
+func newFixture(conflict bool) *memGW {
+	org := testScope.Org
+	src := testScope.Source
+	gw := &memGW{by: map[string][]memItem{}, delegates: []map[string]any{{
+		"groupName": "harness-delegate", "delegateGroupIdentifier": "del1", "connectivityStatus": "connected", "tags": []any{"cd-delegate"},
+	}}}
+	gw.add("project", src, memItem{ID: src, Raw: map[string]any{"identifier": src, "name": "Source", "orgIdentifier": org, "description": "demo", "color": "#004fc4", "modules": []any{"CD"}}})
+	secret := func(id, name, valueType, manager, value string) {
+		gw.add("secret", src, memItem{ID: id, Raw: map[string]any{
+			"identifier": id, "name": name, "orgIdentifier": org, "projectIdentifier": src, "type": "SecretText",
+			"spec": map[string]any{"type": "SecretText", "valueType": valueType, "secretManagerIdentifier": manager, "value": value},
+		}})
+	}
+	secret("db_password", "db", "Inline", "harnessSecretManager", "SUPER_SECRET")
+	secret("ref_vault", "ref", "Reference", "vault", "vault/path#key")
+	gw.add("connector", src, memItem{ID: "vault", Raw: map[string]any{"identifier": "vault", "name": "vault", "type": "Vault", "orgIdentifier": org, "projectIdentifier": src, "spec": map[string]any{}}})
+	gw.add("connector", src, memItem{ID: "github", Raw: map[string]any{"identifier": "github", "name": "github", "type": "Github", "orgIdentifier": org, "projectIdentifier": src, "spec": map[string]any{"delegateSelectors": []any{"cd-delegate"}, "connectorRef": "account.shared_connector"}}})
+	gw.add("connector", src, memItem{ID: "harnessSecretManager", Raw: map[string]any{"identifier": "harnessSecretManager", "name": "Harness Secrets Manager", "harnessManaged": true, "projectIdentifier": src}})
+	yamlDoc := func(noun, id, body string) {
+		gw.add(noun, src, memItem{ID: id, Doc: body})
+	}
+	yamlDoc("service", "svc", "service:\n  identifier: svc\n  name: svc\n  orgIdentifier: "+org+"\n  projectIdentifier: "+src+"\n")
+	yamlDoc("environment", "prod", "environment:\n  identifier: prod\n  name: prod\n  orgIdentifier: "+org+"\n  projectIdentifier: "+src+"\n")
+	gw.add("infrastructure", src, memItem{ID: "k8s", Parent: "prod", Doc: "infrastructureDefinition:\n  identifier: k8s\n  name: k8s\n  orgIdentifier: " + org + "\n  projectIdentifier: " + src + "\n  environmentRef: prod\n"})
+	gw.add("service_override", src, memItem{ID: "ov", Parent: "prod", Raw: map[string]any{"identifier": "ov", "environmentRef": "prod", "serviceRef": "svc", "orgIdentifier": org, "projectIdentifier": src}})
+	parentV1 := "template:\n  identifier: parent\n  name: parent\n  versionLabel: v1\n  type: Step\n  orgIdentifier: " + org + "\n  projectIdentifier: " + src + "\n  spec: {}\n"
+	parentV2 := "template:\n  identifier: parent\n  name: parent\n  versionLabel: v2\n  type: Step\n  orgIdentifier: " + org + "\n  projectIdentifier: " + src + "\n  spec: {}\n"
+	child := "template:\n  identifier: child\n  name: child\n  versionLabel: v1\n  type: Step\n  orgIdentifier: " + org + "\n  projectIdentifier: " + src + "\n  spec:\n    templateRef: parent\n"
+	gw.add("template", src, memItem{ID: "parent"})
+	gw.add("template_version", src, memItem{ID: "v1", Parent: "parent", Version: "v1", Doc: parentV1})
+	gw.add("template_version", src, memItem{ID: "v2", Parent: "parent", Version: "v2", Stable: true, Doc: parentV2})
+	gw.add("template", src, memItem{ID: "child"})
+	gw.add("template_version", src, memItem{ID: "v1", Parent: "child", Version: "v1", Stable: true, Doc: child})
+	pipeline := "pipeline:\n  identifier: deploy\n  name: deploy\n  enabled: true\n  orgIdentifier: " + org + "\n  projectIdentifier: " + src + "\n  connectorRef: org.echo\n  stages:\n    - stage:\n        identifier: child\n        type: Pipeline\n        spec:\n          org: " + org + "\n          project: " + src + "\n          pipeline: childpipe\n          connectorRef: account.shared_connector\n    - stage:\n        identifier: elsewhere\n        type: Pipeline\n        spec:\n          org: " + org + "\n          project: other_project\n          pipeline: foreign\n"
+	gw.add("pipeline", src, memItem{ID: "deploy", Doc: pipeline})
+	gw.add("pipeline", src, memItem{ID: "gitpipe", Remote: true, Doc: "pipeline:\n  identifier: gitpipe\n  name: git\n  projectIdentifier: " + src + "\n"})
+	gw.add("input_set", src, memItem{ID: "inputs", Parent: "deploy", Doc: "inputSet:\n  identifier: inputs\n  name: inputs\n  orgIdentifier: " + org + "\n  projectIdentifier: " + src + "\n  pipeline:\n    identifier: deploy\n"})
+	gw.add("trigger", src, memItem{ID: "push", Parent: "deploy", Doc: "trigger:\n  identifier: push\n  name: push\n  enabled: true\n  pipelineIdentifier: deploy\n  orgIdentifier: " + org + "\n  projectIdentifier: " + src + "\n"})
+	gw.add("policy", src, memItem{ID: "deny_prod", Raw: map[string]any{"identifier": "deny_prod", "name": "deny", "rego": "package pipeline", "projectIdentifier": src}})
+	gw.add("policy_set", src, memItem{ID: "on_run", Raw: map[string]any{"identifier": "on_run", "name": "on run", "type": "pipeline", "action": "onrun", "enabled": true, "policies": []any{map[string]any{"identifier": "deny_prod"}}, "projectIdentifier": src}})
+	if conflict {
+		gw.add("pipeline", testScope.Destination, memItem{ID: "deploy", Doc: "pipeline:\n  identifier: deploy\n  name: other\n  orgIdentifier: " + org + "\n  projectIdentifier: " + testScope.Destination + "\n"})
+	}
+	return gw
 }

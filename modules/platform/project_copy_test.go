@@ -52,6 +52,11 @@ func TestProjectCopyRejectsUnavailableWorkBeforeTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	c = copyContext()
+	c.SetFlag("resources", "cd-core, cd-core")
+	if _, err := projectCopyScope(c); err != nil {
+		t.Fatal(err)
+	}
+	c = copyContext()
 	c.SetFlag("dry-run", true)
 	c.SetFlag("apply", true)
 	if projectCopyShouldApply(c) {

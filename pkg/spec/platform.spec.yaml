@@ -501,17 +501,19 @@ commands:
       Identical destination resources are skipped. Differing destination
       content aborts the copy before any write.
 
-      --resources cd-core copies secrets, connectors, services, environments,
-      infrastructures, service overrides, templates, pipelines, input sets,
-      triggers, policies, and policy sets. Triggers are created disabled.
-      Git-backed entities are skipped. Org and account references are reported
-      and left in place. Delegate selectors are checked against connected
-      account delegates; delegates are not copied.
+      --resources takes a comma-separated list of groups. cd-core copies
+      secrets, connectors, services, environments, infrastructures, service
+      overrides, templates, pipelines, input sets, triggers, policies, and
+      policy sets. Secret-manager connectors are copied before the reference
+      secrets that name them. Triggers are created disabled. Git-backed
+      entities are skipped. Org and account references are reported and left
+      in place. Delegate selectors are checked against connected account
+      delegates; delegates are not copied.
 
-      Inline SecretText values are not read. New inline secrets are stored
-      with the placeholder value 123456 and must be updated before use.
-      Reference secrets copy their manager and path. Other secret types are
-      blocked. The default is a plan; pass --apply to write.
+      Inline SecretText values are not read or written. The report lists each
+      inline secret that needs a value; create it in the destination before
+      use. Reference secrets copy their manager and path. Other secret types
+      are blocked. The default is a plan; pass --apply to write.
       Reports support text/JSON and --out to a NEW file only.
     handler_type: workflow
     workflow_id: project_copy
@@ -524,7 +526,7 @@ commands:
     flags:
       - name: resources
         required: true
-        description: "Resource set to copy: cd-core"
+        description: "Comma-separated resource groups to copy. Supported: cd-core"
       - name: dry-run
         is_bool: true
         description: "Plan only. This is the default."

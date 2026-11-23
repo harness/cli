@@ -21,10 +21,10 @@ The first command is a plan. Nothing is written. `--apply` creates the destinati
 
 ## What is copied
 
-Order: project, secrets, connectors, services, environments, infrastructures, service overrides, templates, pipelines, input sets, triggers, policies, policy sets.
+Order: project, secret-manager connectors, reference secrets, other connectors, services, environments, infrastructures, service overrides, templates, pipelines, input sets, triggers, policies, policy sets.
 
-- Inline `SecretText` is created with the placeholder value `123456`. The source value is not read. Update each listed secret before running the destination project.
-- Reference secrets copy the secret manager and reference path. A destination secret with a different path is a conflict.
+- Inline `SecretText` is not created. The source value is not read. The report lists each one that needs a value; create it in the destination before running anything there.
+- Reference secrets copy the secret manager and reference path. A project-scoped secret manager connector is created first. A destination secret with a different path is a conflict.
 - Other secret types are reported as blocked and skipped.
 - Templates are copied in dependency order using project-scoped `templateRef` values.
 - Triggers are created disabled.
@@ -58,10 +58,10 @@ Read the plan. Then apply:
   --apply
 ```
 
-After apply, replace each inline secret:
+After apply, create each inline secret the report lists:
 
 ```sh
-./bin/harness update secret SECRET_ID --org YOUR_ORG --project YOUR_DESTINATION_PROJECT --set value='the-real-value'
+./bin/harness create secret SECRET_ID --org YOUR_ORG --project YOUR_DESTINATION_PROJECT --set value='the-real-value'
 ```
 
 Check the destination in the UI, or:
@@ -72,6 +72,6 @@ Check the destination in the UI, or:
 ./bin/harness list secret --org YOUR_ORG --project YOUR_DESTINATION_PROJECT
 ```
 
-Run the same `--apply` command again. Resources that match should be reported as `skip`, and inline secrets you already updated should not be reset to `123456`.
+Run the same `--apply` command again. Resources that match should be reported as `skip`. An inline secret you already created is left as it is.
 
 `--out report.json` writes the report to a new file and refuses to overwrite an existing one. `--format json` prints the same report to stdout.

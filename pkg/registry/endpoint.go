@@ -64,9 +64,17 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 		method = "GET"
 	}
 
-	// Priority 1: file body — wins over strategies when -f is provided.
-	if ep.FileBody != spec.FileBodyNone && cmdctx.GetString(ctx.FlagValues, "file") != "" {
-		rawBody, err := cmdctx.SlurpInputFile(ctx.FlagValues)
+	// Priority 1: file body — wins over strategies when -f or InlineBody is provided.
+	// InlineBody is the in-memory form of -f: a string is used as-is, and any other
+	// value is encoded as YAML or JSON to match the endpoint content type.
+	if ctx.InlineBody != nil || (ep.FileBody != spec.FileBodyNone && cmdctx.GetString(ctx.FlagValues, "file") != "") {
+		var rawBody string
+		var err error
+		if ctx.InlineBody != nil {
+			rawBody, err = inlineBodyText(ctx.InlineBody, ep, method)
+		} else {
+			rawBody, err = cmdctx.SlurpInputFile(ctx.FlagValues)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -101,7 +109,11 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 			})
 		}
 
-		body, ct, err := cmdctx.NormalizeFileBody(rawBody, resolveFileBodyContentType(ep, method), cmdctx.GetString(ctx.FlagValues, "file"))
+		fileLabel := ""
+		if ctx.InlineBody == nil {
+			fileLabel = cmdctx.GetString(ctx.FlagValues, "file")
+		}
+		body, ct, err := cmdctx.NormalizeFileBody(rawBody, resolveFileBodyContentType(ep, method), fileLabel)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -546,6 +558,26 @@ func runEndpointValidators(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, req cmdctx.En
 		}
 	}
 	return nil
+}
+
+// inlineBodyText renders Ctx.InlineBody the way -f would. A string is returned
+// unchanged. Other values become YAML for a YAML endpoint and JSON otherwise.
+func inlineBodyText(body any, ep *spec.EndpointSpec, method string) (string, error) {
+	if s, ok := body.(string); ok {
+		return s, nil
+	}
+	if strings.Contains(resolveContentType(ep, method), "yaml") || strings.Contains(ep.FileBodyContentType, "yaml") {
+		out, err := yaml.Marshal(body)
+		if err != nil {
+			return "", fmt.Errorf("encoding inline body: %w", err)
+		}
+		return string(out), nil
+	}
+	out, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("encoding inline body: %w", err)
+	}
+	return string(out), nil
 }
 
 // resolveBody builds the request body, preferring body_fn, then body_params+body, returning nil if none apply.

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/harness/cli/v3/modules/platform/projectcopy"
 	"github.com/harness/cli/v3/pkg/cmdctx"
@@ -26,7 +27,7 @@ func projectCopy(ctx *cmdctx.Ctx) error {
 	if closeOut != nil {
 		defer closeOut()
 	}
-	report, copyErr := projectcopy.Copy(ctx.Context, projectcopy.NewTransport(ctx.Auth), scope, projectCopyShouldApply(ctx))
+	report, copyErr := projectcopy.Copy(ctx, scope, projectCopyShouldApply(ctx))
 	if err := renderProjectCopyReport(out, reportFormat(ctx), report); err != nil {
 		if copyErr != nil {
 			return copyErr
@@ -61,12 +62,31 @@ func openProjectCopyOut(ctx *cmdctx.Ctx) (io.Writer, func(), error) {
 	return f, func() { _ = f.Close() }, nil
 }
 
+func parseResourceGroups(raw string) error {
+	parts := strings.Split(raw, ",")
+	seen := 0
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		seen++
+		if part != "cd-core" {
+			return fmt.Errorf("unknown resource group %q; supported groups: cd-core", part)
+		}
+	}
+	if seen == 0 {
+		return errors.New("select --resources cd-core")
+	}
+	return nil
+}
+
 func projectCopyScope(ctx *cmdctx.Ctx) (projectcopy.Scope, error) {
 	if ctx.ProvidedFlags["dry-run"] && !cmdctx.GetBool(ctx.FlagValues, "dry-run") && !projectCopyShouldApply(ctx) {
 		return projectcopy.Scope{}, errors.New("pass --apply to copy; --dry-run=false does not write")
 	}
-	if cmdctx.GetString(ctx.FlagValues, "resources") != "cd-core" {
-		return projectcopy.Scope{}, errors.New("select --resources cd-core")
+	if err := parseResourceGroups(cmdctx.GetString(ctx.FlagValues, "resources")); err != nil {
+		return projectcopy.Scope{}, err
 	}
 	if ctx.Auth == nil {
 		return projectcopy.Scope{}, errors.New("resolved authentication required")
@@ -141,11 +161,11 @@ func renderCDCoreReport(w io.Writer, r projectcopy.Report) error {
 		}
 	}
 	if len(r.SecretsPendingValue) > 0 {
-		if _, err := fmt.Fprintf(w, "Inline secrets were stored with placeholder value %s. Update each one before running the destination project:\n", projectcopy.InlineSecretPlaceholder); err != nil {
+		if _, err := fmt.Fprintf(w, "%d inline secrets need a value. Create each one before running the destination project:\n", len(r.SecretsPendingValue)); err != nil {
 			return err
 		}
 		for _, id := range r.SecretsPendingValue {
-			if _, err := fmt.Fprintf(w, "harness update secret %s --org %s --project %s --set value='...'\n", id, r.Scope.Org, r.Scope.Destination); err != nil {
+			if _, err := fmt.Fprintf(w, "harness create secret %s --org %s --project %s --set value='...'\n", id, r.Scope.Org, r.Scope.Destination); err != nil {
 				return err
 			}
 		}

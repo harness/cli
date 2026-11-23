@@ -4,54 +4,78 @@
 package projectcopy
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/harness/cli/v3/pkg/cmdctx"
 )
+
+// row is one resource type in copy order. Parent is the noun whose copied
+// identifiers this row is listed under. Mode splits a noun that has to be
+// written in more than one pass.
+type row struct {
+	Noun   string
+	Parent string
+	Mode   string
+}
+
+// cdCore is the copy order. Secret-manager connectors are created before the
+// reference secrets that name them. Everything else is one row.
+var cdCore = []row{
+	{Noun: "project"},
+	{Noun: "connector", Mode: "secret-manager"},
+	{Noun: "secret"},
+	{Noun: "connector", Mode: "rest"},
+	{Noun: "service"},
+	{Noun: "environment"},
+	{Noun: "infrastructure", Parent: "environment"},
+	{Noun: "service_override", Parent: "environment"},
+	{Noun: "template"},
+	{Noun: "pipeline"},
+	{Noun: "input_set", Parent: "pipeline"},
+	{Noun: "trigger", Parent: "pipeline"},
+	{Noun: "policy"},
+	{Noun: "policy_set"},
+	{Noun: "delegate"},
+}
 
 // Copy plans a same-org CD-core copy from scope.Source to scope.Destination.
 // apply creates the destination project when it is missing and writes resources.
 // Conflicting destination content aborts before any write.
-func Copy(ctx context.Context, t *Transport, scope Scope, apply bool) (Report, error) {
-	c := &copier{ctx: ctx, transport: t, scope: scope, apply: apply, report: NewCopyReport(scope, apply), selectors: map[string]struct{}{}, shared: map[string]struct{}{}}
+func Copy(ctx *cmdctx.Ctx, scope Scope, apply bool) (Report, error) {
+	if ctx == nil || ctx.Auth == nil || ctx.Resolver == nil {
+		return NewCopyReport(scope, apply), errors.New("resolved authentication required")
+	}
+	return runCopy(scope, apply, newSpecGateway(ctx))
+}
+
+func runCopy(scope Scope, apply bool, gw Gateway) (Report, error) {
+	c := &copier{
+		gw: gw, scope: scope, apply: apply, report: NewCopyReport(scope, apply),
+		selectors: map[string]struct{}{}, shared: map[string]struct{}{}, managers: map[string]bool{},
+	}
 	err := c.run()
 	return c.report, err
 }
 
-func (c *copier) rewriteOpts(disableTriggers bool) rewriteOpts {
-	return rewriteOpts{Org: c.scope.Org, Project: c.scope.Destination, SourceOrg: c.scope.Org, SourceProject: c.scope.Source, DisableTriggers: disableTriggers}
-}
-
-func (c *copier) rewriteDoc(doc string, disableTriggers bool) (string, error) {
-	return rewriteYAML(doc, c.rewriteOpts(disableTriggers))
-}
-
-func (c *copier) rewriteObj(v any) {
-	rewriteTree(v, c.rewriteOpts(false))
-}
-
 type copier struct {
-	ctx         context.Context
-	transport   *Transport
-	scope       Scope
-	apply       bool
-	report      Report
-	selectors   map[string]struct{}
-	shared      map[string]struct{}
-	plans       []work
-	conflict    bool
-	blocked     bool
-	skipped     bool
-	envIDs      []string
-	pipelineIDs []string
+	gw        Gateway
+	scope     Scope
+	apply     bool
+	report    Report
+	selectors map[string]struct{}
+	shared    map[string]struct{}
+	managers  map[string]bool
+	plans     []work
+	conflict  bool
+	blocked   bool
+	skipped   bool
+	pending   bool
 }
 
 type work struct {
@@ -63,50 +87,56 @@ func (c *copier) run() error {
 	if err := c.scope.Validate(); err != nil {
 		return err
 	}
-	if err := c.planProject(); err != nil {
-		return err
+	for _, item := range cdCore {
+		if err := c.plan(item); err != nil {
+			return err
+		}
 	}
-	if err := c.planSecrets(); err != nil {
-		return err
+	return c.finish()
+}
+
+func (c *copier) plan(item row) error {
+	switch item.Noun {
+	case "project":
+		return c.planProject()
+	case "connector":
+		if item.Mode == "secret-manager" {
+			if err := c.scanSecretManagers(); err != nil {
+				return err
+			}
+		}
+		return c.planConnectors(item.Mode == "secret-manager")
+	case "secret":
+		return c.planSecrets()
+	case "template":
+		return c.planTemplates()
+	case "delegate":
+		return c.planDelegates()
+	case "policy", "policy_set", "service_override":
+		return c.forParents(item.Parent, func(parent string) error {
+			return c.planObject(item.Noun, parent)
+		})
+	default:
+		return c.forParents(item.Parent, func(parent string) error {
+			return c.planYAML(item.Noun, parent)
+		})
 	}
-	if err := c.planConnectors(); err != nil {
-		return err
+}
+
+func (c *copier) forParents(parentNoun string, fn func(string) error) error {
+	parents := []string{""}
+	if parentNoun != "" {
+		parents = c.idsOf(parentNoun, ActionCreate, ActionSkip)
 	}
-	if err := c.planYAMLList("service", "/ng/api/servicesV2", "service", "", nil); err != nil {
-		return err
+	for _, parent := range parents {
+		if err := fn(parent); err != nil {
+			return err
+		}
 	}
-	if err := c.planYAMLList("environment", "/ng/api/environmentsV2", "environment", "", nil); err != nil {
-		return err
-	}
-	c.envIDs = c.idsOf("environment", ActionCreate, ActionSkip)
-	if err := c.planChildren("infrastructure", c.envIDs, c.planInfrastructures); err != nil {
-		return err
-	}
-	if err := c.planChildren("service_override", c.envIDs, c.planOverrides); err != nil {
-		return err
-	}
-	if err := c.planTemplates(); err != nil {
-		return err
-	}
-	if err := c.planPipelines(); err != nil {
-		return err
-	}
-	c.pipelineIDs = c.idsOf("pipeline", ActionCreate, ActionSkip)
-	if err := c.planChildren("input_set", c.pipelineIDs, c.planInputSets); err != nil {
-		return err
-	}
-	if err := c.planChildren("trigger", c.pipelineIDs, c.planTriggers); err != nil {
-		return err
-	}
-	if err := c.planPolicies(); err != nil {
-		return err
-	}
-	if err := c.planPolicySets(); err != nil {
-		return err
-	}
-	if err := c.planDelegates(); err != nil {
-		return err
-	}
+	return nil
+}
+
+func (c *copier) finish() error {
 	c.finishShared()
 	c.report.InventoryComplete = true
 	if c.conflict || !c.apply {
@@ -117,16 +147,7 @@ func (c *copier) run() error {
 			c.report.Readiness = "blocked by conflicts; nothing written"
 			return errors.New("project copy aborted before any write: destination content differs")
 		}
-		if c.blocked {
-			c.report.Readiness = "plan incomplete: blocked resources will be skipped on apply"
-			return errors.New("project copy plan incomplete: blocked resources were not included")
-		}
-		if c.skipped {
-			c.report.Readiness = "plan incomplete: requested git-backed resources will be skipped on apply"
-			return errors.New("project copy plan incomplete: requested git-backed resources were not included")
-		}
-		c.report.Readiness = "plan only; pass --apply to copy"
-		return nil
+		return c.incomplete(false)
 	}
 	for _, item := range c.plans {
 		if item.write == nil {
@@ -142,41 +163,54 @@ func (c *copier) run() error {
 		}
 		c.report.Results = append(c.report.Results, item.result)
 	}
-	if c.blocked {
+	return c.incomplete(true)
+}
+
+func (c *copier) incomplete(applied bool) error {
+	switch {
+	case !applied && c.blocked:
+		c.report.Readiness = "plan incomplete: blocked resources will be skipped on apply"
+		return errors.New("project copy plan incomplete: blocked resources were not included")
+	case !applied && c.skipped:
+		c.report.Readiness = "plan incomplete: requested git-backed resources will be skipped on apply"
+		return errors.New("project copy plan incomplete: requested git-backed resources were not included")
+	case !applied && c.pending:
+		c.report.Readiness = "plan incomplete: inline secrets need a value"
+		return errors.New("project copy plan incomplete: inline secrets need a value")
+	case !applied:
+		c.report.Readiness = "plan only; pass --apply to copy"
+		return nil
+	case c.blocked:
 		c.report.Readiness = "copied with blocked resources skipped"
 		return errors.New("project copy incomplete: blocked resources were not copied")
-	}
-	if c.skipped {
+	case c.skipped:
 		c.report.Readiness = "copied with requested resources skipped"
-		if len(c.report.SecretsPendingValue) > 0 {
-			c.report.Readiness = "copied with requested resources skipped; update inline secrets before running the destination project"
+		if c.pending {
+			c.report.Readiness = "copied with requested resources skipped; inline secrets need a value"
 		}
 		return errors.New("project copy incomplete: requested git-backed resources were not copied")
+	case c.pending:
+		c.report.Readiness = "copied; create inline secrets before running the destination project"
+		return errors.New("project copy incomplete: inline secrets need a value")
+	default:
+		c.report.Readiness = "copied"
+		return nil
 	}
-	c.report.Readiness = "copied"
-	if len(c.report.SecretsPendingValue) > 0 {
-		c.report.Readiness = "copied; update inline secrets before running the destination project"
-	}
-	return nil
 }
 
 func (c *copier) planProject() error {
-	source, found, err := c.getObject("/ng/api/projects/"+url.PathEscape(c.scope.Source), c.query(""))
+	source, err := c.gw.Get("project", c.scope.Source, c.scope.Source, "")
 	if err != nil {
 		return err
 	}
-	if !found {
+	if !source.Found {
 		return errors.New("source project not found")
 	}
-	project, _ := digMap(source, "data", "project")
-	if project == nil {
-		project = source
-	}
-	_, destFound, err := c.getObject("/ng/api/projects/"+url.PathEscape(c.scope.Destination), c.query(""))
+	dest, err := c.gw.Get("project", c.scope.Destination, c.scope.Destination, "")
 	if err != nil {
 		return err
 	}
-	if destFound {
+	if dest.Found {
 		c.keep(Result{Kind: "project", Identifier: c.scope.Destination, Action: ActionSkip, Reason: "destination project already exists; metadata left unchanged"})
 		return nil
 	}
@@ -185,168 +219,250 @@ func (c *copier) planProject() error {
 		"name":          c.scope.Destination,
 		"orgIdentifier": c.scope.Org,
 	}
-	if description := stringField(project, "description"); description != "" {
+	if description := stringField(source.Raw, "description"); description != "" {
 		fields["description"] = description
 	}
-	if color := stringField(project, "color"); color != "" {
+	if color := stringField(source.Raw, "color"); color != "" {
 		fields["color"] = color
 	}
-	if project["tags"] != nil {
-		fields["tags"] = project["tags"]
+	if source.Raw["tags"] != nil {
+		fields["tags"] = source.Raw["tags"]
 	}
-	if project["modules"] != nil {
-		fields["modules"] = project["modules"]
+	if source.Raw["modules"] != nil {
+		fields["modules"] = source.Raw["modules"]
 	}
-	body := map[string]any{"project": fields}
-	raw, _ := json.Marshal(body)
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	body := string(raw)
 	c.queue(Result{Kind: "project", Identifier: c.scope.Destination, Action: ActionCreate, Reason: "created with destination identifier as the project name"}, func() error {
-		return c.postJSON("/ng/api/projects", c.query(""), string(raw))
+		return c.gw.Create("project", c.scope.Destination, c.scope.Destination, "", body)
 	})
 	return nil
 }
 
-func (c *copier) planSecrets() error {
-	items, err := c.list(http.MethodPost, secretsPath+"/list/secrets", c.query(c.scope.Source), `{"filterType":"Secret"}`, "pageIndex", "pageSize", "secret")
+func (c *copier) scanSecretManagers() error {
+	items, err := c.list("secret", c.scope.Source, "")
 	if err != nil {
 		return err
 	}
-	sort.Slice(items, func(i, j int) bool { return stringField(items[i], "identifier") < stringField(items[j], "identifier") })
 	for _, item := range items {
-		raw, _ := json.Marshal(item)
-		var secret secret
-		if json.Unmarshal(raw, &secret) != nil || secret.Identifier == "" {
-			c.block("secret", stringField(item, "identifier"), "unsupported or unproven secret schema")
+		full, err := c.gw.Get("secret", c.scope.Source, item.ID, "")
+		if err != nil {
+			return err
+		}
+		if !full.Found {
 			continue
 		}
-		if (secret.Org != "" && secret.Org != c.scope.Org) || (secret.Project != "" && secret.Project != c.scope.Source) {
-			c.block("secret", secret.Identifier, "secret is outside the source project")
+		sec, err := secretFromMap(full.Raw)
+		if err != nil || sec == nil {
 			continue
 		}
-		id := secret.Identifier
-		classified := classify(&secret)
-		switch classified.Capability {
-		case ReferenceOnly:
-			spec, err := specObject(secret.Spec, false)
-			if err != nil {
-				c.block("secret", id, "reference secret could not be prepared")
-				continue
-			}
-			c.planSecret(id, secret.Name, spec, "external reference copied; value path was not printed", false)
-		case MappingRequired:
-			if secret.Type != "SecretText" {
-				c.block("secret", id, "unsupported secret type")
-				continue
-			}
-			spec, err := specObject(secret.Spec, true)
-			if err != nil {
-				c.block("secret", id, "inline secret could not be prepared")
-				continue
-			}
-			c.planSecret(id, secret.Name, spec, "placeholder value "+InlineSecretPlaceholder+"; update before use", true)
-		default:
-			c.block("secret", id, "unsupported or unproven secret schema")
+		manager := secretManager(sec)
+		if id, ok := projectScopedID(manager); ok {
+			c.managers[id] = true
 		}
 	}
 	return nil
 }
 
-func (c *copier) planSecret(id, name string, spec map[string]any, reason string, pending bool) {
-	dest, found, err := c.getObject("/ng/api/v2/secrets/"+url.PathEscape(id), c.query(c.scope.Destination))
+func (c *copier) planSecrets() error {
+	items, err := c.list("secret", c.scope.Source, "")
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		full, err := c.gw.Get("secret", c.scope.Source, item.ID, "")
+		if err != nil {
+			return err
+		}
+		if !full.Found {
+			c.block("secret", item.ID, "secret could not be read")
+			continue
+		}
+		sec, err := secretFromMap(full.Raw)
+		if err != nil || sec == nil || sec.Identifier == "" {
+			c.block("secret", item.ID, "unsupported or unproven secret schema")
+			continue
+		}
+		if (sec.Org != "" && sec.Org != c.scope.Org) || (sec.Project != "" && sec.Project != c.scope.Source) {
+			c.block("secret", sec.Identifier, "secret is outside the source project")
+			continue
+		}
+		classified := classify(sec)
+		switch classified.Capability {
+		case ReferenceOnly:
+			spec, err := specObject(sec.Spec, false)
+			if err != nil {
+				c.block("secret", sec.Identifier, "reference secret could not be prepared")
+				continue
+			}
+			c.planReferenceSecret(sec.Identifier, sec.Name, spec)
+		case MappingRequired:
+			c.planInlineSecret(sec.Identifier, sec.Name, sec.Spec)
+		default:
+			c.block("secret", sec.Identifier, "unsupported or unproven secret schema")
+		}
+	}
+	return nil
+}
+
+func (c *copier) planInlineSecret(id, name string, spec map[string]json.RawMessage) {
+	want, err := inlineSecretView(id, name, spec)
+	if err != nil {
+		c.block("secret", id, "inline secret could not be prepared")
+		return
+	}
+	dest, err := c.gw.Get("secret", c.scope.Destination, id, "")
 	if err != nil {
 		c.block("secret", id, "destination secret could not be read")
 		return
 	}
-	payload := map[string]any{"secret": map[string]any{
+	if dest.Found {
+		got, gerr := secretFromMap(dest.Raw)
+		if gerr != nil || got == nil || !secretMetaMatches(want, secretAsMap(got)) {
+			c.conflictResult("secret", id)
+			return
+		}
+		c.keep(Result{Kind: "secret", Identifier: id, Action: ActionSkip, Reason: "destination secret metadata matches"})
+		return
+	}
+	c.pending = true
+	c.report.SecretsPendingValue = append(c.report.SecretsPendingValue, id)
+	c.keep(Result{Kind: "secret", Identifier: id, Action: ActionSkipped, Reason: "inline secret needs a value; create it in the destination"})
+}
+
+func (c *copier) planReferenceSecret(id, name string, spec map[string]any) {
+	want := map[string]any{
 		"identifier": id, "name": name, "orgIdentifier": c.scope.Org, "projectIdentifier": c.scope.Destination,
 		"type": "SecretText", "spec": spec,
-	}}
-	if found {
-		got, _ := digMap(dest, "data", "secret")
-		if secretMetaMatches(payload["secret"].(map[string]any), got) {
+	}
+	dest, err := c.gw.Get("secret", c.scope.Destination, id, "")
+	if err != nil {
+		c.block("secret", id, "destination secret could not be read")
+		return
+	}
+	if dest.Found {
+		got, _ := secretFromMap(dest.Raw)
+		if got != nil && secretMetaMatches(want, secretAsMap(got)) {
 			c.keep(Result{Kind: "secret", Identifier: id, Action: ActionSkip, Reason: "destination secret metadata matches"})
 			return
 		}
 		c.conflictResult("secret", id)
 		return
 	}
-	raw, _ := json.Marshal(payload)
-	if pending {
-		c.report.SecretsPendingValue = append(c.report.SecretsPendingValue, id)
+	raw, err := json.Marshal(want)
+	if err != nil {
+		c.block("secret", id, "reference secret could not be prepared")
+		return
 	}
-	c.queue(Result{Kind: "secret", Identifier: id, Action: ActionCreate, Reason: reason}, func() error {
-		return c.postJSON("/ng/api/v2/secrets", c.query(c.scope.Destination), string(raw))
+	body := string(raw)
+	c.queue(Result{Kind: "secret", Identifier: id, Action: ActionCreate, Reason: "external reference copied; value path was not printed"}, func() error {
+		return c.gw.Create("secret", c.scope.Destination, id, "", body)
 	})
 }
 
-func secretMetaMatches(want, got map[string]any) bool {
-	if got == nil || stringField(got, "name") != stringField(want, "name") || stringField(got, "type") != "SecretText" {
-		return false
+func inlineSecretView(id, name string, spec map[string]json.RawMessage) (map[string]any, error) {
+	prepared, err := specObject(spec, true)
+	if err != nil {
+		return nil, err
 	}
-	wantSpec, _ := want["spec"].(map[string]any)
-	gotSpec, _ := got["spec"].(map[string]any)
-	if gotSpec == nil || stringField(gotSpec, "valueType") != stringField(wantSpec, "valueType") {
-		return false
-	}
-	if stringField(gotSpec, "secretManagerIdentifier") != stringField(wantSpec, "secretManagerIdentifier") {
-		return false
-	}
-	if strings.EqualFold(stringField(wantSpec, "valueType"), "Reference") {
-		return stringField(gotSpec, "value") == stringField(wantSpec, "value")
-	}
-	return true
+	delete(prepared, "value")
+	return map[string]any{
+		"identifier": id, "name": name, "type": "SecretText", "spec": prepared,
+	}, nil
 }
 
-func specObject(spec map[string]json.RawMessage, inline bool) (map[string]any, error) {
-	var manager, kind string
-	if json.Unmarshal(spec["secretManagerIdentifier"], &manager) != nil || manager == "" {
-		return nil, errors.New("missing secret manager")
+func secretAsMap(sec *secret) map[string]any {
+	raw, err := json.Marshal(sec)
+	if err != nil {
+		return nil
 	}
-	if json.Unmarshal(spec["valueType"], &kind) != nil || kind == "" {
-		return nil, errors.New("missing value type")
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
 	}
-	if inline {
-		return map[string]any{"type": "SecretText", "valueType": "Inline", "secretManagerIdentifier": manager, "value": InlineSecretPlaceholder}, nil
-	}
-	var value string
-	if json.Unmarshal(spec["value"], &value) != nil || value == "" {
-		return nil, errors.New("missing reference path")
-	}
-	return map[string]any{"type": "SecretText", "valueType": "Reference", "secretManagerIdentifier": manager, "value": value}, nil
+	return out
 }
 
-func (c *copier) planConnectors() error {
-	items, err := c.list(http.MethodPost, "/ng/api/connectors/listV2", c.query(c.scope.Source), `{"filterType":"Connector"}`, "pageIndex", "pageSize", "connector")
+func secretFromMap(raw map[string]any) (*secret, error) {
+	if raw == nil {
+		return nil, errors.New("missing secret")
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var sec secret
+	if err := json.Unmarshal(data, &sec); err != nil {
+		return nil, err
+	}
+	return &sec, nil
+}
+
+func secretManager(sec *secret) string {
+	if sec == nil || sec.Spec == nil {
+		return ""
+	}
+	var manager string
+	if json.Unmarshal(sec.Spec["secretManagerIdentifier"], &manager) != nil {
+		return ""
+	}
+	return manager
+}
+
+func projectScopedID(id string) (string, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" || strings.Contains(id, ".") {
+		return "", false
+	}
+	return id, ValidIdentifier(id)
+}
+
+func (c *copier) planConnectors(managersOnly bool) error {
+	items, err := c.list("connector", c.scope.Source, "")
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		id := stringField(item, "identifier")
+		id := item.ID
 		if id == "" {
 			c.block("connector", "", "connector identifier missing")
 			continue
 		}
-		if isRemote(item) {
-			c.skipGit("connector", id, "git-backed connector skipped")
+		if c.managers[id] != managersOnly {
 			continue
 		}
-		if id == "harnessSecretManager" || truthy(item["harnessManaged"]) {
-			c.keep(Result{Kind: "connector", Identifier: id, Action: ActionSkipped, Reason: "harness-managed connector; not copied"})
-			continue
-		}
-		if project := stringField(item, "projectIdentifier"); project != "" && project != c.scope.Source {
-			c.noteShared("connector " + id)
-			continue
-		}
-		source := cleanRoot(item)
-		c.observe(source)
-		c.rewriteObj(source)
-		destRaw, found, err := c.getObject("/ng/api/connectors/"+url.PathEscape(id), c.query(c.scope.Destination))
+		full, err := c.gw.Get("connector", c.scope.Source, id, "")
 		if err != nil {
 			return err
 		}
-		if found {
-			dest, _ := digMap(destRaw, "data", "connector")
-			cleaned := cleanRoot(dest)
+		raw := item.Raw
+		if full.Found && full.Raw != nil {
+			raw = full.Raw
+		}
+		if isRemote(raw) {
+			c.skipGit("connector", id, "git-backed connector skipped")
+			continue
+		}
+		if id == "harnessSecretManager" || truthy(raw["harnessManaged"]) {
+			c.keep(Result{Kind: "connector", Identifier: id, Action: ActionSkipped, Reason: "harness-managed connector; not copied"})
+			continue
+		}
+		if project := stringField(raw, "projectIdentifier"); project != "" && project != c.scope.Source {
+			c.noteShared("connector " + id)
+			continue
+		}
+		source := cleanRoot(raw)
+		c.rewriteObj(source)
+		c.observe(source)
+		dest, err := c.gw.Get("connector", c.scope.Destination, id, "")
+		if err != nil {
+			return err
+		}
+		if dest.Found {
+			cleaned := cleanRoot(dest.Raw)
 			c.rewriteObj(cleaned)
 			if canonicalJSON(cleaned) == canonicalJSON(source) {
 				c.keep(Result{Kind: "connector", Identifier: id, Action: ActionSkip, Reason: "destination matches"})
@@ -355,217 +471,204 @@ func (c *copier) planConnectors() error {
 			c.conflictResult("connector", id)
 			continue
 		}
-		body, _ := json.Marshal(map[string]any{"connector": source})
+		body, err := json.Marshal(source)
+		if err != nil {
+			return err
+		}
 		payload := string(body)
 		c.queue(Result{Kind: "connector", Identifier: id, Action: ActionCreate}, func() error {
-			return c.postJSON("/ng/api/connectors", c.query(c.scope.Destination), payload)
+			return c.gw.Create("connector", c.scope.Destination, id, "", payload)
 		})
 	}
 	return nil
 }
 
-func (c *copier) planYAMLList(kind, path, root, parent string, extra url.Values) error {
-	query := c.query(c.scope.Source)
-	for key, values := range extra {
-		for _, value := range values {
-			query.Set(key, value)
-		}
-	}
-	items, err := c.list(http.MethodGet, path, query, "", "page", "size", root)
+func (c *copier) planYAML(noun, parent string) error {
+	items, err := c.list(noun, c.scope.Source, parent)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		id := stringField(item, "identifier")
-		if id == "" {
-			c.block(kind, "", kind+" identifier missing")
-			continue
-		}
-		if isRemote(item) {
-			c.skipGit(kind, id, "git-backed resource skipped")
-			continue
-		}
-		sourceDoc, err := c.yamlFor(kind, id, item, root, extra, c.scope.Source)
-		if err != nil {
-			return err
-		}
-		if sourceDoc == "" {
-			c.block(kind, id, "definition missing")
-			continue
-		}
-		rewritten, err := c.rewriteDoc(sourceDoc, false)
-		if err != nil {
-			c.block(kind, id, "definition could not be rewritten")
-			continue
-		}
-		c.observeDoc(rewritten)
-		destDoc, found, err := c.destYAML(kind, id, root, extra)
-		if err != nil {
-			return err
-		}
+		id := item.ID
 		reportID := id
 		if parent != "" {
 			reportID = parent + "/" + id
 		}
-		if !found {
-			doc := rewritten
-			createPath, createQuery := yamlCreate(kind, id, parent)
-			c.queue(Result{Kind: kind, Identifier: reportID, Action: ActionCreate}, func() error {
-				return c.postCDYAML(kind, createPath, createQuery, doc)
+		if id == "" {
+			c.block(noun, "", noun+" identifier missing")
+			continue
+		}
+		doc := item.Doc
+		raw := item.Raw
+		if doc == "" || isRemote(raw) {
+			full, err := c.gw.Get(noun, c.scope.Source, id, parent)
+			if err != nil {
+				return err
+			}
+			if full.Found {
+				if full.Doc != "" {
+					doc = full.Doc
+				}
+				if full.Raw != nil {
+					raw = full.Raw
+				}
+			}
+		}
+		if isRemote(raw) {
+			c.skipGit(noun, reportID, "git-backed resource skipped")
+			continue
+		}
+		if doc == "" {
+			c.block(noun, reportID, "definition missing")
+			continue
+		}
+		rewritten, err := c.rewriteDoc(doc)
+		if err != nil {
+			c.block(noun, reportID, "definition could not be rewritten")
+			continue
+		}
+		if noun == "trigger" {
+			rewritten, err = disableTriggerDoc(rewritten)
+			if err != nil {
+				c.block(noun, reportID, "definition could not be rewritten")
+				continue
+			}
+		}
+		c.observeDoc(rewritten)
+		c.notePipelineRefs(rewritten)
+		dest, err := c.gw.Get(noun, c.scope.Destination, id, parent)
+		if err != nil {
+			return err
+		}
+		if !dest.Found {
+			body := rewritten
+			kind, resourceID, resourceParent := noun, id, parent
+			reason := ""
+			if noun == "trigger" {
+				reason = "created disabled"
+			}
+			c.queue(Result{Kind: kind, Identifier: reportID, Action: ActionCreate, Reason: reason}, func() error {
+				return c.gw.Create(kind, c.scope.Destination, resourceID, resourceParent, body)
 			})
 			continue
 		}
-		destRewritten, err := c.rewriteDoc(destDoc, false)
-		if err != nil || !sameDocument(rewritten, destRewritten) {
-			c.conflictResult(kind, reportID)
+		destDoc := dest.Doc
+		if destDoc == "" {
+			c.conflictResult(noun, reportID)
 			continue
 		}
-		c.keep(Result{Kind: kind, Identifier: reportID, Action: ActionSkip, Reason: "destination matches"})
+		destRewritten, rerr := c.rewriteDoc(destDoc)
+		same := rerr == nil && sameDocument(rewritten, destRewritten)
+		if noun == "trigger" && rerr == nil {
+			same = sameTrigger(rewritten, destRewritten)
+		}
+		if !same {
+			c.conflictResult(noun, reportID)
+			continue
+		}
+		c.keep(Result{Kind: noun, Identifier: reportID, Action: ActionSkip, Reason: "destination matches"})
 	}
 	return nil
 }
 
-func yamlCreate(kind, id, parent string) (string, url.Values) {
-	switch kind {
-	case "service":
-		return "/ng/api/servicesV2", nil
-	case "environment":
-		return "/ng/api/environmentsV2", nil
-	case "infrastructure":
-		return "/ng/api/infrastructures", nil
-	default:
-		return "", nil
-	}
-}
-
-func (c *copier) yamlFor(kind, id string, listed map[string]any, root string, extra url.Values, project string) (string, error) {
-	if doc := stringField(listed, "yaml", "yamlPipeline", "inputSetYaml"); doc != "" {
-		return doc, nil
-	}
-	path := yamlGetPath(kind, id)
-	query := c.query(project)
-	for key, values := range extra {
-		for _, value := range values {
-			query.Set(key, value)
-		}
-	}
-	obj, found, err := c.getObject(path, query)
-	if err != nil || !found {
-		if err != nil {
-			return "", err
-		}
-		return entityDocument(listed, root)
-	}
-	entity, _ := digMap(obj, "data", root)
-	if entity == nil {
-		entity, _ = digMap(obj, "data")
-	}
-	if entity == nil {
-		entity = obj
-	}
-	if doc := stringField(entity, "yaml", "yamlPipeline", "inputSetYaml"); doc != "" {
-		return doc, nil
-	}
-	return entityDocument(entity, root)
-}
-
-func (c *copier) destYAML(kind, id, root string, extra url.Values) (string, bool, error) {
-	obj, found, err := c.getObject(yamlGetPath(kind, id), mergeQuery(c.query(c.scope.Destination), extra))
-	if err != nil || !found {
-		return "", false, err
-	}
-	entity, _ := digMap(obj, "data", root)
-	if entity == nil {
-		entity, _ = digMap(obj, "data")
-	}
-	if doc := stringField(entity, "yaml", "yamlPipeline", "inputSetYaml"); doc != "" {
-		return doc, true, nil
-	}
-	doc, err := entityDocument(entity, root)
-	return doc, true, err
-}
-
-func yamlGetPath(kind, id string) string {
-	switch kind {
-	case "service":
-		return "/ng/api/servicesV2/" + url.PathEscape(id)
-	case "environment":
-		return "/ng/api/environmentsV2/" + url.PathEscape(id)
-	case "infrastructure":
-		return "/ng/api/infrastructures/" + url.PathEscape(id)
-	default:
-		return ""
-	}
-}
-
-func entityDocument(entity map[string]any, root string) (string, error) {
-	if entity == nil {
-		return "", nil
-	}
-	cleaned := cleanRoot(entity)
-	out, err := yamlMarshal(map[string]any{root: cleaned})
-	return out, err
-}
-
-func yamlMarshal(v any) (string, error) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return "", err
-	}
-	var plain any
-	if err := json.Unmarshal(data, &plain); err != nil {
-		return "", err
-	}
-	out, err := yaml.Marshal(plain)
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
-}
-
-func (c *copier) planInfrastructures(env string) error {
-	return c.planYAMLList("infrastructure", "/ng/api/infrastructures", "infrastructure", env, url.Values{"environmentIdentifier": {env}})
-}
-
-func (c *copier) planOverrides(env string) error {
-	items, err := c.list(http.MethodGet, "/ng/api/environmentsV2/serviceOverrides", mergeQuery(c.query(c.scope.Source), url.Values{"environmentIdentifier": {env}}), "", "page", "size", "")
+func (c *copier) planObject(noun, parent string) error {
+	items, err := c.list(noun, c.scope.Source, parent)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		id := stringField(item, "identifier")
-		if id == "" {
-			id = env + "/" + stringField(item, "serviceRef", "serviceIdentifier")
+		raw := item.Raw
+		if objectNeedsGet(noun, raw) {
+			full, err := c.gw.Get(noun, c.scope.Source, item.ID, parent)
+			if err != nil {
+				return err
+			}
+			if full.Found && full.Raw != nil {
+				raw = full.Raw
+			}
 		}
-		if isRemote(item) {
-			c.skipGit("service_override", id, "git-backed resource skipped")
+		if isRemote(raw) {
+			c.skipGit(noun, reportID(parent, item.ID), "git-backed resource skipped")
 			continue
 		}
-		source := cleanRoot(item)
-		c.observe(source)
-		c.rewriteObj(source)
-		destRaw, found, err := c.getObject("/ng/api/serviceOverrides/"+url.PathEscape(stringField(item, "identifier")), c.query(c.scope.Destination))
+		if project := stringField(raw, "projectIdentifier", "project_id"); project != "" && project != c.scope.Source {
+			c.noteShared(noun + " " + stringField(raw, "identifier"))
+			continue
+		}
+		obj := objectBody(noun, raw)
+		id := stringField(obj, "identifier")
+		if id == "" {
+			id = item.ID
+		}
+		if id == "" {
+			c.block(noun, "", noun+" identifier missing")
+			continue
+		}
+		c.rewriteObj(obj)
+		c.observe(obj)
+		report := reportID(parent, id)
+		dest, err := c.gw.Get(noun, c.scope.Destination, id, parent)
 		if err != nil {
 			return err
 		}
-		if found {
-			dest, _ := digMap(destRaw, "data")
-			cleaned := cleanRoot(dest)
-			c.rewriteObj(cleaned)
-			if canonicalJSON(cleaned) == canonicalJSON(source) {
-				c.keep(Result{Kind: "service_override", Identifier: id, Action: ActionSkip, Reason: "destination matches"})
+		if dest.Found {
+			got := objectBody(noun, dest.Raw)
+			c.rewriteObj(got)
+			if canonicalJSON(got) == canonicalJSON(obj) {
+				c.keep(Result{Kind: noun, Identifier: report, Action: ActionSkip, Reason: "destination matches"})
 				continue
 			}
-			c.conflictResult("service_override", id)
+			c.conflictResult(noun, report)
 			continue
 		}
-		body, _ := json.Marshal(source)
+		body, err := json.Marshal(obj)
+		if err != nil {
+			return err
+		}
 		payload := string(body)
-		c.queue(Result{Kind: "service_override", Identifier: id, Action: ActionCreate}, func() error {
-			return c.postJSON("/ng/api/serviceOverrides", c.query(c.scope.Destination), payload)
+		kind, resourceID, resourceParent := noun, id, parent
+		c.queue(Result{Kind: kind, Identifier: report, Action: ActionCreate}, func() error {
+			return c.gw.Create(kind, c.scope.Destination, resourceID, resourceParent, payload)
 		})
 	}
 	return nil
+}
+
+func objectNeedsGet(noun string, raw map[string]any) bool {
+	switch noun {
+	case "policy":
+		return stringField(raw, "rego") == ""
+	case "policy_set":
+		return raw["policies"] == nil
+	default:
+		return raw == nil
+	}
+}
+
+func objectBody(noun string, raw map[string]any) map[string]any {
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	id := stringField(raw, "identifier")
+	switch noun {
+	case "policy":
+		return map[string]any{"identifier": id, "name": firstNonEmpty(stringField(raw, "name"), id), "rego": stringField(raw, "rego")}
+	case "policy_set":
+		return map[string]any{
+			"identifier": id, "name": firstNonEmpty(stringField(raw, "name"), id),
+			"type": stringField(raw, "type"), "action": stringField(raw, "action"),
+			"enabled": raw["enabled"], "policies": raw["policies"],
+		}
+	default:
+		return cleanRoot(raw)
+	}
+}
+
+func reportID(parent, id string) string {
+	if parent == "" {
+		return id
+	}
+	return parent + "/" + id
 }
 
 type templateUnit struct {
@@ -574,74 +677,150 @@ type templateUnit struct {
 }
 
 func (c *copier) planTemplates() error {
-	items, err := c.list(http.MethodPost, "/template/api/templates/list", mergeQuery(c.query(c.scope.Source), url.Values{"templateListType": {"ALL"}}), `{"filterType":"Template"}`, "page", "size", "")
+	tops, err := c.list("template", c.scope.Source, "")
 	if err != nil {
 		return err
 	}
 	var units []templateUnit
-	for _, item := range items {
-		id := stringField(item, "identifier")
-		version := stringField(item, "versionLabel", "version")
-		reportID := id + "/" + version
-		if isRemote(item) {
-			c.skipGit("template", reportID, "git-backed template skipped")
+	seenTop := map[string]bool{}
+	for _, top := range tops {
+		if top.ID == "" || seenTop[top.ID] {
 			continue
 		}
-		query := mergeQuery(c.query(c.scope.Source), url.Values{"versionLabel": {version}})
-		obj, found, err := c.getObject("/template/api/templates/"+url.PathEscape(id), query)
+		seenTop[top.ID] = true
+		versions, err := c.list("template_version", c.scope.Source, top.ID)
 		if err != nil {
 			return err
 		}
-		if !found {
-			c.block("template", reportID, "template version not found")
-			continue
+		if len(versions) == 0 {
+			versions = []listed{top}
 		}
-		data, _ := digMap(obj, "data")
-		doc := stringField(data, "yaml")
-		if doc == "" {
-			doc = stringField(obj, "yaml")
-		}
-		rewritten, err := c.rewriteDoc(doc, false)
-		if err != nil || rewritten == "" {
-			c.block("template", reportID, "template definition missing")
-			continue
-		}
-		units = append(units, templateUnit{
-			id: id, version: version, reportID: reportID, doc: rewritten,
-			stable: truthy(item["stableTemplate"]) || truthy(item["stable"]),
-		})
-	}
-	for _, unit := range orderTemplateUnits(units) {
-		c.observeDoc(unit.doc)
-		destObj, destFound, err := c.getObject("/template/api/templates/"+url.PathEscape(unit.id), mergeQuery(c.query(c.scope.Destination), url.Values{"versionLabel": {unit.version}}))
-		if err != nil {
-			return err
-		}
-		if destFound {
-			destData, _ := digMap(destObj, "data")
-			destDoc := stringField(destData, "yaml")
-			destRewritten, rerr := c.rewriteDoc(destDoc, false)
-			if rerr != nil || !sameDocument(unit.doc, destRewritten) {
-				c.conflictResult("template", unit.reportID)
+		for _, version := range versions {
+			ver := version.Version
+			if ver == "" {
+				ver = version.ID
+			}
+			if ver == "" || (ver == top.ID && version.Version == "" && top.Version == "") {
+				full, gerr := c.gw.Get("template", c.scope.Source, top.ID, "")
+				if gerr != nil {
+					return gerr
+				}
+				ver = full.Version
+				if ver == "" {
+					ver = versionLabel(full.Doc)
+				}
+				version.Doc = firstNonEmpty(version.Doc, full.Doc)
+				version.Raw = full.Raw
+				version.Stable = version.Stable || full.Stable
+			}
+			report := top.ID + "/" + ver
+			if isRemote(version.Raw) || isRemote(top.Raw) {
+				c.skipGit("template", report, "git-backed template skipped")
 				continue
 			}
-			c.keep(Result{Kind: "template", Identifier: unit.reportID, Action: ActionSkip, Reason: "destination matches"})
+			doc := version.Doc
+			stable := version.Stable || top.Stable && (version.Version == "" || version.Version == top.Version)
+			if doc == "" || ver == "" {
+				full, gerr := c.gw.Get("template_version", c.scope.Source, ver, top.ID)
+				if gerr != nil {
+					return gerr
+				}
+				if !full.Found && doc == "" {
+					c.block("template", report, "template version not found")
+					continue
+				}
+				doc = firstNonEmpty(doc, full.Doc)
+				stable = stable || full.Stable
+				if ver == "" {
+					ver = firstNonEmpty(full.Version, versionLabel(doc))
+					report = top.ID + "/" + ver
+				}
+			}
+			rewritten, rerr := c.rewriteDoc(doc)
+			if rerr != nil || rewritten == "" {
+				c.block("template", report, "template definition missing")
+				continue
+			}
+			units = append(units, templateUnit{id: top.ID, version: ver, reportID: report, doc: rewritten, stable: stable})
+		}
+	}
+	stableAt := map[string]string{}
+	for _, unit := range orderTemplateUnits(units) {
+		c.observeDoc(unit.doc)
+		c.notePipelineRefs(unit.doc)
+		if _, known := stableAt[unit.id]; !known {
+			got, lerr := c.destStable(unit.id)
+			if lerr != nil {
+				return lerr
+			}
+			stableAt[unit.id] = got
+		}
+		dest, err := c.gw.Get("template_version", c.scope.Destination, unit.version, unit.id)
+		if err != nil {
+			return err
+		}
+		if !dest.Found {
+			unitCopy := unit
+			c.queue(Result{Kind: "template", Identifier: unit.reportID, Action: ActionCreate}, func() error {
+				if err := c.gw.Create("template", c.scope.Destination, unitCopy.id, "", unitCopy.doc); err != nil {
+					return err
+				}
+				if !unitCopy.stable {
+					return nil
+				}
+				return c.gw.SetStable(c.scope.Destination, unitCopy.id, unitCopy.version)
+			})
 			continue
 		}
-		docCopy := unit.doc
-		id, version, stable := unit.id, unit.version, unit.stable
-		c.queue(Result{Kind: "template", Identifier: unit.reportID, Action: ActionCreate}, func() error {
-			if err := c.postYAML("/template/api/templates", c.query(c.scope.Destination), docCopy); err != nil {
-				return err
-			}
-			if !stable {
-				return nil
-			}
-			stablePath := "/template/api/templates/updateStableTemplate/" + url.PathEscape(id) + "/" + url.PathEscape(version)
-			return c.postJSON(stablePath, c.query(c.scope.Destination), "")
-		})
+		destDoc := dest.Doc
+		destRewritten, rerr := c.rewriteDoc(destDoc)
+		if rerr != nil || !sameDocument(unit.doc, destRewritten) {
+			c.conflictResult("template", unit.reportID)
+			continue
+		}
+		destStable := stableAt[unit.id]
+		if dest.Stable {
+			destStable = unit.version
+		}
+		if unit.stable && destStable != unit.version {
+			unitCopy := unit
+			c.queue(Result{Kind: "template", Identifier: unit.reportID, Action: ActionCreate, Reason: "set stable version"}, func() error {
+				return c.gw.SetStable(c.scope.Destination, unitCopy.id, unitCopy.version)
+			})
+			continue
+		}
+		c.keep(Result{Kind: "template", Identifier: unit.reportID, Action: ActionSkip, Reason: "destination matches"})
 	}
 	return nil
+}
+
+func (c *copier) destStable(id string) (string, error) {
+	versions, err := c.gw.List("template_version", c.scope.Destination, id)
+	if err != nil {
+		return "", err
+	}
+	for _, version := range versions {
+		if version.Stable {
+			if version.Version != "" {
+				return version.Version, nil
+			}
+			return version.ID, nil
+		}
+	}
+	return "", nil
+}
+
+func versionLabel(doc string) string {
+	var node any
+	if yaml.Unmarshal([]byte(doc), &node) != nil {
+		return ""
+	}
+	plain, _ := yamlToPlain(node).(map[string]any)
+	template, _ := plain["template"].(map[string]any)
+	if template == nil {
+		template = plain
+	}
+	return stringField(template, "versionLabel", "version")
 }
 
 func orderTemplateUnits(units []templateUnit) []templateUnit {
@@ -739,224 +918,11 @@ func projectTemplateID(ref string) (string, bool) {
 	return ref, true
 }
 
-func (c *copier) planPipelines() error {
-	items, err := c.list(http.MethodPost, "/pipeline/api/pipelines/list", c.query(c.scope.Source), `{"filterType":"PipelineSetup"}`, "page", "size", "")
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		id := stringField(item, "identifier")
-		if isRemote(item) {
-			c.skipGit("pipeline", id, "git-backed pipeline skipped")
-			continue
-		}
-		doc, found, err := c.pipelineYAML(id, c.scope.Source)
-		if err != nil {
-			return err
-		}
-		if !found || doc == "" {
-			c.block("pipeline", id, "pipeline definition missing")
-			continue
-		}
-		rewritten, err := c.rewriteDoc(doc, false)
-		if err != nil {
-			c.block("pipeline", id, "pipeline definition could not be rewritten")
-			continue
-		}
-		c.observeDoc(rewritten)
-		destDoc, destFound, err := c.pipelineYAML(id, c.scope.Destination)
-		if err != nil {
-			return err
-		}
-		if !destFound {
-			body := rewritten
-			c.queue(Result{Kind: "pipeline", Identifier: id, Action: ActionCreate}, func() error {
-				return c.postYAML("/pipeline/api/pipelines/v2", c.query(c.scope.Destination), body)
-			})
-			continue
-		}
-		destRewritten, rerr := c.rewriteDoc(destDoc, false)
-		if rerr != nil || !sameDocument(rewritten, destRewritten) {
-			c.conflictResult("pipeline", id)
-			continue
-		}
-		c.keep(Result{Kind: "pipeline", Identifier: id, Action: ActionSkip, Reason: "destination matches"})
-	}
-	return nil
-}
-
-func (c *copier) pipelineYAML(id, project string) (string, bool, error) {
-	obj, found, err := c.getObject("/pipeline/api/pipelines/"+url.PathEscape(id), c.query(project))
-	if err != nil || !found {
-		return "", false, err
-	}
-	data, _ := digMap(obj, "data")
-	doc := stringField(data, "yamlPipeline", "yaml")
-	if doc == "" {
-		doc = stringField(obj, "yamlPipeline", "yaml")
-	}
-	return doc, doc != "", nil
-}
-
-func (c *copier) planInputSets(pipeline string) error {
-	return c.planPipelineDocs("input_set", pipeline, "/pipeline/api/inputSets", "inputSetYaml", false)
-}
-
-func (c *copier) planTriggers(pipeline string) error {
-	return c.planPipelineDocs("trigger", pipeline, "/pipeline/api/triggers", "yaml", true)
-}
-
-func (c *copier) planPipelineDocs(kind, pipeline, path, yamlKey string, disable bool) error {
-	queryKey := "pipelineIdentifier"
-	if kind == "trigger" {
-		queryKey = "targetIdentifier"
-	}
-	page, size := "pageIndex", "pageSize"
-	if kind == "trigger" {
-		page, size = "page", "size"
-	}
-	items, err := c.list(http.MethodGet, path, mergeQuery(c.query(c.scope.Source), url.Values{queryKey: {pipeline}}), "", page, size, "")
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		id := stringField(item, "identifier")
-		reportID := pipeline + "/" + id
-		if isRemote(item) {
-			c.skipGit(kind, reportID, "git-backed resource skipped")
-			continue
-		}
-		doc := stringField(item, yamlKey, "yaml", "inputSetYaml")
-		if doc == "" {
-			obj, found, err := c.getObject(path+"/"+url.PathEscape(id), mergeQuery(c.query(c.scope.Source), url.Values{queryKey: {pipeline}}))
-			if err != nil {
-				return err
-			}
-			if !found {
-				c.block(kind, reportID, "definition missing")
-				continue
-			}
-			data, _ := digMap(obj, "data")
-			doc = stringField(data, yamlKey, "yaml", "inputSetYaml")
-		}
-		rewritten, err := c.rewriteDoc(doc, disable)
-		if err != nil || rewritten == "" {
-			c.block(kind, reportID, "definition could not be rewritten")
-			continue
-		}
-		c.observeDoc(rewritten)
-		destObj, destFound, err := c.getObject(path+"/"+url.PathEscape(id), mergeQuery(c.query(c.scope.Destination), url.Values{queryKey: {pipeline}}))
-		if err != nil {
-			return err
-		}
-		if destFound {
-			destData, _ := digMap(destObj, "data")
-			destDoc := stringField(destData, yamlKey, "yaml", "inputSetYaml")
-			destRewritten, rerr := c.rewriteDoc(destDoc, disable)
-			if rerr != nil || !sameDocument(rewritten, destRewritten) {
-				c.conflictResult(kind, reportID)
-				continue
-			}
-			c.keep(Result{Kind: kind, Identifier: reportID, Action: ActionSkip, Reason: "destination matches"})
-			continue
-		}
-		body := rewritten
-		reason := ""
-		if disable {
-			reason = "created disabled"
-		}
-		c.queue(Result{Kind: kind, Identifier: reportID, Action: ActionCreate, Reason: reason}, func() error {
-			return c.postYAML(path, mergeQuery(c.query(c.scope.Destination), url.Values{queryKey: {pipeline}}), body)
-		})
-	}
-	return nil
-}
-
-func (c *copier) planPolicies() error {
-	return c.planGovernance("policy", "/pm/api/v1/policies", func(item map[string]any) (map[string]any, string) {
-		id := stringField(item, "identifier")
-		return map[string]any{"identifier": id, "name": firstNonEmpty(stringField(item, "name"), id), "rego": stringField(item, "rego")}, id
-	})
-}
-
-func (c *copier) planPolicySets() error {
-	return c.planGovernance("policy_set", "/pm/api/v1/policysets", func(item map[string]any) (map[string]any, string) {
-		id := stringField(item, "identifier")
-		body := map[string]any{
-			"identifier": id, "name": firstNonEmpty(stringField(item, "name"), id),
-			"type": stringField(item, "type"), "action": stringField(item, "action"),
-			"enabled": item["enabled"], "policies": item["policies"],
-		}
-		return body, id
-	})
-}
-
-func (c *copier) planGovernance(kind, path string, bodyOf func(map[string]any) (map[string]any, string)) error {
-	items, err := c.list(http.MethodGet, path, c.query(c.scope.Source), "", "page", "per_page", "")
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		if project := stringField(item, "projectIdentifier", "project_id"); project != "" && project != c.scope.Source {
-			c.noteShared(kind + " " + stringField(item, "identifier"))
-			continue
-		}
-		if regoMissing(kind, item) {
-			full, found, err := c.getObject(path+"/"+url.PathEscape(stringField(item, "identifier")), c.query(c.scope.Source))
-			if err != nil {
-				return err
-			}
-			if found {
-				if data, ok := digMap(full, "data"); ok {
-					item = data
-				} else {
-					item = full
-				}
-			}
-		}
-		body, id := bodyOf(item)
-		if id == "" {
-			c.block(kind, "", kind+" identifier missing")
-			continue
-		}
-		dest, found, err := c.getObject(path+"/"+url.PathEscape(id), c.query(c.scope.Destination))
-		if err != nil {
-			return err
-		}
-		if found {
-			got := dest
-			if data, ok := digMap(dest, "data"); ok {
-				got = data
-			}
-			gotBody, _ := bodyOf(got)
-			if canonicalJSON(gotBody) == canonicalJSON(body) {
-				c.keep(Result{Kind: kind, Identifier: id, Action: ActionSkip, Reason: "destination matches"})
-				continue
-			}
-			c.conflictResult(kind, id)
-			continue
-		}
-		raw, _ := json.Marshal(body)
-		payload := string(raw)
-		c.queue(Result{Kind: kind, Identifier: id, Action: ActionCreate}, func() error {
-			return c.postJSON(path, c.query(c.scope.Destination), payload)
-		})
-	}
-	return nil
-}
-
-func regoMissing(kind string, item map[string]any) bool {
-	if kind != "policy" {
-		return item["policies"] == nil
-	}
-	return stringField(item, "rego") == ""
-}
-
 func (c *copier) planDelegates() error {
 	if len(c.selectors) == 0 {
 		return nil
 	}
-	items, err := c.list(http.MethodPost, "/ng/api/delegate-setup/listDelegates", c.query(""), `{"filterType":"Delegate"}`, "page", "size", "")
+	items, err := c.gw.Delegates()
 	if err != nil {
 		return err
 	}
@@ -1019,13 +985,18 @@ func delegateMatches(item map[string]any, selector string) bool {
 	return false
 }
 
-func (c *copier) planChildren(kind string, parents []string, fn func(string) error) error {
-	for _, parent := range parents {
-		if err := fn(parent); err != nil {
-			return err
-		}
+func (c *copier) list(noun, project, parent string) ([]listed, error) {
+	items, err := c.gw.List(noun, project, parent)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].ID == items[j].ID {
+			return items[i].Version < items[j].Version
+		}
+		return items[i].ID < items[j].ID
+	})
+	return items, nil
 }
 
 func (c *copier) idsOf(kind string, actions ...Action) []string {
@@ -1114,342 +1085,81 @@ func (c *copier) observeDoc(doc string) {
 	c.observe(yamlToPlain(node))
 }
 
-func (c *copier) query(project string) url.Values {
-	q := url.Values{"accountIdentifier": {c.scope.Account}, "orgIdentifier": {c.scope.Org}}
-	if project != "" {
-		q.Set("projectIdentifier", project)
+func (c *copier) notePipelineRefs(doc string) {
+	var node any
+	if yaml.Unmarshal([]byte(doc), &node) != nil {
+		return
 	}
-	return q
+	c.notePipelineNode(yamlToPlain(node))
 }
 
-func mergeQuery(base, extra url.Values) url.Values {
-	out := url.Values{}
-	for key, values := range base {
-		for _, value := range values {
-			out.Add(key, value)
-		}
-	}
-	for key, values := range extra {
-		for _, value := range values {
-			out.Set(key, value)
-		}
-	}
-	return out
-}
-
-func (c *copier) getObject(path string, query url.Values) (map[string]any, bool, error) {
-	status, body, err := c.transport.exchange(c.ctx, http.MethodGet, path, query, "", "")
-	if err != nil {
-		return nil, false, err
-	}
-	if isNotFound(status, body) {
-		return nil, false, nil
-	}
-	if status != http.StatusOK {
-		return nil, false, fmt.Errorf("project copy read failed: status %d", status)
-	}
-	if len(body) == 0 {
-		return nil, false, errors.New("project copy read returned an empty body")
-	}
-	var raw any
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, false, errors.New("malformed project copy response")
-	}
-	obj, ok := asMap(raw)
-	if !ok {
-		return nil, false, errors.New("malformed project copy response")
-	}
-	if statusField := stringField(obj, "status"); statusField != "" && !strings.EqualFold(statusField, "SUCCESS") {
-		if isNotFound(status, body) {
-			return nil, false, nil
-		}
-		return nil, false, errors.New("project copy read failed")
-	}
-	return obj, true, nil
-}
-
-func (c *copier) postJSON(path string, query url.Values, body string) error {
-	method := http.MethodPost
-	if strings.Contains(path, "updateStableTemplate") {
-		method = http.MethodPut
-	}
-	return c.write(method, path, query, body, "application/json")
-}
-
-func (c *copier) postYAML(path string, query url.Values, body string) error {
-	if query == nil {
-		query = c.query(c.scope.Destination)
-	}
-	return c.write(http.MethodPost, path, query, body, "application/yaml")
-}
-
-// postCDYAML posts service/environment/infrastructure YAML in the NG JSON envelope
-// {identifier, name, orgIdentifier, projectIdentifier, yaml: "<resource yaml>"}.
-func (c *copier) postCDYAML(kind, path string, extra url.Values, doc string) error {
-	env, err := cdEnvelope(kind, doc)
-	if err != nil {
-		return err
-	}
-	raw, err := json.Marshal(env)
-	if err != nil {
-		return err
-	}
-	query := c.query(c.scope.Destination)
-	if extra != nil {
-		query = mergeQuery(query, extra)
-	}
-	return c.postJSON(path, query, string(raw))
-}
-
-func cdEnvelope(wrapper, rawBody string) (map[string]any, error) {
-	var parsed map[string]any
-	if err := yaml.Unmarshal([]byte(rawBody), &parsed); err != nil || parsed == nil {
-		return nil, errors.New("definition could not be wrapped for create")
-	}
-	plain, _ := yamlToPlain(parsed).(map[string]any)
-	if plain == nil {
-		return nil, errors.New("definition could not be wrapped for create")
-	}
-	inner := plain
-	if wrapped, ok := plain[wrapper].(map[string]any); ok {
-		inner = wrapped
-	}
-	env := map[string]any{"yaml": rawBody}
-	for _, key := range []string{"identifier", "name", "orgIdentifier", "projectIdentifier", "description", "tags", "type", "environmentRef"} {
-		if value, ok := inner[key]; ok {
-			env[key] = value
-		}
-	}
-	return env, nil
-}
-
-func (c *copier) write(method, path string, query url.Values, body, contentType string) error {
-	status, resp, err := c.transport.exchange(c.ctx, method, path, query, body, contentType)
-	if err != nil {
-		return err
-	}
-	if status < 200 || status >= 300 {
-		return writeFailure(status, resp)
-	}
-	return nil
-}
-
-func writeFailure(status int, body []byte) error {
-	msg := fmt.Sprintf("project copy write failed: status %d", status)
-	var obj map[string]any
-	if json.Unmarshal(body, &obj) != nil {
-		return errors.New(msg)
-	}
-	if code := stringField(obj, "code"); code != "" && len(code) < 80 {
-		msg += " " + code
-	}
-	if message := stringField(obj, "message"); message != "" && len(message) < 240 {
-		msg += ": " + message
-	}
-	return errors.New(msg)
-}
-
-func (c *copier) list(method, path string, query url.Values, body, pageParam, sizeParam, wrap string) ([]map[string]any, error) {
-	var all []map[string]any
-	seen := map[string]bool{}
-	for page := 0; page < 1000; page++ {
-		q := mergeQuery(query, url.Values{pageParam: {strconv.Itoa(page)}, sizeParam: {"100"}})
-		status, data, err := c.transport.exchange(c.ctx, method, path, q, body, "application/json")
-		if err != nil {
-			return nil, err
-		}
-		if status != http.StatusOK {
-			return nil, fmt.Errorf("project copy list failed: status %d", status)
-		}
-		pageData, err := extractItems(data)
-		if err != nil {
-			return nil, err
-		}
-		items := pageData.Items
-		if wrap != "" {
-			unwrapped := make([]map[string]any, 0, len(items))
-			for _, item := range items {
-				if inner, ok := asMap(item[wrap]); ok {
-					unwrapped = append(unwrapped, inner)
-					continue
-				}
-				unwrapped = append(unwrapped, item)
-			}
-			items = unwrapped
-		}
-		fresh := 0
-		for _, item := range items {
-			id := stringField(item, "identifier")
-			version := stringField(item, "versionLabel", "version")
-			key := id + "/" + version
-			if id == "" {
-				key = canonicalJSON(item)
-			}
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			fresh++
-			all = append(all, item)
-		}
-		if len(all) > 100000 {
-			return nil, errors.New("project copy list exceeded 100000 items")
-		}
-		more := false
-		switch {
-		case pageData.HasTotalPages:
-			more = page+1 < pageData.TotalPages
-			if !more && pageData.HasTotalItems && len(all) != pageData.TotalItems {
-				return nil, errors.New("project copy list incomplete")
-			}
-		case pageData.HasTotalItems:
-			more = len(all) < pageData.TotalItems
-		default:
-			more = len(items) == 100
-		}
-		if !more {
-			return all, nil
-		}
-		if len(items) == 0 || fresh == 0 {
-			return nil, errors.New("project copy list incomplete")
-		}
-	}
-	return nil, errors.New("project copy list exceeded page limit")
-}
-
-type listPage struct {
-	Items         []map[string]any
-	TotalPages    int
-	TotalItems    int
-	HasTotalPages bool
-	HasTotalItems bool
-}
-
-func extractItems(body []byte) (listPage, error) {
-	if len(body) == 0 {
-		return listPage{}, errors.New("project copy list returned an empty body")
-	}
-	var top any
-	if err := json.Unmarshal(body, &top); err != nil {
-		return listPage{}, errors.New("malformed project copy list")
-	}
-	switch node := top.(type) {
-	case []any:
-		items := mapsOf(node)
-		return listPage{Items: items, TotalPages: 1, HasTotalPages: true, TotalItems: len(items), HasTotalItems: true}, nil
+func (c *copier) notePipelineNode(v any) {
+	switch n := v.(type) {
 	case map[string]any:
-		if status := stringField(node, "status"); status != "" && !strings.EqualFold(status, "SUCCESS") {
-			return listPage{}, errors.New("project copy list failed")
-		}
-		data := node
-		if raw, exists := node["data"]; exists {
-			inner, ok := asMap(raw)
-			if !ok {
-				return listPage{}, errors.New("unrecognized project copy list")
-			}
-			data = inner
-		}
-		var items []any
-		found := false
-		for _, key := range []string{"content", "policies", "policy_sets", "policysets", "resource"} {
-			if arr, ok := asSlice(data[key]); ok {
-				items, found = arr, true
-				break
-			}
-			if arr, ok := asSlice(node[key]); ok {
-				items, found = arr, true
-				break
+		if stringField(n, "type") == "Pipeline" {
+			if spec, ok := n["spec"].(map[string]any); ok {
+				project := stringField(spec, "project")
+				if project != "" && project != c.scope.Destination && !strings.HasPrefix(project, "account.") && !strings.HasPrefix(project, "org.") {
+					c.noteShared("project." + project)
+				}
 			}
 		}
-		if !found {
-			return listPage{}, errors.New("unrecognized project copy list")
+		for _, child := range n {
+			c.notePipelineNode(child)
 		}
-		page := listPage{Items: mapsOf(items)}
-		if _, ok := data["totalPages"]; ok {
-			page.HasTotalPages, page.TotalPages = true, intFrom(data["totalPages"])
-		} else if _, ok := node["totalPages"]; ok {
-			page.HasTotalPages, page.TotalPages = true, intFrom(node["totalPages"])
+	case []any:
+		for _, child := range n {
+			c.notePipelineNode(child)
 		}
-		if v, ok := data["totalItems"]; ok {
-			page.HasTotalItems, page.TotalItems = true, intFrom(v)
-		} else if v, ok := data["totalElements"]; ok {
-			page.HasTotalItems, page.TotalItems = true, intFrom(v)
-		}
-		return page, nil
-	default:
-		return listPage{}, errors.New("unrecognized project copy list")
 	}
 }
 
-func mapsOf(items []any) []map[string]any {
-	out := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		if m, ok := asMap(item); ok {
-			out = append(out, m)
-		}
-	}
-	return out
+func (c *copier) rewriteDoc(doc string) (string, error) {
+	return rewriteYAML(doc, c.rewriteOpts())
 }
 
-func digMap(obj map[string]any, keys ...string) (map[string]any, bool) {
-	var current any = obj
-	for _, key := range keys {
-		m, ok := asMap(current)
-		if !ok {
-			return nil, false
-		}
-		current = m[key]
-	}
-	return asMap(current)
+func (c *copier) rewriteObj(v any) {
+	rewriteTree(v, c.rewriteOpts())
 }
 
-func isNotFound(status int, body []byte) bool {
-	if status == http.StatusNotFound {
-		return true
+func (c *copier) rewriteOpts() rewriteOpts {
+	return rewriteOpts{Org: c.scope.Org, Project: c.scope.Destination, SourceOrg: c.scope.Org, SourceProject: c.scope.Source}
+}
+
+func specObject(spec map[string]json.RawMessage, inline bool) (map[string]any, error) {
+	var manager, kind string
+	if json.Unmarshal(spec["secretManagerIdentifier"], &manager) != nil || manager == "" {
+		return nil, errors.New("missing secret manager")
 	}
-	var envelope struct {
-		Status string `json:"status"`
-		Code   string `json:"code"`
+	if json.Unmarshal(spec["valueType"], &kind) != nil || kind == "" {
+		return nil, errors.New("missing value type")
 	}
-	if json.Unmarshal(body, &envelope) != nil {
+	if inline {
+		return map[string]any{"type": "SecretText", "valueType": "Inline", "secretManagerIdentifier": manager}, nil
+	}
+	var value string
+	if json.Unmarshal(spec["value"], &value) != nil || value == "" {
+		return nil, errors.New("missing reference path")
+	}
+	return map[string]any{"type": "SecretText", "valueType": "Reference", "secretManagerIdentifier": manager, "value": value}, nil
+}
+
+func secretMetaMatches(want, got map[string]any) bool {
+	if got == nil || stringField(got, "name") != stringField(want, "name") || stringField(got, "type") != "SecretText" {
 		return false
 	}
-	if strings.EqualFold(envelope.Status, "SUCCESS") {
+	wantSpec, _ := want["spec"].(map[string]any)
+	gotSpec, _ := got["spec"].(map[string]any)
+	if gotSpec == nil || stringField(gotSpec, "valueType") != stringField(wantSpec, "valueType") {
 		return false
 	}
-	code := strings.ToUpper(strings.TrimSpace(envelope.Code))
-	return code == "ENTITY_NOT_FOUND" || code == "RESOURCE_NOT_FOUND_EXCEPTION" || strings.HasSuffix(code, "_NOT_FOUND")
-}
-
-func intFrom(v any) int {
-	switch n := v.(type) {
-	case float64:
-		return int(n)
-	case int:
-		return n
-	default:
-		return 0
-	}
-}
-
-func truthy(v any) bool {
-	switch n := v.(type) {
-	case bool:
-		return n
-	case string:
-		return strings.EqualFold(n, "true")
-	default:
+	if stringField(gotSpec, "secretManagerIdentifier") != stringField(wantSpec, "secretManagerIdentifier") {
 		return false
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
+	if strings.EqualFold(stringField(wantSpec, "valueType"), "Reference") {
+		return stringField(gotSpec, "value") == stringField(wantSpec, "value")
 	}
-	return ""
+	return true
 }
 
 func versionLess(a, b string) bool {
@@ -1465,4 +1175,13 @@ func versionNum(s string) (int, bool) {
 	s = strings.TrimPrefix(strings.TrimPrefix(s, "v"), "V")
 	n, err := strconv.Atoi(s)
 	return n, err == nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
