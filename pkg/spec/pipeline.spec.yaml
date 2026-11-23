@@ -39,6 +39,10 @@ nouns:
       - id: description
         expr: it.description
         mutable_path: pipeline.description
+      - id: tags
+        expr: formatTagDisplay(it.tags)
+        field_type: tags
+        mutable_path: pipeline.tags
       - id: modules
         expr: jsonArray(it.modules)
       - id: store_type
@@ -158,6 +162,16 @@ nouns:
         expr: formatTagDisplay(it.tags)
         field_type: tags
         mutable_path: trigger.tags
+      - id: pipeline_branch
+        expr: yamlParse(it.yaml).trigger.pipelineBranchName
+        mutable_path: trigger.pipelineBranchName
+      - id: input_set_refs
+        expr: join(yamlParse(it.yaml).trigger.inputSetRefs ?? [], ", ")
+        mutable_path: trigger.inputSetRefs
+        field_type: set
+      - id: cron
+        expr: yamlParse(it.yaml).trigger.source.spec.spec.expression
+        mutable_path: trigger.source.spec.spec.expression
       - id: webhook_url
         expr: it.webhookUrl
       - id: last_execution_status
