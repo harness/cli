@@ -1,6 +1,7 @@
 package nexus
 
 import (
+	"net"
 	"net/url"
 	"strings"
 
@@ -13,7 +14,13 @@ type nexusKeychain struct {
 	hostname string
 }
 
+// NewNexusKeychain accepts hostname with or without a port: Resolve matches on
+// the port-less hostname, and the Docker connector port differs from the REST
+// endpoint port (e.g. nexus:8081 vs nexus:5000).
 func NewNexusKeychain(username, password, hostname string) authn.Keychain {
+	if h, _, err := net.SplitHostPort(hostname); err == nil {
+		hostname = h
+	}
 	return nexusKeychain{
 		username: username,
 		password: password,

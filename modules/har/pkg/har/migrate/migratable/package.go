@@ -178,15 +178,18 @@ func (r *Package) Pre(ctx context.Context) error {
 	}
 
 	if !r.config.Overwrite && (r.artifactType == types.DOCKER || r.artifactType == types.HELM) {
-		srcImage, _ := r.srcAdapter.GetOCIImagePath(r.srcRegistry, r.sourcePackageHostname, r.pkg.Name)
-		dstImage, _ := r.destAdapter.GetOCIImagePath(r.destRegistry, "", r.pkg.Name)
+		srcImage, dstImage, err := r.ociImagePaths()
+		if err != nil {
+			logger.Error().Ctx(ctx).Err(err).Msg("Failed to resolve OCI image paths")
+			return r.recordFailure(r.pkg.Name, err)
+		}
 		logger.Info().Ctx(ctx).Msgf("Checking if should be skipped -- repository %s to %s", srcImage, dstImage)
 
 		keyChain, err := lib.CreateCraneKeychain(r.srcAdapter, r.destAdapter, r.sourcePackageHostname)
 		if err != nil {
 			log.Error().Ctx(ctx).Err(err).Msgf("Failed to create keyChain: %v", err)
 			pterm.Error.Println(fmt.Sprintf("Failed to create keyChain: %v", err))
-			return err
+			return r.recordFailure(r.pkg.Name, err)
 		}
 
 		craneOpts := []crane.Option{
@@ -204,7 +207,7 @@ func (r *Package) Pre(ctx context.Context) error {
 		co := crane.GetOptions(craneOpts...)
 		remoteOpts := co.Remote
 		if err != nil {
-			return err
+			return r.recordFailure(r.pkg.Name, fmt.Errorf("list source tags for %s: %w", srcImage, err))
 		}
 		for _, tag := range tags {
 			dst := fmt.Sprintf("%s:%s", dstImage, tag)
@@ -293,8 +296,8 @@ func (r *Package) Migrate(ctx context.Context) error {
 	} else {
 		versions, err := r.srcAdapter.GetVersions(r.pkg, r.node, r.srcRegistry, r.pkg.Name, r.artifactType)
 		if err != nil {
-			logger.Error().Msg("Failed to get versions")
-			return fmt.Errorf("get versions failed: %w", err)
+			logger.Error().Err(err).Msg("Failed to get versions")
+			return r.recordFailure(r.pkg.Name, fmt.Errorf("get versions failed: %w", err))
 		}
 
 		// Apply the opt-in version selector (packageFilters[].versions). When the
@@ -316,8 +319,11 @@ func (r *Package) Migrate(ctx context.Context) error {
 		for _, version := range versions {
 			versionNode, err := tree.GetNodeForPath(r.node, version.Path)
 			if err != nil {
-				// Version path not in the filtered tree — it was entirely pruned by date
-				// or pattern filters. Skip gracefully rather than aborting the package.
+				if !r.filtersMayPruneTree() {
+					logger.Error().Err(err).Str("version", version.Name).Msg("Failed to get node for version")
+					return r.recordFailure(r.pkg.Name+"/"+version.Name,
+						fmt.Errorf("get node for version %s of package %s failed: %w", version.Name, r.pkg.Name, err))
+				}
 				logger.Debug().Str("version", version.Name).Msg("version not in filtered tree, skipping (out of date-filter window)")
 				continue
 			}
@@ -342,6 +348,34 @@ func (r *Package) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// recordFailure makes a step error that aborts the package visible in the result
+// file and summary; the engine alone only joins it into the aggregate error.
+func (r *Package) recordFailure(uri string, err error) error {
+	r.stats.Add(types.FileStat{
+		Name:     r.pkg.Name,
+		Registry: r.srcRegistry,
+		Uri:      uri,
+		Status:   types.StatusFail,
+		Error:    err.Error(),
+	})
+	return err
+}
+
+func (r *Package) filtersMayPruneTree() bool {
+	return util.IsTimeBasedFilterPresent(r.mapping) ||
+		len(r.mapping.IncludePatterns) > 0 || len(r.mapping.ExcludePatterns) > 0
+}
+
+func (r *Package) ociImagePaths() (srcImage, dstImage string, err error) {
+	if srcImage, err = r.srcAdapter.GetOCIImagePath(r.srcRegistry, r.sourcePackageHostname, r.pkg.Name); err != nil {
+		return "", "", fmt.Errorf("resolve source image path for %s: %w", r.pkg.Name, err)
+	}
+	if dstImage, err = r.destAdapter.GetOCIImagePath(r.destRegistry, "", r.pkg.Name); err != nil {
+		return "", "", fmt.Errorf("resolve destination image path for %s: %w", r.pkg.Name, err)
+	}
+	return srcImage, dstImage, nil
+}
+
 // migrateOCI copies a Docker/Helm-OCI repository from source to destination.
 // Overwrite=true uses crane.CopyRepository (fast, parallel) with per-tag
 // fallback on failure. Overwrite=false skips the bulk path and goes straight
@@ -349,8 +383,19 @@ func (r *Package) Migrate(ctx context.Context) error {
 // a tag re-pointed to a different digest, so digest comparison is required.
 // Either path records exactly one stat for the whole image.
 func (r *Package) migrateOCI(ctx context.Context, logger zerolog.Logger) {
-	srcImage, _ := r.srcAdapter.GetOCIImagePath(r.srcRegistry, r.sourcePackageHostname, r.pkg.Name)
-	dstImage, _ := r.destAdapter.GetOCIImagePath(r.destRegistry, "", r.pkg.Name)
+	srcImage, dstImage, pathErr := r.ociImagePaths()
+	if pathErr != nil {
+		log.Error().Ctx(ctx).Err(pathErr).Msgf("Failed to resolve OCI image paths for %s", r.pkg.Name)
+		pterm.Error.Println(fmt.Sprintf("Failed to resolve image paths for %s: %v", r.pkg.Name, pathErr))
+		r.stats.Add(types.FileStat{
+			Name:     r.pkg.Name,
+			Registry: r.srcRegistry,
+			Uri:      r.pkg.Name,
+			Status:   types.StatusFail,
+			Error:    pathErr.Error(),
+		})
+		return
+	}
 
 	pterm.Info.Println(fmt.Sprintf("Copying repository %s to %s", srcImage, dstImage))
 	logger.Info().Ctx(ctx).Msgf("Copying repository %s to %s", srcImage, dstImage)
