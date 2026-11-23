@@ -66,13 +66,17 @@ func TestMergeIntoTemplate(t *testing.T) {
 		{"scoped key replaces one stage only", map[string]string{"build.image_tag": "v2"}, [3]string{ph, "v2", ph}},
 		{"scoped key wins over unscoped", map[string]string{"image_tag": "v1", "deploy.image_tag": "v2"}, [3]string{"v1", "v1", "v2"}},
 		{"scoped leaf key wins over unscoped variable name", map[string]string{"image_tag": "v1", "build.value": "v2"}, [3]string{"v1", "v2", "v1"}},
+		{"plain key shadowed by a scoped key is still used", map[string]string{"image_tag": "v1", "build.image_tag": "v2", "deploy.image_tag": "v3"}, [3]string{"v1", "v2", "v3"}},
 		{"key match is case-insensitive", map[string]string{"IMAGE_TAG": "v2"}, [3]string{"v2", "v2", "v2"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := mergeIntoTemplate(inputTemplate, tc.inputs)
+			out, warns, err := mergeInputs(inputTemplate, tc.inputs)
 			if err != nil {
-				t.Fatalf("mergeIntoTemplate: %v", err)
+				t.Fatalf("mergeInputs: %v", err)
+			}
+			if len(warns) > 0 {
+				t.Errorf("unexpected warnings: %v", warns)
 			}
 			if got := imageTags(t, out); got != tc.want {
 				t.Errorf("image_tag values = %v, want %v", got, tc.want)
@@ -81,24 +85,27 @@ func TestMergeIntoTemplate(t *testing.T) {
 	}
 }
 
-func TestMergeIntoTemplate_UnmatchedKeys(t *testing.T) {
+func TestMergeInputs_UnmatchedKeysWarn(t *testing.T) {
 	tests := []struct {
-		name    string
-		inputs  map[string]string
-		wantErr string
+		name     string
+		inputs   map[string]string
+		wantWarn string
 	}{
-		{"typo in key", map[string]string{"image_tga": "v2"}, `--input "image_tga" matched no runtime input`},
-		{"key is a fixed value", map[string]string{"region": "us"}, `--input "region" is not a runtime input in this pipeline`},
-		{"unknown stage", map[string]string{"bild.image_tag": "v2"}, `--input "bild.image_tag": unknown stage "bild"`},
-		{"key not in that stage", map[string]string{"deploy.region": "us"}, `--input "deploy.region" matched no runtime input`},
-		{"scoped fixed value", map[string]string{"build.region": "us"}, `--input "build.region" is not a runtime input in this pipeline`},
-		{"one bad key among good ones", map[string]string{"image_tag": "v2", "nope": "x"}, `--input "nope" matched no runtime input`},
+		{"typo in key", map[string]string{"image_tga": "v2"}, `--input "image_tga" matched no runtime input, ignored`},
+		{"key is a fixed value", map[string]string{"region": "us"}, `--input "region" is not a runtime input in this pipeline, ignored`},
+		{"unknown stage", map[string]string{"bild.image_tag": "v2"}, `--input "bild.image_tag": unknown stage "bild", ignored`},
+		{"key not in that stage", map[string]string{"deploy.region": "us"}, `--input "deploy.region" matched no runtime input, ignored`},
+		{"scoped fixed value", map[string]string{"build.region": "us"}, `--input "build.region" is not a runtime input in this pipeline, ignored`},
+		{"one bad key among good ones", map[string]string{"image_tag": "v2", "nope": "x"}, `--input "nope" matched no runtime input, ignored`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := mergeIntoTemplate(inputTemplate, tc.inputs)
-			if err == nil || err.Error() != tc.wantErr {
-				t.Errorf("error = %v, want %q", err, tc.wantErr)
+			_, warns, err := mergeInputs(inputTemplate, tc.inputs)
+			if err != nil {
+				t.Fatalf("mergeInputs: %v", err)
+			}
+			if len(warns) != 1 || warns[0] != tc.wantWarn {
+				t.Errorf("warnings = %q, want [%q]", warns, tc.wantWarn)
 			}
 		})
 	}

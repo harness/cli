@@ -5,7 +5,6 @@ package pipeline
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -110,7 +109,7 @@ func resolveFromTemplateForPipeline(ctx *cmdctx.Ctx, pipelineID string, inputs m
 	templateYaml := extractTemplateYaml(raw)
 	if templateYaml == "" {
 		if len(inputs) > 0 {
-			return "", fmt.Errorf("pipeline has no runtime inputs, but --input was given")
+			warnf("pipeline has no runtime inputs, ignoring --input")
 		}
 		hlog.Debug("pipeline has no runtime inputs")
 		return "", nil
@@ -137,11 +136,26 @@ func extractTemplateYaml(raw any) string {
 // mergeIntoTemplate substitutes user key=val pairs into a YAML template that contains
 // <+input> placeholders. Any placeholder whose leaf key or sibling "name" field matches
 // a user key is replaced with that value. Unmatched placeholders are left as-is; a user
-// key that replaced nothing is an error.
+// key that replaced nothing is reported as a warning on stderr.
 func mergeIntoTemplate(templateYaml string, inputs map[string]string) (string, error) {
+	out, warnings, err := mergeInputs(templateYaml, inputs)
+	if err != nil {
+		return "", err
+	}
+	for _, w := range warnings {
+		warnf("%s", w)
+	}
+	return out, nil
+}
+
+func warnf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "Warning: "+format+"\n", args...)
+}
+
+func mergeInputs(templateYaml string, inputs map[string]string) (string, []string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(templateYaml), &doc); err != nil {
-		return "", fmt.Errorf("parsing runtime input template: %w", err)
+		return "", nil, fmt.Errorf("parsing runtime input template: %w", err)
 	}
 
 	m := &inputMerger{
@@ -156,17 +170,13 @@ func mergeIntoTemplate(templateYaml string, inputs map[string]string) (string, e
 
 	m.walk(&doc)
 
-	if err := m.unmatchedError(inputs); err != nil {
-		return "", err
-	}
-
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(&doc); err != nil {
-		return "", fmt.Errorf("serializing runtimeInputYaml: %w", err)
+		return "", nil, fmt.Errorf("serializing runtimeInputYaml: %w", err)
 	}
-	return buf.String(), nil
+	return buf.String(), m.unmatchedWarnings(inputs), nil
 }
 
 // inputMerger substitutes <+input> placeholders and records which user keys were used.
@@ -264,35 +274,38 @@ func (m *inputMerger) replace(node *yaml.Node, keys ...string) bool {
 			candidates = append(candidates, k)
 		}
 	}
+	found := false
 	for _, c := range candidates {
 		if v, ok := m.inputs[c]; ok {
-			node.Value = v
-			node.Tag = "!!str"
+			if !found {
+				node.Value = v
+				node.Tag = "!!str"
+				found = true
+			}
 			m.used[c] = true
-			return true
 		}
 	}
-	return false
+	return found
 }
 
-// unmatchedError reports user keys that replaced nothing, in the order given by sorted key.
-func (m *inputMerger) unmatchedError(inputs map[string]string) error {
-	var errs []error
+// unmatchedWarnings describes user keys that replaced nothing, in sorted key order.
+func (m *inputMerger) unmatchedWarnings(inputs map[string]string) []string {
+	var warns []string
 	for _, k := range slices.Sorted(maps.Keys(inputs)) {
 		lk := strings.ToLower(k)
 		switch {
 		case m.used[lk]:
 		case m.fixed[lk]:
-			errs = append(errs, fmt.Errorf("--input %q is not a runtime input in this pipeline", k))
+			warns = append(warns, fmt.Sprintf("--input %q is not a runtime input in this pipeline, ignored", k))
 		default:
 			if stage, _, scoped := strings.Cut(lk, "."); scoped && !m.stages[stage] {
-				errs = append(errs, fmt.Errorf("--input %q: unknown stage %q", k, stage))
+				warns = append(warns, fmt.Sprintf("--input %q: unknown stage %q, ignored", k, stage))
 				continue
 			}
-			errs = append(errs, fmt.Errorf("--input %q matched no runtime input", k))
+			warns = append(warns, fmt.Sprintf("--input %q matched no runtime input, ignored", k))
 		}
 	}
-	return errors.Join(errs...)
+	return warns
 }
 
 func isInputPlaceholder(node *yaml.Node) bool {
