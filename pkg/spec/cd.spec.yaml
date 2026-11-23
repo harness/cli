@@ -97,6 +97,20 @@ nouns:
       - id: deployment_type
         label: Deploy Type
         expr: it.infrastructure.deploymentType
+      - id: allow_simultaneous_deployments
+        label: Allow Simultaneous
+        expr: yamlParse(it.infrastructure.yaml).infrastructureDefinition.allowSimultaneousDeployments
+        field_type: bool
+        mutable_path: allowSimultaneousDeployments
+      - id: connector_ref
+        expr: yamlParse(it.infrastructure.yaml).infrastructureDefinition.spec.connectorRef
+        mutable_path: spec.connectorRef
+      - id: namespace
+        expr: yamlParse(it.infrastructure.yaml).infrastructureDefinition.spec.namespace
+        mutable_path: spec.namespace
+      - id: release_name
+        expr: yamlParse(it.infrastructure.yaml).infrastructureDefinition.spec.releaseName
+        mutable_path: spec.releaseName
       - id: updated
         expr: epochMs(it.lastModifiedAt ?? it.infrastructure.lastModifiedAt)
       - id: created
