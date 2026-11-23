@@ -373,6 +373,18 @@ nouns:
       - id: description
         expr: it.connector.description
         mutable_path: description
+      - id: tags
+        expr: formatTagDisplay(it.connector.tags)
+        field_type: tags
+        mutable_path: tags
+      - id: delegate_selectors
+        expr: join(it.connector.spec.delegateSelectors ?? [], ", ")
+        field_type: set
+        mutable_path: spec.delegateSelectors
+      - id: execute_on_delegate
+        expr: it.connector.spec.executeOnDelegate
+        field_type: bool
+        mutable_path: spec.executeOnDelegate
       - id: status
         expr: it.status.status
       - id: last_connected_at
