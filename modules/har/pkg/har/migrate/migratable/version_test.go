@@ -5,10 +5,12 @@ package migratable
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 
@@ -46,6 +48,10 @@ func (noopIndexAdapter) VersionExists(context.Context, types.Package, string, st
 	return false, nil
 }
 func (noopIndexAdapter) FileExists(context.Context, string, string, string, *types.File, types.ArtifactType) (bool, error) {
+	return false, nil
+}
+
+func (noopIndexAdapter) UploadExists(context.Context, string, *types.File, string, string, types.ArtifactType, map[string]interface{}) (bool, error) {
 	return false, nil
 }
 func (noopIndexAdapter) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
@@ -128,6 +134,86 @@ func newVersionJobForIndexTest(src *indexFakeSrc, dest *indexFakeDest, node *typ
 		stats:         stats,
 		config:        &types.Config{Concurrency: 1, DryRun: false, Overwrite: false},
 		existingIndex: idx,
+	}
+}
+
+func disableExistenceBackoff(t *testing.T) {
+	t.Helper()
+	saved := existenceCheckBackoff
+	existenceCheckBackoff = make([]time.Duration, len(saved))
+	t.Cleanup(func() { existenceCheckBackoff = saved })
+}
+
+type failingLookupDest struct {
+	indexFakeDest
+	lookups int
+}
+
+func (d *failingLookupDest) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
+	d.lookups++
+	return nil, errors.New("context deadline exceeded")
+}
+
+func TestVersionDoesNotUploadWhenExistenceLookupFails(t *testing.T) {
+	disableExistenceBackoff(t)
+	const uri = "/hello.foo.bar.xxx.yyy.3.203.0-pr-280.a52f7f9.1.nupkg"
+	src := &indexFakeSrc{content: map[string][]byte{uri: []byte("pkg")}}
+	dest := &failingLookupDest{}
+	stats := &types.TransferStats{}
+	job := newVersionJobForIndexTest(src, &dest.indexFakeDest, nugetFileTree(uri), stats, nil)
+	job.destAdapter = dest
+
+	if err := job.Pre(context.Background()); err != nil {
+		t.Fatalf("Pre() failed: %v", err)
+	}
+	if err := job.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	if dest.lookups != 3 {
+		t.Errorf("lookups = %d, want 3 (one attempt plus two retries)", dest.lookups)
+	}
+	if len(dest.uploaded) != 0 {
+		t.Errorf("uploaded %v, want nothing when existence is unknown", dest.uploaded)
+	}
+	if len(stats.FileStats) != 1 || stats.FileStats[0].Status != types.StatusFail {
+		t.Errorf("stats = %+v, want one failed stat", stats.FileStats)
+	}
+}
+
+type listingDest struct {
+	indexFakeDest
+	files []string
+}
+
+func (d *listingDest) GetAllFilesForVersion(context.Context, string, string, string) ([]string, error) {
+	return d.files, nil
+}
+
+func TestVersionLookupMatchesSourceRelativePaths(t *testing.T) {
+	const file = "hello.foo.bar.xxx.yyy.3.203.0-pr-280.a52f7f9.1.nupkg"
+	const present, absent = "/a/" + file, "/b/" + file
+	src := &indexFakeSrc{content: map[string][]byte{present: []byte("a"), absent: []byte("b")}}
+	dest := &listingDest{files: []string{"a/" + file}}
+	stats := &types.TransferStats{}
+	job := newVersionJobForIndexTest(src, &dest.indexFakeDest, nugetFileTree(present, absent), stats, nil)
+	job.destAdapter = dest
+	job.existingFileMap = map[string]bool{}
+
+	if err := job.Pre(context.Background()); err != nil {
+		t.Fatalf("Pre() failed: %v", err)
+	}
+	if err := job.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	if len(dest.uploaded) != 1 {
+		t.Fatalf("uploaded %v, want only the file missing from the listing", dest.uploaded)
+	}
+	for _, s := range stats.FileStats {
+		if s.Status == types.StatusSkip && s.Uri != present {
+			t.Errorf("skipped %s, want only %s skipped", s.Uri, present)
+		}
 	}
 }
 

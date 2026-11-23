@@ -303,6 +303,11 @@ func (a *adapter) GetAllFilesForVersion(_ context.Context, _, _, _ string) ([]st
 	return nil, fmt.Errorf("GetAllFilesForVersion not implemented for GITHUB")
 }
 
+func (a *adapter) UploadExists(_ context.Context, _ string, _ *types.File, _, _ string, _ types.ArtifactType,
+	_ map[string]interface{}) (bool, error) {
+	return false, fmt.Errorf("UploadExists not implemented for GITHUB")
+}
+
 func (a *adapter) CreateVersion(_ string, _ string, _ string, _ types.ArtifactType, _ []*types.PackageFiles, _ map[string]interface{}) error {
 	return fmt.Errorf("CreateVersion not implemented for GITHUB")
 }

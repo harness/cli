@@ -45,7 +45,8 @@ type statusChecks struct {
 type statusResult struct {
 	Source             string       `json:"Source"`
 	Profile            string       `json:"Profile"`
-	ProfileMissing     bool         `json:"-"` // profile has no entry in config at all; StatusHandler returns early on this
+	TokenEnvVar        string       `json:"TokenEnvVar,omitempty"` // env var the profile's token came from; empty when read from the credentials file
+	ProfileMissing     bool         `json:"-"`                     // profile has no entry in config at all; StatusHandler returns early on this
 	APIUrl             string       `json:"APIUrl"`
 	RegistryURL        string       `json:"RegistryURL,omitempty"`
 	AccountID          string       `json:"AccountID"`
@@ -154,6 +155,7 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 		return r
 	}
 	r.Source = resolved.Source
+	r.TokenEnvVar = resolved.TokenEnvVar
 	r.Profile = profileName(resolved.Source)
 	r.APIUrl = resolved.APIUrl
 	r.RegistryURL = resolved.RegistryURL
@@ -169,6 +171,8 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 		}
 	case auth.TokenType(resolved.PATToken) == auth.TokenKindSAT:
 		r.TokenType = "SAT"
+	case auth.TokenType(resolved.PATToken) == auth.TokenKindST:
+		r.TokenType = "ST"
 	default:
 		r.TokenType = "PAT"
 	}
@@ -262,11 +266,16 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 
 	persistResolvedIdentity(resolved, resolvedIdentity)
 
-	// softErr wraps a 403 as a warning for SAT tokens — the SA may lack enumeration
+	// softErr wraps a 403 as a warning for SAT and scoped tokens — they may lack enumeration
 	// permissions but still have resource-level access.
 	softErr := func(err error) checkResult {
-		if isSAT && err != nil && strings.Contains(err.Error(), "403") {
-			return checkResult{Warn: true, Error: "access denied (403) — SA may lack enumeration permissions"}
+		if err != nil && strings.Contains(err.Error(), "403") {
+			switch auth.TokenType(resolved.PATToken) {
+			case auth.TokenKindSAT:
+				return checkResult{Warn: true, Error: "access denied (403) — SA may lack enumeration permissions"}
+			case auth.TokenKindST:
+				return checkResult{Warn: true, Error: "access denied (403) — token scope may not allow enumeration"}
+			}
 		}
 		if err != nil {
 			return checkResult{OK: false, Error: err.Error()}
@@ -302,7 +311,7 @@ func runStatusChecks(profileFlag, orgFlag, projectFlag string) statusResult {
 		if cr.Warn {
 			orgWarn := cr
 			r.Status.Org = &orgWarn
-			projWarn := checkResult{Warn: true, Error: "access denied (403) — SA may lack enumeration permissions"}
+			projWarn := cr
 			r.Status.Project = &projWarn
 			return r
 		}
@@ -380,9 +389,10 @@ func envVarSetResult(envVar, value string) checkResult {
 
 // persistResolvedIdentity writes identity fields discovered during a status/login check
 // back to the profile on disk, if any of them are new or changed. No-op for env-var auth,
-// which has no profile to update.
+// which has no profile to update, and for tokens from a profile's API key env
+// var, whose owner may differ from the profile's stored identity.
 func persistResolvedIdentity(resolved *auth.ResolvedAuth, identity tokenIdentity) {
-	if identity.Email == "" || resolved.Source == auth.SourceEnv {
+	if identity.Email == "" || resolved.Source == auth.SourceEnv || resolved.TokenEnvVar != "" {
 		return
 	}
 	pName := profileName(resolved.Source)
@@ -511,6 +521,9 @@ func printStatus(r statusResult) {
 		add("Mode", sv(r.Status.Profile, "pipeline"))
 	default:
 		add("Profile", sv(r.Status.Profile, r.Profile+profileSuffix))
+		if r.TokenEnvVar != "" {
+			add("TokenSource", fmt.Sprintf("%s $%s", console.GreenCheck(), r.TokenEnvVar))
+		}
 	}
 	if r.Source != auth.SourcePipeline {
 		add("APIUrl", sv(r.Status.API, r.APIUrl))

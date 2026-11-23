@@ -91,7 +91,7 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 		}
 	}
 
-	return &cmdctx.Ctx{
+	cctx := &cmdctx.Ctx{
 		Context:      ctx,
 		CancelFn:     cancel,
 		Verb:         verb,
@@ -101,7 +101,12 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 		Auth:         resolved,
 		Resolver:     r,
 		IsCompletion: true,
-	}, nil
+	}
+	// parentId may be a partial word being completed, so a format mismatch leaves Ids unset.
+	if cs := r.GetSpec(verb, noun); cs != nil && len(cs.IdFormats) > 0 && parentId != "" {
+		_ = applyIdFormats(cs, cctx, parentId)
+	}
+	return cctx, nil
 }
 
 func toPipelineAuthConfig(s *spec.PipelineAuthSpec) *auth.PipelineAuthConfig {
@@ -212,7 +217,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 	uiFlag, _ := cmd.Flags().GetBool("ui")
 	skipIdCheck := listFields || listColumns || uiFlag
 
-	idLabel := cs.IdLabel
+	idLabel := cs.EffectiveIdLabel()
 	if idLabel == "" {
 		idLabel = "<id>"
 	}
@@ -263,7 +268,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		if len(args) > 0 {
 			ctx.ParentId = args[0]
 		} else if cs.RequiresParentId && !skipIdCheck {
-			label := cs.ParentIdLabel
+			label := cs.EffectiveParentIdLabel()
 			if label == "" {
 				label = "<parentid>"
 			}
@@ -293,8 +298,12 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 			ctx.Level = levelFlag
 		}
 	}
-	if err := validateIdParts(cs, vspec, ctx); err != nil {
-		return nil, err
+	// --ui accepts a partial "a/" prefix that runSeqPicker completes; ensureIds parses afterwards.
+	deferIdFormats := uiFlag && cs.VerbHandler == VerbGet && len(cs.IdFormats) > 0
+	if !deferIdFormats {
+		if err := validateIdParts(cs, vspec, ctx); err != nil {
+			return nil, err
+		}
 	}
 	if !cs.NoAuth {
 		profileFlag, _ := cmd.Flags().GetString("profile")
@@ -396,7 +405,7 @@ func isBareSetField(target string, cs *spec.CommandSpec, r *Registry) bool {
 // buildDetailCtx constructs a minimal Ctx for a get-by-id drilldown from inside
 // the TUI. It copies auth and scope from the parent list ctx, overrides the verb/noun
 // to "get", and injects the resolved id.
-func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx.Ctx {
+func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) (*cmdctx.Ctx, error) {
 	goCtx, cancel := context.WithCancelCause(parent.Context)
 	provided := make(map[string]bool, len(cs.Flags))
 	for _, flag := range cs.Flags {
@@ -422,10 +431,14 @@ func buildDetailCtx(parent *cmdctx.Ctx, cs *spec.CommandSpec, id string) *cmdctx
 	// Endpoint path templates split ctx.Id into idParts on the fly (see exprenv.Make), but
 	// workflow handlers that read the ctx.IdParts struct field directly (e.g. a multi-part
 	// id_parts target resolved via item_fn) need it populated here too.
-	if cs.IdParts > 1 {
+	if len(cs.IdFormats) > 0 {
+		if err := applyIdFormats(cs, ctx, id); err != nil {
+			return nil, err
+		}
+	} else if cs.IdParts > 1 {
 		ctx.IdParts = strings.SplitN(id, "/", cs.IdParts)
 	}
-	return ctx
+	return ctx, nil
 }
 
 // buildLinkCtx constructs the Ctx for a replayed UILink — either a forward hop
@@ -481,6 +494,11 @@ func buildLinkCtx(ctx *cmdctx.Ctx, link *cmdctx.UILink, targetCs *spec.CommandSp
 		newCtx.ParentId = link.Id
 		newCtx.RestoreOffset = link.Offset
 	}
+	if len(targetCs.IdFormats) > 0 && link.Id != "" {
+		if err := applyIdFormats(targetCs, newCtx, link.Id); err != nil {
+			return nil, err
+		}
+	}
 	return newCtx, nil
 }
 
@@ -528,6 +546,9 @@ func validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) erro
 	if label == "" {
 		label = "<id>"
 	}
+	if len(cs.IdFormats) > 0 && val != "" {
+		return applyIdFormats(cs, ctx, val)
+	}
 	if val == "" || cs.IdAllowSlash {
 		return nil
 	}
@@ -541,5 +562,26 @@ func validateIdParts(cs *spec.CommandSpec, vspec VerbSpec, ctx *cmdctx.Ctx) erro
 	if cs.IdParts > 1 {
 		ctx.IdParts = strings.SplitN(val, "/", cs.IdParts)
 	}
+	return nil
+}
+
+// ensureIds parses ctx.Id against id_formats when buildCtx deferred it (--ui get).
+func ensureIds(cs *spec.CommandSpec, ctx *cmdctx.Ctx) error {
+	if len(cs.IdFormats) == 0 || ctx.Id == "" || ctx.Ids != nil {
+		return nil
+	}
+	return applyIdFormats(cs, ctx, ctx.Id)
+}
+
+// applyIdFormats parses val (the positional id or list/create scope) against
+// cs.IdFormats and fills ctx.Ids, ctx.IdParts, and ctx.IdHint from the match.
+func applyIdFormats(cs *spec.CommandSpec, ctx *cmdctx.Ctx, val string) error {
+	p, err := spec.ParseId(cs.IdFormatList(), val)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", cs.Verb, cs.FullNoun(), err)
+	}
+	ctx.Ids = p.Ids
+	ctx.IdParts = p.Values
+	ctx.IdHint = p.AmbiguityHint(val)
 	return nil
 }

@@ -47,7 +47,7 @@ func getModuleOrPluginHandler(ctx *cmdctx.Ctx, kind string, match func(spec.Modu
 	if meta == nil {
 		if nameMatch != nil && !nameMatch.IsPlugin() {
 			// name exists but isn't a plugin — the caller almost certainly meant `get module`.
-			return fmt.Errorf("%s %q not found (it's a builtin module — did you mean %q?)", kind, ctx.Id, "harness get module "+ctx.Id)
+			return fmt.Errorf("%s %q not found (it's a module compiled into this binary — did you mean %q?)", kind, ctx.Id, "harness get module "+ctx.Id)
 		}
 		if _, ok := pluginRegistry[strings.ToLower(ctx.Id)]; ok {
 			return fmt.Errorf("%s %q is not installed — to install run %q", kind, ctx.Id, "harness install plugin "+ctx.Id)
@@ -340,7 +340,7 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 	seen := map[string]bool{}
 	for _, m := range ctx.Resolver.GetModuleMetas() {
 		seen[m.Name] = true
-		if typeFilter != "" && !strings.EqualFold(m.Type, typeFilter) {
+		if typeFilter != "" && !strings.EqualFold(m.DisplayType(), typeFilter) {
 			continue
 		}
 		// Builtins ship with the CLI, so they have no independent version or
@@ -351,6 +351,10 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 			// A hidden module only ever appears here once enabled — a disabled
 			// one is absent from GetModuleMetas() entirely.
 			installed = "yes"
+		}
+		if m.Embedded {
+			installed = "yes"
+			version = m.Version
 		}
 		if m.BinaryPath != "" {
 			// Plugin: trust the spec's provenance, which install captured from
@@ -364,7 +368,7 @@ func ListModulesFetchFn(ctx *cmdctx.Ctx, _ *spec.EndpointSpec, _, _ int, _ any) 
 		}
 		items = append(items, map[string]any{
 			"module":    m.Name,
-			"type":      m.Type,
+			"type":      m.DisplayType(),
 			"installed": installed,
 			"version":   version,
 			"desc":      m.Desc,

@@ -27,6 +27,9 @@ import (
 // The upload endpoint is: PUT {registryURL}/pkg/{accountID}/{registry}/nuget/
 // Body: multipart/form-data with a single field named "package" containing the file.
 func pushNugetArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push nuget requires a local file path: push artifact <registry/name> <local-file>")
 	}

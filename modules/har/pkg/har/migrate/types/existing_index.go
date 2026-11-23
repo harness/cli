@@ -1,6 +1,7 @@
 package types
 
 import (
+	"path"
 	"strings"
 	"sync"
 )
@@ -86,11 +87,39 @@ func (i *ExistingIndex) HasFile(pkg, version, filePath string, artifactType Arti
 		return false
 	}
 
+	if artifactType == DART {
+		name, ver, ok := DartCoordinates(lowerVersion, lower)
+		if !ok {
+			return false
+		}
+		for harPath := range i.files[name][ver] {
+			if strings.HasSuffix(harPath, ".tar.gz") {
+				return true
+			}
+		}
+		return false
+	}
+
 	fs := i.files[lowerPkg][lowerVersion]
 	if fs != nil {
-		// O(1) direct lookup covers GENERIC/RAW/PYTHON/DART/PUPPET/CONAN etc.
+		// O(1) direct lookup covers RAW/PYTHON/CONAN etc.
 		if _, ok := fs[lower]; ok {
 			return true
+		}
+
+		switch artifactType {
+		case GENERIC:
+			// Generic uploads land at "<pkg>/<version>/<source path>".
+			if _, ok := fs["/"+lowerPkg+"/"+lowerVersion+"/"+strings.TrimPrefix(lower, "/")]; ok {
+				return true
+			}
+		case PUPPET:
+			// HAR stores the module tarball at "/<module>/<version>/<file>"; a version holds one tarball.
+			for harPath := range fs {
+				if path.Base(harPath) == path.Base(lower) {
+					return true
+				}
+			}
 		}
 
 		// Types with a HAR prefix rewrite (NUGET) need per-entry conversion.
@@ -138,6 +167,18 @@ func harToSourcePath(artifactType ArtifactType, harPath, pkg, version string) st
 	default:
 		return harPath
 	}
+}
+
+// DartCoordinates returns the HAR package and version for a source Dart archive. The
+// JFrog adapter puts every archive under one "default" package with a
+// "<name>-<version>" version; Dart package names cannot contain "-".
+func DartCoordinates(version, uri string) (string, string, bool) {
+	parts := strings.Split(strings.Trim(uri, "/"), "/")
+	if n := len(parts); n >= 3 && parts[n-2] == "versions" && strings.HasSuffix(parts[n-1], ".tar.gz") {
+		return parts[n-3], strings.TrimSuffix(parts[n-1], ".tar.gz"), true
+	}
+	name, ver, ok := strings.Cut(version, "-")
+	return name, ver, ok && name != "" && ver != ""
 }
 
 func needsPathRewrite(artifactType ArtifactType) bool {

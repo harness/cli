@@ -205,3 +205,20 @@ func TestUnwrapTimestampedMetricsWholeNumberFloatField(t *testing.T) {
 		}
 	}
 }
+
+func TestStageSubtreeEntries(t *testing.T) {
+	entries := []LogKeyEntry{
+		{Name: "Jira RCA", Identifier: "jira_rca", FQN: "pipeline.stages.jira_rca"},
+		{Name: "Output RCA", Identifier: "print_rca", FQN: "pipeline.stages.jira_rca.spec.execution.steps.print_rca"},
+		{Name: "Other", Identifier: "other", FQN: "pipeline.stages.other"},
+	}
+	for _, filter := range []string{"Jira RCA", "jira_rca"} {
+		got := StageSubtreeEntries(entries, filter)
+		if len(got) != 1 || got[0].Identifier != "print_rca" {
+			t.Fatalf("filter %q: got %+v, want only print_rca", filter, got)
+		}
+	}
+	if got := StageSubtreeEntries(entries, "missing"); got != nil {
+		t.Fatalf("unknown stage: got %+v, want nil", got)
+	}
+}

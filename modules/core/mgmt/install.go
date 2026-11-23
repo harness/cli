@@ -157,6 +157,9 @@ func checkRunningFromInstallDir(installDir string) error {
 }
 
 func InstallCLIHandler(ctx *cmdctx.Ctx) error {
+	if hbase.Distribution != "" {
+		return fmt.Errorf("this is a custom %s build of harness and cannot be installed or upgraded with `install cli`", hbase.Distribution)
+	}
 	version := cmdctx.GetString(ctx.FlagValues, "version")
 	force := cmdctx.GetBool(ctx.FlagValues, "force")
 	check := cmdctx.GetBool(ctx.FlagValues, "check")

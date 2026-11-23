@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,11 +16,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/spec"
@@ -657,6 +660,17 @@ func TestCallEndpointFull_Priority2_UpdateStrategies(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "get_then_patch_del_sends_null",
+			ep:      &spec.EndpointSpec{Path: "/widgets/w1", Method: "PATCH", UpdateStrategy: spec.UpdateStrategyGetThenPatch, UpdateBodyPick: "it"},
+			delArgs: []string{"name"},
+			resps:   []string{getResp, `{}`}, checkCall: 1, wantMethod: "PATCH",
+			checkBody: func(t *testing.T, body []byte) {
+				if got := bodyMap(t, body); !reflect.DeepEqual(got, map[string]any{"name": nil}) {
+					t.Fatalf("PATCH body = %#v, want name: null", got)
+				}
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -721,6 +735,51 @@ func TestCallEndpointFull_GetThenPutYAMLString(t *testing.T) {
 	}
 }
 
+func TestCallEndpointFull_GetThenPutYAMLString_DelOmitsKey(t *testing.T) {
+	getResp := `{"data":{"yaml":"trigger:\n  name: old\n  description: keep\n  extra: null\n"}}`
+	reg := New()
+	if err := reg.RegisterNoun(spec.NounDef{
+		Noun: "widget",
+		Fields: []spec.FieldDef{
+			{ID: "name", Expr: "it.name", MutablePath: "trigger.name"},
+			{ID: "description", Expr: "it.description", MutablePath: "trigger.description"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		set  map[string]string
+		del  []string
+		want string
+	}{
+		{"del removes only the deleted key", nil, []string{"description"}, "trigger:\n    extra: null\n    name: old\n"},
+		{"no del keeps existing nulls", map[string]string{"name": "new"}, nil, "trigger:\n    description: keep\n    extra: null\n    name: new\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, caps := sequenceServer(t, []string{getResp, `{}`})
+			ctx := testCtx(srv.URL, nil)
+			ctx.Noun = "widget"
+			ctx.Id = "w1"
+			ctx.SetArgs = tc.set
+			ctx.DelArgs = tc.del
+			ctx.Resolver = reg
+			ep := &spec.EndpointSpec{
+				Path: "/widgets/w1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut,
+				UpdateBodyPick: "yamlParse(it.data.yaml)", ContentType: "application/yaml", FileBody: spec.FileBodyOptional,
+			}
+			if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := string((*caps)[1].body); got != tc.want {
+				t.Fatalf("PUT body = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCallEndpointFull_GetThenPutYAMLString_UnparseableYAMLSendsNoPut(t *testing.T) {
 	reg := New()
 	if err := reg.RegisterNoun(spec.NounDef{
@@ -750,6 +809,101 @@ func TestCallEndpointFull_GetThenPutYAMLString_UnparseableYAMLSendsNoPut(t *test
 			}
 			if len(*caps) != 1 {
 				t.Fatalf("expected only the GET, got %d calls", len(*caps))
+			}
+		})
+	}
+}
+
+func TestCallEndpointFull_GetThenPutYamlEnvelope(t *testing.T) {
+	getResp := `{"data":{"yaml":"service:\n  name: old\n  identifier: s1\n  description: d\n  pollInterval: 1000000\n"}}`
+	reg := New()
+	if err := reg.RegisterNoun(spec.NounDef{
+		Noun: "widget",
+		Fields: []spec.FieldDef{
+			{ID: "name", Expr: "it.name", MutablePath: "name"},
+			{ID: "description", Expr: "it.description", MutablePath: "description"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name         string
+		getResp      string
+		envelope     string
+		setArgs      map[string]string
+		delArgs      []string
+		wantTop      map[string]any
+		wantAbsent   []string
+		wantEmbedded string
+	}{
+		{
+			name:         "set_updates_top_level_and_embedded_yaml",
+			envelope:     "service",
+			setArgs:      map[string]string{"name": "new"},
+			wantTop:      map[string]any{"name": "new", "identifier": "s1", "description": "d"},
+			wantEmbedded: "service:\n    description: d\n    identifier: s1\n    name: new\n    pollInterval: 1000000\n",
+		},
+		{
+			name:         "del_removes_from_top_level_and_embedded_yaml",
+			envelope:     "service",
+			delArgs:      []string{"description"},
+			wantTop:      map[string]any{"name": "old", "identifier": "s1"},
+			wantAbsent:   []string{"description"},
+			wantEmbedded: "service:\n    identifier: s1\n    name: old\n    pollInterval: 1000000\n",
+		},
+		{
+			name:         "del_keeps_untouched_nulls_in_embedded_yaml",
+			getResp:      `{"data":{"yaml":"service:\n  name: old\n  identifier: s1\n  description: d\n  extra: null\n"}}`,
+			envelope:     "service",
+			delArgs:      []string{"description"},
+			wantAbsent:   []string{"description"},
+			wantEmbedded: "service:\n    extra: null\n    identifier: s1\n    name: old\n",
+		},
+		{
+			name:       "without_envelope_key_body_stays_unwrapped",
+			setArgs:    map[string]string{"name": "new"},
+			wantTop:    map[string]any{"name": "new", "identifier": "s1", "description": "d"},
+			wantAbsent: []string{"yaml"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := getResp
+			if tt.getResp != "" {
+				resp = tt.getResp
+			}
+			srv, caps := sequenceServer(t, []string{resp, `{}`})
+			ctx := testCtx(srv.URL, nil)
+			ctx.Noun = "widget"
+			ctx.Id = "s1"
+			ctx.SetArgs = tt.setArgs
+			ctx.DelArgs = tt.delArgs
+			ctx.Resolver = reg
+			ep := &spec.EndpointSpec{
+				Path: "/widgets", GetPath: "/widgets/s1", Method: "PUT", UpdateStrategy: spec.UpdateStrategyGetThenPut,
+				UpdateBodyPick: "yamlParse(it.data.yaml).service", FileBody: spec.FileBodyOptional,
+				FileBodyYamlEnvelope: tt.envelope,
+			}
+			if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal((*caps)[1].body, &got); err != nil {
+				t.Fatalf("PUT body not JSON: %v", err)
+			}
+			for k, want := range tt.wantTop {
+				if got[k] != want {
+					t.Errorf("PUT body[%q] = %v, want %v", k, got[k], want)
+				}
+			}
+			for _, k := range tt.wantAbsent {
+				if _, ok := got[k]; ok {
+					t.Errorf("PUT body has unexpected key %q", k)
+				}
+			}
+			if tt.wantEmbedded != "" && got["yaml"] != tt.wantEmbedded {
+				t.Errorf("embedded yaml = %q, want %q", got["yaml"], tt.wantEmbedded)
 			}
 		})
 	}
@@ -2252,4 +2406,159 @@ func TestCallEndpointFull_RequestHeadersPropagate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEndpoint_IdFormatsPathPreview(t *testing.T) {
+	r := New()
+	if err := r.RegisterNoun(spec.NounDef{Noun: "artifact", NounAliases: []string{"artifacts"}}); err != nil {
+		t.Fatal(err)
+	}
+	cs := &spec.CommandSpec{
+		Command:     "delete artifact",
+		Verb:        VerbDelete,
+		Noun:        "artifact",
+		Module:      "test",
+		NoAuth:      true,
+		IdFormats:   []string{"<registry>/<name...>/<version>"},
+		HandlerType: spec.HandlerEndpoint,
+		Endpoint: &spec.EndpointSpec{
+			Method: "DELETE",
+			Path:   "/reg/{{ctx.ids.registry}}/+/{{pathEscape(ctx.ids.name)}}/+/{{ctx.ids.version}}",
+		},
+	}
+	if err := r.Register(cs); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	cmd := r.buildCmd(cs)
+	cmd.Flags().Float64("timeout", 0, "timeout")
+	for _, tt := range []struct{ id, want string }{
+		{"reg/@scope/pkg/1.0", "DELETE https://h.example/reg/reg/+/@scope%2Fpkg/+/1.0"},
+		{`["reg","pkg","1.0/beta"]`, "DELETE https://h.example/reg/reg/+/pkg/+/1.0/beta"},
+	} {
+		if err := cmd.ParseFlags([]string{"--preview-request"}); err != nil {
+			t.Fatal(err)
+		}
+		ctx, err := buildCtx(cmd, cs, []string{tt.id}, r)
+		if err != nil {
+			t.Fatalf("buildCtx(%q): %v", tt.id, err)
+		}
+		var preview strings.Builder
+		ctx.RequestPreview = &preview
+		ctx.Auth = testAuth("https://h.example")
+		if _, err := RunEndpoint(ctx, cs.Endpoint); !errors.Is(err, client.ErrRequestPreviewed) {
+			t.Fatalf("RunEndpoint(%q) err = %v, want ErrRequestPreviewed", tt.id, err)
+		}
+		if got, _, _ := strings.Cut(preview.String(), "?"); got != tt.want {
+			t.Errorf("preview for %q = %q, want %q", tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestCallEndpointFull_OctetStreamFileBody(t *testing.T) {
+	ep := &spec.EndpointSpec{
+		Path: "/up", Method: "POST", FileBody: spec.FileBodyRequired,
+		ContentType: "application/octet-stream",
+	}
+	newFile := func(t *testing.T, data []byte) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "a.png")
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	t.Run("sends non-text bytes unchanged", func(t *testing.T) {
+		srv, cap := captureServer(t, `{}`)
+		data := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, '\r', '\n'}
+		ctx := testCtx(srv.URL, map[string]any{"file": newFile(t, data)})
+		if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(cap.body) != string(data) {
+			t.Fatalf("body = %v, want %v", cap.body, data)
+		}
+		if cap.contentType != "application/octet-stream" {
+			t.Fatalf("content-type = %q", cap.contentType)
+		}
+	})
+
+	t.Run("empty file is rejected before any request", func(t *testing.T) {
+		srv, cap := captureServer(t, `{}`)
+		ctx := testCtx(srv.URL, map[string]any{"file": newFile(t, nil)})
+		if _, _, err := callEndpointFull(ctx, ep, nil); err == nil || !strings.Contains(err.Error(), "empty") {
+			t.Fatalf("err = %v, want empty-file error", err)
+		}
+		if cap.method != "" {
+			t.Fatal("server received a request for an empty file")
+		}
+	})
+
+	t.Run("pipe input is buffered and sent in full", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("no /dev/fd on windows")
+		}
+		for name, data := range map[string][]byte{
+			"small": []byte("abc"),
+			"large": bytes.Repeat([]byte{0xab}, 1<<20),
+		} {
+			t.Run(name, func(t *testing.T) {
+				srv, cap := captureServer(t, `{}`)
+				pr, pw, err := os.Pipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer pr.Close()
+				go func() {
+					_, _ = pw.Write(data)
+					pw.Close()
+				}()
+				ctx := testCtx(srv.URL, map[string]any{"file": fmt.Sprintf("/dev/fd/%d", pr.Fd())})
+				if _, _, err := callEndpointFull(ctx, ep, nil); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if !bytes.Equal(cap.body, data) {
+					t.Fatalf("got %d bytes, want %d", len(cap.body), len(data))
+				}
+			})
+		}
+	})
+
+	t.Run("empty pipe is rejected", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("no /dev/fd on windows")
+		}
+		srv, cap := captureServer(t, `{}`)
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pr.Close()
+		pw.Close()
+		ctx := testCtx(srv.URL, map[string]any{"file": fmt.Sprintf("/dev/fd/%d", pr.Fd())})
+		if _, _, err := callEndpointFull(ctx, ep, nil); err == nil || !strings.Contains(err.Error(), "empty") {
+			t.Fatalf("err = %v, want empty-file error", err)
+		}
+		if cap.method != "" {
+			t.Fatal("server received a request for an empty pipe")
+		}
+	})
+
+	t.Run("validator sees the flag and can abort before the file is read", func(t *testing.T) {
+		srv, cap := captureServer(t, `{}`)
+		r := New()
+		r.RegisterEndpointValidatorFn("test:abort", func(_ *cmdctx.Ctx, _ cmdctx.EndpointRequest) error {
+			return errors.New("validator rejected")
+		})
+		withValidator := *ep
+		withValidator.ValidatorsEndpoint = []string{"test:abort"}
+		ctx := testCtx(srv.URL, map[string]any{"file": filepath.Join(t.TempDir(), "missing.png")})
+		ctx.Resolver = r
+		if _, _, err := callEndpointFull(ctx, &withValidator, nil); err == nil || !strings.Contains(err.Error(), "validator rejected") {
+			t.Fatalf("err = %v, want validator rejected", err)
+		}
+		if cap.method != "" {
+			t.Fatal("server received a request after validator abort")
+		}
+	})
 }

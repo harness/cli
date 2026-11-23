@@ -40,6 +40,17 @@ type Adapter interface {
 		artifactType types.ArtifactType,
 		metadata map[string]interface{},
 	) error
+	// UploadExists reports whether the file that UploadFile would write with the same
+	// arguments is already at the destination.
+	UploadExists(
+		ctx context.Context,
+		registry string,
+		f *types.File,
+		artifactName string,
+		version string,
+		artifactType types.ArtifactType,
+		metadata map[string]interface{},
+	) (bool, error)
 	GetOCIImagePath(registry string, packageHostname string, image string) (string, error)
 	AddNPMTag(registry string, name string, version string, uri string) error
 	VersionExists(

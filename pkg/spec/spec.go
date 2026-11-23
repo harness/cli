@@ -165,6 +165,7 @@ type Flag struct {
 	IsBool           bool     `yaml:"is_bool,omitempty"`           // if true, declares a bool flag instead of a string flag
 	IsArray          bool     `yaml:"is_array,omitempty"`          // if true, value is parsed as []string: comma-separated or JSON array syntax
 	IsMulti          bool     `yaml:"is_multi,omitempty"`          // if true, registers as StringArray (repeatable: --flag v1 --flag v2)
+	CommaSeparated   bool     `yaml:"comma_separated,omitempty"`   // with is_multi: also split each value on commas (CSV rules, quotes keep a comma in a value)
 	Hidden           bool     `yaml:"hidden,omitempty"`            // if true, flag is registered but not shown in --help output
 	CompletionNoun   string   `yaml:"completion_noun,omitempty"`   // list noun to call for dynamic tab-completion
 	CompletionFn     string   `yaml:"completion_fn,omitempty"`     // registered FlagCompletionFn name (overrides completion_noun)
@@ -199,12 +200,28 @@ type ModuleMeta struct {
 	// inferred from dispatch fields.
 	FromSpecDir bool
 
+	// Embedded is true for a plugin-style module compiled into a custom build of
+	// the binary. It runs in-process and reports Version from the build.
+	Embedded bool
+
 	// Provenance fields — host-owned, populated only for plugins installed to
 	// ~/.harness/spec. Empty for builtin (embedded) modules.
 	Version     string // plugin --version captured at install/update time (no "v" prefix)
 	BinaryPath  string // path to the plugin binary to dispatch to (may contain ~)
 	Source      string // url-or-origin the tarball was installed from
 	InstalledAt string // when this plugin was installed (RFC3339)
+}
+
+// ModuleTypeEmbedded is how `list module` reports a module with ModuleMeta.Embedded
+// set. It is display-only: a spec file may not declare it.
+const ModuleTypeEmbedded = "embedded"
+
+// DisplayType is the module type shown to users.
+func (m ModuleMeta) DisplayType() string {
+	if m.Embedded {
+		return ModuleTypeEmbedded
+	}
+	return m.Type
 }
 
 // IsPlugin reports whether commands in this module dispatch to a separately
@@ -304,9 +321,12 @@ type FieldDef struct {
 	// "spec.value"). Must not start with "it.". Its presence marks the field as writable
 	// and should match update_body_pick on the corresponding update command.
 	MutablePath string `yaml:"mutable_path,omitempty"`
+	// MutableOn limits mutable_path to one verb: "create" or "update". Empty means both.
+	MutableOn string `yaml:"mutable_on,omitempty"`
 	// FieldType optionally changes how the value is rendered or updated.
 	// Supported: "multiline_text" (renders raw block below other fields), "yaml" (alias for multiline_text, use for actual YAML content),
-	// "tags" (tag-map handling), "set" (string-set handling), "ts" (epoch-ms timestamp).
+	// "tags" (tag-map handling), "set" (string-set handling), "ts" (epoch-ms timestamp),
+	// "bool" and "int" (--set value is parsed and written as a typed, unquoted value).
 	FieldType string `yaml:"field_type,omitempty"`
 	// Align controls horizontal alignment in the table renderer.
 	// Supported: "right". Empty means left (default).
@@ -324,7 +344,26 @@ func (f FieldDef) Validate() error {
 	if strings.HasPrefix(f.MutablePath, "it.") {
 		return fmt.Errorf("field %q: mutable_path must not start with \"it.\" (it is relative to the update_body_pick subtree)", f.ID)
 	}
+	if f.MutableOn != "" && f.MutablePath == "" {
+		return fmt.Errorf("field %q: mutable_on requires mutable_path", f.ID)
+	}
+	if f.MutableOn != "" && f.MutableOn != "create" && f.MutableOn != "update" {
+		return fmt.Errorf("field %q: mutable_on %q must be \"create\" or \"update\"", f.ID, f.MutableOn)
+	}
 	return nil
+}
+
+// TypeLabel is the field's type as shown to users; plain fields are "scalar".
+func (f FieldDef) TypeLabel() string {
+	if f.FieldType == "" {
+		return "scalar"
+	}
+	return f.FieldType
+}
+
+// MutableOnVerb reports whether the field is writable on verb ("create" or "update").
+func (f FieldDef) MutableOnVerb(verb string) bool {
+	return f.MutablePath != "" && (f.MutableOn == "" || f.MutableOn == verb)
 }
 
 // TableSpec is a declarative table definition used internally by the rendering layer.
@@ -497,6 +536,7 @@ type EndpointSpec struct {
 	// ContentType overrides the default wire Content-Type header for the request.
 	// Only used when FileBody is set; defaults to "application/json". Does NOT
 	// describe the format of the -f file itself — see FileBodyContentType for that.
+	// "application/octet-stream" sends the -f file's bytes unparsed (requires file_body: required).
 	ContentType string `yaml:"content_type,omitempty"`
 	// FileBodyContentType overrides the format the -f file is validated/normalized
 	// against (independent of the wire ContentType). Only used when FileBody is set.
@@ -552,6 +592,10 @@ type EndpointSpec struct {
 	// UpdateBodyWrap is the key name used to re-wrap the picked subtree in the PUT body.
 	// e.g. "project" → PUT body becomes {"project": <mutated subtree>}
 	UpdateBodyWrap string `yaml:"update_body_wrap,omitempty"`
+	// PatchAlwaysFields lists noun field IDs a get-then-patch body always carries, with their
+	// current values, for APIs that clear or reject a PATCH omitting them. --set/--del
+	// still override.
+	PatchAlwaysFields []string `yaml:"patch_always_fields,omitempty"`
 	// GetPath overrides path for the GET leg of get-then-put and get-then-put-kv.
 	// Use when the GET and PUT endpoints have different paths (e.g. PUT /connectors, GET /connectors/{id}).
 	// When absent, path is used for both legs.
@@ -606,6 +650,7 @@ type CommandSpec struct {
 	ArgsLabel        string              `yaml:"args_label,omitempty"`        // appended to Usage after the id label (e.g. "<local-file>"); only used when has_args is true
 	IdParts          int                 `yaml:"id_parts,omitempty"`          // when > 1, id must contain exactly (id_parts-1) "/" separators; parts available as {ctx:id_part:0}, {ctx:id_part:1}, ...
 	IdAllowSlash     bool                `yaml:"id_allow_slash,omitempty"`    // skip the slash-count validation on id (use when the id format has variable segments)
+	IdFormats        []string            `yaml:"id_formats,omitempty"`        // named accepted shapes of the positional id/scope (e.g. "<repo>/<branch...>"); exclusive with id_parts/id_allow_slash
 	RequiresParentId bool                `yaml:"requires_parentid,omitempty"` // list commands only: makes the [parentid] arg mandatory
 	ParentIdLabel    string              `yaml:"parentid_label,omitempty"`    // overrides "[parentid]" in the Usage line for list commands (e.g. "<registry/name>")
 	Hidden           bool                `yaml:"hidden,omitempty"`
@@ -629,6 +674,8 @@ type CommandSpec struct {
 	Module           string              `yaml:"-"`                          // set at registration time by ModuleRegistrar; drives workflow/formatter namespacing
 	SpecFile         string              `yaml:"-"`                          // spec filename, set at load time; used in error messages
 	External         bool                `yaml:"-"`                          // set at registration time on the main binary when the module dispatches to a plugin binary; never in spec YAML
+
+	parsedIdFormats []IdFormat // cached by CompileIdFormats
 }
 
 // FullNoun returns "noun:variant" when NounVariant is set, "noun:noun_to" when NounTo is
@@ -642,6 +689,45 @@ func (cs *CommandSpec) FullNoun() string {
 		return cs.Noun + ":" + cs.NounTo
 	}
 	return cs.Noun
+}
+
+// CompileIdFormats parses and validates id_formats and caches the result for IdFormatList.
+func (cs *CommandSpec) CompileIdFormats() error {
+	formats, err := ParseIdFormats(cs.IdFormats)
+	if err != nil {
+		return err
+	}
+	cs.parsedIdFormats = formats
+	return nil
+}
+
+// IdFormatList returns the parsed id_formats, using the CompileIdFormats cache when set.
+// Formats are validated at registration, so a parse error here yields nil.
+func (cs *CommandSpec) IdFormatList() []IdFormat {
+	if len(cs.IdFormats) == 0 {
+		return nil
+	}
+	if cs.parsedIdFormats != nil {
+		return cs.parsedIdFormats
+	}
+	formats, _ := ParseIdFormats(cs.IdFormats)
+	return formats
+}
+
+// EffectiveIdLabel returns id_label, falling back to the id_formats usage label.
+func (cs *CommandSpec) EffectiveIdLabel() string {
+	if cs.IdLabel != "" {
+		return cs.IdLabel
+	}
+	return strings.Join(cs.IdFormats, " | ")
+}
+
+// EffectiveParentIdLabel returns parentid_label, falling back to the id_formats usage label.
+func (cs *CommandSpec) EffectiveParentIdLabel() string {
+	if cs.ParentIdLabel != "" {
+		return cs.ParentIdLabel
+	}
+	return strings.Join(cs.IdFormats, " | ")
 }
 
 // UsageLine returns the grammar portion of Short (after the first ": "), prefixed with "\nusage: ".

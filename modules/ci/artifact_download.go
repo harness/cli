@@ -57,19 +57,19 @@ func resolveLocalPath(dest, filename string) string {
 	return dest
 }
 
-// pullCiArtifactHandler is the `pull ci_artifact` workflow handler. It
+// pullCiArtifactHandler is the `pull managed_artifact` workflow handler. It
 // downloads a single file from the current artifact version in Harness
 // Artifact Registry, under ctx.Auth's resolved registry — populated from
 // pipeline_auth.
 func pullCiArtifactHandler(ctx *cmdctx.Ctx) error {
 	if ctx.Auth.Source != auth.SourcePipeline {
-		return fmt.Errorf("pull ci_artifact only runs inside a Harness pipeline step (requires %s)", hbase.EnvPipelineID)
+		return fmt.Errorf("pull managed_artifact only runs inside a Harness pipeline step (requires %s)", hbase.EnvPipelineID)
 	}
 	if ctx.Auth.RegistryURL == "" {
 		return fmt.Errorf("%s is required in a pipeline step", envHARURL)
 	}
 	if len(ctx.Args) != 1 {
-		return fmt.Errorf("pull ci_artifact requires exactly one <path-in-version> argument")
+		return fmt.Errorf("pull managed_artifact requires exactly one <path-in-version> argument")
 	}
 
 	name := strings.TrimSpace(cmdctx.GetString(ctx.FlagValues, "name"))

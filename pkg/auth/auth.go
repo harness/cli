@@ -67,7 +67,8 @@ type ResolvedAuth struct {
 	Email           string    // user email from profile; empty for env-var auth or legacy profiles
 	UserType        string    // config.UserTypeUser or config.UserTypeServiceAccount; empty for env-var auth, legacy profiles, or SSO
 	UserID          string    // Harness user uuid from profile; empty for env-var auth, legacy profiles, or service accounts
-	TokenKind       TokenKind // pat, sat, jwt, or "" (unknown)
+	TokenKind       TokenKind // pat, sat, st, jwt, or "" (unknown)
+	TokenEnvVar     string    // name of the env var the token came from; empty when it came from the credentials file
 
 	// Exactly one of these is set depending on AuthType.
 	PATToken     string // set when AuthType == AuthTypePAT
@@ -323,6 +324,21 @@ func ResolvePipelineAuth(cfg *PipelineAuthConfig, forced bool, evalHeaders func(
 	}, true, nil
 }
 
+// ProfileAPIKeyEnvVar returns the env var that can supply the API key for the
+// named profile: HARNESS_PROFILE_<NAME>_API_KEY, where <NAME> is the profile
+// name uppercased with every non-alphanumeric character replaced by "_".
+func ProfileAPIKeyEnvVar(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(name) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return "HARNESS_PROFILE_" + b.String() + "_API_KEY"
+}
+
 func resolveProfile(name string) (*ResolvedAuth, error) {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -335,24 +351,43 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		}
 		return nil, fmt.Errorf("profile %q not found", name)
 	}
-	creds, err := LoadCredentials()
-	if err != nil {
-		return nil, fmt.Errorf("loading credentials: %w", err)
-	}
 	authType := p.AuthType
 	if authType == "" {
 		authType = AuthTypePAT
 	}
-	profileCreds := creds[name]
 	activeToken := ""
-	if profileCreds != nil {
-		if authType == AuthTypeSSO {
-			activeToken = profileCreds.SSOToken
-		} else {
-			activeToken = profileCreds.Token
+	tokenEnvVar := ""
+	var profileCreds *ProfileCredentials
+	// PAT/SAT profiles may take their token from the environment instead of
+	// the credentials file. The env var wins so a shared machine's users can
+	// bring their own key, and the file is not read at all in that case since
+	// those users may lack access to it. SSO profiles need a refresh token,
+	// so are excluded.
+	if authType != AuthTypeSSO {
+		envVar := ProfileAPIKeyEnvVar(name)
+		if v := os.Getenv(envVar); v != "" {
+			activeToken = v
+			tokenEnvVar = envVar
+		}
+	}
+	if tokenEnvVar == "" {
+		creds, err := LoadCredentials()
+		if err != nil {
+			return nil, fmt.Errorf("loading credentials: %w", err)
+		}
+		profileCreds = creds[name]
+		if profileCreds != nil {
+			if authType == AuthTypeSSO {
+				activeToken = profileCreds.SSOToken
+			} else {
+				activeToken = profileCreds.Token
+			}
 		}
 	}
 	if activeToken == "" {
+		if authType != AuthTypeSSO {
+			return nil, fmt.Errorf("no token found for profile %q — run 'harness auth login' to re-authenticate, or set %s", name, ProfileAPIKeyEnvVar(name))
+		}
 		return nil, fmt.Errorf("no token found for profile %q — run 'harness auth login' to re-authenticate", name)
 	}
 	apiURL := p.APIUrl
@@ -376,6 +411,11 @@ func resolveProfile(name string) (*ResolvedAuth, error) {
 		UserType:    p.UserType,
 		UserID:      p.UserID,
 		TokenKind:   TokenType(activeToken),
+		TokenEnvVar: tokenEnvVar,
+	}
+	if tokenEnvVar != "" {
+		// The stored identity belongs to whoever logged in, not the env key's owner.
+		r.Email, r.UserType, r.UserID = "", "", ""
 	}
 	if authType == AuthTypeSSO {
 		r.SSOToken = activeToken
@@ -412,20 +452,55 @@ func ValidateAPIURL(apiURL string) error {
 	return nil
 }
 
+// JoinAPIURL appends path to apiURL, dropping path's first segment when it repeats the last
+// path segment of apiURL (e.g. https://host/gateway + /gateway/x -> https://host/gateway/x).
+func JoinAPIURL(apiURL, path string) string {
+	rest := apiURL
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	rest = strings.TrimRight(rest, "/")
+	i := strings.LastIndex(rest, "/")
+	if i < 0 || !strings.HasPrefix(path, "/") {
+		return apiURL + path
+	}
+	last := rest[i+1:]
+	first := path[1:]
+	if j := strings.IndexAny(first, "/?"); j >= 0 {
+		first = first[:j]
+	}
+	if last == "" || first != last {
+		return apiURL + path
+	}
+	return strings.TrimRight(apiURL, "/") + path[1+len(first):]
+}
+
 // TokenKind identifies the type of a Harness token.
 type TokenKind string
 
 const (
 	TokenKindPAT     TokenKind = "pat"
 	TokenKindSAT     TokenKind = "sat"
+	TokenKindST      TokenKind = "st"
 	TokenKindJWT     TokenKind = "jwt"
 	TokenKindUnknown TokenKind = ""
 )
 
 // jwtSegment matches a single base64url-encoded JWT segment (header, payload, or signature).
+// IsAPIKey reports whether the kind is a Harness API key (PAT, SAT or scoped token).
+func (k TokenKind) IsAPIKey() bool {
+	return k == TokenKindPAT || k == TokenKindSAT || k == TokenKindST
+}
+
+// UsesTokenValidate reports whether tokens of this kind are checked with token/validate
+// instead of an account lookup: their principal rarely holds account-view permission.
+func (k TokenKind) UsesTokenValidate() bool {
+	return k == TokenKindSAT || k == TokenKindST
+}
+
 var jwtSegment = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// TokenType returns the kind of token (PAT, SAT, JWT, or unknown) by inspecting its structure.
+// TokenType returns the kind of token (PAT, SAT, ST, JWT, or unknown) by inspecting its structure.
 // JWT detection is structural only: exactly 3 non-empty base64url segments separated by dots.
 func TokenType(token string) TokenKind {
 	switch {
@@ -433,6 +508,8 @@ func TokenType(token string) TokenKind {
 		return TokenKindPAT
 	case strings.HasPrefix(token, "sat."):
 		return TokenKindSAT
+	case strings.HasPrefix(token, "st."):
+		return TokenKindST
 	default:
 		parts := strings.Split(token, ".")
 		if len(parts) == 3 {
@@ -453,23 +530,23 @@ func TokenType(token string) TokenKind {
 
 var patSegment = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// ValidatePATFormat returns an error if token does not match pat.<accountId>.<tokenId>.<secret>
-// or sat.<accountId>.<tokenId>.<secret>.
+// ValidatePATFormat returns an error if token does not match pat.<accountId>.<tokenId>.<secret>,
+// sat.<accountId>.<tokenId>.<secret> or st.<accountId>.<tokenId>.<secret>.
 func ValidatePATFormat(token string) error {
 	parts := strings.SplitN(token, ".", 4)
-	if len(parts) != 4 || (parts[0] != "pat" && parts[0] != "sat") {
-		return fmt.Errorf("invalid PAT/SAT format — expected pat.<accountId>.<tokenId>.<secret> or sat.<accountId>.<tokenId>.<secret>")
+	if len(parts) != 4 || (parts[0] != "pat" && parts[0] != "sat" && parts[0] != "st") {
+		return fmt.Errorf("invalid PAT/SAT/ST format — expected pat.<accountId>.<tokenId>.<secret>, sat.<accountId>.<tokenId>.<secret> or st.<accountId>.<tokenId>.<secret>")
 	}
 	for _, p := range parts[1:] {
 		if !patSegment.MatchString(p) {
-			return fmt.Errorf("invalid PAT/SAT format — segments must match [A-Za-z0-9_-]+")
+			return fmt.Errorf("invalid PAT/SAT/ST format — segments must match [A-Za-z0-9_-]+")
 		}
 	}
 	return nil
 }
 
-// AccountIDFromToken extracts the account ID from a valid PAT/SAT of the form pat.{AccountID}.x.y
-// or sat.{AccountID}.x.y. Callers must validate the token with ValidatePATFormat before calling this.
+// AccountIDFromToken extracts the account ID from a valid PAT/SAT/ST of the form pat.{AccountID}.x.y,
+// sat.{AccountID}.x.y or st.{AccountID}.x.y. Callers must validate the token with ValidatePATFormat before calling this.
 func AccountIDFromToken(token string) string {
 	if TokenType(token) == TokenKindUnknown {
 		return ""
@@ -482,11 +559,11 @@ func AccountIDFromToken(token string) string {
 }
 
 // MaskedToken returns a display-safe representation of a token.
-// For PAT/SAT tokens it reveals <prefix>.<accountID> and masks the remaining segments.
+// For PAT/SAT/ST tokens it reveals <prefix>.<accountID> and masks the remaining segments.
 // For anything else it falls back to Masked.
 func MaskedToken(s string) string {
 	kind := TokenType(s)
-	if kind != TokenKindPAT && kind != TokenKindSAT {
+	if kind != TokenKindPAT && kind != TokenKindSAT && kind != TokenKindST {
 		return Masked(s)
 	}
 	parts := strings.SplitN(s, ".", 4)

@@ -209,10 +209,28 @@ func (a *harAdapter) VersionExists(ctx context.Context, p types.Package, registr
 }
 
 func (a *harAdapter) FileExists(ctx context.Context, registryRef, pkg, version string, file *types.File, artifactType types.ArtifactType) (bool, error) {
-	if artifactType == types.RAW || artifactType == types.CRAN {
+	switch artifactType {
+	case types.RAW:
 		return a.client.headRawFile(registryRef, file.Uri)
+	case types.CRAN:
+		return a.client.cranFileExists(ctx, registryRef, file.Uri)
+	case types.TERRAFORM:
+		return a.client.terraformFileExists(ctx, registryRef, pkg, version, file)
+	case types.RUBY:
+		return a.client.rubyGemExists(ctx, registryRef, file)
 	}
 	return a.client.artifactFileExists(ctx, registryRef, pkg, version, file, artifactType)
+}
+
+func (a *harAdapter) UploadExists(
+	ctx context.Context,
+	registry string,
+	f *types.File,
+	artifactName, version string,
+	artifactType types.ArtifactType,
+	metadata map[string]interface{},
+) (bool, error) {
+	return a.client.uploadExists(ctx, registry, f, artifactName, version, artifactType, metadata)
 }
 
 func (a *harAdapter) GetAllFilesForVersion(ctx context.Context, registryRef, pkg, version string) ([]string, error) {

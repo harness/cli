@@ -24,29 +24,13 @@ func validCredentials() RegistryConfig {
 	}
 }
 
-func TestValidateConfig_PatternsRejectedForNonFilterableType(t *testing.T) {
-	// Every currently-known ArtifactType is classified as either file-level or
-	// package-level filterable (that's the point of this fix), so exercise the
-	// rejection branch with a type outside the known classification — this is
-	// exactly the safety net the check exists for: a future artifact type added
-	// without updating patterns.go must not silently ignore scope controls.
-	unclassified := ArtifactType("UNCLASSIFIED_TYPE")
-	mapping := validMapping(unclassified)
-	mapping.IncludePatterns = []string{"*.txt"}
-
-	cfg := &Config{
-		Concurrency: 1,
-		Source:      validCredentials(),
-		Dest:        validCredentials(),
-		Mappings:    []RegistryMapping{mapping},
-	}
-
-	err := validateConfig(cfg)
-	if err == nil {
-		t.Fatal("expected error for includePatterns on a non-pattern-filterable artifact type")
-	}
-	if !strings.Contains(err.Error(), "not supported for artifact type UNCLASSIFIED_TYPE") {
-		t.Errorf("unexpected error message: %v", err)
+// A new ArtifactType must be added to a pattern list in patterns.go; otherwise
+// includePatterns/excludePatterns on it are rejected at config load.
+func TestEveryKnownArtifactTypeIsPatternFilterable(t *testing.T) {
+	for _, at := range KnownArtifactTypes() {
+		if !IsPatternFilterable(at) {
+			t.Errorf("%s is not classified as file-level or package-level pattern filterable", at)
+		}
 	}
 }
 

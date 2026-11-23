@@ -341,6 +341,37 @@ func TestValidateSpec_IdPartsOutOfRange(t *testing.T) {
 	}
 }
 
+func TestValidateSpec_IdFormats(t *testing.T) {
+	tests := []struct {
+		name    string
+		cs      spec.CommandSpec
+		wantErr string
+	}{
+		{"with id_parts", spec.CommandSpec{IdFormats: []string{"<a>/<b>"}, IdParts: 2}, "cannot be combined"},
+		{"with id_allow_slash", spec.CommandSpec{IdFormats: []string{"<a>/<b...>"}, IdAllowSlash: true}, "cannot be combined"},
+		{"ambiguous set", spec.CommandSpec{IdFormats: []string{"<a>/<b...>", "<c>/<d>"}}, "ambiguous"},
+		{"two rest parts", spec.CommandSpec{IdFormats: []string{"<a...>/<b...>"}}, "at most one"},
+		{"duplicate names", spec.CommandSpec{IdFormats: []string{"<a>/<a>"}}, "duplicate part name"},
+		{"valid", spec.CommandSpec{IdFormats: []string{"<p>/<e>", "<e>"}}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := tt.cs
+			cs.Command, cs.Verb, cs.Noun, cs.Module = "get thing", VerbGet, "thing", "test"
+			err := validateVerbNounShape(&cs, verbRegistry[VerbGet])
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateConfirmMode_InvalidValue(t *testing.T) {
 	cs := &spec.CommandSpec{Command: "delete pipeline", Verb: VerbDelete, Noun: "pipeline", Module: "test", ConfirmMode: "bad_mode"}
 	if err := validateConfirmMode(cs); err == nil || !strings.Contains(err.Error(), "invalid confirm_mode") {
@@ -658,5 +689,52 @@ func TestCheckFunctions_SkipsDevOnlyAndExternal(t *testing.T) {
 	)
 	if err := r.CheckFunctions(); err != nil {
 		t.Fatalf("CheckFunctions() = %v, want nil (DevOnly/External skipped)", err)
+	}
+}
+
+func TestValidateEndpointConstraints_PatchAlwaysFieldsNeedsGetThenPatch(t *testing.T) {
+	for _, strategy := range []string{"", spec.UpdateStrategyGetThenPut} {
+		cs := &spec.CommandSpec{
+			Command:     "update widget",
+			HandlerType: spec.HandlerEndpoint,
+			VerbHandler: VerbUpdate,
+			Endpoint:    &spec.EndpointSpec{UpdateStrategy: strategy, PatchAlwaysFields: []string{"title"}},
+		}
+		if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "patch_always_fields") {
+			t.Errorf("update_strategy %q: got %v, want patch_always_fields error", strategy, err)
+		}
+	}
+}
+
+func TestValidateEndpointConstraints_OctetStream(t *testing.T) {
+	mk := func(ep *spec.EndpointSpec) *spec.CommandSpec {
+		return &spec.CommandSpec{
+			Command: "execute repository:upload", Verb: VerbExecute, VerbHandler: VerbExecute, Noun: "repository", Module: "test",
+			HandlerType: spec.HandlerEndpoint, Endpoint: ep,
+		}
+	}
+	base := func() *spec.EndpointSpec {
+		return &spec.EndpointSpec{Method: "POST", FileBody: spec.FileBodyRequired, ContentType: "application/octet-stream"}
+	}
+	if err := validateEndpointConstraints(mk(base())); err != nil {
+		t.Fatalf("valid octet-stream endpoint rejected: %v", err)
+	}
+	cases := map[string]func(*spec.EndpointSpec){
+		"file_body optional":       func(e *spec.EndpointSpec) { e.FileBody = spec.FileBodyOptional },
+		"file_body_content_type":   func(e *spec.EndpointSpec) { e.FileBodyContentType = "application/yaml" },
+		"file_body_wrap_as_string": func(e *spec.EndpointSpec) { e.FileBodyWrapAsString = "k"; e.FileBodyContentType = "application/yaml" },
+		"file_body_yaml_envelope":  func(e *spec.EndpointSpec) { e.FileBodyYamlEnvelope = "service" },
+		"update_body_wrap":         func(e *spec.EndpointSpec) { e.UpdateBodyWrap = "k" },
+		"create_body_wrap":         func(e *spec.EndpointSpec) { e.CreateBodyWrap = "k" },
+		"GET method":               func(e *spec.EndpointSpec) { e.Method = "GET" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			ep := base()
+			mutate(ep)
+			if err := validateEndpointConstraints(mk(ep)); err == nil || !strings.Contains(err.Error(), "octet-stream") {
+				t.Fatalf("expected octet-stream error, got: %v", err)
+			}
+		})
 	}
 }

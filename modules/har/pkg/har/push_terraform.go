@@ -56,6 +56,9 @@ var terraformProviderFilenameRegex = regexp.MustCompile(
 // Modules require --namespace, --name, --provider and --version. Providers require
 // only --namespace; type, version, os and arch are parsed from the filename.
 func pushTerraformArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push terraform artifact requires a file or directory path: push artifact:terraform <registry> <path>")
 	}

@@ -59,6 +59,9 @@ func (r conanRef) display() string {
 //	  [--package-dir <dir> --package-id <sha>]
 //	  [--recipe-revision <md5>] [--package-revision <md5>]
 func pushConanArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 2); err != nil {
+		return err
+	}
 	if len(ctx.Args) < 2 {
 		return fmt.Errorf("push conan artifact requires: push artifact <registry> <reference> <recipe-dir>")
 	}

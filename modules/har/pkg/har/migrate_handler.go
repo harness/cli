@@ -57,21 +57,8 @@ func executeRegistryMigrateHandler(ctx *cmdctx.Ctx) error {
 	cfg.Dest.AccountID = a.AccountID
 	cfg.Dest.APIBaseURL = a.APIUrl
 
-	// Resolve the destination package registry endpoint: explicit --pkg-url
-	// override, then whatever the config file already specifies, then the
-	// resolved auth registry URL. Fail fast rather than streaming migrated
-	// artifacts into a 404 from an empty package host.
-	switch {
-	case pkgURLFlag != "":
-		cfg.Dest.Endpoint = pkgURLFlag
-	case cfg.Dest.Endpoint != "":
-		// keep the value from the config file
-	default:
-		cfg.Dest.Endpoint = a.RegistryURL
-	}
-	if cfg.Dest.Endpoint == "" {
-		return fmt.Errorf("pkg-url must be set: no destination package registry URL configured — " +
-			"pass --pkg-url, set destination.endpoint in the config, or run the login flow so it can be resolved from auth")
+	if err := resolveMigrateDestEndpoint(ctx, cfg, pkgURLFlag); err != nil {
+		return err
 	}
 
 	bgCtx, cancel := context.WithCancel(context.Background())
@@ -97,5 +84,26 @@ func executeRegistryMigrateHandler(ctx *cmdctx.Ctx) error {
 	}
 
 	fmt.Println("Migration completed successfully.")
+	return nil
+}
+
+// resolveMigrateDestEndpoint picks the destination package host: --pkg-url, then
+// destination.endpoint, then auth. Only the auth fallback looks up the package
+// host, so an explicit override works where /system/info is unavailable.
+func resolveMigrateDestEndpoint(ctx *cmdctx.Ctx, cfg *types.Config, pkgURLFlag string) error {
+	switch {
+	case pkgURLFlag != "":
+		cfg.Dest.Endpoint = pkgURLFlag
+	case cfg.Dest.Endpoint != "":
+	default:
+		if err := resolvePackageHost(ctx); err != nil {
+			return err
+		}
+		cfg.Dest.Endpoint = ctx.Auth.RegistryURL
+	}
+	if cfg.Dest.Endpoint == "" {
+		return fmt.Errorf("pkg-url must be set: no destination package registry URL configured — " +
+			"pass --pkg-url, set destination.endpoint in the config, or run the login flow so it can be resolved from auth")
+	}
 	return nil
 }

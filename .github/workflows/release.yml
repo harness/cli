@@ -24,11 +24,12 @@ jobs:
       - name: Install Task
         uses: arduino/setup-task@v3
         with:
-          version: 3.x
+          version: 3.48.0
 
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v7
         with:
+          version: "~> v2.18"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

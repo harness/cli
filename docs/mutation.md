@@ -39,9 +39,15 @@ reg.RegisterFieldType("owners", cmdctx.FieldTypeHandler{
 })
 ```
 
-`ModuleRegistrar.RegisterFieldType("owners", ...)` registers the type as `fme:owners` for the `fme` module. There is currently no `modules/fme` package: create its module initialization and wire it in `cmd/harness/main-harness.go` before referring to `fme:owners` in a spec. Writable fields must resolve to a handler with a `Mutate` function; `Normalize` and `Encode` are optional. Built-in types include scalar (the default), `tags` (key/value map), and `set` (string members).
+`ModuleRegistrar.RegisterFieldType("owners", ...)` registers the type as `fme:owners` for the `fme` module. There is currently no `modules/fme` package: create its module initialization and wire it in `cmd/harness/harnessapp/harnessapp.go` before referring to `fme:owners` in a spec. Writable fields must resolve to a handler with a `Mutate` function; `Normalize` and `Encode` are optional. Built-in types include scalar (the default), `bool` and `int` (`--set` is parsed and written unquoted; invalid values are rejected), `tags` (key/value map), and `set` (string members).
 
 There is no generic object-set field type or bracketed literal-member syntax. The built-in `tags` handler is a string-keyed map, **not** a handler for FME's named tag objects. If FME needs those semantics, register an API-specific type such as `fme:tags` and define its member identity, accepted operands, duplicate handling, clear behavior, and wire encoding there. Core dispatches the operations; it does not decide the shape of FME owners or tags.
+
+## Create-only and update-only fields
+
+When an API accepts a field on create but ignores it on update (or the reverse), set `mutable_on: create` or `mutable_on: update` on the noun field. Without it the field is writable on both. `--list-fields` shows only the running verb's fields, and `--set`/`--del` on the other verb's field fails with `field "x" cannot be set on update (create-only field)` instead of sending a request the API ignores. `mutable_on` requires `mutable_path`.
+
+The rejection happens in the automatic mutation builder (`set-fields` create and GET-then-PATCH/PUT). A command that reads `ctx.SetArgs` itself, such as a `body_fn` or workflow handler, is not checked and must enforce its own field list.
 
 ## Handler lifecycle
 
@@ -58,7 +64,7 @@ For `create_strategy: set-fields`, mutations apply to the `create_body_init` see
 
 | Path | Body built from mutation flags |
 |---|---|
-| GET-then-PATCH | Starts as `{}`; adds only fields with `write=true`, at their `mutable_path`. Untouched fields, unknown GET fields, and no-op operations are omitted. |
+| GET-then-PATCH | Starts as `{}`; adds only fields with `write=true`, at their `mutable_path`. Untouched fields, unknown GET fields, and no-op operations are omitted. Fields listed in `patch_always_fields` are seeded first with their current GET values. |
 | GET-then-PUT | Starts as a full copy of the picked object, including fields not targeted by flags; mutations replace their paths. Untouched fields with a normalizer are normalized, but **not encoded** in this implementation. Verify their write shape before relying on full PUT. |
 | `set-fields` create | Starts from `create_body_init` and applies targeted mutations; it does not GET a resource. |
 
@@ -75,9 +81,9 @@ The difference between **omitted** and **explicitly written** matters for merge-
 ## File input, GET YAML, and current limits
 
 - If an endpoint accepts `-f`, supplying a file takes precedence over GET-then-update. The supplied body is sent as a write document (with the endpoint's file-body wrapping behavior); it is **not** run through the field handlers or the flag-built sparse PATCH path. `body_params` from the automatic mutation path are not merged into it. A full write-ready PATCH file is allowed, but inspect its shape before sending it.
-- When the API stores the resource as a YAML string inside a JSON response (for example `data.yaml` on triggers), pick it with `update_body_pick: yamlParse(it.data.yaml)` and set `content_type: application/yaml`. The mutated object is then re-encoded as the YAML request body, so comments are dropped and keys are written sorted.
+- When the API stores the resource as a YAML string inside a JSON response (for example `data.yaml` on triggers), pick it with `update_body_pick: yamlParse(it.data.yaml)` and set `content_type: application/yaml`. The mutated object is then re-encoded as the YAML request body, so comments are dropped and keys are written sorted. For YAML bodies (plain or `file_body_yaml_envelope`), a field cleared by `--del` is omitted rather than written as `null`, since APIs such as input sets store a written `null` as the string `"null"`; other nulls in the picked object are sent as read. JSON merge-patch still sends `null` to clear a field.
 - `get --format yaml` still uses the **get command's separate `yaml_pick_expr` / `yaml_exclude`**, not `update_body_pick` or custom field handlers. FME's current YAML output is not automatically write-ready for tags/owners; do not promise a GET-YAML-to-`-f` round trip until its specs and conversion path are addressed.
-- There is no `patch_always_fields` facility yet. PATCH does not copy unchanged picked IDs or other required fields automatically. If an API requires one, establish that requirement before changing the spec/core; an explicit `body_params` value may suffice when it is available independently of GET.
+- PATCH does not copy unchanged picked fields. If the API clears omitted fields or requires some on every call, list their noun field IDs in `patch_always_fields` (for example `[title, description]`); each is sent with its current value unless `--set`/`--del` changes it, and everything else stays sparse. IDs must be mutable noun fields, and the values are copied as read: use it for plain scalar fields, since untouched fields are never `Encode`d. The write is still GET-then-PATCH, so a concurrent edit between the two calls is overwritten.
 - Core does not look up owner emails or reconstruct missing API identifiers. FME currently returns a group name without the identifier needed to write that group back; that requires a server-side round-trip fix before mixed-owner edits can be reliable.
 
 ## Testing a custom type

@@ -12,8 +12,8 @@ help_text: |
 
   ### Domain Model
 
-  A **local_annotation** is a note posted back to the pipeline execution.
-  `execute local_annotation` merges one into a local JSON file for
+  An **annotate** is a note posted back to the pipeline execution.
+  `execute annotate` merges one into a local JSON file for
   lite-engine to pick up; gated behind `CI_ENABLE_HARNESS_ANNOTATIONS`/
   `PIPE_HARNESS_ANNOTATIONS`, so it's always safe to run.
 
@@ -26,16 +26,16 @@ help_text: |
   A **coverage** report is parsed from local Go/LCOV/JaCoCo/Clover/
   Cobertura/Coveralls files. `execute coverage:analyze` prints a local
   summary; `execute coverage:upload` sends it to the Harness coverage
-  service; `execute coverage:wait-until` polls and gates on a threshold.
+  service; `execute coverage:wait_until` polls and gates on a threshold.
 
-  A **ci_artifact** is a generic build artifact pushed to or pulled from
-  Harness Artifact Registry (HAR). `push ci_artifact <source>...` uploads
+  A **managed_artifact** is a generic build artifact pushed to or pulled from
+  Harness Artifact Registry (HAR). `push managed_artifact <source>...` uploads
   file(s)/directories to the current pipeline's artifact version; `pull
-  ci_artifact <path-in-version>` downloads one back out. Both require
+  managed_artifact <path-in-version>` downloads one back out. Both require
   running inside a pipeline step — auth is resolved from CI-injected env
   vars only, with no profile fallback.
 
-  `coverage:upload`/`wait-until` need auth too, resolved from CI-injected
+  `coverage:upload`/`wait_until` need auth too, resolved from CI-injected
   env vars inside a pipeline step or the active CLI profile outside one;
   everything else needs none.
 
@@ -44,9 +44,9 @@ help_text: |
   {{nouns}}
 
 nouns:
-  - noun: local_annotation
+  - noun: annotate
     short_desc: "A pipeline-step annotation written to the local annotations file for lite-engine to post."
-    noun_aliases: [local_annotations]
+    noun_aliases: [local_annotation, local_annotations, annotations]
     fields:
       - id: context
         expr: it.context
@@ -81,9 +81,9 @@ nouns:
         label: Coverage
         expr: it.overallpercentage
 
-  - noun: ci_artifact
+  - noun: managed_artifact
     short_desc: "A generic build artifact pushed to or pulled from Harness Artifact Registry (HAR) from a CI pipeline step."
-    noun_aliases: [ci_artifacts]
+    noun_aliases: [managed_artifacts]
     fields:
       - id: artifactName
         label: Artifact Name
@@ -100,9 +100,9 @@ nouns:
         expr: it.totalBytes
 
 commands:
-  - command: execute local_annotation
+  - command: execute annotate
     verb: execute
-    noun: local_annotation
+    noun: annotate
     short: "Write/merge a pipeline-step annotation into the local annotations file"
     long: |
       Write or merge a Harness pipeline-step annotation into a local JSON file
@@ -113,10 +113,10 @@ commands:
       or PIPE_HARNESS_ANNOTATIONS=true is set in the environment.
 
       Examples:
-        harness execute local_annotation --context build-status --style info --summary "Build completed"
-        harness execute local_annotation --context deployment --style success --summary-file ./deploy-notes.md
-        harness execute local_annotation --context test-results --style warning --summary "Some tests failed" --priority 5
-        harness execute local_annotation --context build-status --mode delete
+        harness execute annotate --context build-status --style info --summary "Build completed"
+        harness execute annotate --context deployment --style success --summary-file ./deploy-notes.md
+        harness execute annotate --context test-results --style warning --summary "Some tests failed" --priority 5
+        harness execute annotate --context build-status --mode delete
     no_id: true
     has_args: true
     no_auth: true
@@ -234,6 +234,7 @@ commands:
       - name: file
         description: "Path to coverage report file(s) (can be specified multiple times)"
         is_multi: true
+        comma_separated: true
       - name: exclude
         description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'."
         is_multi: true
@@ -270,8 +271,8 @@ commands:
       token_envvar: HARNESS_COVERAGE_SERVICE_TOKEN
       apiurl_envvar: HARNESS_COVERAGE_SERVICE_ENDPOINT
       headers:
-        X-Api-Key: token
-        x-harness-token: token
+        X-Api-Key: b64decode(token)
+        x-harness-token: b64decode(token)
     handler_type: workflow
     workflow_id: execute_coverage_upload
     flags:
@@ -302,9 +303,11 @@ commands:
       - name: tags
         description: "Tags to apply to the uploaded coverage report (can be specified multiple times)"
         is_multi: true
+        comma_separated: true
       - name: file
         description: "Path to coverage report file(s) (can be specified multiple times)"
         is_multi: true
+        comma_separated: true
       - name: base
         description: "Base revision to compare against for diff coverage (commit SHA, branch, or tag). If not specified, diff tracking is disabled."
       - name: patch
@@ -314,10 +317,10 @@ commands:
         description: "Exclude source files matching this glob pattern (can be specified multiple times). Prefix with 'regex:' to use a regular expression instead, e.g. --exclude 'regex:.*_gen\\.go$'. Coverage repository settings replace this flag when exclude_text is set, including an empty value that clears exclusions."
         is_multi: true
 
-  - command: execute coverage:wait-until
+  - command: execute coverage:wait_until
     verb: execute
     noun: coverage
-    noun_variant: wait-until
+    noun_variant: wait_until
     short: "Wait for coverage processing and evaluate quality gate thresholds"
     long: |
       Polls the Harness coverage service until all reports for the execution
@@ -330,18 +333,18 @@ commands:
       from the global --timeout flag (which hard-kills the whole process).
 
       Examples:
-        harness execute coverage:wait-until --gt 70
-        harness execute coverage:wait-until --gte 80 --wait-timeout 10m
-        harness execute coverage:wait-until --patch-gt 80
-        harness execute coverage:wait-until --gt 70 --patch-gte 80
+        harness execute coverage:wait_until --gt 70
+        harness execute coverage:wait_until --gte 80 --wait-timeout 10m
+        harness execute coverage:wait_until --patch-gt 80
+        harness execute coverage:wait_until --gt 70 --patch-gte 80
     no_id: true
     has_args: true
     pipeline_auth:
       token_envvar: HARNESS_COVERAGE_SERVICE_TOKEN
       apiurl_envvar: HARNESS_COVERAGE_SERVICE_ENDPOINT
       headers:
-        X-Api-Key: token
-        x-harness-token: token
+        X-Api-Key: b64decode(token)
+        x-harness-token: b64decode(token)
     handler_type: workflow
     workflow_id: execute_coverage_wait_until
     flags:
@@ -364,9 +367,9 @@ commands:
         description: "Polling interval, e.g. 10s"
         default: "10s"
 
-  - command: push ci_artifact
+  - command: push managed_artifact
     verb: push
-    noun: ci_artifact
+    noun: managed_artifact
     short: "Push artifacts to Harness Artifact Registry"
     long: |
       Push one or more local files or directories to Harness Artifact
@@ -388,9 +391,9 @@ commands:
       record of everything pushed in the step.
 
       Examples:
-        harness push ci_artifact ./build/app.zip
-        harness push ci_artifact ./cache-dir --destination cache
-        harness push ci_artifact './dist/*.tar.gz,./reports/*.xml'
+        harness push managed_artifact ./build/app.zip
+        harness push managed_artifact ./cache-dir --destination cache
+        harness push managed_artifact './dist/*.tar.gz,./reports/*.xml'
     no_id: true
     has_args: true
     args_label: "<source>..."
@@ -411,9 +414,9 @@ commands:
       - name: registry
         description: "Target registry name (default: $CI_NATIVE_HAR_REGISTRY)"
 
-  - command: pull ci_artifact
+  - command: pull managed_artifact
     verb: pull
-    noun: ci_artifact
+    noun: managed_artifact
     short: "Pull a single artifact file from Harness Artifact Registry"
     long: |
       Pull a single file from the current pipeline's artifact version in
@@ -426,15 +429,15 @@ commands:
       during the corresponding push.
 
       For example, if pushed with:
-        harness push ci_artifact Dockerfile --destination files
+        harness push managed_artifact Dockerfile --destination files
 
       then pull with:
-        harness pull ci_artifact files/Dockerfile
+        harness pull managed_artifact files/Dockerfile
 
       Examples:
-        harness pull ci_artifact files/Dockerfile
-        harness pull ci_artifact files/Dockerfile --destination ./downloads/
-        harness pull ci_artifact reports/coverage.html --destination /tmp/coverage.html
+        harness pull managed_artifact files/Dockerfile
+        harness pull managed_artifact files/Dockerfile --destination ./downloads/
+        harness pull managed_artifact reports/coverage.html --destination /tmp/coverage.html
     no_id: true
     has_args: true
     args_label: "<path-in-version>"

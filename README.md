@@ -341,7 +341,7 @@ harness auth status                # show resolved profile and validate credenti
 harness auth setscope --org my-org --project my-project
 harness auth env                   # print env vars for the current auth context
 harness auth env --export          # prefixed with "export "
-harness auth token                 # print the active API token
+harness auth fields <name>         # print one profile field (token, email, ...)
 harness auth sso_status            # show SSO token expiry (SSO profiles)
 harness auth sso_refresh           # refresh an SSO access token
 harness auth logout                # remove a profile
@@ -396,7 +396,7 @@ Legend used in the tables below:
 | `auth setscope`      | Set default org / project on a profile                      |
 | `auth profiles`      | List all authentication profiles                            |
 | `auth env`           | Print env vars for the current auth context                 |
-| `auth token`         | Print the active API token                                  |
+| `auth fields`        | Print one profile field (token, email, ...)                 |
 | `version`            | Print the CLI version                                       |
 | `install cli`        | Install or upgrade the Harness CLI and installed modules    |
 | `install module`     | Install a Harness CLI module (e.g. `har`)                   |
@@ -450,6 +450,7 @@ Legend used in the tables below:
 | `execution`               |  ✓   |  ✓  |        |        |        |    ✓    |
 | `execution:abort`         |      |     |        |        |        |    ✓    |
 | `execution:retry`         |      |     |        |        |        |    ✓    |
+| `execution:inputs`        |      |  ✓  |        |        |        |         |
 | `execution:retry_history` |      |  ✓  |        |        |        |         |
 | `execution_step`          |  ✓   |     |        |        |        |         |
 | `execution_log`           |  ✓   |  ✓  |        |        |        |         |
@@ -466,7 +467,7 @@ Legend used in the tables below:
 
 `get execution_log <pipeline>/<exec-id> --ui` opens a live log viewer with step navigation, graph, and save-to-file. `create template` / `update template_version` round-trip YAML bodies with `-f`.
 
-`execute approval_instance:approve` / `:reject` action a manual approval; `execute execution:abort` / `:retry` control a running execution; `update template_version:set-stable` promotes a template version.
+`execute approval_instance:approve` / `:reject` action a manual approval; `execute execution:abort` / `:retry` control a running execution; `update template_version:set_stable` promotes a template version.
 
 </details>
 
@@ -497,7 +498,7 @@ CD nouns are multi-level: pass `--level account|org|project` (with `--org` / `--
 | `pr:close`              |      |     |        |        |        |    ✓    |      |
 | `pr:reopen`             |      |     |        |        |        |    ✓    |      |
 | `pr:ready`              |      |     |        |        |        |    ✓    |      |
-| `pr:edit`               |      |     |        |        |        |    ✓    |      |
+| `pr:draft`              |      |     |        |        |        |    ✓    |      |
 | `pr:review`             |      |     |        |        |        |    ✓    |      |
 | `pr:label`              |      |     |        |        |        |    ✓    |      |
 | `pr:unlabel`            |      |     |        |        |        |    ✓    |      |

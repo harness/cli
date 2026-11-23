@@ -103,6 +103,15 @@ func (r *Registry) SetModuleMeta(m spec.ModuleMeta) {
 	r.moduleMetas = append(r.moduleMetas, m)
 }
 
+// MarkEmbedded flags an already-registered module as compiled into this binary
+// rather than dispatched to a plugin, and records its version.
+func (r *Registry) MarkEmbedded(module, version string) {
+	if m := r.moduleMeta(module); m != nil {
+		m.Embedded = true
+		m.Version = version
+	}
+}
+
 // RecordHiddenModule records a module declared module_type: hidden, regardless
 // of whether it is currently enabled. This is the only place `install module`
 // can recognize a hidden-but-disabled module by name — such a module is
@@ -226,7 +235,7 @@ func (r *Registry) GetVerbInfos() []spec.VerbInfo {
 // RegisterNoun registers a noun definition. Returns an error on duplicate or invalid fields.
 func (r *Registry) RegisterNoun(nd spec.NounDef) error {
 	if _, exists := r.nouns[nd.Noun]; exists {
-		return fmt.Errorf("duplicate noun %q", nd.Noun)
+		return fmt.Errorf("duplicate noun %q (already registered by module %q)", nd.Noun, r.moduleForNoun(nd.Noun))
 	}
 	for _, f := range nd.Fields {
 		if err := f.Validate(); err != nil {
@@ -725,8 +734,8 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 	}
 	if vspec.RequiresId && !cs.NoId {
 		idLabel := "<id>"
-		if cs.IdLabel != "" {
-			idLabel = cs.IdLabel
+		if l := cs.EffectiveIdLabel(); l != "" {
+			idLabel = l
 		}
 		use += " " + idLabel
 		if cs.HasArgs && cs.ArgsLabel != "" {
@@ -734,21 +743,21 @@ func buildUseString(cs *spec.CommandSpec, vspec VerbSpec) string {
 		}
 	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
-		if cs.IdLabel != "" {
-			idLabel = cs.IdLabel
+		if l := cs.EffectiveIdLabel(); l != "" {
+			idLabel = l
 		}
 		use += " [" + idLabel + "]"
 	} else if vspec.AllowsParentId {
 		if cs.RequiresParentId {
 			parentIdLabel := "<parentid>"
-			if cs.ParentIdLabel != "" {
-				parentIdLabel = cs.ParentIdLabel
+			if l := cs.EffectiveParentIdLabel(); l != "" {
+				parentIdLabel = l
 			}
 			use += " " + parentIdLabel
 		} else {
 			parentIdLabel := "[parentid]"
-			if cs.ParentIdLabel != "" {
-				parentIdLabel = "[" + cs.ParentIdLabel + "]"
+			if l := cs.EffectiveParentIdLabel(); l != "" {
+				parentIdLabel = "[" + l + "]"
 			}
 			use += " " + parentIdLabel
 		}
@@ -763,7 +772,7 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    use,
 		Short:  cs.Short,
-		Long:   cs.Long,
+		Long:   r.longWithSettableFields(cs),
 		Hidden: cs.Hidden,
 	}
 
@@ -775,6 +784,35 @@ func (r *Registry) buildCmd(cs *spec.CommandSpec) *cobra.Command {
 	}
 	r.wireFlagCompletions(cmd, cs)
 	return cmd
+}
+
+// longWithSettableFields appends the settable-fields block to the help of a
+// create or update command whose body the mutation builder assembles. Commands
+// with a body_fn read --set themselves, so the noun's fields don't describe them.
+func (r *Registry) longWithSettableFields(cs *spec.CommandSpec) string {
+	ep := cs.Endpoint
+	if ep == nil || ep.BodyFn != "" || !cs.BuiltinFlags.Set {
+		return cs.Long
+	}
+	switch {
+	case cs.Verb == VerbCreate && ep.CreateStrategy == spec.CreateStrategySetFields:
+	case cs.Verb == VerbUpdate && (ep.UpdateStrategy == spec.UpdateStrategyGetThenPut || ep.UpdateStrategy == spec.UpdateStrategyGetThenPatch):
+	default:
+		return cs.Long
+	}
+	noun := cs.FullNoun()
+	if cs.FieldsNoun != "" {
+		noun = cs.FieldsNoun
+	}
+	fields := MutableFieldsFor(r.GetNoun(noun), cs.Verb)
+	if len(fields) == 0 {
+		return cs.Long
+	}
+	long := cs.Long
+	if long == "" {
+		long = cs.Short
+	}
+	return long + "\n\n" + SettableFieldsHelp(fields)
 }
 
 // aliasNamePairs returns every (from, to) name combination that should resolve to cs:
@@ -809,8 +847,8 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string
 	}
 	if vspec.RequiresId && !cs.NoId {
 		idLabel := "<id>"
-		if cs.IdLabel != "" {
-			idLabel = cs.IdLabel
+		if l := cs.EffectiveIdLabel(); l != "" {
+			idLabel = l
 		}
 		use += " " + idLabel
 		if cs.HasArgs && cs.ArgsLabel != "" {
@@ -818,21 +856,21 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string
 		}
 	} else if vspec.AllowsId || cs.AllowsId {
 		idLabel := "id"
-		if cs.IdLabel != "" {
-			idLabel = cs.IdLabel
+		if l := cs.EffectiveIdLabel(); l != "" {
+			idLabel = l
 		}
 		use += " [" + idLabel + "]"
 	} else if vspec.AllowsParentId {
 		if cs.RequiresParentId {
 			parentIdLabel := "<parentid>"
-			if cs.ParentIdLabel != "" {
-				parentIdLabel = cs.ParentIdLabel
+			if l := cs.EffectiveParentIdLabel(); l != "" {
+				parentIdLabel = l
 			}
 			use += " " + parentIdLabel
 		} else {
 			parentIdLabel := "[parentid]"
-			if cs.ParentIdLabel != "" {
-				parentIdLabel = "[" + cs.ParentIdLabel + "]"
+			if l := cs.EffectiveParentIdLabel(); l != "" {
+				parentIdLabel = "[" + l + "]"
 			}
 			use += " " + parentIdLabel
 		}
@@ -840,7 +878,7 @@ func (r *Registry) buildAliasCmd(cs *spec.CommandSpec, aliasFrom, aliasTo string
 	cmd := &cobra.Command{
 		Use:    use,
 		Short:  cs.Short,
-		Long:   cs.Long,
+		Long:   r.longWithSettableFields(cs),
 		Hidden: true,
 	}
 	r.bindHandler(cmd, cs)
@@ -900,6 +938,19 @@ func (r *Registry) execPluginRunE(binaryPath, moduleName, version string) func(*
 		hlog.Debug("plugin exec", "binary", binPath, "plugin", moduleName, "version", version, "args", pluginArgs)
 		return plugin.Exec(binPath, pluginArgs)
 	}
+}
+
+// withIdHint appends ctx.IdHint to a 4xx API error, since a wrongly split
+// id typically surfaces as a not-found or bad-request response.
+func withIdHint(ctx *cmdctx.Ctx, err error) error {
+	if ctx == nil || ctx.IdHint == "" {
+		return err
+	}
+	var apiErr *client.APIError
+	if !errors.As(err, &apiErr) || apiErr.Status < 400 || apiErr.Status >= 500 {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, ctx.IdHint)
 }
 
 func misconfiguredCmd(cmd *cobra.Command, cs *spec.CommandSpec, fmtStr string, args ...any) {
@@ -1008,7 +1059,7 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 				cmd.Flags().Bool(f.Name, false, f.Description)
 			}
 		} else if f.IsMulti {
-			cmd.Flags().StringArray(f.Name, nil, f.Description)
+			addMultiFlag(cmd.Flags(), f)
 		} else {
 			if f.Short != "" {
 				cmd.Flags().StringP(f.Name, f.Short, f.Default, f.Description)
@@ -1025,11 +1076,14 @@ func (r *Registry) bindWorkflowCmd(cmd *cobra.Command, cs *spec.CommandSpec, fn 
 		if err != nil {
 			return err
 		}
+		if err := ensureIds(cs, ctx); err != nil {
+			return err
+		}
 		r.emitIntent(cmd, cs, ctx)
 		start := time.Now()
 		if err := fn(ctx); err != nil {
 			r.emitError(cs, ctx, err, start)
-			return err
+			return withIdHint(ctx, err)
 		}
 		return nil
 	}
@@ -1119,7 +1173,7 @@ func (r *Registry) bindEndpointCmdFlags(cmd *cobra.Command, cs *spec.CommandSpec
 				cmd.Flags().Bool(f.Name, false, f.Description)
 			}
 		} else if f.IsMulti {
-			cmd.Flags().StringArray(f.Name, nil, f.Description)
+			addMultiFlag(cmd.Flags(), f)
 		} else {
 			if f.Short != "" {
 				cmd.Flags().StringP(f.Name, f.Short, f.Default, f.Description)
@@ -1155,6 +1209,9 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	if ctx.VerbHandler == VerbGet && cmdctx.GetBool(ctx.FlagValues, "ui") {
 		if ctx.Id != "" {
 			if fnID := r.nounViewHandlerFn(cs.Noun); fnID != "" {
+				if err := ensureIds(cs, ctx); err != nil {
+					return err
+				}
 				return r.RunUIHandler(ctx, fnID)
 			}
 		}
@@ -1164,6 +1221,9 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 		}
 		if handled {
 			return nil
+		}
+		if err := ensureIds(cs, ctx); err != nil {
+			return err
 		}
 		if ctx.Id != "" && r.nounHasUICommands(cs.Noun) {
 			return RunUIDetailForGet(ctx, cs)
@@ -1181,7 +1241,7 @@ func (r *Registry) runEndpointCmd(cmd *cobra.Command, cs *spec.CommandSpec, args
 	}
 	if err != nil {
 		r.emitError(cs, ctx, err, start)
-		return err
+		return withIdHint(ctx, err)
 	}
 	if cs.FollowFn != "" && cmdctx.GetBool(ctx.FlagValues, "follow") {
 		if fn, ok := r.followFns[cs.FollowFn]; ok {
@@ -1220,7 +1280,7 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 			return fmt.Errorf("--ui requires an interactive terminal (TTY)")
 		}
 		if cs.RequiresParentId && ctx.ParentId == "" {
-			label := cs.ParentIdLabel
+			label := cs.EffectiveParentIdLabel()
 			if label == "" {
 				label = "<parentid>"
 			}
@@ -1230,7 +1290,7 @@ func (r *Registry) runEndpointListCmd(cmd *cobra.Command, cs *spec.CommandSpec, 
 	}
 	if err := RunListEndpoint(ctx, ep); err != nil {
 		r.emitError(cs, ctx, err, start)
-		return err
+		return withIdHint(ctx, err)
 	}
 	return nil
 }
@@ -1335,6 +1395,9 @@ func buildFlagValues(flags *pflag.FlagSet, cs *spec.CommandSpec) map[string]any 
 		case f.IsBool:
 			v, _ := flags.GetBool(f.Name)
 			fv[f.Name] = v
+		case f.IsMulti && f.CommaSeparated:
+			v, _ := flags.GetStringSlice(f.Name)
+			fv[f.Name] = v
 		case f.IsMulti:
 			v, _ := flags.GetStringArray(f.Name)
 			fv[f.Name] = v
@@ -1362,7 +1425,7 @@ func buildFlagValues(flags *pflag.FlagSet, cs *spec.CommandSpec) map[string]any 
 			fv[name] = v
 		}
 	}
-	if flags.Lookup("file") != nil {
+	if _, declared := fv["file"]; !declared && flags.Lookup("file") != nil {
 		v, _ := flags.GetString("file")
 		fv["file"] = v
 	}
@@ -1409,4 +1472,14 @@ func buildPagingFlags(flags *pflag.FlagSet, pg *spec.PagingSpec) (cmdctx.PagingF
 	}
 	hlog.Debug("buildPagingFlags", "offset", pf.Offset, "limit", pf.Limit, "all", pf.All, "count", pf.Count)
 	return pf, nil
+}
+
+// addMultiFlag registers a repeatable flag. With comma_separated, each
+// occurrence is also split on commas using CSV rules (quotes keep a comma in a value).
+func addMultiFlag(fs *pflag.FlagSet, f spec.Flag) {
+	if f.CommaSeparated {
+		fs.StringSlice(f.Name, nil, f.Description)
+		return
+	}
+	fs.StringArray(f.Name, nil, f.Description)
 }

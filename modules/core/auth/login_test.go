@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/config"
 	"github.com/harness/cli/v3/pkg/hbase"
 )
 
@@ -343,6 +344,9 @@ func TestValidateToken(t *testing.T) {
 // satToken is a syntactically valid SAT whose account segment is "acctid".
 const satToken = "sat.acctid.tokenid.secret123"
 
+// stToken is a syntactically valid scoped token whose account segment is "acctid".
+const stToken = "st.acctid.tokenid.secret123"
+
 func TestValidateToken_endpointByTokenKind(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -357,6 +361,13 @@ func TestValidateToken_endpointByTokenKind(t *testing.T) {
 			wantMethod: "POST",
 			wantPath:   "/ng/api/token/validate",
 			wantBody:   satToken,
+		},
+		{
+			name:       "scoped token uses token introspection",
+			token:      stToken,
+			wantMethod: "POST",
+			wantPath:   "/ng/api/token/validate",
+			wantBody:   stToken,
 		},
 		{
 			name:       "PAT uses account lookup",
@@ -502,5 +513,55 @@ func TestFetchRegistryURL_unreachableServer(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "request failed") {
 		t.Fatalf("error = %q, want %q", err, "request failed")
+	}
+}
+
+func TestSimilarProfiles(t *testing.T) {
+	cfg := &config.Config{Profiles: map[string]*config.Profile{
+		"my-prod":  {},
+		"my_prod":  {},
+		"My_Prod":  {},
+		"sso-prod": {AuthType: config.AuthTypeSSO},
+		"staging":  {},
+	}}
+	got := similarProfiles(cfg, "MY-PROD")
+	if want := "My_Prod,my-prod,my_prod"; strings.Join(got, ",") != want {
+		t.Errorf("got %v, want %s", got, want)
+	}
+	// Excludes itself, and SSO profiles never collide.
+	if got := similarProfiles(cfg, "my-prod"); strings.Join(got, ",") != "My_Prod,my_prod" {
+		t.Errorf("got %v", got)
+	}
+	if got := similarProfiles(cfg, "SSO_PROD"); len(got) != 0 {
+		t.Errorf("SSO profile should not count, got %v", got)
+	}
+	if got := similarProfiles(cfg, "dev"); len(got) != 0 {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestConfirmSimilarProfiles_NonTTYWarnsButProceeds(t *testing.T) {
+	cfg := &config.Config{Profiles: map[string]*config.Profile{"my-prod": {}}}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	callErr := confirmSimilarProfiles(cfg, "my_prod")
+	os.Stderr = orig
+	w.Close()
+	out, _ := io.ReadAll(r)
+
+	if callErr != nil {
+		t.Errorf("non-interactive run must not fail, got %v", callErr)
+	}
+	if !strings.Contains(string(out), `"my-prod"`) || !strings.Contains(string(out), "HARNESS_PROFILE_MY_PROD_API_KEY") {
+		t.Errorf("warning missing or incomplete: %q", out)
+	}
+	// Existing profile: no check at all.
+	if err := confirmSimilarProfiles(cfg, "my-prod"); err != nil {
+		t.Errorf("got %v", err)
 	}
 }

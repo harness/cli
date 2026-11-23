@@ -81,6 +81,12 @@ func runSeqPicker(ctx *cmdctx.Ctx, cs *spec.CommandSpec) (bool, error) {
 		// Pass already-picked parts as parentId so list endpoints that use
 		// ctx.parentId / ctx.parentIdParts resolve correctly.
 		pickerCtx.ParentId = strings.Join(picked[:i], "/")
+		if len(listCs.IdFormats) > 0 && i > 0 {
+			pickerCtx.ParentId = spec.IdJoin(listCs.IdFormatList(), picked[:i]...)
+			if err := applyIdFormats(listCs, pickerCtx, pickerCtx.ParentId); err != nil {
+				return false, err
+			}
+		}
 
 		if i == totalSteps-1 {
 			// Final step: browse+detail TUI, same as "list <noun> --ui".

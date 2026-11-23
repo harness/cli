@@ -49,10 +49,10 @@ func effectiveMutations(sets map[string]string, dels []string, captured []cmdctx
 
 // buildMutationBody constructs a new JSON-shaped body without modifying its inputs.
 func buildMutationBody(base map[string]any, fields map[string]spec.FieldDef, handlers map[string]cmdctx.FieldTypeHandler, ops []cmdctx.FieldMutation, wrap string, extra map[string]any) (map[string]any, error) {
-	return buildMutationBodyWithPick(base, nil, fields, handlers, ops, wrap, extra, false)
+	return buildMutationBodyWithPick(base, nil, fields, handlers, ops, wrap, extra, false, false, nil)
 }
 
-func buildMutationBodyWithPick(base map[string]any, pickedFields []spec.FieldDef, fields map[string]spec.FieldDef, handlers map[string]cmdctx.FieldTypeHandler, ops []cmdctx.FieldMutation, wrap string, extra map[string]any, sparsePatch bool) (map[string]any, error) {
+func buildMutationBodyWithPick(base map[string]any, pickedFields []spec.FieldDef, fields map[string]spec.FieldDef, handlers map[string]cmdctx.FieldTypeHandler, ops []cmdctx.FieldMutation, wrap string, extra map[string]any, sparsePatch, omitDeleted bool, alwaysFields []string) (map[string]any, error) {
 	mutable := cloneMutationMap(base)
 	normalized := map[string]bool{}
 	for _, field := range pickedFields {
@@ -113,6 +113,15 @@ func buildMutationBodyWithPick(base map[string]any, pickedFields []spec.FieldDef
 	result := mutable
 	if sparsePatch {
 		result = map[string]any{}
+		for _, fieldID := range alwaysFields {
+			field, found := fields[fieldID]
+			if !found {
+				return nil, fmt.Errorf("patch_always_fields: unknown or read-only field %q", fieldID)
+			}
+			if current, present := getDotPathValuePresent(mutable, field.MutablePath); present {
+				setDotPath(result, field.MutablePath, cloneMutationValue(current))
+			}
+		}
 	}
 	for _, fieldID := range touchOrder {
 		field := fields[fieldID]
@@ -123,6 +132,10 @@ func buildMutationBodyWithPick(base map[string]any, pickedFields []spec.FieldDef
 			if err != nil {
 				return nil, err
 			}
+		}
+		if next == nil && omitDeleted {
+			deleteDotPath(result, field.MutablePath)
+			continue
 		}
 		setDotPath(result, field.MutablePath, cloneMutationValue(next))
 	}
@@ -166,6 +179,17 @@ func cloneMutationValue(value any) any {
 		return append([]string{}, v...)
 	default:
 		return value
+	}
+}
+
+func deleteDotPath(m map[string]any, path string) {
+	first, rest, nested := strings.Cut(path, ".")
+	if !nested {
+		delete(m, first)
+		return
+	}
+	if child, ok := m[first].(map[string]any); ok {
+		deleteDotPath(child, rest)
 	}
 }
 

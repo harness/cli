@@ -207,13 +207,21 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_generic
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: version
         description: "Artifact version (default: 1.0.0)"
       - name: include-hidden
         description: "Include hidden files and directories (names starting with '.') when walking directory inputs"
+        is_bool: true
       - name: max-concurrent-uploads
-        description: "Maximum number of files uploaded concurrently (default: 4, use 1 for sequential)"
+        default: "5"
+        description: "Maximum number of files uploaded concurrently (default: 5, use 1 for sequential)"
       - name: max-concurrent-parts
         description: "Maximum number of multipart parts uploaded concurrently across all files (default: 8)"
       - name: no-multipart
@@ -228,19 +236,25 @@ commands:
     short: Push a Maven artifact (.jar/.war) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-jar-or-war>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_maven
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: pom-file
         description: "Path to POM file (required)"
         required: true
       - name: max-concurrent-uploads
-        description: "Maximum number of concurrent file uploads (default: 4, use 1 for sequential)"
+        default: "5"
+        description: "Maximum number of concurrent file uploads (default: 5, use 1 for sequential)"
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
@@ -251,13 +265,18 @@ commands:
     short: Push an npm package (.tgz) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-tgz>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_npm
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -276,9 +295,16 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_python
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: max-concurrent-uploads
-        description: "Maximum number of concurrent file uploads (default: 4, use 1 for sequential)"
+        default: "5"
+        description: "Maximum number of concurrent file uploads (default: 5, use 1 for sequential)"
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
 
@@ -295,6 +321,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_nuget
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -313,6 +345,12 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_rpm
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
 
   - command: push artifact:cargo
     verb: push
@@ -321,13 +359,18 @@ commands:
     short: Push a Cargo crate (.crate) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-crate>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_cargo
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -339,13 +382,18 @@ commands:
     short: Push a Go module to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-zip>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_go
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: version
         description: "Module version (required, e.g. v1.2.3)"
@@ -366,13 +414,18 @@ commands:
     short: Push a Conda package to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-conda-pkg>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_conda
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
 
   - command: push artifact:dart
     verb: push
@@ -381,13 +434,18 @@ commands:
     short: Push a Dart package to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-dart-pkg>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_dart
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -399,13 +457,18 @@ commands:
     short: Push a Composer package (.zip) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-zip>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_composer
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
 
   - command: push artifact:ruby
     verb: push
@@ -414,13 +477,18 @@ commands:
     short: Push a Ruby gem (.gem) to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-gem>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_ruby
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -432,13 +500,18 @@ commands:
     short: Push a Swift package to a Harness registry
     has_args: true
     id_allow_slash: true
-    id_label: "<registry/name>"
+    id_label: "<registry>"
     args_label: "<local-pkg>"
     completion_seq:
       - completion_noun: registry
-      - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_swift
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata-path
         description: "Path to metadata JSON file (optional)"
@@ -459,6 +532,12 @@ commands:
       - completion_noun: artifact
     handler_type: workflow
     workflow_id: push_artifact_puppet
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: metadata
         description: "Metadata key-value pairs to attach after push (format: key:value,key2:value2)"
@@ -476,6 +555,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_debian
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: distribution
         description: "Debian distribution name (e.g. focal, bullseye) (required)"
@@ -501,6 +586,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_conan
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: recipe-revision
         description: "Recipe revision (RREV). Defaults to the MD5 of conanmanifest.txt"
@@ -556,6 +647,12 @@ commands:
       - completion_noun: registry
     handler_type: workflow
     workflow_id: push_artifact_terraform
+    pipeline_auth:
+      token_envvar: HARNESS_HAR_TOKEN
+      apiurl_envvar: HARNESS_HAR_API_URL
+      registryurl_envvar: HARNESS_HAR_URL
+      headers:
+        Authorization: '"CIManager " + token'
     flags:
       - name: namespace
         description: "Terraform namespace (required)"
@@ -572,43 +669,63 @@ commands:
   - command: delete artifact
     verb: delete
     noun: artifact
-    confirm_mode: prompt
     short: Delete an artifact and all its versions
     id_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
-    flags_builtin:
-    handler_type: endpoint
-    endpoint:
-      method: DELETE
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+
-      item_expr: it
+    handler_type: workflow
+    workflow_id: delete_artifact
+    flags:
+      - name: force
+        description: "Skip confirmation prompt"
+        is_bool: true
+      - name: artifact-type
+        description: "Artifact sub-type (e.g. module, provider); looked up from the registry when omitted"
+      - name: preview-request
+        description: "Print the write request without sending it"
+        is_bool: true
+        hidden: true
 
   - command: delete artifact_version
     verb: delete
     noun: artifact_version
-    confirm_mode: prompt
     short: Delete a specific artifact version
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
       - completion_noun: artifact_version
-    flags_builtin:
-    handler_type: endpoint
-    endpoint:
-      method: DELETE
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+/version/{{ctx.idParts[2]}}
-      item_expr: it
+    handler_type: workflow
+    workflow_id: delete_artifact_version
+    flags:
+      - name: force
+        description: "Skip confirmation prompt"
+        is_bool: true
+      - name: artifact-type
+        description: "Artifact sub-type (e.g. module, provider); looked up from the registry when omitted"
+      - name: preview-request
+        description: "Print the write request without sending it"
+        is_bool: true
+        hidden: true
 
   - command: delete artifact:bulk
     verb: delete
     noun: artifact
     noun_variant: bulk
     short: Bulk delete artifacts by pattern with optional dry-run
+    long: |
+      Bulk delete artifacts by pattern with optional dry-run.
+
+      Usage: harness delete artifact:bulk <pattern> --registry <registry> [--version <pattern>]
+
+      The default is a preview. Pass --dry-run=false to delete; the command then
+      checks that nothing still matches and exits non-zero if anything failed.
+    no_id: true
     has_args: true
     args_label: "<pattern>"
     completion_seq:
@@ -636,13 +753,14 @@ commands:
     short: Get artifact metadata by registry and name
     id_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
     flags_builtin:
     handler_type: endpoint
     endpoint:
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+/summary
+      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{join(ctx.idParts[1:], "/")}}/+/summary
       item_expr: it.data
 
   - command: get artifact_version
@@ -651,6 +769,7 @@ commands:
     short: Get artifact version metadata
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -659,7 +778,7 @@ commands:
       ui: true
     handler_type: endpoint
     endpoint:
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{ctx.idParts[1]}}/+/version/{{ctx.idParts[2]}}/summary
+      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.idParts[0]}}/+/artifact/{{join(ctx.idParts[1:-1], "/")}}/+/version/{{ctx.idParts[-1]}}/summary
       item_expr: it.data
 
   - command: list artifact_file
@@ -669,6 +788,7 @@ commands:
     requires_parentid: true
     parentid_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -676,7 +796,7 @@ commands:
     flags_builtin:
     handler_type: endpoint
     endpoint:
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/artifact/{{ctx.parentIdParts[1]}}/+/version/{{ctx.parentIdParts[2]}}/files
+      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/artifact/{{join(ctx.parentIdParts[1:-1], "/")}}/+/version/{{ctx.parentIdParts[-1]}}/files
       items_expr: it.data.files
       get_id_expr: parentId + "/" + it.name
       columns: [name, size, created]
@@ -697,6 +817,7 @@ commands:
     requires_parentid: true
     parentid_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -706,7 +827,7 @@ commands:
       - name: search
         description: Filter versions by name
     endpoint:
-      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/artifact/{{ctx.parentIdParts[1]}}/+/versions
+      path: /har/api/v1/registry/{{auth.scope}}/{{ctx.parentIdParts[0]}}/+/artifact/{{join(ctx.parentIdParts[1:], "/")}}/+/versions
       items_expr: it.data.artifactVersions
       get_id_expr: parentId + "/" + it.name
       completion:
@@ -921,6 +1042,7 @@ commands:
     short: Get metadata for an artifact
     id_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -931,7 +1053,7 @@ commands:
       query_params:
         account_identifier: auth.account
         registry_identifier: "ctx.idParts[0]"
-        package: "ctx.idParts[1]"
+        package: 'join(ctx.idParts[1:], "/")'
       item_expr: it.data.metadata
       text_formatter: core:metadata-text
 
@@ -941,6 +1063,7 @@ commands:
     short: Update metadata on an artifact (--set key=value, --del key)
     id_label: "<registry/name>"
     id_parts: 2
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -955,12 +1078,12 @@ commands:
       get_query_params:
         account_identifier: auth.account
         registry_identifier: "ctx.idParts[0]"
-        package: "ctx.idParts[1]"
+        package: 'join(ctx.idParts[1:], "/")'
       query_params:
         account_identifier: auth.account
       body_params:
         registryIdentifier: ctx.idParts[0]
-        package: ctx.idParts[1]
+        package: 'join(ctx.idParts[1:], "/")'
       update_body_wrap: metadata
       item_expr: it.data.metadata
       text_formatter: core:metadata-text
@@ -971,6 +1094,7 @@ commands:
     short: Get metadata for an artifact version
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -982,8 +1106,8 @@ commands:
       query_params:
         account_identifier: auth.account
         registry_identifier: "ctx.idParts[0]"
-        package: "ctx.idParts[1]"
-        version: "ctx.idParts[2]"
+        package: 'join(ctx.idParts[1:-1], "/")'
+        version: "ctx.idParts[-1]"
       item_expr: it.data.metadata
       text_formatter: core:metadata-text
 
@@ -993,6 +1117,7 @@ commands:
     short: Update metadata on an artifact version (--set key=value, --del key)
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -1008,14 +1133,14 @@ commands:
       get_query_params:
         account_identifier: auth.account
         registry_identifier: "ctx.idParts[0]"
-        package: "ctx.idParts[1]"
-        version: "ctx.idParts[2]"
+        package: 'join(ctx.idParts[1:-1], "/")'
+        version: "ctx.idParts[-1]"
       query_params:
         account_identifier: auth.account
       body_params:
         registryIdentifier: ctx.idParts[0]
-        package: ctx.idParts[1]
-        version: ctx.idParts[2]
+        package: 'join(ctx.idParts[1:-1], "/")'
+        version: ctx.idParts[-1]
       update_body_wrap: metadata
       item_expr: it.data.metadata
       text_formatter: core:metadata-text
@@ -1027,6 +1152,7 @@ commands:
     short: Copy a specific artifact version to another registry
     id_label: "<src-registry/artifact/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -1039,8 +1165,8 @@ commands:
       query_params:
         account_identifier: auth.account
         src_registry_identifier: ctx.idParts[0]
-        src_artifact: ctx.idParts[1]
-        src_version: ctx.idParts[2]
+        src_artifact: 'join(ctx.idParts[1:-1], "/")'
+        src_version: ctx.idParts[-1]
         target_registry_identifier: flags["dest-registry"]
         artifact_type: flags["artifact-type"]
       item_expr: it
@@ -1060,6 +1186,7 @@ commands:
     short: Evaluate firewall policy for a specific artifact version
     id_label: "<registry/name/version>"
     id_parts: 3
+    id_allow_slash: true
     completion_seq:
       - completion_noun: registry
       - completion_noun: artifact
@@ -1229,10 +1356,8 @@ commands:
 
       Include/Exclude Patterns (includePatterns / excludePatterns, mutually exclusive):
         Glob patterns (* and ** wildcards) applied at a type-dependent granularity:
-          - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, TERRAFORM
-          - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, CRAN
-        Setting them for PUPPET or DEBIAN currently has no effect (silently ignored,
-        not rejected at config load).
+          - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, PUPPET, TERRAFORM
+          - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, DEBIAN, CRAN
 
       Output and automation flags:
         --summary      prints condensed per-status counts instead of the full per-file table.
@@ -1240,6 +1365,8 @@ commands:
                        reason, error) for scripts/CI to consume, even when the run fails.
 
       Environment variables can be used in the config file using ${VAR_NAME} syntax.
+      Unknown config keys are rejected. Top-level keys starting with x- are allowed,
+      e.g. to hold a YAML anchor: x-creds: &creds {username: ..., password: ...}
 
       Usage example:
         harness execute registry:migrate --config config.yaml

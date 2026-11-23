@@ -15,17 +15,21 @@ import (
 	"strings"
 
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"go.yaml.in/yaml/v3"
 )
 
 // pushDartArtifact uploads a Dart .tar.gz package to Harness Artifact Registry.
 //
-// ctx.Id      = "<registry>/<name>" (name is unused; name/version come from pubspec.yaml)
+// ctx.Id      = "<registry>" (a legacy "<registry>/<name>" is accepted; name is ignored)
 // ctx.Args[0] = local .tar.gz or .tgz file path
 //
 // Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/pub/api/packages/versions/new/upload/{uploadId}
 func pushDartArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
-		return fmt.Errorf("push dart artifact requires a local file path: push artifact <registry/name> <local-file>")
+		return fmt.Errorf("push dart artifact requires a local file path: push artifact <registry> <local-file>")
 	}
 	localFile := ctx.Args[0]
 
@@ -58,8 +62,8 @@ func pushDartArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("pubspec.yaml must contain non-empty 'name' and 'version'")
 	}
 
-	// Parse registry from ctx.Id (ignore the name portion — name comes from pubspec)
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	// Parse registry from ctx.Id
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err
 	}
@@ -125,47 +129,17 @@ func pushDartArtifact(ctx *cmdctx.Ctx) error {
 	return nil
 }
 
-// parsePubspecNameVersion extracts the name and version fields from pubspec.yaml bytes
-// using simple line-by-line string parsing (no YAML library dependency).
+// parsePubspecNameVersion returns the top-level name and version from pubspec.yaml bytes.
+// Missing keys yield empty strings; the caller rejects them.
 func parsePubspecNameVersion(data []byte) (name, version string, err error) {
-	for _, line := range strings.Split(string(data), "\n") {
-		if name == "" {
-			if v, ok := extractPubspecField(line, "name"); ok {
-				name = v
-			}
-		}
-		if version == "" {
-			if v, ok := extractPubspecField(line, "version"); ok {
-				version = v
-			}
-		}
-		if name != "" && version != "" {
-			break
-		}
+	var pubspec struct {
+		Name    string `yaml:"name"`
+		Version string `yaml:"version"`
 	}
-	if name == "" {
-		return "", "", fmt.Errorf("pubspec.yaml is missing required field 'name'")
+	if err := yaml.Unmarshal(data, &pubspec); err != nil {
+		return "", "", fmt.Errorf("failed to parse pubspec.yaml: %w", err)
 	}
-	if version == "" {
-		return "", "", fmt.Errorf("pubspec.yaml is missing required field 'version'")
-	}
-	return name, version, nil
-}
-
-// extractPubspecField checks if line matches "key: value" and returns the trimmed value.
-func extractPubspecField(line, key string) (string, bool) {
-	prefix := key + ":"
-	if !strings.HasPrefix(strings.TrimSpace(line), prefix) {
-		return "", false
-	}
-	// Only match top-level keys (no leading whitespace)
-	if line[0] == ' ' || line[0] == '\t' {
-		return "", false
-	}
-	value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), prefix))
-	// Strip optional surrounding quotes
-	value = strings.Trim(value, `"'`)
-	return value, true
+	return pubspec.Name, pubspec.Version, nil
 }
 
 // generateUploadID returns a random hex string suitable for use as an upload ID.

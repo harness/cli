@@ -37,6 +37,13 @@ func inferPackageType(filePath string) string {
 	}
 }
 
+func rejectExtraArgs(ctx *cmdctx.Ctx, max int) error {
+	if len(ctx.Args) > max {
+		return fmt.Errorf("unexpected argument %q: accepts at most %d positional argument(s) after the registry, received %d", ctx.Args[max], max, len(ctx.Args))
+	}
+	return nil
+}
+
 func pushHelmArtifact(_ *cmdctx.Ctx) error {
 	return fmt.Errorf("push helm artifact: not yet implemented")
 }

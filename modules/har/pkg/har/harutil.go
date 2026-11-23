@@ -23,6 +23,55 @@ import (
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 )
 
+// backupFile copies path to ~/.harness/<prefix>-backup-<timestamp> and returns
+// the backup path, or "" when there is no non-blank file to back up.
+func backupFile(path, prefix string) (string, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", path, err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return "", nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("getting home directory: %w", err)
+	}
+	dir := filepath.Join(home, ".harness")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("creating backup directory: %w", err)
+	}
+
+	stamp := time.Now().Format("20060102-150405")
+	for i := 0; ; i++ {
+		name := fmt.Sprintf("%s-backup-%s", prefix, stamp)
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d", name, i)
+		}
+		backupPath := filepath.Join(dir, name)
+		f, err := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("creating backup: %w", err)
+		}
+		_, werr := f.Write(data)
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			os.Remove(backupPath)
+			return "", fmt.Errorf("writing backup: %w", werr)
+		}
+		return backupPath, nil
+	}
+}
+
 // atomicWrite writes content to path via a temp file + rename, ensuring an
 // incomplete write never leaves a partial file. perm is applied before rename.
 func atomicWrite(path string, content []byte, perm os.FileMode) error {
@@ -75,8 +124,9 @@ func parseRegistry(id string) (string, error) {
 	return registry, nil
 }
 
-// newHTTPClient returns a retry-enabled HTTP client with a 10-minute timeout,
-// suitable for large artifact uploads/downloads that may hit transient network errors.
+// newHTTPClient returns a retry-enabled HTTP client for large artifact
+// uploads/downloads that may hit transient network errors. It sets no overall
+// timeout, which would cut off transfers that are slow but still progressing.
 func newHTTPClient() *http.Client {
 	rc := retryablehttp.NewClient()
 	rc.RetryMax = 5
@@ -85,9 +135,7 @@ func newHTTPClient() *http.Client {
 	rc.Backoff = retryablehttp.RateLimitLinearJitterBackoff
 	rc.Logger = nil
 
-	client := rc.StandardClient() // returns *http.Client using a retrying RoundTripper
-	client.Timeout = 10 * time.Minute
-	return client
+	return rc.StandardClient() // returns *http.Client using a retrying RoundTripper
 }
 
 // setAuthHeader sets the appropriate auth header on req (Bearer for SSO, x-api-key for PAT).

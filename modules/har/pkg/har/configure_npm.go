@@ -43,6 +43,14 @@ func configureNpm(ctx *cmdctx.Ctx) error {
 		return err
 	}
 
+	backupPath, err := backupFile(npmrcPath, "npmrc")
+	if err != nil {
+		return fmt.Errorf("backing up .npmrc: %w", err)
+	}
+	if backupPath != "" {
+		fmt.Printf("Backed up existing .npmrc → %s\n", backupPath)
+	}
+
 	if err := writeNpmrc(npmrcPath, registryURL, scope, a.PATToken); err != nil {
 		return fmt.Errorf("writing .npmrc: %w", err)
 	}

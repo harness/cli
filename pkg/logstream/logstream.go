@@ -62,6 +62,7 @@ type Event struct {
 type LogKeyEntry struct {
 	LogKey     string
 	Name       string
+	Identifier string
 	FQN        string
 	Status     string
 	Depth      int
@@ -305,7 +306,7 @@ func formatLogLine(line string, isPty bool) string {
 // FetchAndPrintLog fetches a log blob and writes it to out.
 // Returns (false, nil) when the blob exists but is empty.
 func FetchAndPrintLog(hc *http.Client, a *auth.ResolvedAuth, logKey, fmtFlag string, isPty bool, out io.Writer) (bool, error) {
-	blobURL, err := url.Parse(a.APIUrl + "/gateway/log-service/blob")
+	blobURL, err := url.Parse(auth.JoinAPIURL(a.APIUrl, "/gateway/log-service/blob"))
 	if err != nil {
 		return false, fmt.Errorf("building URL: %w", err)
 	}
@@ -508,7 +509,7 @@ func WriteEvents(ch <-chan Event, w io.Writer, style MultiStyle) {
 // log line was sent to ch. Returns when the server closes with an eof event, on error,
 // or when ctx is cancelled.
 func StreamSSEToChannel(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, logKey, source, fmtFlag string, isPty bool, ch chan<- Event) (bool, error) {
-	u, err := url.Parse(a.APIUrl + "/gateway/log-service/stream")
+	u, err := url.Parse(auth.JoinAPIURL(a.APIUrl, "/gateway/log-service/stream"))
 	if err != nil {
 		return false, fmt.Errorf("building SSE URL: %w", err)
 	}
@@ -648,7 +649,7 @@ func FetchLogKeys(ctx *cmdctx.Ctx, execId string) ([]LogKeyEntry, string, error)
 						delegates = append(delegates, d.Name)
 					}
 				}
-				entries = append(entries, LogKeyEntry{LogKey: lk, Name: name, FQN: node.BaseFQN, Status: node.Status, Depth: depth, ParentName: parentName, StartTs: node.StartTs, EndTs: node.EndTs, Delegates: delegates, Inputs: inputs, Outputs: outputs})
+				entries = append(entries, LogKeyEntry{LogKey: lk, Name: name, Identifier: node.Identifier, FQN: node.BaseFQN, Status: node.Status, Depth: depth, ParentName: parentName, StartTs: node.StartTs, EndTs: node.EndTs, Delegates: delegates, Inputs: inputs, Outputs: outputs})
 			}
 		}
 		for _, child := range g.NodeAdjacencyListMap[id].Children {
@@ -664,6 +665,11 @@ func FetchLogKeys(ctx *cmdctx.Ctx, execId string) ([]LogKeyEntry, string, error)
 	return entries, exec.PipelineStatus, nil
 }
 
+// MatchesFilter reports whether filter names a node by display name or identifier, ignoring case.
+func MatchesFilter(name, identifier, filter string) bool {
+	return strings.EqualFold(name, filter) || strings.EqualFold(identifier, filter)
+}
+
 // StageSubtreeEntries filters entries down to the full subtree of steps nested under the
 // stage named stageFilter, excluding the stage's own top-level entry. Subtree membership is
 // determined via BaseFQN (a dot-delimited ancestry path), not immediate-parent name, so
@@ -677,7 +683,7 @@ func StageSubtreeEntries(entries []LogKeyEntry, stageFilter string) []LogKeyEntr
 	var stageFQN string
 	found := false
 	for _, e := range entries {
-		if strings.EqualFold(e.Name, stageFilter) {
+		if MatchesFilter(e.Name, e.Identifier, stageFilter) {
 			stageFQN = e.FQN
 			found = true
 			break
@@ -733,11 +739,11 @@ func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style 
 	// nodeMatchesFilter is evaluated during the graph walk below, which tracks insideStage:
 	// true once we've descended into the matched stage's subtree via any edge. The stage's
 	// own top-level node is walked with insideStage still false, so it's excluded.
-	nodeMatchesFilter := func(name string, insideStage bool) bool {
+	nodeMatchesFilter := func(name, identifier string, insideStage bool) bool {
 		if stageFilter != "" && !insideStage {
 			return false
 		}
-		if stepFilter != "" && !strings.EqualFold(name, stepFilter) {
+		if stepFilter != "" && !MatchesFilter(name, identifier, stepFilter) {
 			return false
 		}
 		return true
@@ -771,9 +777,9 @@ func FollowMulti(ctx *cmdctx.Ctx, execId, stageFilter, stepFilter string, style 
 			// deeper node coincidentally sharing the stage's display name (e.g. stage
 			// "MessageCheck" containing a step also named "messagecheck") must not be
 			// mistaken for a fresh entry into the stage.
-			childInsideStage := insideStage || (stageFilter != "" && strings.EqualFold(name, stageFilter))
+			childInsideStage := insideStage || (stageFilter != "" && MatchesFilter(name, node.Identifier, stageFilter))
 			if execgraph.HasLogs(node) && !skipTypes[node.StepType] {
-				if !nodeStarted[node.UUID] && nodeMatchesFilter(name, insideStage) {
+				if !nodeStarted[node.UUID] && nodeMatchesFilter(name, node.Identifier, insideStage) {
 					bucket := format.ClassifyExecutionStatus(node.Status)
 					if bucket == format.StatusRunning || bucket == format.StatusSuccess || bucket == format.StatusSkipped || bucket == format.StatusFailed {
 						newNodes = append(newNodes, nodeEntry{logUnits: execgraph.GetLogUnits(node), node: node, rank: node.Rank})

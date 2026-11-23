@@ -206,3 +206,35 @@ func TestHarToSourcePath(t *testing.T) {
 		})
 	}
 }
+
+// Stored paths are the HAR layouts observed on a live registry; queries use the
+// source coordinates and Uris the JFrog adapter produces.
+func TestExistingIndex_HasFile_SourceToHARLayouts(t *testing.T) {
+	idx := NewExistingIndex()
+	idx.AddFile("default", "default", "/default/default/builds/a/build-01.bin")
+	idx.AddFile("acme-demo", "1.0.0", "/acme-demo/1.0.0/acme-demo-1.0.0.tar.gz")
+	idx.AddFile("demo_pkg", "1.0.0", "/demo_pkg/1.0.0/demo_pkg-1.0.0.tar.gz")
+
+	tests := []struct {
+		name                string
+		artifactType        ArtifactType
+		pkg, version, query string
+		want                bool
+	}{
+		{"generic same path", GENERIC, "default", "default", "/builds/a/build-01.bin", true},
+		{"generic same basename other folder", GENERIC, "default", "default", "/builds/b/build-01.bin", false},
+		{"puppet tarball", PUPPET, "acme-demo", "1.0.0", "/acme/acme-demo-1.0.0.tar.gz", true},
+		{"puppet other version", PUPPET, "acme-demo", "1.0.1", "/acme/acme-demo-1.0.1.tar.gz", false},
+		{"dart jfrog layout", DART, "default", "1.0.0", "/packages/demo_pkg/versions/1.0.0.tar.gz", true},
+		{"dart name-version", DART, "default", "demo_pkg-1.0.0", "/demo_pkg-1.0.0.tar.gz", true},
+		{"dart missing version", DART, "default", "demo_pkg-2.0.0", "/packages/demo_pkg/versions/2.0.0.tar.gz", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := idx.HasFile(tt.pkg, tt.version, tt.query, tt.artifactType); got != tt.want {
+				t.Errorf("HasFile(%q, %q, %q, %s) = %v, want %v",
+					tt.pkg, tt.version, tt.query, tt.artifactType, got, tt.want)
+			}
+		})
+	}
+}

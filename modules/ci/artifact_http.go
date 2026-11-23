@@ -17,7 +17,7 @@ import (
 )
 
 // artifactHTTPClient is used for every HAR registry request made by
-// `push ci_artifact`/`pull ci_artifact`. Timeout is an
+// `push managed_artifact`/`pull managed_artifact`. Timeout is an
 // always-on safety net independent of the core --timeout flag (which
 // defaults to unbounded) so a slow or unresponsive registry never hangs the
 // process indefinitely.

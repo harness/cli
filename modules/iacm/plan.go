@@ -375,6 +375,15 @@ func resolveRepoRoot(wd string, ws *workspace) (string, string, error) {
 	return wd, fmt.Sprintf("Folder path: %s\nUploading: %s", repoPath, wd), nil
 }
 
+var skipDirs = map[string]bool{
+	".git":       true,
+	".terraform": true,
+}
+
+func isStateFile(name string) bool {
+	return strings.HasSuffix(name, ".tfstate") || strings.HasSuffix(name, ".tfstate.backup")
+}
+
 func zipSourceCode(root string) ([]byte, error) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
@@ -388,10 +397,13 @@ func zipSourceCode(root string) ([]byte, error) {
 		if err != nil {
 			return err
 		}
-		if fi.IsDir() && fi.Name() == ".git" {
-			return filepath.SkipDir
-		}
 		if fi.IsDir() {
+			if skipDirs[fi.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isStateFile(fi.Name()) {
 			return nil
 		}
 		hdr := &tar.Header{

@@ -24,11 +24,14 @@ type rubyUploadResponse struct {
 
 // pushRubyArtifact uploads a Ruby gem (.gem) to the Harness Artifact Registry.
 //
-// ctx.Id      = "<registry>/<ignored-name>" — only the registry part is used
+// ctx.Id      = "<registry>" (a legacy "<registry>/<name>" is accepted; name is ignored)
 // ctx.Args[0] = local .gem file path
 //
 // Upload endpoint: POST {registryURL}/pkg/{accountID}/{registry}/ruby/api/v1/gems
 func pushRubyArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 1); err != nil {
+		return err
+	}
 	if len(ctx.Args) == 0 {
 		return fmt.Errorf("push ruby: local file path required as positional argument")
 	}
@@ -46,7 +49,7 @@ func pushRubyArtifact(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("push ruby: %q is a directory, not a .gem file", localFile)
 	}
 
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return fmt.Errorf("push ruby: %w", err)
 	}

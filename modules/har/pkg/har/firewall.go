@@ -142,12 +142,11 @@ func getRegistryDetails(ctx context.Context, hc *http.Client, a *auth.ResolvedAu
 func executeArtifactFirewallScanHandler(cmdCtx *cmdctx.Ctx) error {
 	a := applyLevelScope(cmdCtx)
 
-	if len(cmdCtx.IdParts) < 3 {
-		return fmt.Errorf("artifact_version:firewall_scan requires <registry/name/version>, got %q", cmdCtx.Id)
+	target, err := parseArtifactTarget(cmdCtx.Id, true)
+	if err != nil {
+		return fmt.Errorf("artifact_version:firewall_scan: %w", err)
 	}
-	registryID := cmdCtx.IdParts[0]
-	packageName := cmdCtx.IdParts[1]
-	version := cmdCtx.IdParts[2]
+	registryID, packageName, version := target.Registry, target.Name, target.Version
 
 	ctx := cmdCtx.Context
 	if ctx == nil {

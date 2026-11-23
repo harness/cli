@@ -581,7 +581,10 @@ func (m uiTableModel) fetchDetail(id string) tea.Cmd {
 	cs := m.activeDetailCs()
 	ep := cs.Endpoint
 	return func() tea.Msg {
-		detailCtx := buildDetailCtx(ctx, cs, id)
+		detailCtx, err := buildDetailCtx(ctx, cs, id)
+		if err != nil {
+			return uiDetailMsg{err: err}
+		}
 		var buf strings.Builder
 		detailCtx.FormatFlags = cmdctx.FormatFlags{Format: "text"}
 

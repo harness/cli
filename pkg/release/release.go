@@ -169,6 +169,9 @@ func NagIfDue(currentVersion string) {
 
 // shouldUpdateCheck returns false for all gating conditions that mean we skip entirely.
 func shouldUpdateCheck() bool {
+	if hbase.Distribution != "" {
+		return false
+	}
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
 		return false
 	}

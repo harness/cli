@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/release"
 )
 
@@ -340,5 +341,16 @@ func writeTestTarGz(t *testing.T, path string, entries map[string]string) {
 	}
 	if err := gzw.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCheckNotEmbedded(t *testing.T) {
+	hbase.EmbeddedPlugins = map[string]string{"hcli": "1.0.0"}
+	t.Cleanup(func() { hbase.EmbeddedPlugins = nil })
+	if err := checkNotEmbedded("hcli"); err == nil {
+		t.Error("embedded plugin: want error")
+	}
+	if err := checkNotEmbedded("har"); err != nil {
+		t.Errorf("non-embedded plugin: %v", err)
 	}
 }

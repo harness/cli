@@ -21,6 +21,28 @@ help_text: |
 
       harness get module migrate
 
+  ### Images and videos in PR descriptions
+
+  Upload the file first, then paste the printed snippet into the description:
+
+      harness execute repo:upload <repo_id> -f shot.png
+      harness update pr <repo_id>/<pr_number> --set description="Fix.
+
+      ![shot.png](<url from the upload>)"
+
+  Supported: png, jpg, jpeg, gif, webp, svg (inline images); mp4, mov, webm (links).
+
+  ### Resolving and reopening PR comment threads
+
+  Set a thread's status using its root comment ID, not a reply ID:
+
+      harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status resolved
+      harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status active
+
+  Add --preview-request to inspect the request without changing the thread.
+  Use --org and --project to override the current scope as needed.
+  To edit comment text instead, use `harness update pr_comment`.
+
   ### Nouns
 
   {{nouns}}
@@ -30,13 +52,14 @@ nouns:
     short_desc: A Harness Code source repository.
     noun_aliases: [repo, repos, repositories]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/module/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{it.identifier}}
+    url_path: /ng/account/{{auth.account}}/module/code{{scopePath(auth)}}/repos/{{it.identifier}}
     fields:
       - id: identifier
         expr: it.identifier
       - id: description
         expr: it.description
         field_type: multiline_text
+        mutable_path: description
       - id: default_branch
         expr: it.default_branch
       - id: is_public
@@ -97,7 +120,7 @@ nouns:
     short_desc: A Harness Code pull request.
     noun_aliases: [prs, pull_request, pull_requests]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{it.number}}/conversation
+    url_path: /ng/account/{{auth.account}}/all/code{{scopePath(auth)}}/repos/{{ctx.idParts[0]}}/pulls/{{it.number}}/conversation
     fields:
       - id: number
         label: "#"
@@ -116,7 +139,6 @@ nouns:
       - id: is_draft
         label: Draft
         expr: it.is_draft
-        mutable_path: is_draft
       - id: source_branch
         label: Source Branch
         expr: it.source_branch
@@ -449,7 +471,7 @@ nouns:
   - noun: pr_insight
     short_desc: Risk summary for a pull request (Harness Code review insights).
     noun_aliases: [pr_insights]
-    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+    url_path: /ng/account/{{auth.account}}/all/code{{scopePath(auth)}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
     fields:
       - id: risk
         expr: it.risk
@@ -460,7 +482,7 @@ nouns:
   - noun: pr_review_group
     short_desc: Risk-bucketed groups of changed files on a pull request (Harness Code review insights).
     noun_aliases: [pr_review_groups]
-    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+    url_path: /ng/account/{{auth.account}}/all/code{{scopePath(auth)}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
 
   # ── repo_settings (AICR config + general repo settings) ────────────────────────
 
@@ -665,7 +687,7 @@ nouns:
     short_desc: Activity timeline entry on a pull request (comments, reviews, state changes).
     noun_aliases: [pr_activities]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/all/code/orgs/{{auth.org}}/projects/{{auth.project}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
+    url_path: /ng/account/{{auth.account}}/all/code{{scopePath(auth)}}/repos/{{ctx.idParts[0]}}/pulls/{{ctx.idParts[1]}}/conversation
     fields:
       - id: id
         label: ID
@@ -734,8 +756,10 @@ commands:
   - command: create repository
     verb: create
     noun: repository
-    short: "Create a new repository: --set identifier=<name> [default_branch=main] [description=...] [is_public=true]"
+    short: "Create a new repository: harness create repository <id> --set description=..."
     handler_type: endpoint
+    flags_builtin:
+      set: true
     endpoint:
       method: POST
       path: /code/api/v1/repos
@@ -750,7 +774,7 @@ commands:
   - command: update repository
     verb: update
     noun: repository
-    short: Update a repository (description, default_branch, is_public)
+    short: "Update a repository description: harness update repository <id> --set description=..."
     handler_type: endpoint
     flags_builtin:
       set: true
@@ -762,6 +786,18 @@ commands:
       update_body_pick: it
       no_fields: true
       text_header: "\nUpdated repository {{ctx.id}}\n"
+
+  - command: delete repository
+    verb: delete
+    noun: repository
+    confirm_mode: confirm_id
+    short: "Delete a repository: harness delete repository <repo_id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /code/api/v1/repos/{{ctx.id}}
+      item_expr: it
+      text_header: "\nDeleted repository {{ctx.id}}\n"
 
   - command: pull repository
     verb: pull
@@ -817,7 +853,7 @@ commands:
           expr: it.repository.identifier
         - id: url
           label: URL
-          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code" + scopePath(auth) + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
       columns: [repo, number, title, state, source_branch, target_branch, updated]
 
   - command: list pr:review_pending
@@ -861,7 +897,7 @@ commands:
           expr: it.repository.identifier
         - id: url
           label: URL
-          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code/orgs/" + auth.org + "/projects/" + auth.project + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
+          expr: auth.ui_url + "/ng/account/" + auth.account + "/all/code" + scopePath(auth) + "/repos/" + it.repository.identifier + "/pulls/" + string(it.number) + "/conversation"
       columns: [repo, number, title, state, source_branch, target_branch, updated]
 
   - command: list pr
@@ -974,6 +1010,7 @@ commands:
       path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}
       update_strategy: get-then-patch
       update_body_pick: it
+      patch_always_fields: [title, description]
       no_fields: true
       text_header: "\nUpdated PR #{{ctx.idParts[1]}}\n"
 
@@ -1076,34 +1113,30 @@ commands:
       method: POST
       path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/state
       body_params:
+        state: '"open"'
         is_draft: "false"
       no_fields: true
       text_header: "\nMarked PR #{{ctx.idParts[1]}} as ready for review\n"
 
-  - command: execute pr:edit
+  - command: execute pr:draft
     verb: execute
     noun: pr
-    noun_variant: edit
-    short: "Edit a pull request's title/description: harness execute pr:edit <repo_id>/<pr_number> [--title <text>] [--description <text>]"
+    noun_variant: draft
+    short: "Convert an open pull request back to a draft: harness execute pr:draft <repo_id>/<pr_number>"
     handler_type: endpoint
     id_parts: 2
     completion_seq:
       - completion_noun: repository
       - completion_noun: pr
         keep_order: true
-    flags:
-      - name: title
-        description: New PR title
-      - name: description
-        description: New PR description
     endpoint:
-      method: PATCH
-      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}
+      method: POST
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/state
       body_params:
-        title: flags.title
-        description: flags.description
+        state: '"open"'
+        is_draft: "true"
       no_fields: true
-      text_header: "\nUpdated PR #{{ctx.idParts[1]}}\n"
+      text_header: "\nConverted PR #{{ctx.idParts[1]}} to draft\n"
 
   - command: execute pr:review
     verb: execute
@@ -1178,6 +1211,8 @@ commands:
     fields_noun: repo_settings_aicr
     short: "Create AI Code Review settings for a repo (first-time setup): harness create repo_settings:aicr <repo_id> -f settings.yaml"
     handler_type: endpoint
+    flags_builtin:
+      set: true
     completion_seq:
       - completion_noun: repository
     endpoint:
@@ -1186,7 +1221,8 @@ commands:
       query_params:
         repo_path: auth.scope + "/" + ctx.id
         recursive: '"true"'
-      file_body: required
+      create_strategy: set-fields
+      file_body: optional
       item_expr: it
       text_header: "\nCreated AICR settings for {{ctx.id}}\n"
 
@@ -1242,6 +1278,30 @@ commands:
     endpoint:
       path: /gateway/code/api/v1/repos/{{auth.scope}}/{{ctx.id}}/+/settings/general
       item_expr: it
+
+  - command: execute repository:upload
+    verb: execute
+    noun: repository
+    noun_variant: upload
+    short: "Upload an image or video for use in PR descriptions: harness execute repo:upload <repo_id> -f <file>"
+    long: |
+      Uploads a file to the repository and prints its link plus a Markdown snippet to
+      paste into a PR description (--set description=... or -f on create/update pr).
+      Images (png, jpg, gif, webp, svg) print an inline ![image] snippet; videos
+      (mp4, mov, webm) print a [video] link. The server decides which files it accepts.
+    handler_type: endpoint
+    completion_seq:
+      - completion_noun: repository
+    endpoint:
+      method: POST
+      path: /code/api/v1/repos/{{ctx.id}}/uploads
+      file_body: required
+      content_type: application/octet-stream
+      no_fields: true
+      text_header: |
+        file_path: {{it.file_path}}
+        url: {{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}{{auth.org != '' ? '&orgIdentifier=' + auth.org : ''}}{{auth.project != '' ? '&projectIdentifier=' + auth.project : ''}}
+        snippet: {{it.file_path matches '(?i)[.](mp4|mov|webm)$' ? '[video]' : '![image]'}}({{auth.ui_url}}/code/api/v1/repos/{{ctx.id}}/uploads/{{it.file_path}}?accountIdentifier={{auth.account}}{{auth.org != '' ? '&orgIdentifier=' + auth.org : ''}}{{auth.project != '' ? '&projectIdentifier=' + auth.project : ''}})
 
   # ── pr conversation (threaded activity timeline as prose) ──────────────────────
 
@@ -2015,11 +2075,10 @@ commands:
       - completion_noun: pr
         keep_order: true
     endpoint:
-      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/activities
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/activities?kind=comment&kind=change-comment
       items_expr: it
       get_id_expr: string(it.id)
       query_params:
-        kind: '"comment"'
         limit: flags.limit
       paging:
         paging_strategy: flat_list
@@ -2038,6 +2097,21 @@ commands:
     verb: create
     noun: pr_comment
     short: "Post a comment on a pull request: harness create pr_comment <repo_id>/<pr_number> -f <file>"
+    long: |
+      Post a general comment, reply to an existing thread with --reply-to, or
+      start an inline thread with --path and --line. -f supplies the comment
+      text file (or - for stdin); --path is the repository-relative code path.
+      Inline comments use the current PR source and merge-base commits. --side
+      selects new (default) or old line numbers; ranges stay on that side.
+      Location flags cannot be combined with --reply-to.
+
+      Examples:
+        harness create pr_comment <repo_id>/<pr_number> -f comment.md --path src/main.go --line 42
+        harness create pr_comment <repo_id>/<pr_number> -f comment.md --path src/main.go --line 42 --end-line 45
+        harness create pr_comment <repo_id>/<pr_number> -f - --path src/main.go --line 42 --side old
+
+      Use --preview-request to inspect the request without posting a comment.
+      Previewing an inline comment still fetches the PR to resolve commit SHAs.
     handler_type: endpoint
     requires_id: true
     id_parts: 2
@@ -2053,6 +2127,14 @@ commands:
         required: true
       - name: reply-to
         description: Comment ID to reply to (creates a threaded reply)
+      - name: path
+        description: Repository-relative code file path for an inline comment (requires --line)
+      - name: line
+        description: Positive line number on the selected diff side (requires --path)
+      - name: end-line
+        description: Inclusive end of the line range (defaults to --line)
+      - name: side
+        description: "Diff side for inline line numbers: new or old (default: new)"
     endpoint:
       method: POST
       path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/comments
@@ -2083,6 +2165,43 @@ commands:
         text: flags.text
       no_fields: true
       text_header: "\nUpdated comment #{{ctx.idParts[2]}}\n"
+
+  - command: update pr_comment:status
+    verb: update
+    noun: pr_comment
+    noun_variant: status
+    short: "Resolve or reopen a PR comment thread: harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status resolved|active"
+    long: |
+      Set a pull request comment thread's status. Use resolved to resolve the
+      thread or active to reopen it. Target the root comment ID, not a reply ID.
+      This changes only the thread status; use update pr_comment to edit text.
+
+      Examples:
+        harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status resolved
+        harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status active
+        harness update pr_comment:status <repo_id>/<pr_number>/<root_comment_id> --status resolved --org <org> --project <project> --preview-request
+
+      Use --preview-request to inspect the request without changing the thread.
+    handler_type: endpoint
+    id_parts: 3
+    id_label: "<repo_id>/<pr_number>/<root_comment_id>"
+    # The comment list includes replies, but status updates require a root ID.
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    flags:
+      - name: status
+        description: "Thread status: resolved to resolve, active to reopen"
+        required: true
+        completion_values: [resolved, active]
+    endpoint:
+      method: PUT
+      path: /code/api/v1/repos/{{ctx.idParts[0]}}/pullreq/{{ctx.idParts[1]}}/comments/{{ctx.idParts[2]}}/status
+      body_params:
+        status: flags.status
+      no_fields: true
+      text_header: "\nUpdated status of comment #{{ctx.idParts[2]}}\n"
 
   - command: delete pr_comment
     verb: delete

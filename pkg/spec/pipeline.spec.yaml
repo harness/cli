@@ -29,14 +29,16 @@ nouns:
   - noun: pipeline
     short_desc: A CI/CD pipeline definition with stages, steps, and trigger configuration.
     noun_aliases: [pipelines]
-    url_path: /ng/account/{{auth.account}}/all/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{it.identifier}}
+    url_path: /ng/account/{{auth.account}}/all{{scopePath(auth)}}/pipelines/{{it.identifier}}
     fields:
       - id: identifier
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: pipeline.name
       - id: description
         expr: it.description
+        mutable_path: pipeline.description
       - id: modules
         expr: jsonArray(it.modules)
       - id: store_type
@@ -82,7 +84,7 @@ nouns:
   - noun: execution
     short_desc: A single pipeline run instance with status, timing, and trigger info.
     noun_aliases: [executions]
-    url_path: "/ng/account/{{auth.account}}/all/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{'pipelineExecutionSummary' in it ? it.pipelineExecutionSummary.pipelineIdentifier : it.pipelineIdentifier}}/deployments/{{'pipelineExecutionSummary' in it ? it.pipelineExecutionSummary.planExecutionId : it.planExecutionId}}/pipeline"
+    url_path: "/ng/account/{{auth.account}}/all{{scopePath(auth)}}/pipelines/{{'pipelineExecutionSummary' in it ? it.pipelineExecutionSummary.pipelineIdentifier : it.pipelineIdentifier}}/deployments/{{'pipelineExecutionSummary' in it ? it.pipelineExecutionSummary.planExecutionId : it.planExecutionId}}/pipeline"
     fields:
       - id: id
         label: ID
@@ -121,6 +123,11 @@ nouns:
         key: v
         label: logs
         ui_handler_fn: get_pipeline_log
+      - ui_command_type: link
+        key: a
+        label: approvals
+        verb: list
+        noun: approval_instance
       - ui_command_type: up
         key: "^"
         label: pipeline
@@ -141,6 +148,7 @@ nouns:
       - id: enabled
         expr: it.enabled
         mutable_path: trigger.enabled
+        field_type: bool
       - id: description
         expr: it.description
         mutable_path: trigger.description
@@ -173,6 +181,14 @@ nouns:
         expr: it.identifier
       - id: name
         expr: it.name
+        mutable_path: inputSet.name
+      - id: description
+        expr: it.description
+        mutable_path: inputSet.description
+      - id: tags
+        expr: formatTagDisplay(it.tags)
+        field_type: tags
+        mutable_path: inputSet.tags
       - id: pipeline
         expr: it.pipelineIdentifier
       - id: store_type
@@ -241,7 +257,7 @@ nouns:
 
   - noun: pipeline_summary
     short_desc: Lightweight pipeline overview with execution history, as returned by the list endpoint.
-    url_path: /ng/account/{{auth.account}}/all/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{it.identifier}}
+    url_path: /ng/account/{{auth.account}}/all{{scopePath(auth)}}/pipelines/{{it.identifier}}
     fields:
       - id: identifier
         expr: it.identifier
@@ -302,6 +318,20 @@ nouns:
       - id: error
         expr: it.error_message
         width_max: 60
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: approval_instance
+        default: true
+      - ui_command_type: view
+        key: a
+        label: approve
+        ui_handler_fn: approve_instance
+      - ui_command_type: view
+        key: r
+        label: reject
+        ui_handler_fn: reject_instance
 
   - noun: freeze_window
     short_desc: A scheduled deployment freeze window that blocks pipeline executions.
@@ -323,6 +353,7 @@ nouns:
 
   - noun: global_freeze
     short_desc: An account-wide or org-wide deployment freeze that halts all deployments.
+    multi_level: true
     fields:
       - id: identifier
         expr: it.identifier
@@ -396,7 +427,7 @@ nouns:
 
   - noun: execution_result
     short_desc: Detailed execution outcome with stage and step results from a pipeline run.
-    url_path: /ng/account/{{auth.account}}/all/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{it.metadata.pipelineIdentifier}}/deployments/{{it.uuid}}/pipeline
+    url_path: /ng/account/{{auth.account}}/all{{scopePath(auth)}}/pipelines/{{it.metadata.pipelineIdentifier}}/deployments/{{it.uuid}}/pipeline
     fields:
       - id: execution_id
         label: ExecutionId
@@ -420,6 +451,13 @@ nouns:
         expr: it.execution_id
       - id: status
         expr: it.status
+
+  - noun: execution_inputs
+    short_desc: Resolved runtime inputs a pipeline execution was started with.
+    fields:
+      - id: yaml
+        expr: it.inputSetYaml
+        field_type: yaml
 
   - noun: retry_history
     short_desc: Retry lineage for a pipeline execution, including which stages are retryable.
@@ -453,6 +491,7 @@ commands:
     endpoint:
       path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
       item_expr: it
+      yaml_pick_expr: yamlParse(it.pipeline_yaml)
       field_extract: pipeline_yaml
       text_formatter: pipeline_yaml
       query_params:
@@ -548,15 +587,68 @@ commands:
         branch: flags.branch
         filePath: flags["file-path"]
 
+  - command: create pipeline:import
+    verb: create
+    noun: pipeline
+    noun_variant: import
+    no_id: true
+    short: "Register a pipeline that already exists in Git: harness create pipeline:import --repo <repo> --branch <branch> --file-path <path> (--connector <ref> | --harness-code)"
+    handler_type: endpoint
+    flags:
+      - name: repo
+        description: Git repository name
+        required: true
+      - name: branch
+        description: Branch holding the pipeline YAML
+        required: true
+      - name: file-path
+        description: Path to the pipeline YAML in the repo, e.g. .harness/my_pipeline.yaml
+        required: true
+      - name: connector
+        description: Git connector reference ID (external Git; not needed with --harness-code)
+        completion_noun: connector
+      - name: harness-code
+        is_bool: true
+        description: The repository is hosted in Harness Code
+      - name: force-import
+        is_bool: true
+        description: Overwrite the pipeline if it was already imported
+      - name: name
+        description: Pipeline name
+      - name: description
+        description: Pipeline description
+    endpoint:
+      method: POST
+      path: /pipeline/api/pipelines/import
+      item_expr: it.data
+      text_header: "\nImported pipeline {{it.identifier}} in org [{{auth.org}}] project [{{auth.project}}]\n"
+      text_footer: "{{url(it)}}\n"
+      query_params:
+        connectorRef: 'flags.connector != "" ? flags.connector : nil'
+        repoName: flags.repo
+        branch: flags.branch
+        filePath: flags["file-path"]
+        isHarnessCodeRepo: 'flags["harness-code"] ? "true" : nil'
+        isForceImport: 'flags["force-import"] ? "true" : nil'
+      body_params:
+        pipelineName: flags.name
+        pipelineDescription: flags.description
+
   - command: update pipeline
     verb: update
     noun: pipeline
-    short: Update a pipeline's YAML definition (-f file.yaml or -f - for stdin)
+    short: "Update a pipeline: harness update pipeline <id> --set name=<name> | -f file.yaml (or -f - for stdin)"
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PUT
       path: /pipeline/api/pipelines/v2/{{ctx.id}}
-      file_body: required
+      get_path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.pipeline_yaml)
+      file_body: optional
       content_type: application/yaml
       no_fields: true
       text_header: "\nUpdated pipeline {{ctx.id}}\n"
@@ -764,6 +856,23 @@ commands:
         retry_stages: 'flags["retry-stages"] == nil ? "" : join(flags["retry-stages"], ",")'
         run_all_stages: 'flags["only-failed-stages"] ? "false" : ""'
 
+  - command: get execution:inputs
+    verb: get
+    noun: execution
+    noun_variant: inputs
+    fields_noun: execution_inputs
+    short: Show the resolved runtime inputs a pipeline execution ran with
+    id_allow_slash: true
+    id_label: "<[pipeline/]execution-id>"
+    completion_seq:
+      - completion_noun: pipeline
+      - completion_noun: execution
+        keep_order: true
+    handler_type: endpoint
+    endpoint:
+      path: /pipeline/api/pipelines/execution/{{lastPart(ctx.id)}}/inputsetV2
+      item_expr: it.data
+
   - command: get execution:retry_history
     verb: get
     noun: execution
@@ -910,10 +1019,10 @@ commands:
       ui: true
     flags:
       - name: stage
-        description: Filter to a specific stage
+        description: Filter to a specific stage (name or identifier)
         completion_fn: pipeline_log_stage_completion
       - name: step
-        description: Filter to a specific step within --stage (requires --stage)
+        description: Filter to a specific step within --stage, by name or identifier (requires --stage)
         completion_fn: pipeline_log_step_completion
       - name: logkey-prefix
         description: Only show logs whose key starts with this string (use 'list execution_log' to find keys)
@@ -1132,6 +1241,7 @@ commands:
     endpoint:
       path: /pipeline/api/inputSets/{{lastPart(ctx.id)}}
       item_expr: it.data
+      yaml_pick_expr: yamlParse(it.data.inputSetYaml)
       query_params:
         pipelineIdentifier: ctx.idParts[0]
 
@@ -1171,7 +1281,7 @@ commands:
   - command: update input_set
     verb: update
     noun: input_set
-    short: Update an input set's YAML definition (-f input-set.yaml)
+    short: "Update an inline input set: harness update input_set <pipeline>/<id> --set name=<name> | -f input-set.yaml"
     id_parts: 2
     id_label: "<pipeline/id>"
     completion_seq:
@@ -1179,10 +1289,15 @@ commands:
       - completion_noun: input_set
         keep_order: true
     handler_type: endpoint
+    flags_builtin:
+      set: true
+      del: true
     endpoint:
       method: PUT
       path: /pipeline/api/inputSets/{{lastPart(ctx.id)}}
-      file_body: required
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.inputSetYaml)
+      file_body: optional
       content_type: application/yaml
       no_fields: true
       text_header: "\nUpdated input set {{lastPart(ctx.id)}}\n"
@@ -1261,7 +1376,7 @@ commands:
     endpoint:
       path: /v1{{scopePath(auth)}}/templates/{{ctx.id}}
       item_expr: it.template
-      yaml_pick_expr: it.template
+      yaml_pick_expr: yamlParse(it.template.yaml)
 
   - command: create template
     verb: create
@@ -1319,7 +1434,7 @@ commands:
     endpoint:
       path: /v1{{scopePath(auth)}}/templates/{{ctx.idParts[0]}}/versions/{{lastPart(ctx.id)}}
       item_expr: it.template
-      yaml_pick_expr: it.template
+      yaml_pick_expr: yamlParse(it.template.yaml)
 
   - command: update template_version
     verb: update
@@ -1359,10 +1474,10 @@ commands:
       item_expr: it
       text_header: "\nDeleted template {{ctx.idParts[0]}} version {{lastPart(ctx.id)}}\n"
 
-  - command: update template_version:set-stable
+  - command: update template_version:set_stable
     verb: update
     noun: template_version
-    noun_variant: set-stable
+    noun_variant: set_stable
     short: Mark a template version as the stable version
     id_parts: 2
     id_label: "<template/version>"
@@ -1413,6 +1528,7 @@ commands:
     endpoint:
       path: /v1/orgs/{{auth.org}}/projects/{{auth.project}}/pipelines/{{ctx.id}}
       item_expr: it
+      yaml_pick_expr: yamlParse(it.pipeline_yaml)
 
   - command: get pipeline:summary
     verb: get
@@ -1549,6 +1665,7 @@ commands:
     endpoint:
       path: /ng/api/freeze/{{ctx.id}}
       item_expr: it.data
+      yaml_pick_expr: yamlParse(it.data.yaml)
 
   - command: get global_freeze
     verb: get
@@ -1559,3 +1676,96 @@ commands:
     endpoint:
       path: /ng/api/freeze/getGlobalFreeze
       item_expr: it.data
+      yaml_pick_expr: yamlParse(it.data.yaml)
+
+  - command: create freeze_window
+    verb: create
+    noun: freeze_window
+    short: "Create a deployment freeze window: harness create freeze_window -f freeze.yaml"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /ng/api/freeze
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nCreated freeze window\n"
+
+  - command: update freeze_window
+    verb: update
+    noun: freeze_window
+    short: "Replace a deployment freeze window: harness update freeze_window <id> -f freeze.yaml"
+    completion_noun: freeze_window
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /ng/api/freeze/{{ctx.id}}
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nUpdated freeze window {{ctx.id}}\n"
+
+  - command: update freeze_window:enable
+    verb: update
+    noun: freeze_window
+    noun_variant: enable
+    short: "Enable a deployment freeze window (harness update freeze_window:enable <id>)"
+    completion_noun: freeze_window
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /ng/api/freeze/{{ctx.id}}
+      get_path: /ng/api/freeze/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.yaml)
+      content_type: application/yaml
+      body_params:
+        freeze.status: '"Enabled"'
+      no_fields: true
+      text_header: "\nEnabled freeze window {{ctx.id}}\n"
+
+  - command: update freeze_window:disable
+    verb: update
+    noun: freeze_window
+    noun_variant: disable
+    short: "Disable a deployment freeze window (harness update freeze_window:disable <id>)"
+    completion_noun: freeze_window
+    handler_type: endpoint
+    endpoint:
+      method: PUT
+      path: /ng/api/freeze/{{ctx.id}}
+      get_path: /ng/api/freeze/{{ctx.id}}
+      update_strategy: get-then-put
+      update_body_pick: yamlParse(it.data.yaml)
+      content_type: application/yaml
+      body_params:
+        freeze.status: '"Disabled"'
+      no_fields: true
+      text_header: "\nDisabled freeze window {{ctx.id}}\n"
+
+  - command: delete freeze_window
+    verb: delete
+    noun: freeze_window
+    confirm_mode: prompt
+    short: Delete a deployment freeze window (harness delete freeze_window <id>)
+    completion_noun: freeze_window
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /ng/api/freeze/{{ctx.id}}
+      item_expr: it
+      text_header: "\nDeleted freeze window {{ctx.id}}\n"
+
+  - command: update global_freeze
+    verb: update
+    noun: global_freeze
+    no_id: true
+    short: "Enable or disable the global deployment freeze: harness update global_freeze -f global-freeze.yaml"
+    handler_type: endpoint
+    endpoint:
+      method: POST
+      path: /ng/api/freeze/manageGlobalFreeze
+      file_body: required
+      content_type: application/yaml
+      item_expr: it.data
+      text_header: "\nUpdated global freeze\n"

@@ -19,7 +19,7 @@ Auth is resolved in this order (first match wins):
 4. `default` profile in config file
 
 If `--profile` is given and the named profile does not exist, it is an error.  
-If `--profile` or `HARNESS_PROFILE` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes.  
+If `--profile` or `HARNESS_PROFILE` is given, all auth-related env vars (`HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`, `HARNESS_ORG`, `HARNESS_PROJECT`, `HARNESS_REGISTRY_URL`) are ignored entirely — no blending between modes. The one exception is `HARNESS_PROFILE_<NAME>_API_KEY`, which supplies the token for that named profile (see [Profile Mode](#profile-mode)).  
 If no auth is resolved by any method, error with: `"not logged in — run 'harness auth login' to get started"`.
 
 ### Reserved profile names
@@ -43,6 +43,10 @@ harness pipeline list --profile staging --project other-project
 ### Profile Mode
 
 Credentials are stored across two files in `~/.harness/`. Primary use case is interactive local development.
+
+#### Supplying a profile's token from the environment
+
+For PAT/SAT profiles, `HARNESS_PROFILE_<NAME>_API_KEY` overrides the token in the credentials file. `<NAME>` is the profile name uppercased with every non-alphanumeric character replaced by `_` (`my-prod` → `HARNESS_PROFILE_MY_PROD_API_KEY`). Everything else (URL, account, org, project) still comes from the config file. This lets users on a shared machine bring their own key, and lets CI ship a config without writing credentials to disk. Pair it with `harness auth logout --credentials-only`. Names that differ only by case or `-` vs `_` map to the same variable, so `auth login` warns (and asks to confirm on a terminal) when a new profile name would share its variable with an existing PAT/SAT profile. SSO profiles do not use this variable. `auth status` shows a `TokenSource` row when it is in effect.
 
 ### Env Var Mode
 
@@ -138,13 +142,14 @@ Both files live in `~/.harness/` which is created with `0700` permissions. No "a
 
 ## Token Format
 
-Three token types are supported:
+Four token types are supported:
 
 - **PAT** (Personal Access Token) — `pat.{AccountID}.{tokenID}.{secret}`
 - **SAT** (Service Account Token) — `sat.{AccountID}.{tokenID}.{secret}`
+- **ST** (Scoped Token) — `st.{AccountID}.{tokenID}.{secret}`. A PAT or SAT narrowed to an explicit set of permissions; its effective access is the intersection of those permissions and its parent's.
 - **SSO token** — a JWT (JSON Web Token) issued when you log in with `harness auth login --sso`. It is short-lived and refreshed automatically (see [SSO Mode](#sso-mode)).
 
-PATs and SATs follow the same 4-segment dot-separated format. The account ID is extracted from the token at login and stored explicitly in `config.yaml` — it is not re-parsed at runtime.
+PATs, SATs and STs follow the same 4-segment dot-separated format. The account ID is extracted from the token at login and stored explicitly in `config.yaml` — it is not re-parsed at runtime.
 
 ### SAT tokens and scope
 
@@ -158,6 +163,10 @@ harness auth setscope --org myorg --project myproject
 `auth status` handles SATs differently: instead of calling `GET /ng/api/user/currentUser`, it calls `POST /ng/api/token/validate` and shows the service account identity. 403 responses on the Account/Org/Project checks are shown as warnings (not errors) since the SA may have resource-level access without enumeration permissions.
 
 `auth login` validates SATs the same way. PATs are verified with `GET /ng/api/accounts/{accountID}`, but that endpoint needs account-view permission, which service accounts are rarely granted — so for SATs login calls `POST /ng/api/token/validate` instead. A 403 from that endpoint means the service account is disabled or has no access to the account at all; `--no-validate` writes the profile without the check.
+
+### Scoped tokens
+
+Scoped tokens (`st.`) hold only the permissions listed when they were created, so account, org and project lookups usually return 403 or an empty list even though the token works for the resources it was granted. The CLI treats them like SATs for validation: `auth login` calls `POST /ng/api/token/validate`, and 403s on the `auth status` Account/Org/Project checks show as warnings. `auth status` reports the token type as `ST`. Set the default scope with `harness auth setscope` if the wizard's org/project picker is empty. Requests the token isn't permitted to make fail with the API's own permission error.
 
 ---
 
@@ -182,7 +191,7 @@ harness auth login --sso
 |---|---|
 | `--profile` | Global flag — selects which profile to write (default: `"default"`). Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`. |
 | `--api-url` | Harness API base URL (default: `https://app.harness.io`) |
-| `--api-token` | PAT token. Required in non-interactive mode. |
+| `--api-token` | PAT, SAT or scoped token. Required in non-interactive mode. |
 | `--account` | Account ID. Inferred from token if not provided; must match token if provided. |
 | `--org` | Default org ID to store in profile |
 | `--project` | Default project ID to store in profile |
@@ -197,7 +206,7 @@ Runs a bubbletea TUI wizard. If the profile already exists and `--overwrite` is 
 
 **Non-interactive flow** (all required values provided via flags, or not a TTY):
 
-If the profile already exists, `--overwrite` is required (errors otherwise). Validates the PAT format, then calls `GET /ng/api/accounts/{accountID}` to verify the token (skipped with `--no-validate`). Attempts to fetch `registry_url` from `GET /gateway/har/api/v3/system/info` — stored if successful, silently skipped if not.
+If the profile already exists, `--overwrite` is required (errors otherwise). Validates the PAT format, then verifies the token (skipped with `--no-validate`): `GET /ng/api/accounts/{accountID}` for PATs, `POST /ng/api/token/validate` for SATs and scoped tokens. Attempts to fetch `registry_url` from `GET /gateway/har/api/v3/system/info` — stored if successful, silently skipped if not.
 
 After writing, runs `auth status` to display the result.
 
@@ -208,9 +217,10 @@ Removes a profile from both config files.
 ```
 harness auth logout
 harness auth logout --profile staging
+harness auth logout --profile staging --credentials-only
 ```
 
-Defaults to the `"default"` profile.
+Defaults to the `"default"` profile. With `--credentials-only`, only the stored credentials are removed and the profile stays in the config file, so a token can be supplied via `HARNESS_PROFILE_<NAME>_API_KEY` instead (see [Profile Mode](#profile-mode)).
 
 ### `harness auth status`
 
@@ -279,13 +289,14 @@ harness auth env --export   # prefix each line with "export "
 
 Always outputs `HARNESS_API_KEY`, `HARNESS_ACCOUNT`, `HARNESS_API_URL`. For SSO profiles, `HARNESS_API_JWT` is printed instead of `HARNESS_API_KEY`. Outputs `HARNESS_ORG`, `HARNESS_PROJECT`, and `HARNESS_REGISTRY_URL` only when they are set in the resolved profile.
 
-### `harness auth token`
+### `harness auth fields`
 
-Prints the active API token to stdout. Useful for piping to other tools (e.g. w/ `$()`).
+Prints one field of the active profile, for scripting: `token`, `email`, `user_id`, `user_type`, `api_url`, `account`, `org`, `project`.
 
 ```
-harness auth token
-harness auth token --profile staging
+harness auth fields token
+harness auth fields email --profile staging
+git config user.email "$(harness auth fields email)"
 ```
 
-Does not require org/project to be configured. Prints PAT/SAT tokens only, never SSO JWTs (use `auth env` for an SSO token).
+Prints the raw value only. `token` is the PAT/SAT, never an SSO JWT (use `auth env` for an SSO token). A missing, unknown or unset field is an error. Does not require org/project to be configured.

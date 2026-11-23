@@ -1,0 +1,23 @@
+[
+  {
+    "repo": "conda-local",
+    "path": "linux-64",
+    "name": "repodata.json",
+    "created": "2023-01-01T00:00:00.000Z",
+    "modified": "2023-01-01T00:00:00.000Z"
+  },
+  {
+    "repo": "conda-local",
+    "path": "linux-64",
+    "name": "demo-pkg-1.0.0-0.tar.bz2",
+    "created": "2023-01-01T00:00:00.000Z",
+    "modified": "2023-01-01T00:00:00.000Z"
+  },
+  {
+    "repo": "conda-local",
+    "path": "linux-64",
+    "name": "demo-pkg-2.0.0-0.conda",
+    "created": "2024-06-01T00:00:00.000Z",
+    "modified": "2024-06-01T00:00:00.000Z"
+  }
+]

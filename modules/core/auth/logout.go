@@ -28,6 +28,15 @@ func LogoutHandler(ctx *cmdctx.Ctx) error {
 		return fmt.Errorf("profile %q not found", profileName)
 	}
 
+	credentialsOnly := cmdctx.GetBool(ctx.FlagValues, "credentials-only")
+	if credentialsOnly {
+		if err := auth.DeleteCredential(profileName); err != nil {
+			return fmt.Errorf("removing credentials: %w", err)
+		}
+		fmt.Printf("Credentials for profile %q removed; the profile itself was kept.\n", profileName)
+		return nil
+	}
+
 	delete(cfg.Profiles, profileName)
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)

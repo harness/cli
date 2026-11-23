@@ -1,10 +1,10 @@
 # CI Module
 
-Commands under `harness ... local_annotation` / `... error` / `... coverage` / `... ci_artifact` are meant to run inside a Harness pipeline step (invoked by lite-engine or a Run step script), though most also work from a developer workstation. They split into two groups:
+Commands under `harness ... local_annotation` / `... error` / `... coverage` / `... managed_artifact` are meant to run inside a Harness pipeline step (invoked by lite-engine or a Run step script), though most also work from a developer workstation. They split into two groups:
 
 - **Local annotation, error categorization, and coverage analysis** are local-only — they read/write local files and make no Harness API call, so they need no auth.
-- **Coverage upload/wait-until** talk to a Harness service over HTTP and need auth — resolved automatically from pipeline env vars inside a step, or from the active CLI profile outside one.
-- **`ci_artifact` push/pull** also talk to a Harness service over HTTP, but only run inside a pipeline step — there is no profile fallback.
+- **Coverage upload/wait_until** talk to a Harness service over HTTP and need auth — resolved automatically from pipeline env vars inside a step, or from the active CLI profile outside one.
+- **`managed_artifact` push/pull** also talk to a Harness service over HTTP, but only run inside a pipeline step — there is no profile fallback.
 
 ---
 
@@ -177,28 +177,28 @@ harness execute coverage:upload --file coverage.out --target-scope <account>/<or
 
 Auth: `pipeline_auth` resolves `HARNESS_COVERAGE_SERVICE_TOKEN` / `HARNESS_COVERAGE_SERVICE_ENDPOINT` inside a pipeline step.
 
-### `harness execute coverage:wait-until`
+### `harness execute coverage:wait_until`
 
 Polls the coverage service until all reports for the execution are processed, then evaluates coverage against the given thresholds — at least one of `--gt`/`--gte`/`--patch-gt`/`--patch-gte` is required, and the command exits non-zero if any threshold isn't met.
 
 ```
-harness execute coverage:wait-until --gt 70
-harness execute coverage:wait-until --gte 80 --wait-timeout 10m
-harness execute coverage:wait-until --patch-gt 80
-harness execute coverage:wait-until --gt 70 --patch-gte 80
+harness execute coverage:wait_until --gt 70
+harness execute coverage:wait_until --gte 80 --wait-timeout 10m
+harness execute coverage:wait_until --patch-gt 80
+harness execute coverage:wait_until --gt 70 --patch-gte 80
 ```
 
 `--wait-timeout` (default `5m`) is this command's own polling timeout, distinct from the global `--timeout` flag (which hard-kills the whole process). `--interval` (default `10s`) controls poll frequency. Account/execution auto-detect from the CI environment the same way as `coverage:upload`.
 
 ---
 
-## Artifacts (`ci_artifact`)
+## Artifacts (`managed_artifact`)
 
-`push ci_artifact` / `pull ci_artifact` move a generic build artifact in and out of Harness Artifact Registry (HAR) for the current pipeline's artifact version.
+`push managed_artifact` / `pull managed_artifact` move a generic build artifact in and out of Harness Artifact Registry (HAR) for the current pipeline's artifact version.
 
 ### Auth
 
-Both commands require running inside a Harness pipeline step and reject any other auth source. Auth is resolved from `HARNESS_HAR_TOKEN` (token) and `HARNESS_HAR_URL` (registry base URL), sent as `Authorization: CIManager <token>`. Unlike `coverage:upload`/`coverage:wait-until`, there is deliberately **no fallback to the active CLI profile** — running either command outside a pipeline step (no `HARNESS_PIPELINE_ID`) fails fast with an error instead of silently authenticating with the profile's PAT.
+Both commands require running inside a Harness pipeline step and reject any other auth source. Auth is resolved from `HARNESS_HAR_TOKEN` (token) and `HARNESS_HAR_URL` (registry base URL), sent as `Authorization: CIManager <token>`. Unlike `coverage:upload`/`coverage:wait_until`, there is deliberately **no fallback to the active CLI profile** — running either command outside a pipeline step (no `HARNESS_PIPELINE_ID`) fails fast with an error instead of silently authenticating with the profile's PAT.
 
 ### Artifact identity
 
@@ -212,12 +212,12 @@ Every push/pull targets `{name}/{version}` in a registry:
 
 `--name`/`--version`/`--registry` override the env-var defaults within a pipeline step; they don't make the command runnable outside one — see [Auth](#auth) above.
 
-### `harness push ci_artifact <source>...`
+### `harness push managed_artifact <source>...`
 
 ```
-harness push ci_artifact ./build/app.zip
-harness push ci_artifact ./cache-dir --destination cache
-harness push ci_artifact './dist/*.tar.gz,./reports/*.xml'
+harness push managed_artifact ./build/app.zip
+harness push managed_artifact ./cache-dir --destination cache
+harness push managed_artifact './dist/*.tar.gz,./reports/*.xml'
 ```
 
 Each `<source>` may be:
@@ -248,14 +248,14 @@ On full success, prints a summary and writes a merged JSON record to `$HARNESS_A
 }
 ```
 
-If `$HARNESS_ARTIFACT_FILE_PATH` already exists (a prior `push ci_artifact` call in the same step wrote it), entries are merged by `destination` — the newest upload for a given destination wins — so parallel matrix jobs or multiple pushes in one step accumulate into one unified record. An exclusive advisory lock on a companion `.lock` file serializes the merge across concurrent processes. If any file fails to upload, the whole command fails and the output file is **not** written for that invocation.
+If `$HARNESS_ARTIFACT_FILE_PATH` already exists (a prior `push managed_artifact` call in the same step wrote it), entries are merged by `destination` — the newest upload for a given destination wins — so parallel matrix jobs or multiple pushes in one step accumulate into one unified record. An exclusive advisory lock on a companion `.lock` file serializes the merge across concurrent processes. If any file fails to upload, the whole command fails and the output file is **not** written for that invocation.
 
-### `harness pull ci_artifact <path-in-version>`
+### `harness pull managed_artifact <path-in-version>`
 
 ```
-harness pull ci_artifact files/Dockerfile
-harness pull ci_artifact files/Dockerfile --destination ./downloads/
-harness pull ci_artifact reports/coverage.html --destination /tmp/coverage.html
+harness pull managed_artifact files/Dockerfile
+harness pull managed_artifact files/Dockerfile --destination ./downloads/
+harness pull managed_artifact reports/coverage.html --destination /tmp/coverage.html
 ```
 
 `<path-in-version>` is the path relative to the version root — the same value supplied as `--destination` (joined with the filename) during the corresponding push. `--destination` controls where the file lands locally:

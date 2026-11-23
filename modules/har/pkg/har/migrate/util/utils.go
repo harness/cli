@@ -53,3 +53,25 @@ func AddPackageErrorToStat(stats *types.TransferStats, pkg types.Package, srcReg
 	}
 	stats.Add(stat)
 }
+
+func AddFileErrorToStat(stats *types.TransferStats, file *types.File, srcRegistry string, err error) {
+	stats.Add(types.FileStat{
+		Name:     file.Name,
+		Registry: srcRegistry,
+		Uri:      file.Uri,
+		Size:     int64(file.Size),
+		Status:   types.StatusFail,
+		Error:    err.Error(),
+	})
+}
+
+// AddRegistryErrorToStat records a failure that aborts a whole registry, so it is
+// counted in the Failed total instead of only surfacing as an engine error.
+func AddRegistryErrorToStat(stats *types.TransferStats, srcRegistry string, err error) {
+	stats.Add(types.FileStat{
+		Name:     srcRegistry,
+		Registry: srcRegistry,
+		Status:   types.StatusFail,
+		Error:    err.Error(),
+	})
+}

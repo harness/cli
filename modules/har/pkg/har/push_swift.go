@@ -18,13 +18,16 @@ import (
 
 // pushSwiftArtifact uploads a Swift package (.zip) to the Harness Artifact Registry.
 //
-// ctx.Id      = "<registry>/<anything>" — only the registry portion is used.
+// ctx.Id      = "<registry>" (a legacy "<registry>/<name>" is accepted; name is ignored)
 // ctx.Args[0] = local .zip file path
 // ctx.Args[1] = target path in "scope/name/version" format
 // --metadata-path (optional) = path to a metadata JSON file
 //
 // Upload endpoint: PUT {registryURL}/pkg/{accountID}/{registry}/swift/{scope}/{name}/{version}
 func pushSwiftArtifact(ctx *cmdctx.Ctx) error {
+	if err := rejectExtraArgs(ctx, 2); err != nil {
+		return err
+	}
 	if len(ctx.Args) < 2 {
 		return fmt.Errorf("push swift requires a local .zip file and a target path: push artifact <registry/anything> <file.zip> <scope/name/version>")
 	}
@@ -53,7 +56,7 @@ func pushSwiftArtifact(ctx *cmdctx.Ctx) error {
 	}
 
 	// Parse registry from ctx.Id
-	registry, _, err := parseRegistryAndName(ctx.Id)
+	registry, err := parseRegistry(ctx.Id)
 	if err != nil {
 		return err
 	}

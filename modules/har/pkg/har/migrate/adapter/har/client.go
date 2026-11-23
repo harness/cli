@@ -5,10 +5,13 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	http2 "net/http"
+	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -109,6 +112,9 @@ type client struct {
 	password  string
 	pkgClient *ar_pkg.ClientWithResponses
 	accountID string
+
+	indexesMu sync.Mutex
+	indexes   map[string]*packageIndex
 }
 
 // uploadGenericFile, headRawFile, and uploadRawFile build the request URL manually
@@ -168,8 +174,98 @@ func (c *client) headRawFile(registryRef string, fileUri string) (bool, error) {
 	case http2.StatusNotFound:
 		return false, nil
 	default:
-		return false, fmt.Errorf("unexpected status code %d for HEAD on raw file '%s'", resp.StatusCode, fileUri)
+		return false, types.NewStatusError(resp.StatusCode, "unexpected status code %d for HEAD on raw file '%s'",
+			resp.StatusCode, fileUri)
 	}
+}
+
+// cranFileExists GETs the CRAN download path; HEAD is not allowed there and the
+// generic /files/ HEAD returns 400 for CRAN registries. HAR serves superseded source
+// tarballs only under src/contrib/Archive/<pkg>/, so that location is checked too.
+func (c *client) cranFileExists(ctx context.Context, registryRef, fileUri string) (bool, error) {
+	base := fmt.Sprintf("%s/pkg/%s/%s/cran/", strings.TrimRight(c.url, "/"), c.accountID, path.Base(registryRef))
+	fileUri = strings.TrimPrefix(fileUri, "/")
+	exists, err := c.downloadExists(ctx, base, fileUri)
+	if err != nil || exists {
+		return exists, err
+	}
+	dir, file := path.Split(fileUri)
+	pkg, _, ok := strings.Cut(file, "_")
+	if dir != "src/contrib/" || !ok {
+		return false, nil
+	}
+	return c.downloadExists(ctx, base, "src/contrib/Archive/"+pkg+"/"+file)
+}
+
+// terraformFileExists uses the Terraform registry protocol download endpoints, since
+// HAR's version APIs cannot address "ns/name/provider" package names.
+func (c *client) terraformFileExists(ctx context.Context, registryRef, pkg, version string, f *types.File) (bool, error) {
+	base := fmt.Sprintf("%s/pkg/%s/%s/terraform/v1/", strings.TrimRight(c.url, "/"), c.accountID,
+		path.Base(registryRef))
+	parts := strings.Split(pkg, "/")
+	var rel string
+	switch len(parts) {
+	case 3:
+		rel = fmt.Sprintf("modules/%s/%s/%s/%s/download", parts[0], parts[1], parts[2], version)
+	case 2:
+		rel = fmt.Sprintf("providers/%s/%s/%s/%s", parts[0], parts[1], version, path.Base(f.Uri))
+	default:
+		return false, fmt.Errorf("unexpected terraform package name %q", pkg)
+	}
+	return c.downloadExists(ctx, base, rel)
+}
+
+func (c *client) downloadExists(ctx context.Context, base, rel string) (bool, error) {
+	return c.existsAt(ctx, http2.MethodGet, base, rel, nil)
+}
+
+// existsAt reports whether base+rel resolves. Redirects (to blob storage) are not
+// followed: a 3xx already means the file exists. Errors name only rel, so host and
+// account do not end up in logs and result files.
+func (c *client) existsAt(ctx context.Context, method, base, rel string, header http2.Header) (bool, error) {
+	resp, err := c.doWithoutRedirect(ctx, method, base, rel, header)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http2.StatusNotFound:
+		return false, nil
+	case resp.StatusCode >= 200 && resp.StatusCode < 400:
+		return true, nil
+	default:
+		return false, types.NewStatusError(resp.StatusCode, "unexpected status code %d checking '%s'", resp.StatusCode, rel)
+	}
+}
+
+func (c *client) doWithoutRedirect(
+	ctx context.Context,
+	method, base, rel string,
+	header http2.Header,
+) (*http2.Response, error) {
+	req, err := http2.NewRequestWithContext(ctx, method, base+rel, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for '%s': %w", rel, err)
+	}
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	noRedirect := *c.client
+	noRedirect.CheckRedirect = func(*http2.Request, []*http2.Request) error { return http2.ErrUseLastResponse }
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check '%s': %w", rel, unwrapURLError(err))
+	}
+	return resp, nil
+}
+
+// unwrapURLError drops the *url.Error wrapper, whose message repeats the full URL.
+func unwrapURLError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
 }
 
 func (c *client) uploadRawFile(registry string, f *types.File, file io.ReadCloser) error {
@@ -740,8 +836,11 @@ func (c *client) artifactFileExists(
 		if err != nil {
 			return false, fmt.Errorf("failed to get artifact files: %w", err)
 		}
+		if response.StatusCode() == http2.StatusNotFound {
+			return false, nil
+		}
 		if response.StatusCode() != http2.StatusOK {
-			return false, fmt.Errorf("failed to get artifact files: %s", response.Status())
+			return false, types.NewStatusError(response.StatusCode(), "failed to get artifact files: %s", response.Status())
 		}
 		data := response.JSON200
 		for _, v := range data.Data.Files {
@@ -806,8 +905,12 @@ func (c *client) listArtifactFiles(
 		if err != nil {
 			return allFiles, fmt.Errorf("failed to get artifact files: %w", err)
 		}
+		if response.StatusCode() == http2.StatusNotFound {
+			return allFiles, nil
+		}
 		if response.StatusCode() != http2.StatusOK {
-			return allFiles, fmt.Errorf("failed to get artifact files: %s", response.Status())
+			return allFiles, types.NewStatusError(response.StatusCode(), "failed to get artifact files: %s",
+				response.Status())
 		}
 		data := response.JSON200
 
@@ -886,7 +989,8 @@ func (c *client) artifactVersionExists(
 			return false, nil
 		}
 		if response.StatusCode() != http2.StatusOK {
-			return false, fmt.Errorf("failed to get artifact versions: %s", response.Status())
+			return false, types.NewStatusError(response.StatusCode(), "failed to get artifact versions: %s",
+				response.Status())
 		}
 		var data ar.ListArtifactVersion
 
