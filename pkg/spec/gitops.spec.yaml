@@ -1544,14 +1544,13 @@ commands:
     verb: execute
     noun: gitops_application
     noun_variant: cancel_operation
-    id_parts: 2
-    id_label: "<agent/app>"
+    id_formats: ["<agent>/<app>"]
     confirm_mode: prompt
     short: "Cancel the running sync or rollback of an application: harness execute gitops_application:cancel_operation <agent/app>"
     handler_type: endpoint
     endpoint:
       method: DELETE
-      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.idParts[0] : (ctx.level == "org" ? "org." + ctx.idParts[0] : ctx.idParts[0])}}/applications/{{ctx.idParts[1]}}/operation'
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/operation
       item_expr: it
       yaml_pick_expr: it
       text_header: "\nCancel requested for {{ctx.id}}\n"
@@ -1560,8 +1559,7 @@ commands:
     verb: execute
     noun: gitops_application
     noun_variant: run_resource_action
-    id_parts: 2
-    id_label: "<agent/app>"
+    id_formats: ["<agent>/<app>"]
     confirm_mode: prompt
     short: "Run an action on a resource of an application: harness execute gitops_application:run_resource_action <agent/app> --namespace <ns> --resource-name <name> --kind <kind> --action <action> [--group <g>] [--version <v>]"
     long: |
@@ -1587,7 +1585,7 @@ commands:
         description: "Kubernetes API version, e.g. v1"
     endpoint:
       method: POST
-      path: '/gitops/api/v1/agents/{{ctx.level == "account" ? "account." + ctx.idParts[0] : (ctx.level == "org" ? "org." + ctx.idParts[0] : ctx.idParts[0])}}/applications/{{ctx.idParts[1]}}/resource/actions'
+      path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}/resource/actions
       body_params:
         namespace: flags.namespace
         resourceName: flags["resource-name"]
