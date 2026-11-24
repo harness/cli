@@ -75,14 +75,31 @@ func BuildRequest(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (*client.Request, erro
 		QueryParams: qp,
 		NoAccountID: ep.NoAccountID,
 	}
-	if len(ep.BodyParams) > 0 {
+	switch {
+	case ep.BodyFn != "":
+		if ctx.Resolver == nil {
+			return nil, fmt.Errorf("body_fn %q declared but no resolver available", ep.BodyFn)
+		}
+		bf := ctx.Resolver.ResolveBodyFn(ep.BodyFn)
+		if bf == nil {
+			return nil, fmt.Errorf("body_fn %q not registered", ep.BodyFn)
+		}
+		body, err := bf(ctx)
+		if err != nil {
+			return nil, err
+		}
+		req.Body = body
+	case len(ep.BodyParams) > 0:
 		req.Body = buildBody(ep, exprEnv)
-	} else if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
+	case method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch:
 		// gRPC-gateway rejects POST/PUT/PATCH with no body; send empty object.
 		req.Body = map[string]any{}
 	}
 	if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
 		req.BodyContentType = "application/json"
+	}
+	if rb, ok := req.Body.(*cmdctx.RawBody); ok {
+		req.Body, req.BodyContentType = rb.Content, rb.ContentType
 	}
 	if len(ep.RequestHeaders) > 0 {
 		req.Headers = evalRequestHeaders(ep, exprEnv)
