@@ -146,6 +146,21 @@ nouns:
         expr: it.repoIdentifier
       - id: project
         expr: it.app.spec.project
+        mutable_path: spec.project
+      - id: labels
+        expr: formatTagDisplay(it.app.metadata.labels)
+        field_type: tags
+        mutable_path: metadata.labels
+      - id: auto_prune
+        label: Auto Prune
+        expr: it.app.spec.syncPolicy.automated.prune ?? false
+        field_type: bool
+        mutable_path: spec.syncPolicy.automated.prune
+      - id: self_heal
+        label: Self Heal
+        expr: it.app.spec.syncPolicy.automated.selfHeal ?? false
+        field_type: bool
+        mutable_path: spec.syncPolicy.automated.selfHeal
       - id: namespace
         expr: it.app.spec.destination.namespace
         mutable_path: spec.destination.namespace
@@ -534,7 +549,7 @@ commands:
       item_expr: it
       yaml_pick_expr: it.app
       yaml_exclude: [status, operation]
-      fields_subset: [name, agent, cluster, repo, project, namespace, sync_status, health, revision, repo_url, path, target_revision, created, updated]
+      fields_subset: [name, agent, cluster, repo, project, labels, auto_prune, self_heal, namespace, sync_status, health, revision, repo_url, path, target_revision, created, updated]
 
   - command: create gitops_application
     verb: create
