@@ -91,7 +91,8 @@ func BuildRequest(ctx *cmdctx.Ctx, ep *spec.EndpointSpec) (*client.Request, erro
 		req.Body = body
 	case len(ep.BodyParams) > 0:
 		req.Body = buildBody(ep, exprEnv)
-	case method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch:
+	}
+	if req.Body == nil && (method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch) {
 		// gRPC-gateway rejects POST/PUT/PATCH with no body; send empty object.
 		req.Body = map[string]any{}
 	}

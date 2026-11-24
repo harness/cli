@@ -106,3 +106,29 @@ func TestHTTPFetchFn_BodyFnNonObjectRejectedForBodyPaging(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildRequest_BodyFnQueryPaging(t *testing.T) {
+	ep := bodyPagingEP()
+	ep.Paging.PageParamsIn = ""
+
+	t.Run("nil_body_becomes_empty_object", func(t *testing.T) {
+		req, err := BuildRequest(bodyFnCtx(func(*cmdctx.Ctx) (any, error) { return nil, nil }), ep)
+		if err != nil {
+			t.Fatalf("BuildRequest: %v", err)
+		}
+		if body, ok := req.Body.(map[string]any); !ok || len(body) != 0 {
+			t.Fatalf("body = %#v, want empty object", req.Body)
+		}
+	})
+
+	t.Run("raw_body_keeps_content_and_type", func(t *testing.T) {
+		rb := &cmdctx.RawBody{ContentType: "application/yaml", Content: "a: b"}
+		req, err := BuildRequest(bodyFnCtx(func(*cmdctx.Ctx) (any, error) { return rb, nil }), ep)
+		if err != nil {
+			t.Fatalf("BuildRequest: %v", err)
+		}
+		if req.Body != "a: b" || req.BodyContentType != "application/yaml" {
+			t.Fatalf("body = %#v, content type = %q, want raw yaml", req.Body, req.BodyContentType)
+		}
+	})
+}
