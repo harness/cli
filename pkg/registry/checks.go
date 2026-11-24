@@ -43,7 +43,8 @@ func (r *Registry) CheckFunctions() error {
 }
 
 // checkScopePart validates a noun's scope_part: it needs multi_level, id_formats on every
-// id-taking command, and a part of that name in at least one of them.
+// command that takes an id, and a part of that name in at least one of them.
+// List parent scopes are exempt so they keep the account/org sentinels.
 func (r *Registry) checkScopePart(noun string, nd spec.NounDef) []string {
 	if nd.ScopePart == "" {
 		return nil
@@ -55,11 +56,8 @@ func (r *Registry) checkScopePart(noun string, nd spec.NounDef) []string {
 	found := false
 	for _, specs := range r.specs {
 		for _, cs := range specs {
-			if cs.Noun != noun || cs.NoId {
-				continue
-			}
 			vs := verbRegistry[cs.Verb]
-			if !vs.RequiresId && !vs.AllowsId && !vs.AllowsParentId {
+			if cs.Noun != noun || !((vs.RequiresId && !cs.NoId) || vs.AllowsId || cs.AllowsId) {
 				continue
 			}
 			if len(cs.IdFormats) == 0 {
