@@ -79,7 +79,7 @@ func (r *Registry) buildCompletionCtx(cmd *cobra.Command, verb, noun, parentId s
 	level := ""
 	nd := r.GetNoun(noun)
 	if nd != nil && nd.MultiLevel {
-		if parentId != "" {
+		if parentId != "" && !usesScopePart(nd, r.GetSpec(verb, noun)) {
 			parentId, level = parseScopePrefix(parentId, true)
 		}
 		if levelFlag, _ := cmd.Flags().GetString("level"); levelFlag != "" {
@@ -193,6 +193,7 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 	ctx := &cmdctx.Ctx{
 		Context:     goCtx,
 		CancelFn:    cancel,
+		Resolver:    r,
 		Verb:        cs.Verb,
 		VerbHandler: cs.VerbHandler,
 		Noun:        cs.Noun,
@@ -276,7 +277,9 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 		}
 	}
 	if nd != nil && nd.MultiLevel {
-		if vspec.AllowsParentId && ctx.ParentId != "" {
+		if usesScopePart(nd, cs) {
+			ctx.Level = "project"
+		} else if vspec.AllowsParentId && ctx.ParentId != "" {
 			ctx.ParentId, ctx.Level = parseScopePrefix(ctx.ParentId, true)
 		} else if ctx.Id != "" {
 			ctx.Id, ctx.Level = parseScopePrefix(ctx.Id, false)
@@ -363,7 +366,6 @@ func buildCtx(cmd *cobra.Command, cs *spec.CommandSpec, args []string, r *Regist
 	ctx.FlagValues = buildFlagValues(cmd.Flags(), cs)
 	ctx.ProvidedFlags = map[string]bool{}
 	cmd.Flags().VisitAll(func(f *pflag.Flag) { ctx.ProvidedFlags[f.Name] = f.Changed })
-	ctx.Resolver = r
 	if err := resolveFlagValues(ctx, cs); err != nil {
 		return nil, err
 	}
@@ -583,5 +585,32 @@ func applyIdFormats(cs *spec.CommandSpec, ctx *cmdctx.Ctx, val string) error {
 	ctx.Ids = p.Ids
 	ctx.IdParts = p.Values
 	ctx.IdHint = p.AmbiguityHint(val)
+	if nd := ctx.Resolver.GetNoun(cs.Noun); usesScopePart(nd, cs) {
+		return applyScopePart(nd.ScopePart, p, ctx)
+	}
+	return nil
+}
+
+// usesScopePart reports whether ids for cs are scope-stripped by part name rather than as a whole.
+func usesScopePart(nd *spec.NounDef, cs *spec.CommandSpec) bool {
+	return nd != nil && nd.MultiLevel && nd.ScopePart != "" && cs != nil && len(cs.IdFormats) > 0
+}
+
+// applyScopePart strips the account./org. prefix from the named part and sets ctx.Level from it.
+func applyScopePart(name string, p *spec.ParsedId, ctx *cmdctx.Ctx) error {
+	stripped, level := parseScopePrefix(p.Ids[name], false)
+	if level == "project" {
+		return nil
+	}
+	if ctx.Level != "" && ctx.Level != "project" && ctx.Level != level {
+		return fmt.Errorf("--level %q conflicts with %q prefix on id", ctx.Level, level)
+	}
+	p.Ids[name] = stripped
+	for i, part := range p.Format.Parts {
+		if part.Name == name {
+			p.Values[i] = stripped
+		}
+	}
+	ctx.Level = level
 	return nil
 }
