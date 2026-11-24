@@ -134,6 +134,7 @@ nouns:
     short_desc: "Harness GitOps applications — Argo CD apps reconciling Git state into a cluster."
     noun_aliases: [gitops_applications]
     multi_level: true
+    scope_part: app
     fields:
       - id: name
         expr: it.name
@@ -181,6 +182,7 @@ nouns:
     short_desc: "Harness GitOps clusters — Kubernetes clusters registered with GitOps agents."
     noun_aliases: [gitops_clusters]
     multi_level: true
+    scope_part: cluster
     fields:
       - id: identifier
         expr: it.identifier
@@ -616,8 +618,7 @@ commands:
     noun: gitops_application
     short: "Get a single GitOps application: harness get gitops_application <agent/app>"
     handler_type: endpoint
-    id_parts: 2
-    id_label: "<agent/app>"
+    id_formats: ["<agent>/<app>"]
     endpoint:
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/applications/{{ctx.idParts[1]}}
       item_expr: it
@@ -629,6 +630,7 @@ commands:
     verb: create
     noun: gitops_application
     requires_id: true
+    id_formats: ["<agent>"]
     short: "Create a GitOps application: harness create gitops_application <agent> --set name=<name> repo_url=<url> path=<path> destination_server=<url> namespace=<ns> --cluster <cluster> [--repo <repo>], or -f app.yaml"
     handler_type: endpoint
     flags_builtin:
@@ -662,8 +664,7 @@ commands:
   - command: update gitops_application
     verb: update
     noun: gitops_application
-    id_parts: 2
-    id_label: "<agent/app>"
+    id_formats: ["<agent>/<app>"]
     short: "Update a GitOps application: harness update gitops_application <agent/app> --set repo_url=<url> path=<path> namespace=<ns> [--cluster <cluster>] [--repo <repo>], or -f app.yaml"
     handler_type: endpoint
     flags_builtin:
@@ -698,8 +699,7 @@ commands:
   - command: delete gitops_application
     verb: delete
     noun: gitops_application
-    id_parts: 2
-    id_label: "<agent/app>"
+    id_formats: ["<agent>/<app>"]
     confirm_mode: prompt
     short: "Delete a GitOps application: harness delete gitops_application <agent/app> [--propagation-policy foreground|background] [--no-cascade] [--remove-finalizers] [--app-namespace <ns>]"
     long: |
@@ -743,8 +743,7 @@ commands:
     verb: execute
     noun: gitops_application
     noun_variant: sync
-    id_parts: 2
-    id_label: "<agent/app>"
+    id_formats: ["<agent>/<app>"]
     confirm_mode: prompt
     short: "Sync a GitOps application: harness execute gitops_application:sync <agent/app> [--revision <sha>] [--prune] [--dry-run]"
     handler_type: endpoint
@@ -772,8 +771,7 @@ commands:
     verb: execute
     noun: gitops_application
     noun_variant: refresh
-    id_parts: 2
-    id_label: "<agent/app>"
+    id_formats: ["<agent>/<app>"]
     short: "Refresh a GitOps application: harness execute gitops_application:refresh <agent/app> [--hard]"
     handler_type: endpoint
     flags:
@@ -822,8 +820,7 @@ commands:
     noun: gitops_cluster
     short: "Get a single GitOps cluster: harness get gitops_cluster <agent/cluster_id>"
     handler_type: endpoint
-    id_parts: 2
-    id_label: "<agent/cluster_id>"
+    id_formats: ["<agent>/<cluster>"]
     endpoint:
       path: /gitops/api/v1/agents/{{ctx.idParts[0]}}/clusters/{{ctx.idParts[1]}}
       item_expr: it
@@ -834,8 +831,7 @@ commands:
   - command: create gitops_cluster
     verb: create
     noun: gitops_cluster
-    id_parts: 2
-    id_label: "<agent/cluster_id>"
+    id_formats: ["<agent>/<cluster>"]
     short: "Register a cluster on a GitOps agent: harness create gitops_cluster <agent/cluster_id> --set server=<url> connection_type=IN_CLUSTER, or -f cluster.yaml [--upsert]"
     handler_type: endpoint
     flags_builtin:
@@ -865,8 +861,7 @@ commands:
   - command: update gitops_cluster
     verb: update
     noun: gitops_cluster
-    id_parts: 2
-    id_label: "<agent/cluster_id>"
+    id_formats: ["<agent>/<cluster>"]
     short: "Update a GitOps cluster: harness update gitops_cluster <agent/cluster_id> --set server=<url> connection_type=IN_CLUSTER, or -f cluster.yaml [--force-update]"
     handler_type: endpoint
     flags_builtin:
@@ -895,8 +890,7 @@ commands:
   - command: delete gitops_cluster
     verb: delete
     noun: gitops_cluster
-    id_parts: 2
-    id_label: "<agent/cluster_id>"
+    id_formats: ["<agent>/<cluster>"]
     confirm_mode: prompt
     short: "Delete a GitOps cluster: harness delete gitops_cluster <agent/cluster_id> [--force-delete] [--query-name <argo_name>]"
     handler_type: endpoint
