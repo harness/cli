@@ -57,7 +57,8 @@ func (r *Registry) checkScopePart(noun string, nd spec.NounDef) []string {
 	for _, specs := range r.specs {
 		for _, cs := range specs {
 			vs := verbRegistry[cs.Verb]
-			if cs.Noun != noun || !((vs.RequiresId && !cs.NoId) || vs.AllowsId || cs.AllowsId) {
+			takesId := (vs.RequiresId && !cs.NoId) || vs.AllowsId || cs.AllowsId
+			if cs.Noun != noun || !takesId {
 				continue
 			}
 			if len(cs.IdFormats) == 0 {
