@@ -439,6 +439,11 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 		if err := validatePaging(cs.Command, ep.Paging); err != nil {
 			return err
 		}
+		if ep.Paging.PageParamsIn == spec.PageParamsInBody {
+			if ep.Method != "POST" && ep.Method != "PUT" && ep.Method != "PATCH" {
+				return fmt.Errorf("command %q: page_params_in: body requires a POST, PUT or PATCH method", cs.Command)
+			}
+		}
 	}
 	if len(ep.BodyParams) > 0 || ep.BodyFn != "" {
 		method := ep.Method
@@ -512,7 +517,7 @@ func validatePaging(command string, pg *spec.PagingSpec) error {
 	case spec.PagingStrategyPageIndex, spec.PagingStrategyPageHeader, spec.PagingStrategyOffsetLimit:
 		// valid, fall through to server-paging checks below
 	case spec.PagingStrategyFlatList:
-		return nil
+		return validatePageParamsIn(command, pg)
 	default:
 		return fmt.Errorf("command %q: unknown paging model %q", command, pg.PagingStrategy)
 	}
@@ -533,8 +538,24 @@ func validatePaging(command string, pg *spec.PagingSpec) error {
 			return fmt.Errorf("command %q: paging requires page_size_param", command)
 		}
 	}
+	if err := validatePageParamsIn(command, pg); err != nil {
+		return err
+	}
 	if pg.PagingStrategy == spec.PagingStrategyPageIndex && pg.TotalExpr == "" {
 		return fmt.Errorf("command %q: page_index paging requires total_expr", command)
+	}
+	return nil
+}
+
+func validatePageParamsIn(command string, pg *spec.PagingSpec) error {
+	switch pg.PageParamsIn {
+	case "", spec.PageParamsInQuery:
+	case spec.PageParamsInBody:
+		if pg.PagingStrategy != spec.PagingStrategyPageIndex {
+			return fmt.Errorf("command %q: page_params_in: body is only supported by page_index paging", command)
+		}
+	default:
+		return fmt.Errorf("command %q: invalid page_params_in %q (must be \"query\" or \"body\")", command, pg.PageParamsIn)
 	}
 	return nil
 }
