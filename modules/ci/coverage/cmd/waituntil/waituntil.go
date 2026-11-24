@@ -43,11 +43,12 @@ type patchSummary struct {
 }
 
 type reportSummary struct {
-	Lines       int64         `json:"lines"`
-	Hits        int64         `json:"hits"`
-	Coverage    float64       `json:"coverage"`
-	ReportCount int           `json:"report_count"`
-	Patch       *patchSummary `json:"patch"`
+	Lines        int64         `json:"lines"`
+	Hits         int64         `json:"hits"`
+	Coverage     float64       `json:"coverage"`
+	ReportCount  int           `json:"report_count"`
+	Patch        *patchSummary `json:"patch"`
+	PatchCounted bool          `json:"patch_counted,omitempty"`
 }
 
 type statusResponse struct {
@@ -293,18 +294,7 @@ func evaluateThresholds(f waitUntilFlags, summary *reportSummary) error {
 	}
 
 	if f.patchGt > 0 || f.patchGte > 0 {
-		if summary.Patch == nil {
-			hlog.Info("no patch coverage data available, skipping patch threshold check")
-		} else {
-			if f.patchGt > 0 && summary.Patch.Coverage <= f.patchGt {
-				failures = append(failures, fmt.Sprintf(
-					"patch coverage %.2f%% is not > %.2f%%", summary.Patch.Coverage, f.patchGt))
-			}
-			if f.patchGte > 0 && summary.Patch.Coverage < f.patchGte {
-				failures = append(failures, fmt.Sprintf(
-					"patch coverage %.2f%% is not >= %.2f%%", summary.Patch.Coverage, f.patchGte))
-			}
-		}
+		failures = append(failures, patchThresholdFailures(f, summary)...)
 	}
 
 	hlog.Info("coverage", "percent", fmt.Sprintf("%.2f%%", summary.Coverage), "lines", fmt.Sprintf("%d/%d", summary.Hits, summary.Lines))
@@ -322,4 +312,32 @@ func evaluateThresholds(f waitUntilFlags, summary *reportSummary) error {
 
 	hlog.Info("quality gate passed")
 	return nil
+}
+
+// patchThresholdFailures reports patch-gate failures. A counted diff with no
+// coverable lines is skipped. A zero-line patch whose diff was never applied
+// fails, so a missing diff cannot pass the gate.
+func patchThresholdFailures(f waitUntilFlags, summary *reportSummary) []string {
+	if summary.Patch == nil {
+		hlog.Info("no patch coverage data available, skipping patch threshold check")
+		return nil
+	}
+	if summary.Patch.Lines == 0 && summary.PatchCounted {
+		hlog.Info("no coverable lines changed, skipping patch threshold check")
+		return nil
+	}
+	if summary.Patch.Lines == 0 {
+		return []string{"patch diff was not computed"}
+	}
+
+	var failures []string
+	if f.patchGt > 0 && summary.Patch.Coverage <= f.patchGt {
+		failures = append(failures, fmt.Sprintf(
+			"patch coverage %.2f%% is not > %.2f%%", summary.Patch.Coverage, f.patchGt))
+	}
+	if f.patchGte > 0 && summary.Patch.Coverage < f.patchGte {
+		failures = append(failures, fmt.Sprintf(
+			"patch coverage %.2f%% is not >= %.2f%%", summary.Patch.Coverage, f.patchGte))
+	}
+	return failures
 }
