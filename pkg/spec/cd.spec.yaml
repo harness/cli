@@ -428,7 +428,7 @@ commands:
   - command: update infrastructure
     verb: update
     noun: infrastructure
-    short: Update an infrastructure definition (name, description, tags, or full YAML via -f)
+    short: Update an infrastructure definition (name, description, tags, or full YAML via -f). namespace and release_name are Kubernetes spec keys; on other types the server stores them anyway
     handler_type: endpoint
     flags_builtin:
       set: true
