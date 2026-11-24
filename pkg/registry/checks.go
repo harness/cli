@@ -22,6 +22,7 @@ func (r *Registry) CheckFunctions() error {
 	}
 	for noun, nd := range r.nouns {
 		errs = append(errs, r.checkUICommands(noun, nd)...)
+		errs = append(errs, r.checkScopePart(noun, nd)...)
 		for _, field := range nd.Fields {
 			if field.MutablePath == "" {
 				continue
@@ -39,6 +40,42 @@ func (r *Registry) CheckFunctions() error {
 		return errors.New("registry errors:\n  " + strings.Join(errs, "\n  "))
 	}
 	return nil
+}
+
+// checkScopePart validates a noun's scope_part: it needs multi_level, id_formats on every
+// id-taking command, and a part of that name in at least one of them.
+func (r *Registry) checkScopePart(noun string, nd spec.NounDef) []string {
+	if nd.ScopePart == "" {
+		return nil
+	}
+	var errs []string
+	if !nd.MultiLevel {
+		errs = append(errs, fmt.Sprintf("noun %q: scope_part requires multi_level", noun))
+	}
+	found := false
+	for _, specs := range r.specs {
+		for _, cs := range specs {
+			if cs.Noun != noun || cs.NoId {
+				continue
+			}
+			vs := verbRegistry[cs.Verb]
+			if !vs.RequiresId && !vs.AllowsId && !vs.AllowsParentId {
+				continue
+			}
+			if len(cs.IdFormats) == 0 {
+				errs = append(errs, fmt.Sprintf("command %q: noun scope_part requires id_formats", cs.Command))
+			}
+			for _, f := range cs.IdFormatList() {
+				for _, part := range f.Parts {
+					found = found || part.Name == nd.ScopePart
+				}
+			}
+		}
+	}
+	if !found {
+		errs = append(errs, fmt.Sprintf("noun %q: scope_part %q is not a part of any id_formats", noun, nd.ScopePart))
+	}
+	return errs
 }
 
 // validModuleTypes are the only accepted values for a spec file's top-level
