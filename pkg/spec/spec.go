@@ -255,6 +255,7 @@ type NounDef struct {
 	// ScopePart names the id_formats part that carries the resource's own account./org. prefix.
 	// Only that part is stripped; other parts keep any prefix they were typed with.
 	// Requires multi_level and id_formats on every id-taking command of the noun.
+	// ctx.id and ctx.parentId keep the typed prefix; read ctx.ids / ctx.idParts instead.
 	ScopePart string `yaml:"scope_part,omitempty"`
 	// NounAliases lists alternate names for this noun (e.g. "org", "orgs" for "organization").
 	// Alias commands are wired up as hidden cobra commands and do not appear in help output.
