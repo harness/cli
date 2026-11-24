@@ -481,7 +481,7 @@ func validatePaging(command string, pg *spec.PagingSpec) error {
 	case spec.PagingStrategyPageIndex, spec.PagingStrategyPageHeader, spec.PagingStrategyOffsetLimit:
 		// valid, fall through to server-paging checks below
 	case spec.PagingStrategyFlatList:
-		return nil
+		return validatePageParamsIn(command, pg)
 	default:
 		return fmt.Errorf("command %q: unknown paging model %q", command, pg.PagingStrategy)
 	}
@@ -502,6 +502,16 @@ func validatePaging(command string, pg *spec.PagingSpec) error {
 			return fmt.Errorf("command %q: paging requires page_size_param", command)
 		}
 	}
+	if err := validatePageParamsIn(command, pg); err != nil {
+		return err
+	}
+	if pg.PagingStrategy == spec.PagingStrategyPageIndex && pg.TotalExpr == "" {
+		return fmt.Errorf("command %q: page_index paging requires total_expr", command)
+	}
+	return nil
+}
+
+func validatePageParamsIn(command string, pg *spec.PagingSpec) error {
 	switch pg.PageParamsIn {
 	case "", spec.PageParamsInQuery:
 	case spec.PageParamsInBody:
@@ -510,9 +520,6 @@ func validatePaging(command string, pg *spec.PagingSpec) error {
 		}
 	default:
 		return fmt.Errorf("command %q: invalid page_params_in %q (must be \"query\" or \"body\")", command, pg.PageParamsIn)
-	}
-	if pg.PagingStrategy == spec.PagingStrategyPageIndex && pg.TotalExpr == "" {
-		return fmt.Errorf("command %q: page_index paging requires total_expr", command)
 	}
 	return nil
 }

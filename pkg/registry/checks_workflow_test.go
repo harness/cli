@@ -650,6 +650,16 @@ func TestValidatePaging(t *testing.T) {
 			wantErrSub: "invalid page_params_in",
 		},
 		{
+			name:       "page_params_in body on flat_list",
+			pg:         &spec.PagingSpec{PagingStrategy: spec.PagingStrategyFlatList, PageParamsIn: spec.PageParamsInBody},
+			wantErrSub: "only supported by page_index",
+		},
+		{
+			name:       "invalid page_params_in value on flat_list",
+			pg:         &spec.PagingSpec{PagingStrategy: spec.PagingStrategyFlatList, PageParamsIn: "bdy"},
+			wantErrSub: "invalid page_params_in",
+		},
+		{
 			name: "offset_limit only needs page_size_max",
 			pg: &spec.PagingSpec{
 				PagingStrategy: spec.PagingStrategyOffsetLimit,

@@ -5,6 +5,7 @@ package endpoint
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -131,4 +132,32 @@ func TestBuildRequest_BodyFnQueryPaging(t *testing.T) {
 			t.Fatalf("body = %#v, content type = %q, want raw yaml", req.Body, req.BodyContentType)
 		}
 	})
+}
+
+func TestAsJSONObject(t *testing.T) {
+	type req struct {
+		Filter string `json:"filter"`
+	}
+	for name, tc := range map[string]struct {
+		body    any
+		want    map[string]any
+		wantErr bool
+	}{
+		"map_unchanged": {body: map[string]any{"a": 1}, want: map[string]any{"a": 1}},
+		"struct":        {body: req{Filter: "foo"}, want: map[string]any{"filter": "foo"}},
+		"string_map":    {body: map[string]string{"a": "b"}, want: map[string]any{"a": "b"}},
+		"array":         {body: []string{"x"}, wantErr: true},
+		"string":        {body: "a: b", wantErr: true},
+		"nil_pointer":   {body: (*req)(nil), wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := asJSONObject(tc.body)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if !tc.wantErr && !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

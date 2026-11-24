@@ -4,6 +4,7 @@
 package endpoint
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -141,8 +142,8 @@ func HTTPFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount in
 		return nil, err
 	}
 	if pg.PageParamsIn == spec.PageParamsInBody && req.Body != nil {
-		if _, ok := req.Body.(map[string]any); !ok {
-			return nil, fmt.Errorf("page_params_in: body requires a JSON object request body, got %T", req.Body)
+		if req.Body, err = asJSONObject(req.Body); err != nil {
+			return nil, err
 		}
 	}
 	pagingData := strategy.InjectPaging(req, pg, wantStart, wantCount)
@@ -154,6 +155,23 @@ func HTTPFetchFn(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, wantStart, wantCount in
 	items := ExtractItems(ctx, ep, raw)
 	hlog.Debug("HTTPFetchFn", "noun", ctx.Noun, "strategy", pg.PagingStrategy, "items", len(items))
 	return strategy.ExtractPaging(ctx, ep, raw, items, headers, pagingData)
+}
+
+// asJSONObject returns body as a map, round-tripping structs and typed maps
+// through JSON so body paging accepts anything the client would send as an object.
+func asJSONObject(body any) (map[string]any, error) {
+	if m, ok := body.(map[string]any); ok {
+		return m, nil
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("page_params_in: body requires a JSON object request body, got %T: %w", body, err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil || m == nil {
+		return nil, fmt.Errorf("page_params_in: body requires a JSON object request body, got %T", body)
+	}
+	return m, nil
 }
 
 // runValidators runs each of ep.ValidatorsEndpoint against req, returning the
