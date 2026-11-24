@@ -1047,7 +1047,11 @@ func (m uiTableModel) View() tea.View {
 	}
 
 	if m.prompt != nil {
-		b.WriteString(m.promptView())
+		screen := m.promptView()
+		if m.prompt.confirm != nil {
+			screen = tui.OverlayCenter(screen, m.prompt.confirm.view(), m.width, m.height)
+		}
+		b.WriteString(screen)
 		v := tea.NewView(b.String())
 		v.AltScreen = true
 		return v

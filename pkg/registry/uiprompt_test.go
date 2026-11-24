@@ -22,7 +22,7 @@ func promptTestModel(text string) uiTableModel {
 		width: 80, height: 24,
 		getCs:      &spec.CommandSpec{Noun: "thing"},
 		detailMode: true,
-		prompt:     &uiPrompt{uc: spec.UICommand{InputFlag: "comment"}, id: "x", input: in},
+		prompt:     &uiPrompt{uc: spec.UICommand{InputFlag: "comment"}, cs: &spec.CommandSpec{Verb: VerbExecute, Noun: "thing"}, id: "x", input: in},
 	}
 }
 
@@ -87,10 +87,48 @@ func TestRunPromptCommandRejectsNonScalarInputFlag(t *testing.T) {
 	}
 }
 
-func TestRunPromptCommandRejectsConfirmID(t *testing.T) {
-	cs := &spec.CommandSpec{Verb: VerbExecute, Noun: "thing", ConfirmMode: spec.ConfirmID, Flags: []spec.Flag{{Name: "comment"}}}
-	err := runPromptCommand(nil, &uiPromptRun{uc: spec.UICommand{InputFlag: "comment"}, cs: cs})
-	if err == nil || !strings.Contains(err.Error(), "confirm_mode id") {
-		t.Fatalf("got %v", err)
+func TestPromptConfirmModal(t *testing.T) {
+	press := func(m uiTableModel, msgs ...tea.KeyPressMsg) (uiTableModel, tea.Cmd) {
+		var cmd tea.Cmd
+		for _, msg := range msgs {
+			m, cmd = m.handlePromptKey(msg)
+		}
+		return m, cmd
+	}
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	esc := tea.KeyPressMsg{Code: tea.KeyEscape}
+	key := func(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Text: string(r)} }
+
+	confirmID := func() uiTableModel {
+		m := promptTestModel("ship it")
+		m.prompt.cs.ConfirmMode = spec.ConfirmID
+		return m
+	}
+	m, cmd := press(confirmID(), ctrlS())
+	if cmd != nil || m.prompt.busy || m.prompt.confirm == nil {
+		t.Fatalf("ctrl+s must open the modal without running: cmd=%v busy=%v", cmd != nil, m.prompt.busy)
+	}
+	m, cmd = press(m, key('n'), enter)
+	if cmd != nil || m.prompt.busy || m.prompt.confirm == nil || m.prompt.confirm.err == "" {
+		t.Fatalf("wrong id must keep the modal open: cmd=%v busy=%v", cmd != nil, m.prompt.busy)
+	}
+	m, cmd = press(m, esc)
+	if cmd != nil || m.prompt == nil || m.prompt.confirm != nil || m.prompt.input.Value() != "ship it" {
+		t.Fatal("esc must return to the text box with the text kept")
+	}
+	m, cmd = press(m, ctrlS(), key('x'), enter)
+	if cmd == nil || !m.prompt.busy || m.prompt.confirm != nil {
+		t.Fatalf("matching id must run: cmd=%v busy=%v", cmd != nil, m.prompt.busy)
+	}
+
+	confirmYN := promptTestModel("ship it")
+	confirmYN.prompt.cs.ConfirmMode = spec.ConfirmPrompt
+	m, cmd = press(confirmYN, ctrlS(), enter)
+	if cmd != nil || m.prompt.busy || m.prompt.confirm != nil {
+		t.Fatal("enter must cancel the y/N modal")
+	}
+	m, cmd = press(m, ctrlS(), key('y'))
+	if cmd == nil || !m.prompt.busy {
+		t.Fatal("y must run")
 	}
 }
