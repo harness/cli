@@ -250,8 +250,8 @@ func callEndpointFull(ctx *cmdctx.Ctx, ep *spec.EndpointSpec, extraQueryParams m
 			return c.DoRequest(client.Request{Method: method, Path: path, QueryParams: qp, Body: body, BodyContentType: ct, Headers: extraHeaders})
 		}
 		switch method {
-		case "POST":
-			return c.Post(path, qp, body)
+		case "PATCH":
+			return c.Patch(path, qp, body)
 		case "DELETE":
 			if body != nil {
 				return c.DeleteWithBody(path, qp, body)
