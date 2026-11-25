@@ -809,6 +809,11 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case uiPromptDoneMsg:
 		return m.finishPrompt(msg)
 
+	case tea.PasteMsg:
+		if m.prompt != nil && m.prompt.confirm != nil {
+			return m, nil
+		}
+
 	case uiPageMsg:
 		m.loading = false
 		if msg.err != nil {
