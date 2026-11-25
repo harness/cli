@@ -44,7 +44,7 @@ func runConfirmGate(mode string, verb string, noun string, id string, isTTY bool
 		if err != nil {
 			return fmt.Errorf("Reading confirmation: %w", err)
 		}
-		if !strings.EqualFold(strings.TrimSpace(line), "y") {
+		if !confirmYes(line) {
 			return fmt.Errorf("Request canceled")
 		}
 
@@ -55,12 +55,20 @@ func runConfirmGate(mode string, verb string, noun string, id string, isTTY bool
 		if err != nil {
 			return fmt.Errorf("Reading confirmation: %w", err)
 		}
-		if strings.TrimSpace(line) != id {
+		if !confirmIDMatches(line, id) {
 			return fmt.Errorf("Identifier did not match — request canceled")
 		}
 	}
 
 	return nil
+}
+
+func confirmYes(answer string) bool {
+	return strings.EqualFold(strings.TrimSpace(answer), "y")
+}
+
+func confirmIDMatches(typed, id string) bool {
+	return strings.TrimSpace(typed) == id
 }
 
 func readLine() (string, error) {

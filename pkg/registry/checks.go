@@ -172,6 +172,23 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 			} else if uc.UpIdExpr == "" && upTargetRequiresId(verb, targetCs) {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands up entry %q: up_id_expr is required (%s %q requires an id)", noun, uc.Key, verb, uc.Noun))
 			}
+		case spec.UICommandPrompt:
+			if uc.Default {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: default is only allowed on text entries", noun, uc.Key))
+			}
+			if uc.Verb != VerbExecute && uc.Verb != VerbCreate && uc.Verb != VerbUpdate {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: verb must be %q, %q or %q", noun, uc.Key, VerbExecute, VerbCreate, VerbUpdate))
+			} else if targetCs := r.GetSpec(uc.Verb, uc.Noun); targetCs == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q does not resolve", noun, uc.Key, uc.Verb, uc.Noun))
+			} else if targetCs.Endpoint == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q is not an endpoint command", noun, uc.Key, uc.Verb, uc.Noun))
+			} else if targetCs.FollowFn != "" || targetCs.HandlerType == spec.HandlerWorkflow || targetCs.WorkflowID != "" {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q needs the terminal (follow_fn or a workflow)", noun, uc.Key, uc.Verb, uc.Noun))
+			} else if f := findFlag(targetCs, uc.InputFlag); f == nil {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: input_flag %q is not a flag of %s %q", noun, uc.Key, uc.InputFlag, uc.Verb, uc.Noun))
+			} else if f.IsMulti || f.IsArray {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: input_flag %q must be a single-value flag (not is_multi or is_array)", noun, uc.Key, uc.InputFlag))
+			}
 		default:
 			errs = append(errs, fmt.Sprintf("noun %q: ui_commands entry %q: invalid ui_command_type %q", noun, uc.Key, uc.UICommandType))
 		}
@@ -180,6 +197,15 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 		errs = append(errs, fmt.Sprintf("noun %q: ui_commands requires exactly one default text entry, found %d", noun, defaultCount))
 	}
 	return errs
+}
+
+func findFlag(cs *spec.CommandSpec, name string) *spec.Flag {
+	for i := range cs.Flags {
+		if cs.Flags[i].Name == name {
+			return &cs.Flags[i]
+		}
+	}
+	return nil
 }
 
 // upTargetRequiresId reports whether an up entry's resolved target command

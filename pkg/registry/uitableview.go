@@ -102,6 +102,8 @@ type uiTableModel struct {
 	launchUIHandlerFn string         // view entry's ui_handler_fn, set on quit
 	linkTarget        *cmdctx.UILink // link entry to follow, set on quit
 	wantBack          bool           // "b" was pressed with a non-empty UIHistory, set on quit
+	prompt            *uiPrompt      // open prompt text box, nil when closed
+	promptDone        bool           // prompt command succeeded, set on quit
 
 	// picker mode — set via newUIPickerModel; enter selects and quits
 	pickerMode       bool
@@ -531,6 +533,20 @@ func (m uiTableModel) buildUILink(verb, noun, id string) *cmdctx.UILink {
 	}
 }
 
+// goBack leaves the detail overlay: an in-place detail (reached via "enter", not
+// a Hop) collapses to the list underneath; a hopped one pops UIHistory on quit.
+func (m uiTableModel) goBack() (uiTableModel, tea.Cmd) {
+	if !m.detailOnly {
+		m.detailMode = false
+		return m, nil
+	}
+	if len(m.ctx.UIHistory) > 0 {
+		m.wantBack = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // dispatchUICommandKey handles a hotkey press against the active noun's
 // ui_commands list: re-renders in place for a text entry, or queues a view/link
 // hand-off and quits for view/link entries. handled=false means key isn't bound.
@@ -548,6 +564,9 @@ func (m uiTableModel) dispatchUICommandKey(key string) (uiTableModel, tea.Cmd, b
 			m.detail.loading = true
 			m.detail.err = ""
 			return m, m.fetchDetail(m.detail.id), true
+		case spec.UICommandPrompt:
+			newM, cmd := m.openPrompt(uc)
+			return newM, cmd, true
 		case spec.UICommandView:
 			m.launchUIId = m.detail.id
 			m.launchUIHandlerFn = uc.UIHandlerFn
@@ -703,6 +722,8 @@ func uiCommandHintLabel(uc spec.UICommand) string {
 		return uc.Verb + " " + strings.ReplaceAll(uc.Noun, "_", " ")
 	case spec.UICommandView:
 		return "view"
+	case spec.UICommandPrompt:
+		return strings.ReplaceAll(uc.Noun, "_", " ")
 	case spec.UICommandUp:
 		return "up " + strings.ReplaceAll(uc.Noun, "_", " ")
 	default:
@@ -754,6 +775,9 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.prompt != nil {
+			m.prompt.input.SetWidth(max(msg.Width-uiPromptChrome, 20))
+		}
 		pageSize := tableHeight(msg.Height)
 		m.pageSize = pageSize
 		m.t.SetHeight(pageSize)
@@ -782,6 +806,9 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case uiPromptDoneMsg:
+		return m.finishPrompt(msg)
+
 	case uiPageMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -798,6 +825,9 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if m.prompt != nil {
+			return m.handlePromptKey(msg)
+		}
 		if m.colPickMode {
 			switch msg.String() {
 			case "q", "ctrl+c":
@@ -843,14 +873,7 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.detailMode = false
 			case "b":
-				if !m.detailOnly {
-					// In-place detail flip (reached via "enter", not a Hop) — collapse
-					// back to the list underneath, same as esc, before touching History.
-					m.detailMode = false
-				} else if len(m.ctx.UIHistory) > 0 {
-					m.wantBack = true
-					return m, tea.Quit
-				}
+				return m.goBack()
 			case "up", "k":
 				if m.detail.scroll > 0 {
 					m.detail.scroll--
@@ -998,6 +1021,13 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
+	if m.prompt != nil {
+		if m.prompt.confirm != nil {
+			return m, nil
+		}
+		m.prompt.input, cmd = m.prompt.input.Update(msg)
+		return m, cmd
+	}
 	m.t, cmd = m.t.Update(msg)
 	return m, cmd
 }
@@ -1014,6 +1044,17 @@ func (m uiTableModel) View() tea.View {
 		b.WriteString(errStyle.Render("  terminal too small") + "\n")
 		b.WriteString(subtleStyle.Render(fmt.Sprintf("  min %dx%d  current %dx%d", uiMinWidth, uiMinHeight, m.width, m.height)) + "\n")
 		b.WriteString(subtleStyle.Render("  q quit") + "\n")
+		v := tea.NewView(b.String())
+		v.AltScreen = true
+		return v
+	}
+
+	if m.prompt != nil {
+		screen := m.promptView()
+		if m.prompt.confirm != nil {
+			screen = tui.OverlayCenter(screen, m.prompt.confirm.view(), m.width, m.height)
+		}
+		b.WriteString(screen)
 		v := tea.NewView(b.String())
 		v.AltScreen = true
 		return v
@@ -1315,6 +1356,10 @@ func finishUIExit(ctx *cmdctx.Ctx, fm uiTableModel) error {
 	if fm.linkTarget != nil {
 		ctx.PushUILink(currentScreenLink(ctx, fm))
 		return dispatchLink(ctx, fm.linkTarget)
+	}
+	if fm.promptDone {
+		link := currentScreenLink(ctx, fm)
+		return dispatchLink(ctx, &link)
 	}
 	if fm.launchUIId != "" && fm.launchUIHandlerFn != "" {
 		ctx.PushUILink(currentScreenLink(ctx, fm))
