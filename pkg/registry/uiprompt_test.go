@@ -132,3 +132,22 @@ func TestPromptConfirmModal(t *testing.T) {
 		t.Fatal("y must run")
 	}
 }
+
+func TestPromptConfirmModalIgnoresPaste(t *testing.T) {
+	m := promptTestModel("ship it")
+	m.prompt.input.Focus()
+	m.prompt.cs.ConfirmMode = spec.ConfirmID
+	m, _ = m.handlePromptKey(ctrlS())
+	for range 2 {
+		newModel, _ := m.Update(tea.PasteMsg{Content: "x"})
+		m = newModel.(uiTableModel)
+	}
+	if m.prompt.input.Value() != "ship it" || m.prompt.confirm.typed != "" {
+		t.Fatalf("paste must be ignored: text=%q typed=%q", m.prompt.input.Value(), m.prompt.confirm.typed)
+	}
+	m, _ = m.handlePromptKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+	newModel, _ := m.Update(tea.PasteMsg{Content: "!"})
+	if got := newModel.(uiTableModel).prompt.input.Value(); got != "ship it!" {
+		t.Fatalf("paste into the text box must still work once the modal is closed: %q", got)
+	}
+}

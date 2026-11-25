@@ -306,7 +306,7 @@ func formatLogLine(line string, isPty bool) string {
 // FetchAndPrintLog fetches a log blob and writes it to out.
 // Returns (false, nil) when the blob exists but is empty.
 func FetchAndPrintLog(hc *http.Client, a *auth.ResolvedAuth, logKey, fmtFlag string, isPty bool, out io.Writer) (bool, error) {
-	blobURL, err := url.Parse(a.APIUrl + "/gateway/log-service/blob")
+	blobURL, err := url.Parse(auth.JoinAPIURL(a.APIUrl, "/gateway/log-service/blob"))
 	if err != nil {
 		return false, fmt.Errorf("building URL: %w", err)
 	}
@@ -509,7 +509,7 @@ func WriteEvents(ch <-chan Event, w io.Writer, style MultiStyle) {
 // log line was sent to ch. Returns when the server closes with an eof event, on error,
 // or when ctx is cancelled.
 func StreamSSEToChannel(ctx context.Context, hc *http.Client, a *auth.ResolvedAuth, logKey, source, fmtFlag string, isPty bool, ch chan<- Event) (bool, error) {
-	u, err := url.Parse(a.APIUrl + "/gateway/log-service/stream")
+	u, err := url.Parse(auth.JoinAPIURL(a.APIUrl, "/gateway/log-service/stream"))
 	if err != nil {
 		return false, fmt.Errorf("building SSE URL: %w", err)
 	}

@@ -459,6 +459,33 @@ func TestValidateEndpointConstraints_PagingOnNonList(t *testing.T) {
 	}
 }
 
+func TestValidateEndpointConstraints_BodyPagingNeedsBodyMethod(t *testing.T) {
+	cs := &spec.CommandSpec{
+		Command: "list thing", Verb: VerbList, VerbHandler: VerbList, Noun: "thing", Module: "test",
+		HandlerType: spec.HandlerEndpoint,
+		Endpoint: &spec.EndpointSpec{
+			Method:    "GET",
+			ItemsExpr: "it.items",
+			Paging: &spec.PagingSpec{
+				PagingStrategy:  spec.PagingStrategyPageIndex,
+				PageParamsIn:    spec.PageParamsInBody,
+				PageSizeMax:     100,
+				PageSizeDefault: 20,
+				PageIndexParam:  "pageIndex",
+				PageSizeParam:   "pageSize",
+				TotalExpr:       "it.total",
+			},
+		},
+	}
+	if err := validateEndpointConstraints(cs); err == nil || !strings.Contains(err.Error(), "requires a POST, PUT or PATCH") {
+		t.Fatalf("expected body-paging method error, got: %v", err)
+	}
+	cs.Endpoint.Method = "POST"
+	if err := validateEndpointConstraints(cs); err != nil {
+		t.Fatalf("POST should be accepted, got: %v", err)
+	}
+}
+
 func TestValidateEndpointConstraints_ItemsExprOnNonList(t *testing.T) {
 	cs := &spec.CommandSpec{
 		Command: "get pipeline", Verb: VerbGet, VerbHandler: VerbGet, Noun: "pipeline", Module: "test",
@@ -652,6 +679,43 @@ func TestValidatePaging(t *testing.T) {
 				PageSizeParam:   "pageSize",
 				TotalExpr:       "it.totalItems",
 			},
+		},
+		{
+			name: "page_index body mode passes",
+			pg: &spec.PagingSpec{
+				PagingStrategy:  spec.PagingStrategyPageIndex,
+				PageParamsIn:    spec.PageParamsInBody,
+				PageSizeMax:     100,
+				PageSizeDefault: 20,
+				PageIndexParam:  "pageIndex",
+				PageSizeParam:   "pageSize",
+				TotalExpr:       "it.totalItems",
+			},
+		},
+		{
+			name:       "page_params_in body on page_header",
+			pg:         &spec.PagingSpec{PagingStrategy: spec.PagingStrategyPageHeader, PageParamsIn: spec.PageParamsInBody, PageSizeMax: 100, PageSizeDefault: 20, PageIndexParam: "p", PageSizeParam: "s"},
+			wantErrSub: "only supported by page_index",
+		},
+		{
+			name:       "page_params_in body on offset_limit",
+			pg:         &spec.PagingSpec{PagingStrategy: spec.PagingStrategyOffsetLimit, PageParamsIn: spec.PageParamsInBody, PageSizeMax: 100},
+			wantErrSub: "only supported by page_index",
+		},
+		{
+			name:       "invalid page_params_in value",
+			pg:         &spec.PagingSpec{PagingStrategy: spec.PagingStrategyPageIndex, PageParamsIn: "header", PageSizeMax: 100, PageSizeDefault: 20, PageIndexParam: "p", PageSizeParam: "s", TotalExpr: "it.t"},
+			wantErrSub: "invalid page_params_in",
+		},
+		{
+			name:       "page_params_in body on flat_list",
+			pg:         &spec.PagingSpec{PagingStrategy: spec.PagingStrategyFlatList, PageParamsIn: spec.PageParamsInBody},
+			wantErrSub: "only supported by page_index",
+		},
+		{
+			name:       "invalid page_params_in value on flat_list",
+			pg:         &spec.PagingSpec{PagingStrategy: spec.PagingStrategyFlatList, PageParamsIn: "bdy"},
+			wantErrSub: "invalid page_params_in",
 		},
 		{
 			name: "offset_limit only needs page_size_max",

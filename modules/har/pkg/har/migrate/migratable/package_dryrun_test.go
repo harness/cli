@@ -5,8 +5,10 @@ package migratable
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
@@ -97,5 +99,36 @@ func TestPackageMigrateDryRunPerformsNoTransfer(t *testing.T) {
 				t.Errorf("stats = %+v, want no transfer records in dry-run", job.stats.FileStats)
 			}
 		})
+	}
+}
+
+// File jobs of one version run concurrently and share one DryRunStats, so recording
+// into the directory structure has to be safe under concurrent writers.
+func TestAddFileToDryRunDirectoryIsConcurrencySafe(t *testing.T) {
+	stats := &types.DryRunStats{}
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 25; j++ {
+				(&File{
+					dryRunStats: stats,
+					srcRegistry: "reg",
+					pkg:         types.Package{Name: fmt.Sprintf("pkg-%d", i%4)},
+					version:     types.Version{Name: "1.0"},
+					file:        &types.File{Name: fmt.Sprintf("f-%d-%d", i, j)},
+				}).addFileToDryRunDirectory()
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	total := 0
+	for _, pkg := range stats.Directories["reg"].Packages {
+		total += len(pkg.Versions["1.0"].Files)
+	}
+	if total != 16*25 {
+		t.Errorf("recorded %d files, want %d", total, 16*25)
 	}
 }

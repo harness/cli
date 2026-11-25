@@ -1022,6 +1022,9 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	if m.prompt != nil {
+		if m.prompt.confirm != nil {
+			return m, nil
+		}
 		m.prompt.input, cmd = m.prompt.input.Update(msg)
 		return m, cmd
 	}

@@ -69,6 +69,8 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterBodyFn(updateAppProjectMappingBodyFnID, updateAppProjectMappingBody)
 	reg.RegisterBodyFn(importAgentBodyFnID, gitopsAgentImportBody)
 	reg.RegisterTextFormatter(importAgentSummaryFormatterID, formatGitopsAgentImportSummary)
+	reg.RegisterQueryParamsFn(metricsRangeFnID, metricsRangeParams)
+	reg.RegisterBodyFn(bulkSyncBodyFnID, bulkSyncBody)
 }
 
 func executeGitopsAgentImport(ctx *cmdctx.Ctx) error {

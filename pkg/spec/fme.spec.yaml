@@ -165,6 +165,10 @@ nouns:
         expr: join(map(it.tags, {#.name}), ", ")
         mutable_path: tags
         field_type: fme:tags
+      - id: categories
+        expr: join(map(it.categories ?? [], {#.name}), ", ")
+        mutable_path: categories
+        field_type: fme:tags
       - id: owners
         expr: join(map(it.owners, {#.name}), ", ")
         mutable_path: owners
@@ -186,7 +190,7 @@ nouns:
         expr: it.key
 
   - noun: traffic_type
-    short_desc: Harness FME traffic type (read-only lookup).
+    short_desc: A Harness FME traffic type (the kind of key flags, segments and metrics target, e.g. user, account).
     fields:
       - id: id
         expr: it.id
@@ -371,6 +375,19 @@ nouns:
         label: Enabled
         expr: string(it.isEnabled)
         mutable_path: isEnabled
+
+  - noun: experiment_summary
+    short_desc: An experiment's overall sample counts and SRM state per treatment (used for field lookup only, read-only).
+    fields:
+      - id: calculated_at
+        label: Calculated At
+        expr: it.calculatedAt ?? ""
+      - id: sample_counts
+        label: Sample Counts
+        expr: 'join(map(it.sampleCounts, {#.treatment + "=" + string(int(#.count))}), ", ")'
+      - id: srm_state
+        label: SRM State
+        expr: 'join(map(filter(it.sampleCounts, {#.srmState != nil}), {#.treatment + "=" + #.srmState}), ", ")'
 
   - noun: experiment_results
     short_desc: A metric result for an experiment comparison (used for field lookup only, read-only).
@@ -764,12 +781,16 @@ commands:
     noun: feature_flag
     noun_variant: definition
     confirm_mode: prompt
-    short: Delete a flag definition from an environment
+    short: "Delete a flag definition from an environment: harness delete feature_flag:definition <name> --env <env-id> [--comment <text>] [--title <text>]"
     handler_type: endpoint
     flags:
       - name: env
         description: Environment identifier (required)
         required: true
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: DELETE
       path: /fme/api/v4/feature-flag-definitions/{{ctx.id}}
@@ -778,6 +799,12 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         environment_id: flags.env
+      # comment/title travel as a JSON body (not query params): the v4 resource takes
+      # @Valid FeatureFlagDefinitionActionRequest with no @QueryParam, same as feature_flag delete.
+      # Omitted (not sent as null/empty) when unset.
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
 
   - command: execute feature_flag:kill
     verb: execute
@@ -1112,13 +1139,17 @@ commands:
     verb: delete
     noun: segment
     confirm_mode: prompt
-    short: "Delete (archive) a segment: harness delete segment <name> --segment-type STANDARD"
+    short: "Delete (archive) a segment: harness delete segment <name> --segment-type STANDARD [--comment <text>] [--title <text>]"
     handler_type: endpoint
     flags:
       - name: segment-type
         description: "Segment type (required): STANDARD, LARGE, RULE_BASED"
         required: true
         completion_values: [STANDARD, LARGE, RULE_BASED]
+      - name: comment
+        description: Audit comment
+      - name: title
+        description: Audit title
     endpoint:
       method: DELETE
       path: /fme/api/v4/segments/{{ctx.id}}
@@ -1127,6 +1158,12 @@ commands:
         organization_identifier: auth.org
         project_identifier: auth.project
         segment_type: flags["segment-type"]
+      # comment/title travel as a JSON body (not query params): the v4 resource takes
+      # an optional @Valid SegmentDeleteRequest with no @QueryParam.
+      # Omitted (not sent as null/empty) when unset.
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+        title: 'flags.title != "" ? flags.title : nil'
 
   # ── segment:definition ─────────────────────────────────────────────────────────
 
@@ -1394,6 +1431,9 @@ commands:
       - name: tag
         description: Filter by tag name (repeatable in the API; the CLI sends one value)
         is_multi: true
+      - name: category
+        description: Filter by category name, case-insensitive (repeatable in the API; the CLI sends one value)
+        is_multi: true
       - name: id
         description: Filter to specific metric ids (repeatable in the API; the CLI sends one value)
         is_multi: true
@@ -1413,6 +1453,7 @@ commands:
         traffic_type_id: flags["traffic-type-id"]
         event_type_ids: 'flags["event-type-id"][0]'
         tags: flags.tag[0]
+        categories: flags.category[0]
         ids: flags.id[0]
         sort_order: flags["sort-order"]
       paging:
@@ -1489,8 +1530,8 @@ commands:
       # filterEventType, cap, and triggerEventType ARE update_body_pick-able per
       # UpdateMetricRequest.java, and are picked here (not omitted) so a scalar --set on one
       # field of any of them doesn't drop the rest of that object out of the merge-patch.
-      # tags/owners are picked for the same reason, as with feature_flag/segment.
-      update_body_pick: "{description: it.description, format: it.format, aggregation: it.aggregation, isPositive: it.isPositive, spread: it.spread, filterEventType: it.filterEventType, cap: it.cap, triggerEventType: it.triggerEventType, tags: it.tags, owners: it.owners}"
+      # tags/categories/owners are picked for the same reason, as with feature_flag/segment.
+      update_body_pick: "{description: it.description, format: it.format, aggregation: it.aggregation, isPositive: it.isPositive, spread: it.spread, filterEventType: it.filterEventType, cap: it.cap, triggerEventType: it.triggerEventType, tags: it.tags, categories: it.categories, owners: it.owners}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
@@ -1587,6 +1628,42 @@ commands:
         total_expr: it.totalCount
         countable: true
       columns: [id, name]
+
+  - command: create traffic_type
+    verb: create
+    noun: traffic_type
+    short: "Create a traffic type: harness create traffic_type <name> (or -f traffic-type.json)"
+    handler_type: endpoint
+    flags_builtin:
+      set: true
+    endpoint:
+      method: POST
+      file_body: optional
+      path: /fme/api/v4/traffic-types
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      create_strategy: set-fields
+      create_body_init:
+        name: ctx.id
+      create_body_wrap: ""
+      item_expr: it.entity
+      text_header: "\nCreated traffic type {{it.name}}\n"
+
+  - command: delete traffic_type
+    verb: delete
+    noun: traffic_type
+    confirm_mode: prompt
+    short: "Delete a traffic type by id (must not be used by flags, segments or metrics): harness delete traffic_type <traffic-type-id>"
+    handler_type: endpoint
+    endpoint:
+      method: DELETE
+      path: /fme/api/v4/traffic-types/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
 
   # ── rollout_status ────────────────────────────────────────────────────────────
 
@@ -1917,6 +1994,24 @@ commands:
         project_identifier: auth.project
         metric_ids: flags["metric-id"]
       columns: [metric_id, metric_name, category, comparison, baseline_mean, comparison_mean, value, pvalue, positive, impact_lower, impact_upper]
+
+  # ── experiment:summary ───────────────────────────────────────────────────────
+
+  - command: get experiment:summary
+    verb: get
+    noun: experiment
+    noun_variant: summary
+    short: "Get an experiment's sample counts and SRM state per treatment: harness get experiment:summary <experiment-id>"
+    handler_type: endpoint
+    fields_noun: experiment_summary
+    endpoint:
+      path: /fme/api/v4/experiments/{{ctx.id}}/summary
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
 
   # ── change_request ───────────────────────────────────────────────────────────
 

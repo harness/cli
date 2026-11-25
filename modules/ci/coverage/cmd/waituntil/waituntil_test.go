@@ -123,13 +123,13 @@ func TestCoverageEvaluateThresholds(t *testing.T) {
 		{
 			name:    "patch-gt fails when patch coverage equals the threshold",
 			flags:   waitUntilFlags{patchGt: 80},
-			summary: &reportSummary{Coverage: 90, Patch: &patchSummary{Coverage: 80}},
+			summary: &reportSummary{Coverage: 90, Patch: &patchSummary{Lines: 10, Coverage: 80}},
 			wantErr: true,
 		},
 		{
 			name:    "patch-gte passes when patch coverage equals the threshold",
 			flags:   waitUntilFlags{patchGte: 80},
-			summary: &reportSummary{Coverage: 90, Patch: &patchSummary{Coverage: 80}},
+			summary: &reportSummary{Coverage: 90, Patch: &patchSummary{Lines: 10, Coverage: 80}},
 			wantErr: false,
 		},
 		{
@@ -137,7 +137,36 @@ func TestCoverageEvaluateThresholds(t *testing.T) {
 			flags: waitUntilFlags{gt: 70, patchGt: 80},
 			summary: &reportSummary{
 				Coverage: 60,
-				Patch:    &patchSummary{Coverage: 75},
+				Patch:    &patchSummary{Lines: 10, Coverage: 75},
+			},
+			wantErr: true,
+		},
+		{
+			name:  "counted empty diff skips the patch gate",
+			flags: waitUntilFlags{patchGte: 80},
+			summary: &reportSummary{
+				Coverage:     90,
+				PatchCounted: true,
+				Patch:        &patchSummary{Lines: 0, Coverage: 0},
+			},
+			wantErr: false,
+		},
+		{
+			name:  "uncounted empty diff fails the patch gate",
+			flags: waitUntilFlags{patchGte: 80},
+			summary: &reportSummary{
+				Coverage: 90,
+				Patch:    &patchSummary{Lines: 0, Coverage: 0},
+			},
+			wantErr: true,
+		},
+		{
+			name:  "overall threshold still applies when the patch is empty",
+			flags: waitUntilFlags{gte: 95, patchGte: 80},
+			summary: &reportSummary{
+				Coverage:     90,
+				PatchCounted: true,
+				Patch:        &patchSummary{Lines: 0, Coverage: 0},
 			},
 			wantErr: true,
 		},
@@ -152,6 +181,62 @@ func TestCoverageEvaluateThresholds(t *testing.T) {
 			}
 			if tt.wantErr && tt.summary != nil && !strings.Contains(err.Error(), "quality gate failed") {
 				t.Errorf("evaluateThresholds() error = %v, want it to mention quality gate failed", err)
+			}
+		})
+	}
+}
+
+func TestCoveragePatchThresholdFailures(t *testing.T) {
+	t.Parallel()
+
+	const countedEmpty = `{
+		"coverage": 90,
+		"lines": 10,
+		"hits": 9,
+		"patch_counted": true,
+		"patch": {"lines": 0, "hits": 0, "coverage": 0}
+	}`
+	const uncountedEmpty = `{
+		"coverage": 90,
+		"lines": 10,
+		"hits": 9,
+		"patch": {"lines": 0, "hits": 0, "coverage": 0}
+	}`
+	const lowPatch = `{
+		"coverage": 90,
+		"lines": 10,
+		"hits": 9,
+		"patch_counted": true,
+		"patch": {"lines": 10, "hits": 5, "coverage": 50}
+	}`
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "counted empty diff skips the patch gate", body: countedEmpty},
+		{name: "uncounted empty diff fails the patch gate", body: uncountedEmpty, want: "patch diff was not computed"},
+		{name: "lines below the target still fail", body: lowPatch, want: "patch coverage 50.00% is not >= 80.00%"},
+	}
+
+	flags := waitUntilFlags{patchGte: 80}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var summary reportSummary
+			if err := json.Unmarshal([]byte(tt.body), &summary); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			failures := patchThresholdFailures(flags, &summary)
+			if tt.want == "" {
+				if len(failures) != 0 {
+					t.Fatalf("patch failures = %v, want none", failures)
+				}
+				return
+			}
+			if len(failures) != 1 || failures[0] != tt.want {
+				t.Fatalf("patch failures = %v, want %q", failures, tt.want)
 			}
 		})
 	}

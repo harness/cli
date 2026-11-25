@@ -25,7 +25,7 @@ nouns:
     short_desc: A Harness CD service definition.
     noun_aliases: [services, svc]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/module/cd/orgs/{{auth.org}}/projects/{{auth.project}}/services/{{it.service.identifier}}
+    url_path: /ng/account/{{auth.account}}/module/cd{{scopePath(auth)}}/services/{{it.service.identifier}}
     fields:
       - id: identifier
         expr: it.service.identifier
@@ -49,7 +49,7 @@ nouns:
     short_desc: A Harness CD environment (Production or PreProduction).
     noun_aliases: [environments, env, envs]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/module/cd/orgs/{{auth.org}}/projects/{{auth.project}}/environments/{{it.environment.identifier}}
+    url_path: /ng/account/{{auth.account}}/module/cd{{scopePath(auth)}}/environments/{{it.environment.identifier}}
     fields:
       - id: identifier
         expr: it.environment.identifier
@@ -97,6 +97,20 @@ nouns:
       - id: deployment_type
         label: Deploy Type
         expr: it.infrastructure.deploymentType
+      - id: allow_simultaneous_deployments
+        label: Allow Simultaneous
+        expr: yamlParse(it.infrastructure.yaml).infrastructureDefinition.allowSimultaneousDeployments
+        field_type: bool
+        mutable_path: allowSimultaneousDeployments
+      - id: connector_ref
+        expr: yamlParse(it.infrastructure.yaml).infrastructureDefinition.spec.connectorRef
+        mutable_path: spec.connectorRef
+      - id: namespace
+        expr: yamlParse(it.infrastructure.yaml).infrastructureDefinition.spec.namespace
+        mutable_path: spec.namespace
+      - id: release_name
+        expr: yamlParse(it.infrastructure.yaml).infrastructureDefinition.spec.releaseName
+        mutable_path: spec.releaseName
       - id: updated
         expr: epochMs(it.lastModifiedAt ?? it.infrastructure.lastModifiedAt)
       - id: created
@@ -106,7 +120,7 @@ nouns:
     short_desc: An override for service configuration within an environment, infrastructure, or cluster.
     noun_aliases: [service_overrides, override, overrides]
     multi_level: true
-    url_path: /ng/account/{{auth.account}}/all/cd/orgs/{{auth.org}}/projects/{{auth.project}}/serviceOverrides
+    url_path: /ng/account/{{auth.account}}/all/cd{{scopePath(auth)}}/serviceOverrides
     fields:
       - id: identifier
         expr: it.identifier
@@ -414,7 +428,7 @@ commands:
   - command: update infrastructure
     verb: update
     noun: infrastructure
-    short: Update an infrastructure definition (name, description, tags, or full YAML via -f)
+    short: Update an infrastructure definition (name, description, tags, or full YAML via -f). namespace and release_name are Kubernetes spec keys; on other types the server stores them anyway
     handler_type: endpoint
     flags_builtin:
       set: true

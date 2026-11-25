@@ -307,7 +307,7 @@ func TestMutationBodyForCtxResolvesRegisteredTypes(t *testing.T) {
 	}
 	ctx := &cmdctx.Ctx{Resolver: r, Noun: "widget", SetArgs: map[string]string{"tags.env": "prod", "modules.CD": ""},
 		MutationFlags: []cmdctx.FieldMutation{{Kind: cmdctx.MutationSet, Raw: "modules.CD", Key: "modules.CD"}}}
-	got, err := mutationBodyForCtx(ctx, map[string]any{}, "widget", nil, false, false, false, nil)
+	got, err := mutationBodyForCtx(ctx, VerbCreate, map[string]any{}, "widget", nil, false, false, false, nil)
 	want := map[string]any{"widget": map[string]any{"tags": map[string]any{"env": "prod"}, "modules": []any{"CD"}}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("body = %#v, error = %v, want %#v", got, err, want)
@@ -333,9 +333,37 @@ func TestMutationBodyForCtxNormalizesPickedFieldsWithoutMutations(t *testing.T) 
 		picked bool
 		want   string
 	}{{picked: true, want: "read:normalized"}, {picked: false, want: "read"}} {
-		got, err := mutationBodyForCtx(ctx, base, "", nil, tc.picked, false, false, nil)
+		got, err := mutationBodyForCtx(ctx, VerbUpdate, base, "", nil, tc.picked, false, false, nil)
 		if err != nil || got["nested"].(map[string]any)["items"] != tc.want {
 			t.Fatalf("picked = %t, body = %#v, error = %v, want %q", tc.picked, got, err, tc.want)
 		}
+	}
+}
+
+func TestMutationBodyForCtxScopesFieldsByVerb(t *testing.T) {
+	r := New()
+	if err := r.RegisterNoun(spec.NounDef{Noun: "widget", Fields: []spec.FieldDef{
+		{ID: "name", Expr: "it.name", MutablePath: "name"},
+		{ID: "branch", Expr: "it.branch", MutablePath: "branch", MutableOn: "create"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	set := func(key string) *cmdctx.Ctx {
+		return &cmdctx.Ctx{Resolver: r, Noun: "widget", SetArgs: map[string]string{key: "x"},
+			MutationFlags: []cmdctx.FieldMutation{{Kind: cmdctx.MutationSet, Raw: key + "=x", Key: key, Value: "x", HasValue: true}}}
+	}
+	if _, err := mutationBodyForCtx(set("branch"), VerbCreate, map[string]any{}, "", nil, false, false, false, nil); err != nil {
+		t.Fatalf("create-only field on create: %v", err)
+	}
+	if _, err := mutationBodyForCtx(set("name"), VerbUpdate, map[string]any{}, "", nil, false, false, false, nil); err != nil {
+		t.Fatalf("unscoped field on update: %v", err)
+	}
+	_, err := mutationBodyForCtx(set("branch"), VerbUpdate, map[string]any{}, "", nil, false, false, false, nil)
+	if err == nil || !strings.Contains(err.Error(), "create-only") {
+		t.Fatalf("create-only field on update: got %v", err)
+	}
+	_, err = mutationBodyForCtx(set("nope"), VerbUpdate, map[string]any{}, "", nil, false, false, false, nil)
+	if err == nil || !strings.Contains(err.Error(), "unknown or read-only") {
+		t.Fatalf("unknown field: got %v", err)
 	}
 }

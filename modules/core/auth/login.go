@@ -50,7 +50,13 @@ func LoginHandler(ctx *cmdctx.Ctx) error {
 
 	if sso {
 		if apiURL != "" || token != "" {
-			return fmt.Errorf("--sso cannot be combined with --api-url or --api-token")
+			return fmt.Errorf("--sso cannot be combined with --api-url or --api-token: SSO uses its own API URL, so drop those flags")
+		}
+		if accountID != "" {
+			fmt.Fprintln(os.Stderr, "Warning: --account is ignored with --sso")
+		}
+		if noValidate {
+			fmt.Fprintln(os.Stderr, "Warning: --no-validate is ignored with --sso")
 		}
 	}
 

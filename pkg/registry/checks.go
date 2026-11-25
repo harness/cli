@@ -22,6 +22,7 @@ func (r *Registry) CheckFunctions() error {
 	}
 	for noun, nd := range r.nouns {
 		errs = append(errs, r.checkUICommands(noun, nd)...)
+		errs = append(errs, r.checkScopePart(noun, nd)...)
 		for _, field := range nd.Fields {
 			if field.MutablePath == "" {
 				continue
@@ -39,6 +40,41 @@ func (r *Registry) CheckFunctions() error {
 		return errors.New("registry errors:\n  " + strings.Join(errs, "\n  "))
 	}
 	return nil
+}
+
+// checkScopePart validates a noun's scope_part: it needs multi_level, id_formats on every
+// command that takes an id, and a part of that name in at least one of them.
+// List parent scopes are exempt so they keep the account/org sentinels.
+func (r *Registry) checkScopePart(noun string, nd spec.NounDef) []string {
+	if nd.ScopePart == "" {
+		return nil
+	}
+	var errs []string
+	if !nd.MultiLevel {
+		errs = append(errs, fmt.Sprintf("noun %q: scope_part requires multi_level", noun))
+	}
+	found := false
+	for _, specs := range r.specs {
+		for _, cs := range specs {
+			vs := verbRegistry[cs.Verb]
+			takesId := (vs.RequiresId && !cs.NoId) || vs.AllowsId || cs.AllowsId
+			if cs.Noun != noun || !takesId {
+				continue
+			}
+			if len(cs.IdFormats) == 0 {
+				errs = append(errs, fmt.Sprintf("command %q: noun scope_part requires id_formats", cs.Command))
+			}
+			for _, f := range cs.IdFormatList() {
+				for _, part := range f.Parts {
+					found = found || part.Name == nd.ScopePart
+				}
+			}
+		}
+	}
+	if !found {
+		errs = append(errs, fmt.Sprintf("noun %q: scope_part %q is not a part of any id_formats", noun, nd.ScopePart))
+	}
+	return errs
 }
 
 // validModuleTypes are the only accepted values for a spec file's top-level
@@ -223,7 +259,7 @@ func (r *Registry) checkFunctionsSpec(cs *spec.CommandSpec) []string {
 				noun = cs.FieldsNoun
 			}
 			mutable := map[string]bool{}
-			for _, f := range MutableFields(r.GetNoun(noun)) {
+			for _, f := range MutableFieldsFor(r.GetNoun(noun), VerbUpdate) {
 				mutable[f.ID] = true
 			}
 			for _, id := range cs.Endpoint.PatchAlwaysFields {
@@ -429,6 +465,11 @@ func validateEndpointConstraints(cs *spec.CommandSpec) error {
 		if err := validatePaging(cs.Command, ep.Paging); err != nil {
 			return err
 		}
+		if ep.Paging.PageParamsIn == spec.PageParamsInBody {
+			if ep.Method != "POST" && ep.Method != "PUT" && ep.Method != "PATCH" {
+				return fmt.Errorf("command %q: page_params_in: body requires a POST, PUT or PATCH method", cs.Command)
+			}
+		}
 	}
 	if len(ep.BodyParams) > 0 || ep.BodyFn != "" {
 		method := ep.Method
@@ -502,7 +543,7 @@ func validatePaging(command string, pg *spec.PagingSpec) error {
 	case spec.PagingStrategyPageIndex, spec.PagingStrategyPageHeader, spec.PagingStrategyOffsetLimit:
 		// valid, fall through to server-paging checks below
 	case spec.PagingStrategyFlatList:
-		return nil
+		return validatePageParamsIn(command, pg)
 	default:
 		return fmt.Errorf("command %q: unknown paging model %q", command, pg.PagingStrategy)
 	}
@@ -523,8 +564,24 @@ func validatePaging(command string, pg *spec.PagingSpec) error {
 			return fmt.Errorf("command %q: paging requires page_size_param", command)
 		}
 	}
+	if err := validatePageParamsIn(command, pg); err != nil {
+		return err
+	}
 	if pg.PagingStrategy == spec.PagingStrategyPageIndex && pg.TotalExpr == "" {
 		return fmt.Errorf("command %q: page_index paging requires total_expr", command)
+	}
+	return nil
+}
+
+func validatePageParamsIn(command string, pg *spec.PagingSpec) error {
+	switch pg.PageParamsIn {
+	case "", spec.PageParamsInQuery:
+	case spec.PageParamsInBody:
+		if pg.PagingStrategy != spec.PagingStrategyPageIndex {
+			return fmt.Errorf("command %q: page_params_in: body is only supported by page_index paging", command)
+		}
+	default:
+		return fmt.Errorf("command %q: invalid page_params_in %q (must be \"query\" or \"body\")", command, pg.PageParamsIn)
 	}
 	return nil
 }

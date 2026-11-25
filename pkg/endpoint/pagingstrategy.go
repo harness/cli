@@ -89,12 +89,24 @@ func (pageIndexStrategy) InjectPaging(req *client.Request, pg *spec.PagingSpec, 
 	if indexParam == "" {
 		indexParam = "pageIndex"
 	}
-	if req.QueryParams == nil {
-		req.QueryParams = map[string]string{}
-	}
-	req.QueryParams[indexParam] = strconv.Itoa(pageIndex)
-	if pg.PageSizeParam != "" && pageSize > 0 {
-		req.QueryParams[pg.PageSizeParam] = strconv.Itoa(pageSize)
+	if pg.PageParamsIn == spec.PageParamsInBody {
+		body, _ := req.Body.(map[string]any)
+		if body == nil {
+			body = map[string]any{}
+			req.Body = body
+		}
+		body[indexParam] = pageIndex
+		if pg.PageSizeParam != "" && pageSize > 0 {
+			body[pg.PageSizeParam] = pageSize
+		}
+	} else {
+		if req.QueryParams == nil {
+			req.QueryParams = map[string]string{}
+		}
+		req.QueryParams[indexParam] = strconv.Itoa(pageIndex)
+		if pg.PageSizeParam != "" && pageSize > 0 {
+			req.QueryParams[pg.PageSizeParam] = strconv.Itoa(pageSize)
+		}
 	}
 
 	return pageIndexData{pageIndex: pageIndex, pageSize: pageSize, startOffset: startOffset}

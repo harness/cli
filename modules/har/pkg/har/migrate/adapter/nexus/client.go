@@ -181,9 +181,27 @@ func (c *client) getRepositoryDetails(name, packageType string) (*NexusRepositor
 	return &repoDetails, nil
 }
 
-// searchComponents searches for components in a repository
-func (c *client) searchComponents(repository string, continuationToken string) (*NexusSearchResponse, error) {
-	url := fmt.Sprintf("%s/service/rest/v1/search", strings.TrimSuffix(c.url, "/"))
+// listComponents returns every component in the repository. It pages /v1/components,
+// which is database-backed: the search endpoints silently stop at 10,000 hits and
+// would truncate large repositories without any error.
+func (c *client) listComponents(repository string) ([]NexusComponent, error) {
+	var components []NexusComponent
+	continuationToken := ""
+	for {
+		page, err := c.listComponentsPage(repository, continuationToken)
+		if err != nil {
+			return nil, err
+		}
+		components = append(components, page.Items...)
+		if page.ContinuationToken == "" {
+			return components, nil
+		}
+		continuationToken = page.ContinuationToken
+	}
+}
+
+func (c *client) listComponentsPage(repository, continuationToken string) (*NexusSearchResponse, error) {
+	url := fmt.Sprintf("%s/service/rest/v1/components", strings.TrimSuffix(c.url, "/"))
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -207,12 +225,15 @@ func (c *client) searchComponents(repository string, continuationToken string) (
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var searchResponse NexusSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResponse); err != nil {
+	var page NexusSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
+	// Unread trailing bytes stop the connection from being reused, and a full
+	// listing is thousands of sequential requests.
+	_, _ = io.Copy(io.Discard, resp.Body)
 
-	return &searchResponse, nil
+	return &page, nil
 }
 
 // getAsset downloads an asset by its download URL
@@ -286,41 +307,6 @@ func (c *client) uploadAsset(repository string, file io.ReadCloser, filename str
 	}
 
 	return nil
-}
-
-// getFiles retrieves a list of files from the specified Nexus repository
-func (c *client) getFiles(repository, packageType string) ([]types.File, error) {
-	var allFiles []types.File
-	continuationToken := ""
-
-	for {
-		searchResponse, err := c.searchComponents(repository, continuationToken)
-		if err != nil {
-			return nil, fmt.Errorf("failed to search components: %w", err)
-		}
-
-		for _, component := range searchResponse.Items {
-			for _, asset := range component.Assets {
-				file := types.File{
-					Name:     getFileName(asset.Path),
-					Registry: repository,
-					Uri:      asset.Path,
-					Folder:   false,
-					Size:     int(asset.FileSize),
-					SHA1:     asset.Checksum["sha1"],
-					SHA2:     asset.Checksum["sha256"],
-				}
-				allFiles = append(allFiles, file)
-			}
-		}
-
-		if searchResponse.ContinuationToken == "" {
-			break
-		}
-		continuationToken = searchResponse.ContinuationToken
-	}
-
-	return allFiles, nil
 }
 
 // getFileName extracts filename from a path

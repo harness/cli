@@ -88,6 +88,12 @@ const (
 	PagingStrategyOffsetLimit = "offset_limit" // API accepts offset (items to skip) + limit; response has totalCount
 )
 
+// Valid page_params_in values for PagingSpec.
+const (
+	PageParamsInQuery = "query"
+	PageParamsInBody  = "body"
+)
+
 // Valid presence values for MigrateFlag.
 const (
 	MigratePresenceRequired = "required" // flag is registered and must be provided
@@ -252,6 +258,11 @@ type NounDef struct {
 	// MultiLevel indicates the noun can exist at account, org, or project scope.
 	// Set explicitly in the spec YAML on nouns that support --level.
 	MultiLevel bool `yaml:"multi_level,omitempty"`
+	// ScopePart names the id_formats part that carries the resource's own account./org. prefix.
+	// Only that part is stripped; other parts keep any prefix they were typed with.
+	// Requires multi_level and id_formats on every id-taking command of the noun.
+	// ctx.id and ctx.parentId keep the typed prefix; read ctx.ids / ctx.idParts instead.
+	ScopePart string `yaml:"scope_part,omitempty"`
 	// NounAliases lists alternate names for this noun (e.g. "org", "orgs" for "organization").
 	// Alias commands are wired up as hidden cobra commands and do not appear in help output.
 	NounAliases []string `yaml:"noun_aliases,omitempty"`
@@ -328,6 +339,8 @@ type FieldDef struct {
 	// "spec.value"). Must not start with "it.". Its presence marks the field as writable
 	// and should match update_body_pick on the corresponding update command.
 	MutablePath string `yaml:"mutable_path,omitempty"`
+	// MutableOn limits mutable_path to one verb: "create" or "update". Empty means both.
+	MutableOn string `yaml:"mutable_on,omitempty"`
 	// FieldType optionally changes how the value is rendered or updated.
 	// Supported: "multiline_text" (renders raw block below other fields), "yaml" (alias for multiline_text, use for actual YAML content),
 	// "tags" (tag-map handling), "set" (string-set handling), "ts" (epoch-ms timestamp),
@@ -349,7 +362,26 @@ func (f FieldDef) Validate() error {
 	if strings.HasPrefix(f.MutablePath, "it.") {
 		return fmt.Errorf("field %q: mutable_path must not start with \"it.\" (it is relative to the update_body_pick subtree)", f.ID)
 	}
+	if f.MutableOn != "" && f.MutablePath == "" {
+		return fmt.Errorf("field %q: mutable_on requires mutable_path", f.ID)
+	}
+	if f.MutableOn != "" && f.MutableOn != "create" && f.MutableOn != "update" {
+		return fmt.Errorf("field %q: mutable_on %q must be \"create\" or \"update\"", f.ID, f.MutableOn)
+	}
 	return nil
+}
+
+// TypeLabel is the field's type as shown to users; plain fields are "scalar".
+func (f FieldDef) TypeLabel() string {
+	if f.FieldType == "" {
+		return "scalar"
+	}
+	return f.FieldType
+}
+
+// MutableOnVerb reports whether the field is writable on verb ("create" or "update").
+func (f FieldDef) MutableOnVerb(verb string) bool {
+	return f.MutablePath != "" && (f.MutableOn == "" || f.MutableOn == verb)
 }
 
 // TableSpec is a declarative table definition used internally by the rendering layer.
@@ -402,6 +434,10 @@ type PagingSpec struct {
 	PageSizeParam   string `yaml:"page_size_param,omitempty"`   // query param name, e.g. "pageSize"
 	PageSizeDefault int    `yaml:"page_size_default,omitempty"` // default page size (e.g. 50)
 	PageSizeMax     int    `yaml:"page_size_max,omitempty"`     // max page size the API accepts (e.g. 100)
+
+	// PageParamsIn selects where page_index writes its index and size params:
+	// PageParamsInQuery (default) or PageParamsInBody (JSON request body).
+	PageParamsIn string `yaml:"page_params_in,omitempty"`
 
 	// TotalExpr is an expression evaluated against the raw response (with "it" bound to the response root).
 	// Resolves to the total item count, e.g. "it.data.totalItems". Required for page_index model.

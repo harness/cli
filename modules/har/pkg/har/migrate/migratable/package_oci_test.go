@@ -5,6 +5,7 @@ package migratable
 
 import (
 	"context"
+	"errors"
 	"io"
 	stdlog "log"
 	"net/http"
@@ -299,6 +300,72 @@ func TestMigrateOCITaglessRepositoryIsSkip(t *testing.T) {
 	}
 	if snap[0].Status != types.StatusSkip || snap[0].Reason != types.SkipReasonNoContent {
 		t.Errorf("stat = %+v, want StatusSkip/%s", snap[0], types.SkipReasonNoContent)
+	}
+}
+
+// ociPathErrAdapter fails image-path resolution, as the Nexus adapter does when
+// a Docker repository exposes no connector port.
+type ociPathErrAdapter struct{ ociStubAdapter }
+
+var errNoConnectorPort = errors.New("no Docker connector port configured")
+
+func (a *ociPathErrAdapter) GetOCIImagePath(string, string, string) (string, error) {
+	return "", errNoConnectorPort
+}
+
+// An unresolvable source path must surface as the failure's cause instead of
+// reaching crane with an empty reference ("a repository name must be specified").
+func TestPreFailsWithCauseWhenOCIImagePathUnresolved(t *testing.T) {
+	stats := &types.TransferStats{}
+	job := newOCIPackageJob("", "", false, stats)
+	job.srcAdapter = &ociPathErrAdapter{}
+
+	err := job.Pre(context.Background())
+	if !errors.Is(err, errNoConnectorPort) {
+		t.Fatalf("Pre error = %v, want it to wrap %v", err, errNoConnectorPort)
+	}
+	requireSingleFailStat(t, stats, errNoConnectorPort.Error())
+}
+
+// A Pre failure aborts the package before Migrate runs, so Pre itself must record
+// it or the result file and summary undercount failures.
+func TestPreRecordsFailureWhenSourceTagsCannotBeListed(t *testing.T) {
+	host := startOCIRegistry(t)
+	stats := &types.TransferStats{}
+	job := newOCIPackageJob(host+"/missing/app", host+"/demo/app", false, stats)
+
+	if err := job.Pre(context.Background()); err == nil {
+		t.Fatal("Pre succeeded although the source repository does not exist")
+	}
+	requireSingleFailStat(t, stats, host+"/missing/app")
+}
+
+func requireSingleFailStat(t *testing.T, stats *types.TransferStats, wantErrContains string) {
+	t.Helper()
+	snap := stats.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("stats = %+v, want exactly one stat", snap)
+	}
+	if snap[0].Status != types.StatusFail || !strings.Contains(snap[0].Error, wantErrContains) {
+		t.Errorf("stat = %+v, want StatusFail carrying %q", snap[0], wantErrContains)
+	}
+}
+
+// With overwrite=true Pre skips the OCI block, so migrateOCI is the first to
+// hit an unresolvable path and must record the image as failed.
+func TestMigrateOCIRecordsFailureWhenImagePathUnresolved(t *testing.T) {
+	stats := &types.TransferStats{}
+	job := newOCIPackageJob("", "", true, stats)
+	job.srcAdapter = &ociPathErrAdapter{}
+
+	job.migrateOCI(context.Background(), zerolog.Nop())
+
+	snap := stats.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("stats = %+v, want exactly one stat", snap)
+	}
+	if snap[0].Status != types.StatusFail || !strings.Contains(snap[0].Error, errNoConnectorPort.Error()) {
+		t.Errorf("stat = %+v, want StatusFail carrying %q", snap[0], errNoConnectorPort)
 	}
 }
 

@@ -1,6 +1,6 @@
 # Contributing: PR scope and review
 
-Every PR is either a **core PR** or a **module PR**. Core PRs get a thorough review and require approval from the core CLI team (see [`.github/CODEOWNERS`](../.github/CODEOWNERS)). Module PRs get a lighter review and generally merge faster.
+Every PR is either a **core PR** or a **module PR**. Core PRs get a thorough review and require approval from the core CLI team (see [`CODEOWNERS`](../CODEOWNERS)). Module PRs get a lighter review and generally merge faster.
 
 ## Core vs module files
 
@@ -13,7 +13,7 @@ Every PR is either a **core PR** or a **module PR**. Core PRs get a thorough rev
   - `cmd/harness/harnessapp/harnessapp.go`
   - all other `pkg/**` and `cmd/**`, build/CI config, and repo-level docs (including this file and `AGENTS.md`)
 
-`.github/CODEOWNERS` encodes the same split: paths owned by the core team are core; unowned paths are module.
+`CODEOWNERS` encodes the same split: paths owned by the core team are core; unowned paths are module.
 
 ## Rules
 

@@ -452,6 +452,29 @@ func ValidateAPIURL(apiURL string) error {
 	return nil
 }
 
+// JoinAPIURL appends path to apiURL, dropping path's first segment when it repeats the last
+// path segment of apiURL (e.g. https://host/gateway + /gateway/x -> https://host/gateway/x).
+func JoinAPIURL(apiURL, path string) string {
+	rest := apiURL
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	rest = strings.TrimRight(rest, "/")
+	i := strings.LastIndex(rest, "/")
+	if i < 0 || !strings.HasPrefix(path, "/") {
+		return apiURL + path
+	}
+	last := rest[i+1:]
+	first := path[1:]
+	if j := strings.IndexAny(first, "/?"); j >= 0 {
+		first = first[:j]
+	}
+	if last == "" || first != last {
+		return apiURL + path
+	}
+	return strings.TrimRight(apiURL, "/") + path[1+len(first):]
+}
+
 // TokenKind identifies the type of a Harness token.
 type TokenKind string
 
