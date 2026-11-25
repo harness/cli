@@ -554,6 +554,34 @@ func TestCallEndpointFull_Priority1_FileBody(t *testing.T) {
 	}
 }
 
+func TestCallEndpointFull_InlineBody(t *testing.T) {
+	srv, cap := captureServer(t, `{}`)
+	ctx := testCtx(srv.URL, map[string]any{})
+	ctx.InlineBody = map[string]any{"identifier": "deny", "rego": "package pipeline"}
+	_, _, err := callEndpointFull(ctx, &spec.EndpointSpec{Path: "/policies", Method: "POST"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := bodyMap(t, cap.body)
+	if m["rego"] != "package pipeline" || m["identifier"] != "deny" {
+		t.Fatalf("body = %s", cap.body)
+	}
+
+	srv, cap = captureServer(t, `{}`)
+	ctx = testCtx(srv.URL, map[string]any{})
+	ctx.InlineBody = "pipeline:\n  identifier: deploy\n"
+	_, _, err = callEndpointFull(ctx, &spec.EndpointSpec{Path: "/pipelines", Method: "POST", ContentType: "application/yaml", FileBody: spec.FileBodyOptional}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cap.body), "identifier: deploy") {
+		t.Fatalf("body = %s", cap.body)
+	}
+	if strings.Contains(cap.contentType, "json") {
+		t.Fatalf("content-type = %s", cap.contentType)
+	}
+}
+
 // TestCallEndpointFull_Priority1_YamlEnvelope — yaml_envelope lifts identity fields.
 func TestCallEndpointFull_Priority1_YamlEnvelope(t *testing.T) {
 	srv, cap := captureServer(t, `{}`)
