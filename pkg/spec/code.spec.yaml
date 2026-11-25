@@ -1577,7 +1577,6 @@ commands:
         color: "isBlank(flags.color) ? nil : flags.color"
         type: "isBlank(flags.type) ? nil : flags.type"
         description: "isBlank(flags.description) ? nil : flags.description"
-      validators_endpoint: [validate_repo_label_update]
       no_fields: true
       text_header: "\nUpdated label {{ctx.idParts[1]}} on repo {{ctx.idParts[0]}}\n"
 
