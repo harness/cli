@@ -15,6 +15,7 @@ const (
 
 func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterBodyFn(mergePRBodyFnID, mergePRBodyFn)
+	reg.RegisterEndpointValidatorFn(validateRepoLabelUpdateID, validateRepoLabelUpdate)
 	reg.RegisterBodyFn(createPRCommentBodyFnID, createPRCommentBodyFn)
 	reg.RegisterBodyFn(createPRBodyFnID, createPRBodyFn)
 	reg.RegisterQueryParamsFn(listMinePRQueryParamsFnID, listMinePRQueryParamsFn)
