@@ -324,10 +324,12 @@ nouns:
         label: details
         noun: approval_instance
         default: true
-      - ui_command_type: view
+      - ui_command_type: prompt
         key: a
         label: approve
-        ui_handler_fn: approve_instance
+        verb: execute
+        noun: approval_instance:approve
+        input_flag: comment
       - ui_command_type: view
         key: r
         label: reject
@@ -1590,7 +1592,7 @@ commands:
     noun_variant: approve
     short: Approve a waiting Harness approval instance
     confirm_mode: prompt
-    id_label: <approvalInstanceId>
+    id_formats: ["<pipeline>/<execution>/<approval>", "<execution>/<approval>", "<approval>"]
     fields_noun: approval_instance
     handler_type: endpoint
     flags:
@@ -1601,9 +1603,9 @@ commands:
         is_multi: true
     endpoint:
       method: POST
-      path: /pipeline/api/approvals/{{ctx.id}}/harness/activity
+      path: /pipeline/api/approvals/{{ctx.ids.approval}}/harness/activity
       item_expr: it.data
-      text_header: "\nApproved approval {{ctx.id}}\n"
+      text_header: "\nApproved approval {{ctx.ids.approval}}\n"
       body_fn: approval_approve_body
 
   - command: execute approval_instance:reject
