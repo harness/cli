@@ -330,10 +330,12 @@ nouns:
         verb: execute
         noun: approval_instance:approve
         input_flag: comment
-      - ui_command_type: view
+      - ui_command_type: prompt
         key: r
         label: reject
-        ui_handler_fn: reject_instance
+        verb: execute
+        noun: approval_instance:reject
+        input_flag: comment
 
   - noun: freeze_window
     short_desc: A scheduled deployment freeze window that blocks pipeline executions.
@@ -1614,7 +1616,7 @@ commands:
     noun_variant: reject
     short: Reject a waiting Harness approval instance
     confirm_mode: prompt
-    id_label: <approvalInstanceId>
+    id_formats: ["<pipeline>/<execution>/<approval>", "<execution>/<approval>", "<approval>"]
     fields_noun: approval_instance
     handler_type: endpoint
     flags:
@@ -1622,9 +1624,9 @@ commands:
         description: Rejection reason
     endpoint:
       method: POST
-      path: /pipeline/api/approvals/{{ctx.id}}/harness/activity
+      path: /pipeline/api/approvals/{{ctx.ids.approval}}/harness/activity
       item_expr: it.data
-      text_header: "\nRejected approval {{ctx.id}}\n"
+      text_header: "\nRejected approval {{ctx.ids.approval}}\n"
       body_params:
         action: '"REJECT"'
         comments: flags.comment
