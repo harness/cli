@@ -1,0 +1,368 @@
+// Copyright © 2026 Harness Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package aievals
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/harness/cli/v3/pkg/cmdctx"
+)
+
+func TestVerifyRunnerRejectsVersionMismatchWithFreshHandshake(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(pythonBin(home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pythonBin(home), []byte("python"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin(home, "ai-evals"), []byte("runner"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomic(handshakePath(home), []byte(`{"package":"ai-evals-runner","version":"0.7.12","schema":"onboarding/v1","command":"onboard-run"}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := VerifyRunner(home, func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		if len(args) == 2 && strings.Contains(args[1], "importlib.metadata") {
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		}
+		return CommandResult{Code: 0}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "0.7.12") {
+		t.Fatalf("VerifyRunner() error = %v, want stale-handshake rejection", err)
+	}
+}
+
+func TestVerifyRunnerRejectsInstalledMismatchWithMatchingHandshake(t *testing.T) {
+	for _, recorded := range []bool{true, false} {
+		name := "without handshake"
+		if recorded {
+			name = "with matching handshake"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.MkdirAll(filepath.Dir(pythonBin(home)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{pythonBin(home), bin(home, "ai-evals")} {
+				if err := os.WriteFile(path, nil, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if recorded {
+				if err := writeHandshake(home); err != nil {
+					t.Fatal(err)
+				}
+			}
+			const wrongVersion = "999.0.0"
+			_, err := VerifyRunner(home, func(executable string, _ []string, _ []string, _ string) (CommandResult, error) {
+				if executable != pythonBin(home) {
+					t.Fatal("runner invoked despite installed package mismatch")
+				}
+				return CommandResult{Stdout: wrongVersion + "\n"}, nil
+			})
+			if err == nil || !strings.Contains(err.Error(), wrongVersion) {
+				t.Fatalf("VerifyRunner() error = %v, want installed version rejection", err)
+			}
+			if !recorded {
+				if _, err := readHandshake(home); !os.IsNotExist(err) {
+					t.Fatalf("invalid install should not be recorded; read error = %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyRunnerRecordsMissingHandshakeAfterPinnedProbe(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(pythonBin(home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pythonBin(home), []byte("python"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin(home, "ai-evals"), []byte("runner"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyRunner(home, func(name string, args []string, env []string, dir string) (CommandResult, error) {
+		if len(args) == 2 && strings.Contains(args[1], "importlib.metadata") {
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		}
+		return CommandResult{Code: 0}, nil
+	}); err != nil {
+		t.Fatalf("VerifyRunner() error = %v", err)
+	}
+	if _, err := readHandshake(home); err != nil {
+		t.Fatalf("VerifyRunner() did not record handshake: %v", err)
+	}
+}
+
+func TestRunnerEnvPassesOnlyOptedInApplicationVariables(t *testing.T) {
+	for _, name := range []string{"HARNESS_API_KEY", "HARNESS_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "APP_SELECTED"} {
+		t.Setenv(name, "fixture")
+	}
+	t.Setenv("PYTHON_DOTENV_DISABLED", "0")
+	selected, err := selectedRunnerEnv([]string{"APP_SELECTED"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := strings.Join(sanitizedRunnerEnv(selected), "\n")
+	for _, name := range []string{"HARNESS_API_KEY", "HARNESS_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"} {
+		if strings.Contains(env, name+"=") {
+			t.Fatalf("runner inherited %s", name)
+		}
+	}
+	if !strings.Contains(env, "APP_SELECTED=fixture") || !strings.Contains(env, "PYTHON_DOTENV_DISABLED=1") {
+		t.Fatal("runner needs the selected variable and the fixed dotenv policy")
+	}
+	for _, name := range []string{"HaRNeSS_TOKEN", "PYTHON_DOTENV_DISABLED", "LD_PRELOAD", "APP_SELECTED=fixture"} {
+		if _, err := selectedRunnerEnv([]string{name}); err == nil {
+			t.Fatal("accepted a reserved variable or assignment")
+		}
+	}
+}
+
+func TestRunAgentPassesOptedInEnvOnlyToExecution(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(pythonBin(home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{pythonBin(home), bin(home, "ai-evals")} {
+		if err := os.WriteFile(file, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("TARGET_AUTH_TEST", "fixture")
+	root := t.TempDir()
+	called := false
+	run := func(name string, args, env []string, dir string) (CommandResult, error) {
+		if len(args) > 2 && args[2] == onboardBootstrap {
+			called = true
+			if name != pythonBin(home) || args[0] != "-I" || args[3] != OnboardCommand || dir != filepath.Dir(root) {
+				t.Fatal("runner must launch the pinned interpreter in isolated mode")
+			}
+			if len(env) != 1 || env[0] != "TARGET_AUTH_TEST=fixture" {
+				t.Fatal("execution did not receive exactly the selected variable")
+			}
+		} else if len(env) != 0 {
+			t.Fatal("a runner probe received application credentials")
+		}
+		return CommandResult{Stdout: RunnerVersion}, nil
+	}
+	if code, err := runAgent(context.Background(), home, root, "agent", "local", []string{"TARGET_AUTH_TEST"}, nil, run); code != 0 || err != nil || !called {
+		t.Fatalf("runAgent() = (%d, %v), execution called: %t", code, err, called)
+	}
+}
+
+func TestMetricCatalogUsesVerifiedRunnerWithoutWritingHandshake(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(pythonBin(home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{pythonBin(home), bin(home, "ai-evals")} {
+		if err := os.WriteFile(path, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(name string, args []string, _ []string, _ string) (CommandResult, error) {
+		switch {
+		case name == pythonBin(home) && len(args) == 2 && strings.Contains(args[1], "importlib.metadata"):
+			return CommandResult{Stdout: RunnerVersion + "\n"}, nil
+		case name == bin(home, "ai-evals") && len(args) == 2 && args[0] == OnboardCommand && args[1] == "--help":
+			return CommandResult{}, nil
+		case name == pythonBin(home) && len(args) == 3 && args[0] == "-I" && args[2] == metricCatalogSnippet:
+			return CommandResult{Stdout: `[{"kind":"contains","supported":true},{"kind":"custom","supported":false}]`}, nil
+		default:
+			t.Fatalf("unexpected runner invocation: %s", name)
+			return CommandResult{}, nil
+		}
+	}
+	metrics, err := metricCatalog(home, run)
+	if err != nil || len(metrics) != 2 || !strings.Contains(string(metrics[1]), `"supported":false`) {
+		t.Fatalf("metricCatalog() = (%s, %v), want the complete catalog", metrics, err)
+	}
+	if _, err := readHandshake(home); !os.IsNotExist(err) {
+		t.Fatalf("read-only metric catalog wrote a handshake or failed to inspect it: %v", err)
+	}
+}
+
+func TestRenderMetricCatalogHonorsListOutputFlags(t *testing.T) {
+	report := []json.RawMessage{
+		json.RawMessage(`{"kind":"contains","type":"heuristic","dimension":"correctness","supported":true}`),
+		json.RawMessage(`{"kind":"exact_match","type":"heuristic","dimension":"correctness","supported":true}`),
+	}
+	for _, tc := range []struct{ format, prefix string }{
+		{"", "["},
+		{"jsonl", "{"},
+		{"csv", "KIND,TYPE,DIMENSION,SUPPORTED"},
+	} {
+		t.Run(tc.format, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "metrics")
+			ctx := &cmdctx.Ctx{FormatFlags: cmdctx.FormatFlags{Format: tc.format, OutFile: out}}
+			if err := renderMetricCatalog(ctx, report); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatalf("--out did not write the catalog: %v", err)
+			}
+			if !strings.HasPrefix(string(data), tc.prefix) || !strings.Contains(string(data), "exact_match") {
+				t.Fatalf("unexpected %s catalog output: %q", tc.format, data)
+			}
+			if tc.format == "jsonl" {
+				lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+				if len(lines) != len(report) || !json.Valid([]byte(lines[0])) || !json.Valid([]byte(lines[1])) {
+					t.Fatalf("expected one JSON object per line, got %q", data)
+				}
+			}
+		})
+	}
+}
+
+func TestDefaultCommandContextStopsChildOnCancellation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell cancellation probe uses sh")
+	}
+	parent, deadline := context.WithTimeout(context.Background(), 5*time.Second)
+	defer deadline()
+	ctx, cancel := context.WithCancelCause(parent)
+	defer cancel(nil)
+	cause := &cmdctx.TimeoutError{Secs: 5}
+	marker := filepath.Join(t.TempDir(), "started")
+	done := make(chan error, 1)
+	go func() {
+		_, err := defaultCommandContext(ctx, "sh", []string{"-c", `printf started > "$1"; exec sleep 30`, "sh", marker}, nil, "")
+		done <- err
+	}()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for !fileExists(marker) {
+		select {
+		case err := <-done:
+			t.Fatalf("child exited before startup: %v", err)
+		case <-ctx.Done():
+			t.Fatal("child did not start")
+		case <-tick.C:
+		}
+	}
+	cancel(cause)
+	select {
+	case err := <-done:
+		if !errors.Is(err, cause) || !cmdctx.IsTimeout(err) {
+			t.Fatalf("defaultCommandContext() error = %v, want the CLI timeout cause", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("child still running after cancellation")
+	}
+}
+
+func TestEmbeddedMetricCatalogWithHarnessEvals0294(t *testing.T) {
+	python := os.Getenv("AIEVALS_METRIC_CATALOG_PYTHON")
+	if python == "" {
+		t.Skip("set AIEVALS_METRIC_CATALOG_PYTHON to a Python executable with harness-evals==0.29.4 installed")
+	}
+
+	runPython := func(source string) []byte {
+		t.Helper()
+		cmd := exec.Command(python, "-I", "-c", source)
+		cmd.Env = []string{}
+		output, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("configured Python command failed: %v", err)
+		}
+		return output
+	}
+
+	version := strings.TrimSpace(string(runPython(`import importlib.metadata as metadata; print(metadata.version("harness-evals"))`)))
+	if version != "0.29.4" {
+		t.Fatalf("configured Python has harness-evals %q, want 0.29.4", version)
+	}
+
+	type metricEntry struct {
+		Kind              string `json:"kind"`
+		Type              string `json:"type"`
+		Supported         bool   `json:"supported"`
+		UnsupportedReason string `json:"unsupported_reason"`
+		OptionsSchema     struct {
+			Required   []string `json:"required"`
+			Properties map[string]struct {
+				Type  json.RawMessage `json:"type"`
+				Items struct {
+					Type string `json:"type"`
+				} `json:"items"`
+			} `json:"properties"`
+		} `json:"options_schema"`
+	}
+	var entries []metricEntry
+	if err := json.Unmarshal(runPython(metricCatalogSnippet), &entries); err != nil {
+		t.Fatalf("embedded metric_catalog.py returned invalid JSON: %v", err)
+	}
+	byKind := make(map[string]metricEntry, len(entries))
+	for _, entry := range entries {
+		byKind[entry.Kind] = entry
+	}
+
+	for kind, wantType := range map[string]string{"schema_validation": "heuristic", "topic_adherence": "llm"} {
+		entry, ok := byKind[kind]
+		if !ok || !entry.Supported || entry.Type != wantType {
+			t.Fatalf("catalog entry %q = %+v, want supported type %q", kind, entry, wantType)
+		}
+	}
+	jsonSchemaTypes := func(raw json.RawMessage) []string {
+		var types []string
+		if err := json.Unmarshal(raw, &types); err == nil {
+			return types
+		}
+		var single string
+		if err := json.Unmarshal(raw, &single); err == nil && single != "" {
+			return []string{single}
+		}
+		return nil
+	}
+	assertRequiredOption := func(kind, name, wantTypes, wantItemType string) {
+		t.Helper()
+		entry := byKind[kind]
+		required := false
+		for _, option := range entry.OptionsSchema.Required {
+			if option == name {
+				required = true
+				break
+			}
+		}
+		if !required {
+			t.Fatalf("catalog entry %q does not mark constructor option %q required", kind, name)
+		}
+		property, ok := entry.OptionsSchema.Properties[name]
+		if !ok || strings.Join(jsonSchemaTypes(property.Type), ",") != wantTypes {
+			t.Fatalf("catalog entry %q option %q schema = %+v, want type %q", kind, name, property, wantTypes)
+		}
+		if wantItemType != "" && property.Items.Type != wantItemType {
+			t.Fatalf("catalog entry %q option %q item type = %q, want %q", kind, name, property.Items.Type, wantItemType)
+		}
+	}
+	assertRequiredOption("schema_validation", "schema", "object,string", "")
+	assertRequiredOption("topic_adherence", "allowed_topics", "array", "string")
+
+	for kind, want := range map[string]struct {
+		typeName string
+		reason   string
+	}{
+		"decision_choice":        {typeName: "unsupported", reason: "decision provider"},
+		"mcp_trace_completeness": {typeName: "heuristic", reason: "without a persisted JSON representation"},
+	} {
+		entry, ok := byKind[kind]
+		if !ok || entry.Supported || entry.Type != want.typeName || !strings.Contains(entry.UnsupportedReason, want.reason) {
+			t.Fatalf("catalog entry %q = %+v, want unsupported type %q and reason containing %q", kind, entry, want.typeName, want.reason)
+		}
+	}
+}
