@@ -182,8 +182,8 @@ func (r *Registry) checkUICommands(noun string, nd spec.NounDef) []string {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q does not resolve", noun, uc.Key, uc.Verb, uc.Noun))
 			} else if targetCs.Endpoint == nil {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q is not an endpoint command", noun, uc.Key, uc.Verb, uc.Noun))
-			} else if targetCs.ConfirmMode == spec.ConfirmID || targetCs.FollowFn != "" || targetCs.HandlerType == spec.HandlerWorkflow || targetCs.WorkflowID != "" {
-				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q needs the terminal (confirm_mode id, follow_fn or a workflow)", noun, uc.Key, uc.Verb, uc.Noun))
+			} else if targetCs.FollowFn != "" || targetCs.HandlerType == spec.HandlerWorkflow || targetCs.WorkflowID != "" {
+				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: %s %q needs the terminal (follow_fn or a workflow)", noun, uc.Key, uc.Verb, uc.Noun))
 			} else if f := findFlag(targetCs, uc.InputFlag); f == nil {
 				errs = append(errs, fmt.Sprintf("noun %q: ui_commands prompt entry %q: input_flag %q is not a flag of %s %q", noun, uc.Key, uc.InputFlag, uc.Verb, uc.Noun))
 			} else if f.IsMulti || f.IsArray {

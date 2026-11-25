@@ -809,6 +809,11 @@ func (m uiTableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case uiPromptDoneMsg:
 		return m.finishPrompt(msg)
 
+	case tea.PasteMsg:
+		if m.prompt != nil && m.prompt.confirm != nil {
+			return m, nil
+		}
+
 	case uiPageMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -1047,7 +1052,11 @@ func (m uiTableModel) View() tea.View {
 	}
 
 	if m.prompt != nil {
-		b.WriteString(m.promptView())
+		screen := m.promptView()
+		if m.prompt.confirm != nil {
+			screen = tui.OverlayCenter(screen, m.prompt.confirm.view(), m.width, m.height)
+		}
+		b.WriteString(screen)
 		v := tea.NewView(b.String())
 		v.AltScreen = true
 		return v

@@ -31,6 +31,8 @@ type uiPrompt struct {
 	input textarea.Model
 	busy  bool
 	err   string
+	// confirm is the open confirm_mode modal, nil when none.
+	confirm *uiConfirm
 }
 
 // uiPromptDoneMsg is sent when the target command of a submitted prompt returns.
@@ -72,21 +74,40 @@ func (m uiTableModel) handlePromptKey(msg tea.KeyPressMsg) (uiTableModel, tea.Cm
 	if p.busy {
 		return m, nil
 	}
+	if p.confirm != nil {
+		switch p.confirm.handleKey(msg) {
+		case uiConfirmAccepted:
+			p.confirm = nil
+			return m, m.startPrompt()
+		case uiConfirmCancelled:
+			p.confirm = nil
+		}
+		return m, nil
+	}
 	switch key {
 	case "esc":
 		m.prompt = nil
 		return m, nil
 	case "ctrl+s":
-		p.busy = true
-		p.err = ""
-		run := &uiPromptRun{uc: p.uc, cs: p.cs, id: p.id, text: p.input.Value()}
-		ctx := m.ctx
-		return m, func() tea.Msg { return uiPromptDoneMsg{err: runPromptCommand(ctx, run)} }
+		if p.cs.ConfirmMode != spec.ConfirmNone {
+			p.confirm = newUIConfirm(p.cs, p.id)
+			return m, nil
+		}
+		return m, m.startPrompt()
 	}
 	p.err = ""
 	var cmd tea.Cmd
 	p.input, cmd = p.input.Update(msg)
 	return m, cmd
+}
+
+func (m uiTableModel) startPrompt() tea.Cmd {
+	p := m.prompt
+	p.busy = true
+	p.err = ""
+	run := &uiPromptRun{uc: p.uc, cs: p.cs, id: p.id, text: p.input.Value()}
+	ctx := m.ctx
+	return func() tea.Msg { return uiPromptDoneMsg{err: runPromptCommand(ctx, run)} }
 }
 
 // finishPrompt quits to the origin screen on success; on failure it keeps the
@@ -138,9 +159,6 @@ func promptFlagValues(cs *spec.CommandSpec, inputFlag, text string) (map[string]
 // because the TUI owns the screen.
 func runPromptCommand(ctx *cmdctx.Ctx, run *uiPromptRun) error {
 	cs := run.cs
-	if cs.ConfirmMode == spec.ConfirmID {
-		return fmt.Errorf("%s %s needs the terminal (confirm_mode id)", cs.Verb, cs.Noun)
-	}
 	if f := findFlag(cs, run.uc.InputFlag); f == nil || f.IsMulti || f.IsArray {
 		return fmt.Errorf("input_flag %q must be a single-value flag of %s %s", run.uc.InputFlag, cs.Verb, cs.Noun)
 	}
@@ -190,18 +208,14 @@ func (m uiTableModel) promptView() string {
 		Padding(0, 1).
 		Render(accent.Render(uiCommandHintLabel(p.uc)) + "\n" + p.input.View())
 	b.WriteString(box + "\n\n")
-	submit := "submit"
-	if p.cs.ConfirmMode == spec.ConfirmPrompt {
-		submit = p.uc.Label
-	}
 	switch {
 	case p.busy:
 		b.WriteString(subtle.Render("  Submitting…") + "\n")
 	case p.err != "":
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(tui.CLIError)).Render("  error: "+p.err) + "\n")
-		b.WriteString(subtle.Render("  ctrl+s "+submit+"  esc cancel") + "\n")
+		b.WriteString(subtle.Render("  ctrl+s submit  esc cancel") + "\n")
 	default:
-		b.WriteString(subtle.Render("  ctrl+s "+submit+"  esc cancel") + "\n")
+		b.WriteString(subtle.Render("  ctrl+s submit  esc cancel") + "\n")
 	}
 	return b.String()
 }
