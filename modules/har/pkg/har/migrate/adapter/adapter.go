@@ -81,6 +81,25 @@ type Adapter interface {
 	BuildExistingIndex(ctx context.Context, registryRef string, concurrency int) (*types.ExistingIndex, error)
 }
 
+// PagedLister is implemented by adapters whose repository listing is a long sequence
+// of requests. progress receives a status line at a bounded rate, including retries.
+type PagedLister interface {
+	GetFilesWithProgress(registry string, progress func(string)) ([]types.File, error)
+
+	// ListBatches calls fn with each batch of at least batchSize components (fewer for
+	// the last one) while the listing is still in progress. batch is an Adapter whose
+	// GetFiles, GetPackages and GetVersions cover only that batch's components. A
+	// listing error is returned after the batches that preceded it were handed to fn;
+	// an error from fn stops the listing.
+	ListBatches(
+		ctx context.Context,
+		registry string,
+		batchSize int,
+		progress func(string),
+		fn func(batch Adapter, files []types.File) error,
+	) error
+}
+
 var registry = map[types.RegistryType]Factory{}
 
 type Factory interface {

@@ -104,7 +104,7 @@ func (a *adapter) GetPackages(registry string, artifactType types.ArtifactType, 
 ) {
 	var packages []types.Package
 
-	l, err := a.listing(registry)
+	l, err := a.listing(registry, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (a *adapter) GetVersions(
 	p types.Package,
 	node *types.TreeNode, registry, pkg string, artifactType types.ArtifactType,
 ) ([]types.Version, error) {
-	l, err := a.listing(registry)
+	l, err := a.listing(registry, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -255,18 +255,62 @@ func mavenVersionTreePath(group, artifact, version string) string {
 }
 
 func (a *adapter) GetFiles(registry string) ([]types.File, error) {
-	repository, err := a.client.getRepository(registry)
-	if err != nil {
-		return nil, fmt.Errorf("get repository: %w", err)
+	return a.GetFilesWithProgress(registry, nil)
+}
+
+func (a *adapter) GetFilesWithProgress(registry string, progress func(string)) ([]types.File, error) {
+	if err := a.requireHosted(registry); err != nil {
+		return nil, err
 	}
-	if repository.Type != "hosted" {
-		return nil, fmt.Errorf("repository %s is not a hosted repository", registry)
-	}
-	l, err := a.listing(registry)
+	l, err := a.listing(registry, progress)
 	if err != nil {
 		return nil, err
 	}
 	return append([]types.File(nil), l.files...), nil
+}
+
+func (a *adapter) requireHosted(registry string) error {
+	repository, err := a.client.getRepository(registry)
+	if err != nil {
+		return fmt.Errorf("get repository: %w", err)
+	}
+	if repository.Type != "hosted" {
+		return fmt.Errorf("repository %s is not a hosted repository", registry)
+	}
+	return nil
+}
+
+func (a *adapter) ListBatches(
+	ctx context.Context,
+	registry string,
+	batchSize int,
+	progress func(string),
+	fn func(batch adp.Adapter, files []types.File) error,
+) error {
+	if err := a.requireHosted(registry); err != nil {
+		return err
+	}
+
+	var pending []NexusComponent
+	flush := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		l := newListing(registry, pending)
+		pending = nil
+		return fn(a.scopedTo(registry, l), l.files)
+	}
+	err := a.client.streamComponents(ctx, registry, progress, func(items []NexusComponent) error {
+		pending = append(pending, items...)
+		if len(pending) < batchSize {
+			return nil
+		}
+		return flush()
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list components in registry %s: %w", registry, err)
+	}
+	return flush()
 }
 
 func (a *adapter) DownloadFile(registry string, uri string) (io.ReadCloser, http.Header, error) {

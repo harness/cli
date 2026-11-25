@@ -122,3 +122,36 @@ func TestValidateConfig_IncludeAndExcludePatternsMutuallyExclusive(t *testing.T)
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+func TestValidateConfig_BatchSize(t *testing.T) {
+	cases := []struct {
+		name       string
+		sourceType RegistryType
+		artifact   ArtifactType
+		batchSize  int
+		wantErr    string
+	}{
+		{"nexus maven", NEXUS, MAVEN, 500, ""},
+		{"unset", HAR, DOCKER, 0, ""},
+		{"negative", NEXUS, MAVEN, -1, "must not be negative"},
+		{"other source", JFROG, MAVEN, 500, "only supported"},
+		{"other artifact type", NEXUS, GENERIC, 500, "only supported"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mapping := validMapping(tc.artifact)
+			mapping.BatchSize = tc.batchSize
+			source := validCredentials()
+			source.Type = tc.sourceType
+			cfg := &Config{Concurrency: 1, Source: source, Dest: validCredentials(), Mappings: []RegistryMapping{mapping}}
+
+			err := validateConfig(cfg)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("validateConfig: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("validateConfig error = %v, want it to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}

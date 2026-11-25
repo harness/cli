@@ -2,6 +2,7 @@ package migratable
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -135,8 +136,34 @@ func (r *Registry) Migrate(ctx context.Context) error {
 
 	startTime := time.Now()
 
+	getIndex := r.lazyExistingIndex(ctx, logger)
+
+	var err error
+	if r.mapping.BatchSize > 0 {
+		err = r.migrateInBatches(ctx, logger, getIndex)
+	} else {
+		err = r.migrateAll(ctx, logger, getIndex)
+	}
+	if err != nil {
+		return err
+	}
+
+	logger.Info().
+		Dur("duration", time.Since(startTime)).
+		Msg("Completed registry migration step")
+	return nil
+}
+
+// migrateAll lists the whole source registry, then migrates it.
+func (r *Registry) migrateAll(ctx context.Context, logger zerolog.Logger, getIndex indexFunc) error {
 	fetchProgress := console.StartStage(fmt.Sprintf("Fetching file metadata from source registry %s", r.srcRegistry))
-	files, err2 := r.srcAdapter.GetFiles(r.srcRegistry)
+	var files []types.File
+	var err2 error
+	if lister, ok := r.srcAdapter.(adapter.PagedLister); ok {
+		files, err2 = lister.GetFilesWithProgress(r.srcRegistry, printListingProgress(true))
+	} else {
+		files, err2 = r.srcAdapter.GetFiles(r.srcRegistry)
+	}
 	if err2 != nil {
 		fetchProgress.Fail(fmt.Sprintf("Failed to fetch file metadata from source registry %s", r.srcRegistry))
 		logger.Error().Msgf("Failed to get files from registry %s", r.srcRegistry)
@@ -145,6 +172,112 @@ func (r *Registry) Migrate(ctx context.Context) error {
 
 	fetchProgress.Success(fmt.Sprintf("Pulled %d file(s) from registry %s", len(files), r.srcRegistry))
 
+	return r.migrateFiles(ctx, logger, r.srcAdapter, files, getIndex)
+}
+
+// jobErrors marks failures of individual package jobs. A batched run keeps going
+// after them, as an unbatched run keeps going past a failed package.
+type jobErrors struct{ error }
+
+func (e jobErrors) Unwrap() error { return e.error }
+
+type batch struct {
+	src   adapter.Adapter
+	files []types.File
+}
+
+// migrateInBatches migrates each batch of the source listing while the listing
+// continues. The listing runs one batch ahead of the migration.
+func (r *Registry) migrateInBatches(ctx context.Context, logger zerolog.Logger, getIndex indexFunc) error {
+	lister, ok := r.srcAdapter.(adapter.PagedLister)
+	if !ok {
+		return fmt.Errorf("registry %s: batchSize is not supported by the source adapter", r.srcRegistry)
+	}
+
+	listCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	batches := make(chan batch)
+	listErr := make(chan error, 1)
+	go func() {
+		defer close(batches)
+		listErr <- lister.ListBatches(listCtx, r.srcRegistry, r.mapping.BatchSize, printListingProgress(false),
+			func(src adapter.Adapter, files []types.File) error {
+				select {
+				case batches <- batch{src: src, files: files}:
+					return nil
+				case <-listCtx.Done():
+					return listCtx.Err()
+				}
+			})
+	}()
+
+	var failures []error
+	count := 0
+	for b := range batches {
+		count++
+		msg := fmt.Sprintf("Registry %s: migrating batch %d (%d file(s))", r.srcRegistry, count, len(b.files))
+		logger.Info().Msg(msg)
+		pterm.Info.Println(msg)
+		err := r.migrateFiles(ctx, logger, b.src, b.files, getIndex)
+		var jobErr jobErrors
+		switch {
+		case err == nil:
+		case errors.As(err, &jobErr):
+			failures = append(failures, err)
+		default:
+			cancel()
+			<-listErr
+			return errors.Join(append(failures, err)...)
+		}
+	}
+	if err := <-listErr; err != nil {
+		logger.Error().Err(err).Msg("Failed to list source registry")
+		failures = append(failures, fmt.Errorf("get files from registry %s failed: %w", r.srcRegistry, err))
+	}
+	logger.Info().Msgf("Migrated %d batch(es) from registry %s", count, r.srcRegistry)
+	return errors.Join(failures...)
+}
+
+// printListingProgress prints a listing status line. overSpinner clears the stage
+// spinner's line first so the two do not run together.
+func printListingProgress(overSpinner bool) func(string) {
+	return func(msg string) {
+		line := console.WithColor(console.ColorCyan, "→") + " " + msg + "\n"
+		if overSpinner && console.IsStdoutTTY() {
+			line = "\r\x1b[K" + line
+		}
+		fmt.Print(line)
+	}
+}
+
+type indexFunc func() (*types.ExistingIndex, error)
+
+// lazyExistingIndex builds the destination index on first use and reuses it, so a
+// batched run indexes the destination once and an unbatched run indexes it at the
+// same point as before.
+func (r *Registry) lazyExistingIndex(ctx context.Context, logger zerolog.Logger) indexFunc {
+	var (
+		built bool
+		idx   *types.ExistingIndex
+		err   error
+	)
+	return func() (*types.ExistingIndex, error) {
+		if !built {
+			idx, err = r.buildExistingIndex(ctx, logger)
+			built = true
+		}
+		return idx, err
+	}
+}
+
+// migrateFiles filters files, resolves their packages through src and migrates them.
+func (r *Registry) migrateFiles(
+	ctx context.Context,
+	logger zerolog.Logger,
+	src adapter.Adapter,
+	files []types.File,
+	getIndex indexFunc,
+) error {
 	// Keep a copy of the original file list before any filtering. This is used
 	// to build an unfilteredRoot for PYTHON so version enumeration is not broken
 	// when date filtering prunes .pypi index files.
@@ -183,7 +316,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 			return err
 		}
 
-		searchedFiles, searchErr := r.srcAdapter.SearchFiles(r.srcRegistry)
+		searchedFiles, searchErr := src.SearchFiles(r.srcRegistry)
 		if searchErr != nil {
 			logger.Error().Msgf("Failed to search files from registry %s", r.srcRegistry)
 			return fmt.Errorf("search files from registry %s failed: %w", r.srcRegistry, searchErr)
@@ -248,7 +381,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		unfilteredRoot = tree.TransformToTree(recoveryFiles)
 	}
 
-	pkgs, err := r.srcAdapter.GetPackages(r.srcRegistry, r.artifactType, root)
+	pkgs, err := src.GetPackages(r.srcRegistry, r.artifactType, root)
 	if err != nil {
 		logger.Error().Msg("Failed to get packages")
 		return fmt.Errorf("get packages failed: %w", err)
@@ -318,45 +451,9 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		pterm.Warning.Println(warnMsg)
 	}
 
-	// Build a registry-wide snapshot of existing files so re-runs can skip
-	// already-migrated files without per-version API calls in version.go.
-	// Only applicable for types whose Migrate path consults the index.
-	indexApplicable := func(t types.ArtifactType) bool {
-		switch t {
-		case types.GENERIC, types.RAW, types.MAVEN, types.PYTHON,
-			types.NUGET, types.NPM, types.DART, types.PUPPET:
-			return true
-		}
-		return false
-	}
-	var existingIndex *types.ExistingIndex
-	if !r.config.DryRun && !r.config.Overwrite && indexApplicable(r.artifactType) {
-		indexProgress := console.StartStage(fmt.Sprintf("Indexing artifacts already in destination registry %s", r.registry.Path))
-		idx, idxErr := checkExistsWithRetry(ctx, logger, func() (*types.ExistingIndex, error) {
-			return r.destAdapter.BuildExistingIndex(ctx, r.registry.Path, r.config.Concurrency)
-		})
-		switch {
-		case idxErr != nil && (r.artifactType == types.MAVEN || r.artifactType == types.NPM):
-			// Version.Pre has no per-version lookup for these types, so the index is their only check.
-			err := existenceCheckError(fmt.Errorf("index destination registry %s: %w", r.registry.Path, idxErr))
-			indexProgress.Fail(fmt.Sprintf("Could not index destination registry %s; not migrating %s",
-				r.registry.Path, r.srcRegistry))
-			logger.Error().Err(idxErr).Msg("Failed to build existing index")
-			util.AddRegistryErrorToStat(r.stats, r.srcRegistry, err)
-			return err
-		case idxErr != nil:
-			indexProgress.Warn(fmt.Sprintf(
-				"Could not index destination registry %s; falling back to per-version lookups", r.registry.Path))
-			logger.Warn().Err(idxErr).Msg("Failed to build existing index, falling back to per-version checks")
-		default:
-			existingIndex = idx
-			indexedPkgs, indexedVersions, indexedFiles := idx.Stats()
-			indexedMsg := fmt.Sprintf(
-				"Indexed destination registry %s: %d package(s), %d version(s), %d existing file(s)",
-				r.registry.Path, indexedPkgs, indexedVersions, indexedFiles)
-			indexProgress.Success(indexedMsg)
-			logger.Info().Msg(indexedMsg)
-		}
+	existingIndex, err := getIndex()
+	if err != nil {
+		return err
 	}
 
 	var filesByPkg map[string][]types.File
@@ -375,7 +472,7 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		if filesByPkg != nil {
 			pkgFiles = filesByPkg[pkg.Name]
 		}
-		job := NewPackageJob(r.srcAdapter, r.destAdapter, r.srcRegistry, r.sourcePackageHostname, r.destRegistry, r.artifactType, pkg, treeNode,
+		job := NewPackageJob(src, r.destAdapter, r.srcRegistry, r.sourcePackageHostname, r.destRegistry, r.artifactType, pkg, treeNode,
 			r.stats, r.mapping, r.config, r.registry, r.dryRunStats, unfilteredRoot, existingIndex, pkgFiles)
 		jobs = append(jobs, job)
 	}
@@ -386,13 +483,54 @@ func (r *Registry) Migrate(ctx context.Context) error {
 		// Propagate so the failure reaches MigrationService.Run's exit-code
 		// contract; the per-coordinate stats already carry the detail.
 		logger.Error().Err(err).Msg("Engine execution saw following errors")
-		return fmt.Errorf("registry %s: package migration errors: %w", r.srcRegistry, err)
+		return jobErrors{fmt.Errorf("registry %s: package migration errors: %w", r.srcRegistry, err)}
+	}
+	return nil
+}
+
+// buildExistingIndex snapshots the destination registry so re-runs can skip
+// already-migrated files without per-version API calls in version.go. It returns a
+// nil index when the type does not consult one or the lookup can fall back to
+// per-version checks.
+func (r *Registry) buildExistingIndex(ctx context.Context, logger zerolog.Logger) (*types.ExistingIndex, error) {
+	indexApplicable := func(t types.ArtifactType) bool {
+		switch t {
+		case types.GENERIC, types.RAW, types.MAVEN, types.PYTHON,
+			types.NUGET, types.NPM, types.DART, types.PUPPET:
+			return true
+		}
+		return false
+	}
+	if r.config.DryRun || r.config.Overwrite || !indexApplicable(r.artifactType) {
+		return nil, nil
 	}
 
-	logger.Info().
-		Dur("duration", time.Since(startTime)).
-		Msg("Completed registry migration step")
-	return nil
+	indexProgress := console.StartStage(fmt.Sprintf("Indexing artifacts already in destination registry %s", r.registry.Path))
+	idx, idxErr := checkExistsWithRetry(ctx, logger, func() (*types.ExistingIndex, error) {
+		return r.destAdapter.BuildExistingIndex(ctx, r.registry.Path, r.config.Concurrency)
+	})
+	switch {
+	case idxErr != nil && (r.artifactType == types.MAVEN || r.artifactType == types.NPM):
+		// Version.Pre has no per-version lookup for these types, so the index is their only check.
+		err := existenceCheckError(fmt.Errorf("index destination registry %s: %w", r.registry.Path, idxErr))
+		indexProgress.Fail(fmt.Sprintf("Could not index destination registry %s; not migrating %s",
+			r.registry.Path, r.srcRegistry))
+		logger.Error().Err(idxErr).Msg("Failed to build existing index")
+		util.AddRegistryErrorToStat(r.stats, r.srcRegistry, err)
+		return nil, err
+	case idxErr != nil:
+		indexProgress.Warn(fmt.Sprintf(
+			"Could not index destination registry %s; falling back to per-version lookups", r.registry.Path))
+		logger.Warn().Err(idxErr).Msg("Failed to build existing index, falling back to per-version checks")
+		return nil, nil
+	}
+	indexedPkgs, indexedVersions, indexedFiles := idx.Stats()
+	indexedMsg := fmt.Sprintf(
+		"Indexed destination registry %s: %d package(s), %d version(s), %d existing file(s)",
+		r.registry.Path, indexedPkgs, indexedVersions, indexedFiles)
+	indexProgress.Success(indexedMsg)
+	logger.Info().Msg(indexedMsg)
+	return idx, nil
 }
 
 // Post Any post processing work

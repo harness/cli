@@ -1,6 +1,7 @@
 package nexus
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -82,12 +83,20 @@ func (c *listingCache) invalidate(repository string) {
 	delete(c.entries, repository)
 }
 
-func (a *adapter) listing(registry string) (*listing, error) {
+func (a *adapter) listing(registry string, progress func(string)) (*listing, error) {
 	l, err := a.listings.get(registry, func() ([]NexusComponent, error) {
-		return a.client.listComponents(registry)
+		return a.client.listComponents(context.Background(), registry, progress)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list components in registry %s: %w", registry, err)
 	}
 	return l, nil
+}
+
+// scopedTo returns an adapter that serves l as the complete contents of registry, so
+// the migration of one batch never triggers or sees the rest of the repository.
+func (a *adapter) scopedTo(registry string, l *listing) *adapter {
+	scoped := &adapter{client: a.client, reg: a.reg}
+	scoped.listings.entries = map[string]*listingEntry{registry: {l: l}}
+	return scoped
 }

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/harness/cli/modules/har/pkg/har/migrate/tree"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
@@ -25,7 +26,9 @@ func newTestAdapter(t *testing.T, endpoint string) *adapter {
 	if err != nil {
 		t.Fatalf("newAdapter: %v", err)
 	}
-	return a.(*adapter)
+	ad := a.(*adapter)
+	ad.client.listRetryBase = time.Millisecond
+	return ad
 }
 
 func nexusRepoServer(t *testing.T, repoJSON string) *httptest.Server {

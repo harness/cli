@@ -181,6 +181,9 @@ type RegistryMapping struct {
 	SourcePackageHostname string            `yaml:"sourcePackageHostname"`
 	DateFilter            *DateFilter       `yaml:"dateFilter"`
 	PackageFilters        []PackageSelector `yaml:"packageFilters,omitempty"`
+	// BatchSize migrates in batches of at least this many source components while the
+	// source listing continues. Zero keeps the default of listing everything first.
+	BatchSize int `yaml:"batchSize,omitempty"`
 }
 
 // CredentialsConfig defines the credential configuration
@@ -287,6 +290,9 @@ func validateConfig(config *Config) error {
 		if err := ValidatePackageFilters(mapping.PackageFilters, mapping.ArtifactType); err != nil {
 			return fmt.Errorf("mapping %d: %w", i, err)
 		}
+		if err := validateBatchSize(mapping, config.Source.Type); err != nil {
+			return fmt.Errorf("mapping %d: %w", i, err)
+		}
 		if mapping.ArtifactType == MAVEN && mapping.DateFilter != nil {
 			msg := fmt.Sprintf("mapping %d: date filter is enabled for %s — maven-metadata.xml may not be in sync with the migrated artifacts", i, MAVEN)
 			log.Warn().Msg(msg)
@@ -311,6 +317,19 @@ func validateConfig(config *Config) error {
 		}
 	}
 
+	return nil
+}
+
+// validateBatchSize rejects batchSize where it would be silently ignored.
+func validateBatchSize(mapping RegistryMapping, sourceType RegistryType) error {
+	switch {
+	case mapping.BatchSize < 0:
+		return fmt.Errorf("batchSize must not be negative")
+	case mapping.BatchSize == 0:
+		return nil
+	case sourceType != NEXUS || mapping.ArtifactType != MAVEN:
+		return fmt.Errorf("batchSize is only supported for a %s source with artifactType %s", NEXUS, MAVEN)
+	}
 	return nil
 }
 

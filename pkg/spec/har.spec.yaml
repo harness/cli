@@ -1359,6 +1359,19 @@ commands:
           - File level:    GENERIC, RAW, PYTHON, MAVEN, NUGET, NPM, DART, GO, RUBY, PUPPET, TERRAFORM
           - Package level: DOCKER, HELM, HELM_LEGACY, HELM_HTTP, RPM, CONDA, COMPOSER, SWIFT, CONAN, DEBIAN, CRAN
 
+      Batched migration (batchSize, opt-in, NEXUS source with artifactType MAVEN only):
+        By default the whole source repository is listed before anything is
+        migrated. On a very large repository set batchSize on the mapping to migrate
+        in batches of at least that many components (rounded up to a whole listing
+        page) while the listing continues. The destination is indexed once. A failed
+        package does not stop later batches; the run still exits non-zero.
+        A Nexus listing page that gets no response within 5 minutes, fails with a
+        network error, 429 or 5xx is retried up to 3 times with backoff. While a
+        page request is running, a status line (page, request running time,
+        attempt, components listed so far) is printed every 15 seconds. With
+        --debug (or HARNESS_CLI_LOGFILE) every Nexus API call is logged: method,
+        URL, response status and time to response headers.
+
       Output and automation flags:
         --summary      prints condensed per-status counts instead of the full per-file table.
         --result-file  writes one JSON-lines record per migrated coordinate (status,
