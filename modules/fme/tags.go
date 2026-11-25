@@ -11,7 +11,8 @@ import (
 	"github.com/harness/cli/v3/pkg/spec"
 )
 
-// tagsFieldType manages a feature flag's tags collection. The read shape is
+// tagsFieldType manages a named-object collection such as a feature flag's
+// tags or a metric's categories. The read shape is
 // [{id, name}]; the write shape (POST/PATCH) is [{name}] only. Core's
 // built-in "tags" type is a string-keyed map and doesn't fit this
 // named-object shape (docs/mutation.md), so FME registers its own; Encode
@@ -30,9 +31,9 @@ func tagName(item any) string {
 	return name
 }
 
-func mutateTags(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
+func mutateTags(field spec.FieldDef, current any, op cmdctx.FieldMutation) (any, bool, error) {
 	if op.Kind == cmdctx.MutationSet {
-		return nil, false, fmt.Errorf("--set %s: use --add/--del to add or remove an individual tag", op.Key)
+		return nil, false, fmt.Errorf("--set %s: use --add/--del to add or remove an individual member", op.Key)
 	}
 	if op.Kind != cmdctx.MutationAdd && op.Kind != cmdctx.MutationDelete {
 		return nil, false, fmt.Errorf("unknown mutation operation %q", op.Kind)
@@ -43,10 +44,10 @@ func mutateTags(_ spec.FieldDef, current any, op cmdctx.FieldMutation) (any, boo
 	}
 	_, member, found := strings.Cut(selector, ".")
 	if !found || member == "" {
-		return nil, false, fmt.Errorf("--%s %s: tags require a member (e.g. --%s tags.my-tag)", op.Kind, op.Key, op.Kind)
+		return nil, false, fmt.Errorf("--%s %s: %s require a member (e.g. --%s %s.my-name)", op.Kind, op.Key, field.ID, op.Kind, field.ID)
 	}
 	if op.Kind == cmdctx.MutationAdd && op.HasValue {
-		return nil, false, fmt.Errorf("--add %s: tag members do not take a value", op.Key)
+		return nil, false, fmt.Errorf("--add %s: %s members do not take a value", op.Key, field.ID)
 	}
 
 	items, _ := current.([]any)

@@ -165,6 +165,10 @@ nouns:
         expr: join(map(it.tags, {#.name}), ", ")
         mutable_path: tags
         field_type: fme:tags
+      - id: categories
+        expr: join(map(it.categories ?? [], {#.name}), ", ")
+        mutable_path: categories
+        field_type: fme:tags
       - id: owners
         expr: join(map(it.owners, {#.name}), ", ")
         mutable_path: owners
@@ -1427,6 +1431,9 @@ commands:
       - name: tag
         description: Filter by tag name (repeatable in the API; the CLI sends one value)
         is_multi: true
+      - name: category
+        description: Filter by category name, case-insensitive (repeatable in the API; the CLI sends one value)
+        is_multi: true
       - name: id
         description: Filter to specific metric ids (repeatable in the API; the CLI sends one value)
         is_multi: true
@@ -1446,6 +1453,7 @@ commands:
         traffic_type_id: flags["traffic-type-id"]
         event_type_ids: 'flags["event-type-id"][0]'
         tags: flags.tag[0]
+        categories: flags.category[0]
         ids: flags.id[0]
         sort_order: flags["sort-order"]
       paging:
@@ -1522,8 +1530,8 @@ commands:
       # filterEventType, cap, and triggerEventType ARE update_body_pick-able per
       # UpdateMetricRequest.java, and are picked here (not omitted) so a scalar --set on one
       # field of any of them doesn't drop the rest of that object out of the merge-patch.
-      # tags/owners are picked for the same reason, as with feature_flag/segment.
-      update_body_pick: "{description: it.description, format: it.format, aggregation: it.aggregation, isPositive: it.isPositive, spread: it.spread, filterEventType: it.filterEventType, cap: it.cap, triggerEventType: it.triggerEventType, tags: it.tags, owners: it.owners}"
+      # tags/categories/owners are picked for the same reason, as with feature_flag/segment.
+      update_body_pick: "{description: it.description, format: it.format, aggregation: it.aggregation, isPositive: it.isPositive, spread: it.spread, filterEventType: it.filterEventType, cap: it.cap, triggerEventType: it.triggerEventType, tags: it.tags, categories: it.categories, owners: it.owners}"
       update_body_wrap: ""
       query_params:
         account_id: auth.account
