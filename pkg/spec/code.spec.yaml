@@ -2145,7 +2145,7 @@ commands:
   - command: update pr_comment
     verb: update
     noun: pr_comment
-    short: "Edit a pull request comment: harness update pr_comment <repo_id>/<pr_number>/<comment_id> --set text=..."
+    short: "Edit a pull request comment: harness update pr_comment <repo_id>/<pr_number>/<comment_id> --text ..."
     handler_type: endpoint
     id_parts: 3
     id_label: "<repo_id>/<pr_number>/<comment_id>"

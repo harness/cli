@@ -1090,11 +1090,9 @@ func TestCallEndpointFull_Priority3_DefaultDispatch(t *testing.T) {
 			wantMethod: "DELETE", wantBodyKey: "reason",
 		},
 		{
-			// PATCH with no strategy falls through to c.Post in the default switch arm (line 253).
-			// The wire method becomes POST — this documents the current behaviour.
-			name:       "PATCH_non_strategy_fallthrough",
+			name:       "PATCH_body_params",
 			ep:         &spec.EndpointSpec{Path: "/items/1", Method: "PATCH", BodyParams: map[string]string{"k": `"v"`}},
-			wantMethod: "POST", wantBodyKey: "k",
+			wantMethod: "PATCH", wantBodyKey: "k", wantCT: "application/json",
 		},
 		{
 			name:       "extra_query_params_forwarded",
