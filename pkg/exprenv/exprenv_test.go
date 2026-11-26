@@ -4,11 +4,13 @@
 package exprenv
 
 import (
+	"maps"
 	"reflect"
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 func baseEnv() map[string]any {
@@ -254,5 +256,27 @@ func TestMake_AuthFollowsLevel(t *testing.T) {
 	}
 	if got := Make(&cmdctx.Ctx{Level: "org"})["auth"].(map[string]any); got["org"] != "" {
 		t.Errorf("nil auth: got %v", got)
+	}
+}
+
+func TestMultiParam(t *testing.T) {
+	tests := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"any_list_skips_nil_and_stringifies", []any{"a", 2, nil, "b,c"}, `["a","2","b,c"]`},
+		{"string_list_from_flag", []string{"a", "b"}, `["a","b"]`},
+		{"nil_is_empty", nil, `[]`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := map[string]any{"flags": map[string]any{"kinds": tc.in}}
+			maps.Copy(env, BaseFuncs(false))
+			got := EvalExpr(env, "multiparam(flags.kinds)")
+			if want := hbase.MultiParamPrefix + tc.want; got != want {
+				t.Fatalf("multiparam(flags.kinds) = %q, want %q", got, want)
+			}
+		})
 	}
 }

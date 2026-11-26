@@ -379,6 +379,18 @@ func (c *Client) previewRequest(req *http.Request) error {
 	return ErrRequestPreviewed
 }
 
+func decodeMultiParam(v string) ([]string, bool) {
+	rest, ok := strings.CutPrefix(v, hbase.MultiParamPrefix)
+	if !ok {
+		return nil, false
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(rest), &values); err != nil {
+		return nil, false
+	}
+	return values, true
+}
+
 // buildRequest prepares an authenticated *http.Request from r, including token refresh.
 func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 	// A previewed write must not refresh SSO credentials as a side effect.
@@ -397,7 +409,12 @@ func (c *Client) buildRequest(r Request) (*http.Request, *url.URL, error) {
 		q.Set("accountIdentifier", c.resolved.AccountID)
 	}
 	for k, v := range r.QueryParams {
-		if v != "" {
+		if values, ok := decodeMultiParam(v); ok {
+			q.Del(k)
+			for _, item := range values {
+				q.Add(k, item)
+			}
+		} else if v != "" {
 			q.Set(k, v)
 		}
 	}
