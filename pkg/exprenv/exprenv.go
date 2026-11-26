@@ -5,6 +5,7 @@
 package exprenv
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
 	"github.com/harness/cli/v3/pkg/exprenv/exprfuncs"
+	"github.com/harness/cli/v3/pkg/hbase"
 	"github.com/harness/cli/v3/pkg/spec"
 	"github.com/harness/cli/v3/pkg/strutil"
 )
@@ -68,7 +70,21 @@ func BaseFuncs(ptyEnabled bool) map[string]any {
 		"b64decode":             exprfuncs.Base64Decode,
 		"idjoin":                newIdJoin(nil),
 		"pathEscape":            url.PathEscape,
+		"multiparam":            multiParam,
 	}
+}
+
+// multiParam encodes list as a query_params value that is sent as repeated keys. Nil items are
+// skipped.
+func multiParam(list []any) string {
+	values := make([]string, 0, len(list))
+	for _, v := range list {
+		if v != nil {
+			values = append(values, strutil.Stringify(v))
+		}
+	}
+	b, _ := json.Marshal(values)
+	return hbase.MultiParamPrefix + string(b)
 }
 
 // newIdJoin returns the expr idjoin(parts...) helper, checking the plain-form

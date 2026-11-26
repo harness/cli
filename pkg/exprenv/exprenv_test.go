@@ -9,6 +9,7 @@ import (
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 func baseEnv() map[string]any {
@@ -254,5 +255,13 @@ func TestMake_AuthFollowsLevel(t *testing.T) {
 	}
 	if got := Make(&cmdctx.Ctx{Level: "org"})["auth"].(map[string]any); got["org"] != "" {
 		t.Errorf("nil auth: got %v", got)
+	}
+}
+
+func TestMultiParam(t *testing.T) {
+	got := multiParam([]any{"a", 2, nil, "b,c"})
+	want := hbase.MultiParamPrefix + `["a","2","b,c"]`
+	if got != want {
+		t.Fatalf("multiParam = %q, want %q", got, want)
 	}
 }

@@ -35,6 +35,10 @@ var BuildTime = ""
 // TimeoutExitCode is the exit code used when a command is killed by --timeout.
 const TimeoutExitCode = 124
 
+// MultiParamPrefix marks a query param value holding a JSON list, sent as one key per item.
+// The NUL byte keeps a real value from being mistaken for a marker.
+const MultiParamPrefix = "\x00multiparam:"
+
 // Hidden flags. See the corresponding rootcmd.MaybeRun* function for each.
 const (
 	PostUpgradeFlag           = "--post-upgrade"

@@ -180,6 +180,7 @@ Available variables: `ctx.id`, `ctx.idParts[N]`, `ctx.parentId`, `auth.account`,
 - `??` is null-coalescing: `it.a ?? it.b ?? {}` resolves the first non-null.
 - Array concat: `concat(it.entity_types ?? [], it.event_types ?? [])`.
 - Epoch formatting: `epochMs(it.created)` → human-readable timestamp.
+- Repeated query keys: `query_params: {kind: 'multiparam(flags.kinds)'}` sends `kind=a&kind=b`; an empty list omits the key.
 
 ### Testing expr-lang expressions in isolation
 
