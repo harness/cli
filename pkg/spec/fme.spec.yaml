@@ -451,6 +451,9 @@ nouns:
       - id: resource_type
         label: Resource Type
         expr: it.resourceType
+      - id: operation_type
+        label: Operation Type
+        expr: it.operationType ?? ""
       - id: resource
         expr: it.resourceName ?? it.resourceId
       - id: resource_id
@@ -2063,3 +2066,104 @@ commands:
         total_expr: it.totalCount
         countable: true
       columns: [id, resource, resource_type, status, environment, submitter, created]
+
+  - command: get change_request
+    verb: get
+    noun: change_request
+    short: "Get a change request: harness get change_request <id>"
+    handler_type: endpoint
+    endpoint:
+      path: /fme/api/v4/change-requests/{{ctx.id}}
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      item_expr: it
+      yaml_pick_expr: it
+
+  - command: create change_request
+    verb: create
+    noun: change_request
+    short: "Submit a change request: harness create change_request --env <env-id> -f cr.json (resourceType, operationType CREATE/UPDATE/DELETE/KILL/RESTORE, resourceName, title, comment, approvers, change)"
+    handler_type: endpoint
+    flags:
+      - name: env
+        description: Environment identifier (required)
+        required: true
+    endpoint:
+      method: POST
+      file_body: required
+      path: /fme/api/v4/change-requests
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+        environment_id: flags.env
+      item_expr: it
+      text_header: "\nSubmitted change request {{it.id}} ({{it.status}}, governance {{it.governance.status}}) in {{flags.env}}\n"
+
+  - command: execute change_request:approve
+    verb: execute
+    noun: change_request
+    noun_variant: approve
+    short: "Approve a change request: harness execute cr:approve <id> [--comment <text>]"
+    handler_type: endpoint
+    fields_noun: change_request
+    flags:
+      - name: comment
+        description: Comment recorded with the approval
+    endpoint:
+      method: POST
+      path: /fme/api/v4/change-requests/{{ctx.id}}/approve
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+      item_expr: it
+      text_header: "\nApproved change request {{ctx.id}} ({{it.status}})\n"
+
+  - command: execute change_request:reject
+    verb: execute
+    noun: change_request
+    noun_variant: reject
+    short: "Reject a change request: harness execute cr:reject <id> [--comment <text>]"
+    handler_type: endpoint
+    fields_noun: change_request
+    flags:
+      - name: comment
+        description: Comment recorded with the rejection
+    endpoint:
+      method: POST
+      path: /fme/api/v4/change-requests/{{ctx.id}}/reject
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+      item_expr: it
+      text_header: "\nRejected change request {{ctx.id}}\n"
+
+  - command: execute change_request:withdraw
+    verb: execute
+    noun: change_request
+    noun_variant: withdraw
+    short: "Withdraw a change request you submitted: harness execute cr:withdraw <id> [--comment <text>]"
+    handler_type: endpoint
+    fields_noun: change_request
+    flags:
+      - name: comment
+        description: Comment recorded with the withdrawal
+    endpoint:
+      method: POST
+      path: /fme/api/v4/change-requests/{{ctx.id}}/withdraw
+      query_params:
+        account_id: auth.account
+        organization_identifier: auth.org
+        project_identifier: auth.project
+      body_params:
+        comment: 'flags.comment != "" ? flags.comment : nil'
+      item_expr: it
+      text_header: "\nWithdrew change request {{ctx.id}}\n"
