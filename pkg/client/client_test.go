@@ -11,10 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/harness/cli/v3/pkg/auth"
+	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/exprenv"
+	"github.com/harness/cli/v3/pkg/hbase"
 )
 
 func testClient(apiURL string) *Client {
@@ -216,5 +220,34 @@ func TestDoRequest_EmptyBodyStreamSendsZeroLengthNotChunked(t *testing.T) {
 	}
 	if gotLen != 0 || chunked {
 		t.Fatalf("ContentLength = %d chunked = %v, want 0 and not chunked", gotLen, chunked)
+	}
+}
+
+func TestBuildRequest_MultiParamQuery(t *testing.T) {
+	multi := func(expr string) string {
+		return exprenv.EvalExpr(exprenv.Make(&cmdctx.Ctx{}), expr)
+	}
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{"repeats_key", multi(`multiparam(["a", "b"])`), []string{"a", "b"}},
+		{"keeps_special_chars", multi(`multiparam(["a,b", "c&d=e"])`), []string{"a,b", "c&d=e"}},
+		{"empty_list_omits_key", multi(`multiparam([])`), nil},
+		{"plain_value_unchanged", "a", []string{"a"}},
+		{"malformed_marker_stays_literal", hbase.MultiParamPrefix + "not-json", []string{hbase.MultiParamPrefix + "not-json"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := testClient("https://example.test")
+			_, u, err := c.buildRequest(Request{Method: "GET", Path: "/items?kind=stale", QueryParams: map[string]string{"kind": tc.value}})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := u.Query()["kind"]; !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("kind = %q, want %q (query=%q)", got, tc.want, u.RawQuery)
+			}
+		})
 	}
 }
