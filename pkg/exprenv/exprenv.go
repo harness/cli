@@ -74,16 +74,21 @@ func BaseFuncs(ptyEnabled bool) map[string]any {
 	}
 }
 
-// multiParam encodes list as a query_params value that is sent as repeated keys. Nil items are
-// skipped.
-func multiParam(list []any) string {
-	values := make([]string, 0, len(list))
-	for _, v := range list {
-		if v != nil {
-			values = append(values, strutil.Stringify(v))
+// multiParam encodes list as a query_params value that is sent as repeated keys. It takes any
+// because multi-value flags arrive as []string, not []any. Nil items are skipped.
+func multiParam(list any) string {
+	var values []string
+	switch l := list.(type) {
+	case []string:
+		values = l
+	case []any:
+		for _, v := range l {
+			if v != nil {
+				values = append(values, strutil.Stringify(v))
+			}
 		}
 	}
-	b, _ := json.Marshal(values)
+	b, _ := json.Marshal(append([]string{}, values...))
 	return hbase.MultiParamPrefix + string(b)
 }
 
