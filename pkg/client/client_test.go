@@ -13,7 +13,9 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/harness/cli/v3/pkg/auth"
 	"github.com/harness/cli/v3/pkg/cmdctx"
@@ -94,6 +96,65 @@ func TestDoRequest_AccountIdentifierOmittedOnWire(t *testing.T) {
 	}
 	if got := gotQuery.Get("accountIdentifier"); got != "" {
 		t.Fatalf("accountIdentifier = %q, want empty", got)
+	}
+}
+
+func TestDoRaw_NoRedirectIsOptIn(t *testing.T) {
+	var redirectRequests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectRequests.Add(1)
+		_, _ = w.Write([]byte("final response"))
+	}))
+	defer target.Close()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", target.URL+"/final")
+		w.WriteHeader(http.StatusFound)
+		_, _ = w.Write([]byte("original response"))
+	}))
+	defer server.Close()
+
+	c := testClient(server.URL)
+	c.http.Timeout = 5 * time.Second
+	var redirectChecks atomic.Int32
+	c.http.CheckRedirect = func(*http.Request, []*http.Request) error {
+		redirectChecks.Add(1)
+		return nil
+	}
+
+	resp, err := c.DoRaw(Request{Method: http.MethodGet, Path: "/redirect", NoRedirect: true})
+	if err != nil {
+		t.Fatalf("DoRaw with NoRedirect: %v", err)
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read original response: %v", readErr)
+	}
+	if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != target.URL+"/final" || string(body) != "original response" {
+		t.Fatalf("response = status %d, location %q, body %q; want original 302 response", resp.StatusCode, resp.Header.Get("Location"), body)
+	}
+	if redirectRequests.Load() != 0 || redirectChecks.Load() != 0 {
+		t.Fatalf("redirect target requests = %d, configured redirect checks = %d; want 0 and 0", redirectRequests.Load(), redirectChecks.Load())
+	}
+	if c.http.Timeout != 5*time.Second {
+		t.Fatalf("configured client timeout = %s, want 5s", c.http.Timeout)
+	}
+
+	resp, err = c.DoRaw(Request{Method: http.MethodGet, Path: "/redirect"})
+	if err != nil {
+		t.Fatalf("DoRaw without NoRedirect: %v", err)
+	}
+	body, readErr = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read followed response: %v", readErr)
+	}
+	if resp.StatusCode != http.StatusOK || string(body) != "final response" {
+		t.Fatalf("default response = status %d, body %q; want followed 200 response", resp.StatusCode, body)
+	}
+	if redirectRequests.Load() != 1 || redirectChecks.Load() != 1 {
+		t.Fatalf("redirect target requests = %d, configured redirect checks = %d; want 1 and 1", redirectRequests.Load(), redirectChecks.Load())
 	}
 }
 
