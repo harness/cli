@@ -29,7 +29,7 @@ func getPRDiffItemFn(ctx *cmdctx.Ctx) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"diff": string(body)}, nil
+	return map[string]any{"diff": colorUnifiedDiff(string(body), console.WithColor)}, nil
 }
 
 // The diff route only returns the unified patch as text/plain, which the shared client's
