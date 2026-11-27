@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -160,7 +161,7 @@ func (r *Registry) migrateAll(ctx context.Context, logger zerolog.Logger, getInd
 	var files []types.File
 	var err2 error
 	if lister, ok := r.srcAdapter.(adapter.PagedLister); ok {
-		files, err2 = lister.GetFilesWithProgress(r.srcRegistry, printListingProgress(true))
+		files, err2 = lister.GetFilesWithProgress(r.srcRegistry, r.listOptions(true))
 	} else {
 		files, err2 = r.srcAdapter.GetFiles(r.srcRegistry)
 	}
@@ -200,7 +201,7 @@ func (r *Registry) migrateInBatches(ctx context.Context, logger zerolog.Logger, 
 	listErr := make(chan error, 1)
 	go func() {
 		defer close(batches)
-		listErr <- lister.ListBatches(listCtx, r.srcRegistry, r.mapping.BatchSize, printListingProgress(false),
+		listErr <- lister.ListBatches(listCtx, r.srcRegistry, r.mapping.BatchSize, r.listOptions(false),
 			func(src adapter.Adapter, files []types.File) error {
 				select {
 				case batches <- batch{src: src, files: files}:
@@ -236,6 +237,34 @@ func (r *Registry) migrateInBatches(ctx context.Context, logger zerolog.Logger, 
 	}
 	logger.Info().Msgf("Migrated %d batch(es) from registry %s", count, r.srcRegistry)
 	return errors.Join(failures...)
+}
+
+func (r *Registry) listOptions(overSpinner bool) adapter.ListOptions {
+	return adapter.ListOptions{
+		Progress:    printListingProgress(overSpinner),
+		Warn:        printListingWarning(overSpinner),
+		Unlisted:    r.recordUnlisted,
+		Concurrency: r.mapping.ListConcurrency,
+	}
+}
+
+func (r *Registry) recordUnlisted(name, path string) {
+	r.stats.Add(types.FileStat{
+		Name:     name,
+		Registry: r.srcRegistry,
+		Uri:      path,
+		Status:   types.StatusSkip,
+		Reason:   types.SkipReasonNotInSearchIndex,
+	})
+}
+
+func printListingWarning(overSpinner bool) func(string) {
+	return func(msg string) {
+		if overSpinner && console.IsStdoutTTY() {
+			fmt.Print("\r\x1b[K")
+		}
+		fmt.Fprintln(os.Stderr, console.WithColor(console.ColorYellow, "Warning:")+" "+msg)
+	}
 }
 
 // printListingProgress prints a listing status line. overSpinner clears the stage

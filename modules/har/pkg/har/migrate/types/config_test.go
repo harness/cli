@@ -155,3 +155,37 @@ func TestValidateConfig_BatchSize(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateConfig_ListConcurrency(t *testing.T) {
+	cases := []struct {
+		name        string
+		sourceType  RegistryType
+		artifact    ArtifactType
+		concurrency int
+		wantErr     string
+	}{
+		{"nexus maven", NEXUS, MAVEN, 16, ""},
+		{"unset", HAR, DOCKER, 0, ""},
+		{"negative", NEXUS, MAVEN, -1, "must not be negative"},
+		{"too high", NEXUS, MAVEN, MaxListConcurrency + 1, "at most"},
+		{"other source", JFROG, MAVEN, 16, "only supported"},
+		{"other artifact type", NEXUS, NPM, 16, "only supported"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mapping := validMapping(tc.artifact)
+			mapping.ListConcurrency = tc.concurrency
+			source := validCredentials()
+			source.Type = tc.sourceType
+			cfg := &Config{Concurrency: 1, Source: source, Dest: validCredentials(), Mappings: []RegistryMapping{mapping}}
+
+			err := validateConfig(cfg)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("validateConfig: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("validateConfig error = %v, want it to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}

@@ -45,16 +45,19 @@ type pagedSource struct {
 	noopCranAdapter
 	batches []batch
 	listErr error
+	opts    adapter.ListOptions
 }
 
-func (s *pagedSource) GetFilesWithProgress(string, func(string)) ([]types.File, error) {
+func (s *pagedSource) GetFilesWithProgress(_ string, opts adapter.ListOptions) ([]types.File, error) {
+	s.opts = opts
 	return nil, errors.New("unused")
 }
 
 func (s *pagedSource) ListBatches(
-	_ context.Context, _ string, _ int, _ func(string),
+	_ context.Context, _ string, _ int, opts adapter.ListOptions,
 	fn func(adapter.Adapter, []types.File) error,
 ) error {
+	s.opts = opts
 	for _, b := range s.batches {
 		if err := fn(b.src, b.files); err != nil {
 			return err
@@ -156,5 +159,27 @@ func TestBatchedMigrationRequiresPagedSource(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "batchSize is not supported") {
 		t.Fatalf("Migrate error = %v, want batchSize rejected for a non-paged source", err)
+	}
+}
+
+func TestListOptionsReachTheSourceWithAndWithoutBatches(t *testing.T) {
+	for _, batchSize := range []int{0, 1} {
+		src := &pagedSource{}
+		r := newBatchedRegistry(src, &indexCountingDest{})
+		r.mapping = &types.RegistryMapping{BatchSize: batchSize, ListConcurrency: 8}
+
+		_ = r.Migrate(context.Background())
+
+		if src.opts.Concurrency != 8 || src.opts.Progress == nil || src.opts.Warn == nil || src.opts.Unlisted == nil {
+			t.Errorf("batchSize %d: listing options = %+v, want concurrency 8 and every callback", batchSize, src.opts)
+			continue
+		}
+		before := len(r.stats.FileStats)
+		src.opts.Unlisted("g:a", "g/a")
+		want := types.FileStat{Name: "g:a", Registry: "src-reg", Uri: "g/a", Status: types.StatusSkip,
+			Reason: types.SkipReasonNotInSearchIndex}
+		if got := r.stats.FileStats[before:]; len(got) != 1 || got[0] != want {
+			t.Errorf("batchSize %d: result rows for an unlisted artifact = %+v, want [%+v]", batchSize, got, want)
+		}
 	}
 }

@@ -104,7 +104,7 @@ func (a *adapter) GetPackages(registry string, artifactType types.ArtifactType, 
 ) {
 	var packages []types.Package
 
-	l, err := a.listing(registry, nil)
+	l, err := a.listing(registry, adp.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (a *adapter) GetVersions(
 	p types.Package,
 	node *types.TreeNode, registry, pkg string, artifactType types.ArtifactType,
 ) ([]types.Version, error) {
-	l, err := a.listing(registry, nil)
+	l, err := a.listing(registry, adp.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -255,14 +255,14 @@ func mavenVersionTreePath(group, artifact, version string) string {
 }
 
 func (a *adapter) GetFiles(registry string) ([]types.File, error) {
-	return a.GetFilesWithProgress(registry, nil)
+	return a.GetFilesWithProgress(registry, adp.ListOptions{})
 }
 
-func (a *adapter) GetFilesWithProgress(registry string, progress func(string)) ([]types.File, error) {
+func (a *adapter) GetFilesWithProgress(registry string, opts adp.ListOptions) ([]types.File, error) {
 	if err := a.requireHosted(registry); err != nil {
 		return nil, err
 	}
-	l, err := a.listing(registry, progress)
+	l, err := a.listing(registry, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +284,7 @@ func (a *adapter) ListBatches(
 	ctx context.Context,
 	registry string,
 	batchSize int,
-	progress func(string),
+	opts adp.ListOptions,
 	fn func(batch adp.Adapter, files []types.File) error,
 ) error {
 	if err := a.requireHosted(registry); err != nil {
@@ -300,7 +300,7 @@ func (a *adapter) ListBatches(
 		pending = nil
 		return fn(a.scopedTo(registry, l), l.files)
 	}
-	err := a.client.streamComponents(ctx, registry, progress, func(items []NexusComponent) error {
+	err := a.client.stream(ctx, registry, opts, func(items []NexusComponent) error {
 		pending = append(pending, items...)
 		if len(pending) < batchSize {
 			return nil

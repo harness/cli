@@ -1372,6 +1372,18 @@ commands:
         --debug (or HARNESS_CLI_LOGFILE) every Nexus API call is logged: method,
         URL, response status and time to response headers.
 
+      Parallel listing (listConcurrency, opt-in, NEXUS source with artifactType MAVEN only, max 64):
+        The default Nexus listing is one request after another (10 components per
+        request). Set listConcurrency on the mapping to list with that many
+        requests in parallel instead: artifacts are found by walking the browse
+        tree, and each artifact is listed through search. Works with or without
+        batchSize. Requires the Nexus browse tree and search index to be up to
+        date: a truncated browse folder or an artifact version over the 10,000
+        search result cap fails the run. Artifacts (or versions) that search
+        returns nothing for are not migrated: they get a warning on stderr and a
+        Skipped row with reason not_in_search_index in the result file and
+        summary. Remove listConcurrency to fall back to the sequential listing.
+
       Output and automation flags:
         --summary      prints condensed per-status counts instead of the full per-file table.
         --result-file  writes one JSON-lines record per migrated coordinate (status,

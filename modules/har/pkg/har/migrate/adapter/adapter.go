@@ -81,10 +81,22 @@ type Adapter interface {
 	BuildExistingIndex(ctx context.Context, registryRef string, concurrency int) (*types.ExistingIndex, error)
 }
 
+// ListOptions tunes a PagedLister listing. Progress receives a status line at a
+// bounded rate, including retries. Warn receives problems that leave part of the
+// repository unmigrated. Unlisted is called once per artifact folder that was found
+// but could not be listed, with its name and repository path, after the listing
+// succeeds. Concurrency > 0 lists with that many parallel requests.
+type ListOptions struct {
+	Progress    func(string)
+	Warn        func(string)
+	Unlisted    func(name, path string)
+	Concurrency int
+}
+
 // PagedLister is implemented by adapters whose repository listing is a long sequence
-// of requests. progress receives a status line at a bounded rate, including retries.
+// of requests.
 type PagedLister interface {
-	GetFilesWithProgress(registry string, progress func(string)) ([]types.File, error)
+	GetFilesWithProgress(registry string, opts ListOptions) ([]types.File, error)
 
 	// ListBatches calls fn with each batch of at least batchSize components (fewer for
 	// the last one) while the listing is still in progress. batch is an Adapter whose
@@ -95,7 +107,7 @@ type PagedLister interface {
 		ctx context.Context,
 		registry string,
 		batchSize int,
-		progress func(string),
+		opts ListOptions,
 		fn func(batch Adapter, files []types.File) error,
 	) error
 }

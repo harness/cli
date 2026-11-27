@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	adp "github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/util"
 
@@ -260,10 +261,24 @@ func (c *client) streamComponents(
 	}
 }
 
+// stream hands every component of the repository to fn, listing in parallel when
+// opts.Concurrency is set. fn is never called concurrently.
+func (c *client) stream(
+	ctx context.Context,
+	repository string,
+	opts adp.ListOptions,
+	fn func([]NexusComponent) error,
+) error {
+	if opts.Concurrency > 0 {
+		return c.streamMavenParallel(ctx, repository, opts, fn)
+	}
+	return c.streamComponents(ctx, repository, opts.Progress, fn)
+}
+
 // listComponents returns every component in the repository.
-func (c *client) listComponents(ctx context.Context, repository string, progress func(string)) ([]NexusComponent, error) {
+func (c *client) listComponents(ctx context.Context, repository string, opts adp.ListOptions) ([]NexusComponent, error) {
 	var components []NexusComponent
-	err := c.streamComponents(ctx, repository, progress, func(items []NexusComponent) error {
+	err := c.stream(ctx, repository, opts, func(items []NexusComponent) error {
 		components = append(components, items...)
 		return nil
 	})

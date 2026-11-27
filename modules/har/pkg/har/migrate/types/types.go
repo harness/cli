@@ -95,6 +95,10 @@ const (
 	// SkipReasonNoContent marks skips where the source coordinate resolved to
 	// nothing migratable (e.g. an OCI repository with no tags).
 	SkipReasonNoContent = "no_content"
+	// SkipReasonNotInSearchIndex marks an artifact folder the parallel Nexus listing
+	// found in the browse tree but search returned no components for. Its files were
+	// not migrated; Uri is the folder path.
+	SkipReasonNotInSearchIndex = "not_in_search_index"
 )
 
 type FileStat struct {

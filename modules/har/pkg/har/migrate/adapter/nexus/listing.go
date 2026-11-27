@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	adp "github.com/harness/cli/modules/har/pkg/har/migrate/adapter"
 	"github.com/harness/cli/modules/har/pkg/har/migrate/types"
 )
 
@@ -83,9 +84,9 @@ func (c *listingCache) invalidate(repository string) {
 	delete(c.entries, repository)
 }
 
-func (a *adapter) listing(registry string, progress func(string)) (*listing, error) {
+func (a *adapter) listing(registry string, opts adp.ListOptions) (*listing, error) {
 	l, err := a.listings.get(registry, func() ([]NexusComponent, error) {
-		return a.client.listComponents(context.Background(), registry, progress)
+		return a.client.listComponents(context.Background(), registry, opts)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list components in registry %s: %w", registry, err)

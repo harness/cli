@@ -261,7 +261,7 @@ func TestListingReportsTheStalledRequestWhileItIsInFlight(t *testing.T) {
 		defer mu.Unlock()
 		lines = append(lines, msg)
 	}
-	if _, err := a.GetFilesWithProgress("repo", progress); err != nil {
+	if _, err := a.GetFilesWithProgress("repo", adp.ListOptions{Progress: progress}); err != nil {
 		t.Fatalf("GetFilesWithProgress: %v", err)
 	}
 
@@ -345,7 +345,7 @@ type batchView struct {
 func collectBatches(t *testing.T, a *adapter, size int, stopAfter int) ([]batchView, error) {
 	t.Helper()
 	var got []batchView
-	err := a.ListBatches(context.Background(), "repo", size, nil, func(batch adp.Adapter, files []types.File) error {
+	err := a.ListBatches(context.Background(), "repo", size, adp.ListOptions{}, func(batch adp.Adapter, files []types.File) error {
 		pkgs, err := batch.GetPackages("repo", types.MAVEN, nil)
 		if err != nil {
 			t.Errorf("GetPackages: %v", err)

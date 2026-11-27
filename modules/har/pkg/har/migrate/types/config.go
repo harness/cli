@@ -184,6 +184,10 @@ type RegistryMapping struct {
 	// BatchSize migrates in batches of at least this many source components while the
 	// source listing continues. Zero keeps the default of listing everything first.
 	BatchSize int `yaml:"batchSize,omitempty"`
+	// ListConcurrency lists the source with this many parallel requests (browse tree
+	// plus per-artifact search) instead of the sequential components API. Zero keeps
+	// the sequential listing.
+	ListConcurrency int `yaml:"listConcurrency,omitempty"`
 }
 
 // CredentialsConfig defines the credential configuration
@@ -293,6 +297,9 @@ func validateConfig(config *Config) error {
 		if err := validateBatchSize(mapping, config.Source.Type); err != nil {
 			return fmt.Errorf("mapping %d: %w", i, err)
 		}
+		if err := validateListConcurrency(mapping, config.Source.Type); err != nil {
+			return fmt.Errorf("mapping %d: %w", i, err)
+		}
 		if mapping.ArtifactType == MAVEN && mapping.DateFilter != nil {
 			msg := fmt.Sprintf("mapping %d: date filter is enabled for %s — maven-metadata.xml may not be in sync with the migrated artifacts", i, MAVEN)
 			log.Warn().Msg(msg)
@@ -329,6 +336,23 @@ func validateBatchSize(mapping RegistryMapping, sourceType RegistryType) error {
 		return nil
 	case sourceType != NEXUS || mapping.ArtifactType != MAVEN:
 		return fmt.Errorf("batchSize is only supported for a %s source with artifactType %s", NEXUS, MAVEN)
+	}
+	return nil
+}
+
+// MaxListConcurrency bounds listConcurrency so a typo cannot flood the source server.
+const MaxListConcurrency = 64
+
+func validateListConcurrency(mapping RegistryMapping, sourceType RegistryType) error {
+	switch {
+	case mapping.ListConcurrency < 0:
+		return fmt.Errorf("listConcurrency must not be negative")
+	case mapping.ListConcurrency == 0:
+		return nil
+	case mapping.ListConcurrency > MaxListConcurrency:
+		return fmt.Errorf("listConcurrency must be at most %d", MaxListConcurrency)
+	case sourceType != NEXUS || mapping.ArtifactType != MAVEN:
+		return fmt.Errorf("listConcurrency is only supported for a %s source with artifactType %s", NEXUS, MAVEN)
 	}
 	return nil
 }
