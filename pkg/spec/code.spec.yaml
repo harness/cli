@@ -2141,8 +2141,17 @@ commands:
     verb: get
     noun: pr_diff
     short: "Get diff stats for one changed file of a pull request: harness get pr_diff <repo_id>/<pr_number>/<path>"
-    handler_type: endpoint
-    id_formats: ["<repo>/<pr>/<path...>"]
+    long: |
+      Without --text, returns the diff stats of one changed file. With --text,
+      prints the raw unified diff for that file, or for the whole pull request
+      when the file path is omitted.
+    handler_type: workflow
+    workflow_id: get_pr_diff
+    id_formats: ["<repo>/<pr>/<path...>", "<repo>/<pr>"]
+    flags:
+      - name: text
+        is_bool: true
+        description: Print the raw unified diff instead of diff stats
     completion_seq:
       - completion_noun: repository
       - completion_noun: pr
