@@ -244,7 +244,7 @@ nouns:
       - ui_command_type: text
         key: x
         label: diff
-        noun: pr:diff
+        noun: pr_diff
       - ui_command_type: up
         key: "^"
         label: repo
@@ -1201,18 +1201,6 @@ commands:
       no_fields: true
       text_header: "\nReview submitted for PR #{{ctx.idParts[1]}}\n"
 
-  - command: get pr:diff
-    verb: get
-    noun: pr
-    noun_variant: diff
-    short: "Print the raw unified diff of a pull request: harness get pr:diff <repo_id>/<pr_number>"
-    handler_type: workflow
-    workflow_id: get_pr_diff_text
-    id_parts: 2
-    completion_seq:
-      - completion_noun: repository
-      - completion_noun: pr
-        keep_order: true
 
   # ── pr_insight (Harness Code review insights) ─────────────────────────────────
 
@@ -2170,16 +2158,16 @@ commands:
   - command: get pr_diff
     verb: get
     noun: pr_diff
-    short: "Show the diff of one changed file of a pull request: harness get pr_diff <repo_id>/<pr_number>/<path>"
+    short: "Show a pull request's diff: harness get pr_diff <repo_id>/<pr_number>[/<path>]"
     long: |
-      Prints the raw unified diff for one changed file. Use `harness list pr_diff`
-      for the changed files and their stats, and `harness get pr:diff` for the
-      whole pull request.
+      Prints the raw unified diff of the whole pull request, or of one changed file
+      when a path is given. Use `harness list pr_diff` for the changed files and
+      their stats.
     handler_type: workflow
     workflow_id: get_pr_diff
     item_fn: get_pr_diff_item
     fields_noun: pr_diff_text
-    id_formats: ["<repo_id>/<pr_number>/<path...>"]
+    id_formats: ["<repo_id>/<pr_number>/<path...>", "<repo_id>/<pr_number>"]
     completion_seq:
       - completion_noun: repository
       - completion_noun: pr

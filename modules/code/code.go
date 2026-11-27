@@ -29,7 +29,6 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(getPRCheckLogWorkflowID, getPRCheckLogHandler)
 	reg.RegisterWorkflow(getPRCheckWorkflowID, getPRCheckHandler)
 	reg.RegisterWorkflow(getPRDiffWorkflowID, getPRDiffWorkflow)
-	reg.RegisterWorkflow(getPRDiffTextWorkflowID, getPRDiffTextWorkflow)
 	reg.RegisterItemFn(getPRDiffItemFnID, getPRDiffItemFn)
 	reg.RegisterItemFn(getPRCheckItemFnID, getPRCheckItemFn)
 	reg.RegisterItemFn(getPRCheckLogItemFnID, getPRCheckLogItemFn)
