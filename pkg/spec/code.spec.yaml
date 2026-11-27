@@ -378,23 +378,6 @@ nouns:
         align: right
       - id: binary
         expr: it.is_binary
-    ui_commands:
-      - ui_command_type: text
-        key: d
-        label: diff
-        noun: pr_diff
-        default: true
-      - ui_command_type: up
-        key: "^"
-        label: pull-request
-        noun: pr
-        up_id_expr: ctx.ids.repo_id + "/" + ctx.ids.pr_number
-      - ui_command_type: up
-        key: "<"
-        label: file-list
-        verb: list
-        noun: pr_diff
-        up_id_expr: ctx.ids.repo_id + "/" + ctx.ids.pr_number
 
   - noun: commit_check
     short_desc: A status check result on a specific commit (full history, not just the current PR head).
