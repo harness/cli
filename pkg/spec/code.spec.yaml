@@ -2137,6 +2137,22 @@ commands:
         paging_strategy: flat_list
       columns: [path, status, additions, deletions]
 
+  - command: get pr_diff
+    verb: get
+    noun: pr_diff
+    short: "Get diff stats for one changed file of a pull request: harness get pr_diff <repo_id>/<pr_number>/<path>"
+    handler_type: endpoint
+    id_formats: ["<repo>/<pr>/<path...>"]
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.ids.repo}}/pullreq/{{ctx.ids.pr}}/diff
+      item_expr: it[0]
+      query_params:
+        path: ctx.ids.path
+
   - command: create pr_comment
     verb: create
     noun: pr_comment
