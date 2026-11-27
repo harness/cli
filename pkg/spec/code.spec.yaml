@@ -241,10 +241,6 @@ nouns:
         label: files
         verb: list
         noun: pr_diff
-      - ui_command_type: text
-        key: x
-        label: diff
-        noun: pr_diff
       - ui_command_type: up
         key: "^"
         label: repo
