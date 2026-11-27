@@ -45,6 +45,10 @@ func getPRDiffTextWorkflow(ctx *cmdctx.Ctx) error {
 // unconditional json.Unmarshal cannot decode, so it goes through client.DoRaw. An empty
 // path asks for every file of the pull request.
 func writePRDiffText(ctx *cmdctx.Ctx, repoID, prNumber, path string) error {
+	if f := ctx.FormatFlags.Format; f != "" && f != "text" {
+		return fmt.Errorf("the raw diff is text-only and cannot be output as %s; use `harness list pr_diff` for structured output", f)
+	}
+
 	qp := map[string]string{"path": path}
 	if ctx.Auth != nil {
 		qp["orgIdentifier"] = ctx.Auth.OrgID
