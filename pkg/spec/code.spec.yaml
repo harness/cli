@@ -236,6 +236,15 @@ nouns:
         label: checks
         verb: list
         noun: pr_check
+      - ui_command_type: link
+        key: f
+        label: files
+        verb: list
+        noun: pr_diff
+      - ui_command_type: text
+        key: x
+        label: diff
+        noun: pr:diff
       - ui_command_type: up
         key: "^"
         label: repo
