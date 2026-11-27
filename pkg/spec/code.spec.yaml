@@ -346,6 +346,29 @@ nouns:
       - id: updated
         expr: epochMs(it.updated)
 
+  - noun: pr_diff
+    short_desc: A file changed by a pull request, with its diff stats.
+    noun_aliases: [pr_diffs]
+    fields:
+      - id: path
+        expr: it.path
+      - id: old_path
+        label: Old Path
+        expr: it.old_path
+      - id: status
+        expr: it.status
+      - id: additions
+        expr: int(it.additions)
+        align: right
+      - id: deletions
+        expr: int(it.deletions)
+        align: right
+      - id: changes
+        expr: int(it.changes)
+        align: right
+      - id: binary
+        expr: it.is_binary
+
   - noun: commit_check
     short_desc: A status check result on a specific commit (full history, not just the current PR head).
     noun_aliases: [commit_checks]
@@ -2093,6 +2116,26 @@ commands:
         name_expr: 'formatOrder(it.order, it.sub_order) + " " + it.author.display_name + ": " + truncate(it.text, 40)'
         no_search_inject: true
       columns: [id, order, author, short_text, status, created]
+
+  - command: list pr_diff
+    verb: list
+    noun: pr_diff
+    short: "List files changed by a pull request: harness list pr_diff <repo_id>/<pr_number>"
+    handler_type: endpoint
+    requires_parentid: true
+    parentid_label: "<repo_id>/<pr_number>"
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+    endpoint:
+      path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/diff
+      items_expr: it
+      get_id_expr: it.path
+      paging:
+        paging_strategy: flat_list
+      columns: [path, status, additions, deletions]
 
   - command: create pr_comment
     verb: create
