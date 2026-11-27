@@ -349,6 +349,7 @@ nouns:
   - noun: pr_diff
     short_desc: A file changed by a pull request, with its diff stats.
     noun_aliases: [pr_diffs]
+    multi_level: true
     fields:
       - id: path
         expr: it.path
@@ -1183,6 +1184,19 @@ commands:
       body_fn: review_pr_body
       no_fields: true
       text_header: "\nReview submitted for PR #{{ctx.idParts[1]}}\n"
+
+  - command: get pr:diff
+    verb: get
+    noun: pr
+    noun_variant: diff
+    short: "Print the raw unified diff of a pull request: harness get pr:diff <repo_id>/<pr_number>"
+    handler_type: workflow
+    workflow_id: get_pr_diff_text
+    id_parts: 2
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
 
   # ── pr_insight (Harness Code review insights) ─────────────────────────────────
 
@@ -2132,7 +2146,7 @@ commands:
     endpoint:
       path: /code/api/v1/repos/{{ctx.parentIdParts[0]}}/pullreq/{{ctx.parentIdParts[1]}}/diff
       items_expr: it
-      get_id_expr: it.path
+      get_id_expr: idjoin(ctx.parentIdParts[0], ctx.parentIdParts[1], it.path)
       paging:
         paging_strategy: flat_list
       columns: [path, status, additions, deletions]
@@ -2143,11 +2157,11 @@ commands:
     short: "Get diff stats for one changed file of a pull request: harness get pr_diff <repo_id>/<pr_number>/<path>"
     long: |
       Without --text, returns the diff stats of one changed file. With --text,
-      prints the raw unified diff for that file, or for the whole pull request
-      when the file path is omitted.
+      prints the raw unified diff for that file. For the whole pull request, use
+      `harness get pr:diff`.
     handler_type: workflow
     workflow_id: get_pr_diff
-    id_formats: ["<repo>/<pr>/<path...>", "<repo>/<pr>"]
+    id_formats: ["<repo_id>/<pr_number>/<path...>"]
     flags:
       - name: text
         is_bool: true
@@ -2157,7 +2171,7 @@ commands:
       - completion_noun: pr
         keep_order: true
     endpoint:
-      path: /code/api/v1/repos/{{ctx.ids.repo}}/pullreq/{{ctx.ids.pr}}/diff
+      path: /code/api/v1/repos/{{ctx.ids.repo_id}}/pullreq/{{ctx.ids.pr_number}}/diff
       item_expr: it[0]
       query_params:
         path: ctx.ids.path

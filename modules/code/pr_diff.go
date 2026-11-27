@@ -17,15 +17,13 @@ import (
 	"github.com/harness/cli/v3/pkg/registry"
 )
 
-const getPRDiffWorkflowID = "get_pr_diff"
+const (
+	getPRDiffWorkflowID     = "get_pr_diff"
+	getPRDiffTextWorkflowID = "get_pr_diff_text"
+)
 
-// The diff route only returns the unified patch as text/plain, which the shared client's
-// unconditional json.Unmarshal cannot decode, so --text goes through client.DoRaw.
 func getPRDiffWorkflow(ctx *cmdctx.Ctx) error {
 	if !cmdctx.GetBool(ctx.FlagValues, "text") {
-		if ctx.Ids["path"] == "" {
-			return errors.New("get pr_diff needs a file path (<repo_id>/<pr_number>/<path>), or --text for the whole diff; use list pr_diff to see all changed files")
-		}
 		getSpec := ctx.Resolver.GetSpec("get", "pr_diff")
 		if getSpec == nil || getSpec.Endpoint == nil {
 			return errors.New("get pr_diff command spec not found")
@@ -33,17 +31,29 @@ func getPRDiffWorkflow(ctx *cmdctx.Ctx) error {
 		_, err := registry.RunEndpoint(ctx, getSpec.Endpoint)
 		return err
 	}
+	return writePRDiffText(ctx, ctx.Ids["repo_id"], ctx.Ids["pr_number"], ctx.Ids["path"])
+}
 
-	qp := map[string]string{}
+func getPRDiffTextWorkflow(ctx *cmdctx.Ctx) error {
+	if len(ctx.IdParts) != 2 || ctx.IdParts[0] == "" || ctx.IdParts[1] == "" {
+		return errors.New("expected <repo_id>/<pr_number>")
+	}
+	return writePRDiffText(ctx, ctx.IdParts[0], ctx.IdParts[1], "")
+}
+
+// The diff route only returns the unified patch as text/plain, which the shared client's
+// unconditional json.Unmarshal cannot decode, so it goes through client.DoRaw. An empty
+// path asks for every file of the pull request.
+func writePRDiffText(ctx *cmdctx.Ctx, repoID, prNumber, path string) error {
+	qp := map[string]string{"path": path}
 	if ctx.Auth != nil {
 		qp["orgIdentifier"] = ctx.Auth.OrgID
 		qp["projectIdentifier"] = ctx.Auth.ProjectID
 	}
-	qp["path"] = ctx.Ids["path"]
 
 	resp, err := client.New(ctx).DoRaw(client.Request{
 		Method:      "GET",
-		Path:        "/code/api/v1/repos/" + url.PathEscape(ctx.Ids["repo"]) + "/pullreq/" + url.PathEscape(ctx.Ids["pr"]) + "/diff",
+		Path:        "/code/api/v1/repos/" + url.PathEscape(repoID) + "/pullreq/" + url.PathEscape(prNumber) + "/diff",
 		QueryParams: qp,
 		Headers:     map[string]string{"Accept": "text/plain"},
 	})
