@@ -378,6 +378,27 @@ nouns:
         align: right
       - id: binary
         expr: it.is_binary
+    ui_commands:
+      - ui_command_type: text
+        key: d
+        label: details
+        noun: pr_diff
+        default: true
+      - ui_command_type: text
+        key: x
+        label: diff
+        noun: pr_diff:text
+      - ui_command_type: up
+        key: "^"
+        label: pull-request
+        noun: pr
+        up_id_expr: ctx.ids.repo_id + "/" + ctx.ids.pr_number
+      - ui_command_type: up
+        key: "<"
+        label: file-list
+        verb: list
+        noun: pr_diff
+        up_id_expr: ctx.ids.repo_id + "/" + ctx.ids.pr_number
 
   - noun: commit_check
     short_desc: A status check result on a specific commit (full history, not just the current PR head).
@@ -2184,6 +2205,19 @@ commands:
       item_expr: it[0]
       query_params:
         path: ctx.ids.path
+
+  - command: get pr_diff:text
+    verb: get
+    noun: pr_diff
+    noun_variant: text
+    short: "Print the raw unified diff of one changed file: harness get pr_diff:text <repo_id>/<pr_number>/<path>"
+    handler_type: workflow
+    workflow_id: get_pr_diff_file_text
+    id_formats: ["<repo_id>/<pr_number>/<path...>"]
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
 
   - command: create pr_comment
     verb: create

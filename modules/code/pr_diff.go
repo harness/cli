@@ -20,6 +20,7 @@ import (
 const (
 	getPRDiffWorkflowID     = "get_pr_diff"
 	getPRDiffTextWorkflowID = "get_pr_diff_text"
+	getPRDiffFileTextID     = "get_pr_diff_file_text"
 )
 
 func getPRDiffWorkflow(ctx *cmdctx.Ctx) error {
@@ -31,6 +32,10 @@ func getPRDiffWorkflow(ctx *cmdctx.Ctx) error {
 		_, err := registry.RunEndpoint(ctx, getSpec.Endpoint)
 		return err
 	}
+	return writePRDiffText(ctx, ctx.Ids["repo_id"], ctx.Ids["pr_number"], ctx.Ids["path"])
+}
+
+func getPRDiffFileTextWorkflow(ctx *cmdctx.Ctx) error {
 	return writePRDiffText(ctx, ctx.Ids["repo_id"], ctx.Ids["pr_number"], ctx.Ids["path"])
 }
 
