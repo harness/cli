@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 
 	"github.com/harness/cli/v3/pkg/client"
 	"github.com/harness/cli/v3/pkg/cmdctx"
+	"github.com/harness/cli/v3/pkg/console"
 	"github.com/harness/cli/v3/pkg/format"
 	"github.com/harness/cli/v3/pkg/registry"
 )
@@ -62,6 +64,31 @@ func getPRDiffWorkflow(ctx *cmdctx.Ctx) error {
 	if err != nil {
 		return err
 	}
+	if ctx.FormatFlags.OutFile == "" {
+		body = []byte(colorUnifiedDiff(string(body), console.WithColor))
+	}
 	_, err = w.Write(body)
 	return err
+}
+
+// colorUnifiedDiff tints additions green, deletions red and hunk headers cyan. A "---"/"+++"
+// line is only a file header before a file's first hunk; inside a hunk it is a removed or
+// added line whose own content starts with "--" or "++".
+func colorUnifiedDiff(diff string, paint func(console.Color, string) string) string {
+	lines := strings.Split(diff, "\n")
+	inHunk := false
+	for i, l := range lines {
+		switch {
+		case strings.HasPrefix(l, "diff --git "):
+			inHunk = false
+		case strings.HasPrefix(l, "@@"):
+			inHunk = true
+			lines[i] = paint(console.ColorCyan, l)
+		case inHunk && strings.HasPrefix(l, "+"):
+			lines[i] = paint(console.ColorGreen, l)
+		case inHunk && strings.HasPrefix(l, "-"):
+			lines[i] = paint(console.ColorRed, l)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
