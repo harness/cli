@@ -244,7 +244,7 @@ nouns:
       - ui_command_type: text
         key: x
         label: diff
-        noun: pr_diff
+        noun: pr:diff
       - ui_command_type: up
         key: "^"
         label: repo
@@ -495,7 +495,7 @@ nouns:
         up_id_expr: it.check.payload.data.pipeline_identifier + "/" + it.check.payload.data.execution_id
 
   - noun: pr_diff_text
-    short_desc: The raw unified diff of one changed file.
+    short_desc: The raw unified diff of a pull request or one of its changed files.
     fields:
       - id: diff
         expr: it.diff
@@ -2158,16 +2158,31 @@ commands:
   - command: get pr_diff
     verb: get
     noun: pr_diff
-    short: "Show a pull request's diff: harness get pr_diff <repo_id>/<pr_number>[/<path>]"
+    short: "Show the diff of one changed file of a pull request: harness get pr_diff <repo_id>/<pr_number>/<path>"
     long: |
-      Prints the raw unified diff of the whole pull request, or of one changed file
-      when a path is given. Use `harness list pr_diff` for the changed files and
-      their stats.
+      Prints the raw unified diff for one changed file. Use `harness list pr_diff`
+      for the changed files and their stats, and `harness get pr:diff` for the
+      whole pull request.
     handler_type: workflow
     workflow_id: get_pr_diff
     item_fn: get_pr_diff_item
     fields_noun: pr_diff_text
-    id_formats: ["<repo_id>/<pr_number>/<path...>", "<repo_id>/<pr_number>"]
+    id_formats: ["<repo_id>/<pr_number>/<path...>"]
+    completion_seq:
+      - completion_noun: repository
+      - completion_noun: pr
+        keep_order: true
+
+  - command: get pr:diff
+    verb: get
+    noun: pr
+    noun_variant: diff
+    short: "Print the raw unified diff of a pull request: harness get pr:diff <repo_id>/<pr_number>"
+    handler_type: workflow
+    workflow_id: get_pr_diff_text
+    item_fn: get_pr_diff_text_item
+    fields_noun: pr_diff_text
+    id_parts: 2
     completion_seq:
       - completion_noun: repository
       - completion_noun: pr

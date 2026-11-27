@@ -4,6 +4,7 @@
 package code
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -18,6 +19,9 @@ import (
 const (
 	getPRDiffWorkflowID = "get_pr_diff"
 	getPRDiffItemFnID   = "get_pr_diff_item"
+
+	getPRDiffTextWorkflowID = "get_pr_diff_text"
+	getPRDiffTextItemFnID   = "get_pr_diff_text_item"
 )
 
 func getPRDiffWorkflow(ctx *cmdctx.Ctx) error {
@@ -26,6 +30,24 @@ func getPRDiffWorkflow(ctx *cmdctx.Ctx) error {
 
 func getPRDiffItemFn(ctx *cmdctx.Ctx) (any, error) {
 	body, err := fetchPRDiffText(ctx, ctx.Ids["repo_id"], ctx.Ids["pr_number"], ctx.Ids["path"])
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"diff": colorUnifiedDiff(string(body), console.WithColor)}, nil
+}
+
+func getPRDiffTextWorkflow(ctx *cmdctx.Ctx) error {
+	if len(ctx.IdParts) != 2 || ctx.IdParts[0] == "" || ctx.IdParts[1] == "" {
+		return errors.New("expected <repo_id>/<pr_number>")
+	}
+	return writePRDiffText(ctx, ctx.IdParts[0], ctx.IdParts[1], "")
+}
+
+func getPRDiffTextItemFn(ctx *cmdctx.Ctx) (any, error) {
+	if len(ctx.IdParts) != 2 || ctx.IdParts[0] == "" || ctx.IdParts[1] == "" {
+		return nil, errors.New("expected <repo_id>/<pr_number>")
+	}
+	body, err := fetchPRDiffText(ctx, ctx.IdParts[0], ctx.IdParts[1], "")
 	if err != nil {
 		return nil, err
 	}

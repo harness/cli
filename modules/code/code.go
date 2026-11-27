@@ -30,6 +30,8 @@ func ModuleInit(reg registry.ModuleRegistrar) {
 	reg.RegisterWorkflow(getPRCheckWorkflowID, getPRCheckHandler)
 	reg.RegisterWorkflow(getPRDiffWorkflowID, getPRDiffWorkflow)
 	reg.RegisterItemFn(getPRDiffItemFnID, getPRDiffItemFn)
+	reg.RegisterWorkflow(getPRDiffTextWorkflowID, getPRDiffTextWorkflow)
+	reg.RegisterItemFn(getPRDiffTextItemFnID, getPRDiffTextItemFn)
 	reg.RegisterItemFn(getPRCheckItemFnID, getPRCheckItemFn)
 	reg.RegisterItemFn(getPRCheckLogItemFnID, getPRCheckLogItemFn)
 	reg.RegisterTextFormatter(reviewGroupTextFormatterID, reviewGroupTextFormatter)
